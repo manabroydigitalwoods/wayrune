@@ -1,0 +1,3187 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Identity & tenancy ───────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  fullName     String   @map("full_name")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  memberships      OrganizationMembership[]
+  refreshTokens    RefreshToken[]
+  assignedLeads    Lead[]                   @relation("LeadOwner")
+  assignedTasks    Task[]                   @relation("TaskAssignee")
+  notifications    Notification[]
+  auditEvents      AuditEvent[]             @relation("AuditActor")
+
+  @@map("users")
+}
+
+model Organization {
+  id             String   @id @default(cuid())
+  name           String
+  slug           String   @unique
+  kind           String   @default("travel_agency") // travel_agency | platform | hotel | homestay | farmstay | car_rental | driver | restaurant | dmc | other
+  timezone       String   @default("Asia/Kolkata")
+  currency       String   @default("INR") @db.Char(3)
+  taxLabel       String   @default("GST") @map("tax_label")
+  brandingJson   Json?    @map("branding_json")
+  settingsJson   Json?    @map("settings_json")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  memberships     OrganizationMembership[]
+  roles           Role[]
+  parties         Party[]
+  pipelines       Pipeline[]
+  leads           Lead[]
+  leadSources     LeadSource[]
+  campaigns       Campaign[]
+  inquiries       Inquiry[]
+  trips           Trip[]
+  tasks           Task[]
+  documents       Document[]
+  notifications   Notification[]
+  auditEvents     AuditEvent[]
+  outboxEvents    OutboxEvent[]
+  itineraryBlocks ItineraryBlock[]
+  quoteTemplates  QuoteTemplate[]
+  places          Place[]
+  placeCategories PlaceCategory[]
+  placeSubcategories PlaceSubcategory[]
+  roomTypes       RoomType[]
+  vehicleTypes    VehicleType[]
+  suppliers       Supplier[]
+  supplierHotelRates SupplierHotelRate[]
+  transferFares   TransferFare[]
+  supplierInvoices SupplierInvoice[]
+  partnerProfile  OrganizationPartnerProfile?
+  relationshipsFrom OrgRelationship[] @relation("OrgRelationshipFrom")
+  relationshipsTo   OrgRelationship[] @relation("OrgRelationshipTo")
+  linkedAsSupplier  Supplier[] @relation("SupplierLinkedOrg")
+  partnerAssets     PartnerAsset[]
+  supplierInvitesSent    SupplierInvite[] @relation("SupplierInviteFrom")
+  supplierInvitesClaimed SupplierInvite[] @relation("SupplierInviteClaimed")
+  serviceLocations       ServiceLocation[]
+  serviceOfferings       ServiceOffering[]
+  tableSessions          TableSession[]
+  serviceOrders          ServiceOrder[]
+  guestServiceRequests   GuestServiceRequest[]
+  serviceOfferingRatings ServiceOfferingRating[]
+  guestQrFeedbacks       GuestQrFeedback[]
+  policies               Policy[]
+  serviceRequestsBought  ServiceRequest[] @relation("ServiceRequestBuyer")
+  serviceRequestsSold    ServiceRequest[] @relation("ServiceRequestSeller")
+  commercialDocuments    CommercialDocument[]
+  paymentRecords         PaymentRecord[]
+  conversations          Conversation[]
+  businessTimelineEvents BusinessTimelineEvent[]
+  supplierContracts      SupplierContract[]
+  tripChangeCases        TripChangeCase[]
+  serviceIncidents       ServiceIncident[]
+  negotiatedRatesAsBuyer NegotiatedRate[] @relation("NegotiatedRateBuyer")
+  partnerSettlements     PartnerSettlement[]
+  partnerRatingsGiven    PartnerRating[] @relation("PartnerRatingFrom")
+  partnerRatingsReceived PartnerRating[] @relation("PartnerRatingTo")
+  inventoryHolds         InventoryHold[]
+  cancellationCases      CancellationCase[]
+  dataQualityIssues      DataQualityIssue[]
+  workflowRecoveryItems  WorkflowRecoveryItem[]
+  interactions           Interaction[]
+  engagementConversations EngagementConversation[]
+  whatsappTemplates      WhatsAppTemplate[]
+  customFieldDefinitions CustomFieldDefinition[]
+  engagementAutomationRules EngagementAutomationRule[]
+
+  @@index([kind])
+  @@map("organizations")
+}
+
+model OrganizationPartnerProfile {
+  id               String   @id @default(cuid())
+  organizationId   String   @unique @map("organization_id")
+  discoverable     Boolean  @default(false)
+  city             String?
+  region           String?
+  country          String?  @default("India")
+  bio              String?  @db.Text
+  serviceTagsJson  Json?    @map("service_tags_json") // string[]
+  contactEmail     String?  @map("contact_email")
+  contactPhone     String?  @map("contact_phone")
+  capacityHint     String?  @map("capacity_hint")
+  /** Typed commerce profile (legalName, hours, tax/bank, amenities, geo…). */
+  profileJson      Json?    @map("profile_json")
+  legalName        String?  @map("legal_name")
+  displayName      String?  @map("display_name")
+  logoUrl          String?  @map("logo_url")
+  website          String?
+  latitude         Decimal? @db.Decimal(10, 7)
+  longitude        Decimal? @db.Decimal(10, 7)
+  /** unverified | pending | verified | rejected */
+  verificationStatus String @default("unverified") @map("verification_status")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([discoverable, city])
+  @@map("organization_partner_profiles")
+}
+
+/**
+ * Operable unit under a partner Organization account (multi-property / fleet).
+ * Stage D inventory (rooms, fleet slots, driver calendars) hangs off this row.
+ */
+model PartnerAsset {
+  id             String    @id @default(cuid())
+  organizationId String    @map("organization_id")
+  /** hotel | homestay | farmstay | vehicle | driver | restaurant | other */
+  assetKind      String    @map("asset_kind")
+  name           String
+  placeId        String?   @map("place_id")
+  /** { imageUrl, imageUrls, amenities, seats, vehicleTypeKey, capacityHint… } */
+  profileJson    Json?     @map("profile_json")
+  isActive       Boolean   @default(true) @map("is_active")
+  createdBy      String?   @map("created_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  place        Place?       @relation("PartnerAssetPlace", fields: [placeId], references: [id], onDelete: SetNull)
+  linkedSuppliers Supplier[] @relation("SupplierLinkedAsset")
+  bookingComponents BookingComponent[]
+  roomProducts      AssetRoomProduct[]
+  fleetUnits        AssetFleetUnit[]
+  calendarBlocks    AssetCalendarBlock[]
+  serviceOffers     AssetServiceOffer[]
+  allocations       InventoryAllocation[]
+  stayReservations  StayReservation[]
+  buildings         AssetBuilding[]
+  housekeepingTasks HousekeepingTask[]
+  maintenanceOrders MaintenanceWorkOrder[]
+  dayCloses         PropertyDayClose[]
+  experienceProducts     ExperienceProduct[]
+  experienceReservations ExperienceReservation[]
+  membershipScopes       MembershipPropertyScope[]
+  mealPackages           MealPackage[]
+  diningCapacities       DiningCapacity[]
+  mealReservations       MealReservation[]
+  mealInquiries          MealInquiry[]
+  serviceRequests        ServiceRequest[]
+  fleetRates             AssetFleetRate[]
+  rentalReservations     RentalReservation[]
+  driverJobs             DriverJob[]
+  serviceLocations       ServiceLocation[]
+  serviceOfferings       ServiceOffering[]
+  tableSessions          TableSession[]
+  serviceOrders          ServiceOrder[]
+  guestServiceRequests   GuestServiceRequest[]
+  serviceOfferingRatings ServiceOfferingRating[]
+  guestQrFeedbacks       GuestQrFeedback[]
+
+  @@index([organizationId, isActive])
+  @@index([organizationId, assetKind])
+  @@index([placeId])
+  @@map("partner_assets")
+}
+
+/** Sellable room / unit under a stay PartnerAsset (hotel | homestay | farmstay). */
+model AssetRoomProduct {
+  id           String    @id @default(cuid())
+  assetId      String    @map("asset_id")
+  name         String
+  roomTypeKey  String?   @map("room_type_key")
+  maxOccupancy Int       @default(2) @map("max_occupancy")
+  bedConfig    String?   @map("bed_config")
+  baseQuantity Int       @default(1) @map("base_quantity")
+  rateHint     Decimal?  @map("rate_hint") @db.Decimal(14, 2)
+  isActive     Boolean   @default(true) @map("is_active")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  asset       PartnerAsset          @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  allotments  AssetAllotment[]
+  allocations InventoryAllocation[]
+  units       AssetRoomUnit[]
+  ratePlans   AssetRatePlan[]
+  stayReservations StayReservation[]
+
+  @@index([assetId, isActive])
+  @@map("asset_room_products")
+}
+
+/** Physical or labeled unit under a room product (e.g. "101"). */
+model AssetRoomUnit {
+  id            String    @id @default(cuid())
+  roomProductId String    @map("room_product_id")
+  buildingId    String?   @map("building_id")
+  floorId       String?   @map("floor_id")
+  name          String
+  floor         String?
+  /** vacant_clean | vacant_dirty | occupied | ooo | inspected | dnd */
+  status        String    @default("vacant_clean")
+  isActive      Boolean   @default(true) @map("is_active")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  deletedAt     DateTime? @map("deleted_at")
+
+  roomProduct      AssetRoomProduct  @relation(fields: [roomProductId], references: [id], onDelete: Cascade)
+  building         AssetBuilding?    @relation(fields: [buildingId], references: [id], onDelete: SetNull)
+  floorRef         AssetFloor?       @relation(fields: [floorId], references: [id], onDelete: SetNull)
+  stayReservations StayReservation[]
+  housekeepingTasks HousekeepingTask[]
+  maintenanceOrders MaintenanceWorkOrder[]
+
+  @@index([roomProductId, isActive])
+  @@index([roomProductId, status])
+  @@index([buildingId])
+  @@index([floorId])
+  @@map("asset_room_units")
+}
+
+/** Thin BAR / seasonal rate on a room product. */
+model AssetRatePlan {
+  id            String    @id @default(cuid())
+  roomProductId String    @map("room_product_id")
+  name          String
+  amount        Decimal   @db.Decimal(14, 2)
+  currency      String    @default("INR") @db.Char(3)
+  startDate     DateTime? @map("start_date") @db.Date
+  endDate       DateTime? @map("end_date") @db.Date
+  isActive      Boolean   @default(true) @map("is_active")
+  /** ROOM_ONLY | BREAKFAST | HALF_BOARD | FULL_BOARD | … */
+  mealPlan      String?   @map("meal_plan")
+  refundable    Boolean   @default(true)
+  minStayNights Int?      @map("min_stay_nights")
+  maxStayNights Int?      @map("max_stay_nights")
+  closedToArrival   Boolean @default(false) @map("closed_to_arrival")
+  closedToDeparture Boolean @default(false) @map("closed_to_departure")
+  extraAdultAmount  Decimal? @map("extra_adult_amount") @db.Decimal(14, 2)
+  childWithBedAmount Decimal? @map("child_with_bed_amount") @db.Decimal(14, 2)
+  childWithoutBedAmount Decimal? @map("child_without_bed_amount") @db.Decimal(14, 2)
+  restrictionsJson Json?  @map("restrictions_json")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  deletedAt     DateTime? @map("deleted_at")
+
+  roomProduct AssetRoomProduct @relation(fields: [roomProductId], references: [id], onDelete: Cascade)
+
+  @@index([roomProductId, isActive])
+  @@index([roomProductId, startDate, endDate])
+  @@map("asset_rate_plans")
+}
+
+/**
+ * Partner-facing stay record (inbound agency + manual / walk-in).
+ * Consumes allotment via InventoryAllocation when confirmed.
+ */
+model StayReservation {
+  id                     String    @id @default(cuid())
+  assetId                String    @map("asset_id")
+  roomProductId          String?   @map("room_product_id")
+  roomUnitId             String?   @map("room_unit_id")
+  checkIn                DateTime  @map("check_in") @db.Date
+  checkOut               DateTime  @map("check_out") @db.Date
+  /** inquiry | tentative | held | confirmed | checked_in | checked_out | cancelled | no_show */
+  status                 String    @default("confirmed")
+  guestName              String    @map("guest_name")
+  guestPhone             String?   @map("guest_phone")
+  guestEmail             String?   @map("guest_email")
+  partyId                String?   @map("party_id")
+  /** agency_inbound | manual | walk_in | phone | website | corporate | network */
+  source                 String    @default("manual")
+  bookingComponentId     String?   @map("booking_component_id")
+  serviceRequestId       String?   @map("service_request_id")
+  inventoryAllocationId  String?   @map("inventory_allocation_id")
+  rateAmount             Decimal?  @map("rate_amount") @db.Decimal(14, 2)
+  /** Soft-folio payments received (A-STAY-02); outstanding = folio charges − amountPaid. */
+  amountPaid             Decimal   @default(0) @map("amount_paid") @db.Decimal(14, 2)
+  currency               String    @default("INR") @db.Char(3)
+  mealPlan               String?   @map("meal_plan")
+  adults                 Int       @default(1)
+  children               Int       @default(0)
+  rateSnapshotJson       Json?     @map("rate_snapshot_json")
+  policySnapshotJson     Json?     @map("policy_snapshot_json")
+  notes                  String?   @db.Text
+  confirmationRef        String?   @map("confirmation_ref")
+  /** Append-only log of unit reassignments — [{ from, to, at, by, note }]. */
+  assignmentHistoryJson  Json?     @map("assignment_history_json")
+  /** entire_home | private_room — homestay/farmstay inventory mode. */
+  inventoryMode          String?   @map("inventory_mode")
+  hostPresent            Boolean?  @map("host_present")
+  houseRulesAckAt        DateTime? @map("house_rules_ack_at")
+  mealCutoffHours        Int?      @map("meal_cutoff_hours")
+  flexibleCheckIn        Boolean?  @map("flexible_check_in")
+  /** 4-digit PIN shown at check-in for QR room-service orders (Guest Services). */
+  roomServicePin         String?   @map("room_service_pin") @db.VarChar(8)
+  createdBy              String?   @map("created_by")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  asset               PartnerAsset         @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  roomProduct         AssetRoomProduct?    @relation(fields: [roomProductId], references: [id], onDelete: SetNull)
+  roomUnit            AssetRoomUnit?       @relation(fields: [roomUnitId], references: [id], onDelete: SetNull)
+  bookingComponent    BookingComponent?    @relation(fields: [bookingComponentId], references: [id], onDelete: SetNull)
+  serviceRequest      ServiceRequest?      @relation(fields: [serviceRequestId], references: [id], onDelete: SetNull)
+  inventoryAllocation InventoryAllocation? @relation(fields: [inventoryAllocationId], references: [id], onDelete: SetNull)
+  folioCharges        FolioCharge[]
+  serviceOrders       ServiceOrder[]
+
+  @@index([assetId, status])
+  @@index([assetId, checkIn, checkOut])
+  @@index([bookingComponentId])
+  @@index([serviceRequestId])
+  @@index([roomUnitId])
+  @@map("stay_reservations")
+}
+
+/** Nightly stock window for a room product. */
+model AssetAllotment {
+  id             String   @id @default(cuid())
+  roomProductId  String   @map("room_product_id")
+  startDate      DateTime @map("start_date") @db.Date
+  endDate        DateTime @map("end_date") @db.Date
+  availableCount Int      @map("available_count")
+  stopSell       Boolean  @default(false) @map("stop_sell")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  roomProduct AssetRoomProduct @relation(fields: [roomProductId], references: [id], onDelete: Cascade)
+
+  @@index([roomProductId, startDate, endDate])
+  @@map("asset_allotments")
+}
+
+/** Vehicle unit under a car_rental / vehicle PartnerAsset. */
+model AssetFleetUnit {
+  id             String    @id @default(cuid())
+  assetId        String    @map("asset_id")
+  name           String
+  plateNumber    String?   @map("plate_number")
+  seats          Int?
+  vehicleTypeKey String?   @map("vehicle_type_key")
+  isActive       Boolean   @default(true) @map("is_active")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  asset          PartnerAsset          @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  calendarBlocks AssetCalendarBlock[]
+  allocations    InventoryAllocation[]
+  rentals        RentalReservation[]
+
+  @@index([assetId, isActive])
+  @@map("asset_fleet_units")
+}
+
+/** Daily rental rate + deposit for a car_rental PartnerAsset (Mobility OS 1.0). */
+model AssetFleetRate {
+  id            String    @id @default(cuid())
+  assetId       String    @map("asset_id")
+  name          String
+  amountPerDay  Decimal   @map("amount_per_day") @db.Decimal(14, 2)
+  depositAmount Decimal   @default(0) @map("deposit_amount") @db.Decimal(14, 2)
+  currency      String    @default("INR") @db.Char(3)
+  isActive      Boolean   @default(true) @map("is_active")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  deletedAt     DateTime? @map("deleted_at")
+
+  asset        PartnerAsset         @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  reservations RentalReservation[]
+
+  @@index([assetId, isActive])
+  @@map("asset_fleet_rates")
+}
+
+/**
+ * Car rental reservation (Mobility OS 1.0).
+ * Lifecycle: held → confirmed → checked_out → returned | cancelled | no_show
+ */
+model RentalReservation {
+  id                    String    @id @default(cuid())
+  assetId               String    @map("asset_id")
+  fleetUnitId           String    @map("fleet_unit_id")
+  fleetRateId           String?   @map("fleet_rate_id")
+  inventoryAllocationId String?   @map("inventory_allocation_id")
+  inventoryHoldId       String?   @map("inventory_hold_id")
+  partyId               String?   @map("party_id")
+  guestName             String    @map("guest_name")
+  guestPhone            String?   @map("guest_phone")
+  startAt               DateTime  @map("start_at")
+  endAt                 DateTime  @map("end_at")
+  /** held | confirmed | checked_out | returned | cancelled | no_show */
+  status                String    @default("held")
+  rateAmount            Decimal?  @map("rate_amount") @db.Decimal(14, 2)
+  depositAmount         Decimal   @default(0) @map("deposit_amount") @db.Decimal(14, 2)
+  depositPaid           Decimal   @default(0) @map("deposit_paid") @db.Decimal(14, 2)
+  amountPaid            Decimal   @default(0) @map("amount_paid") @db.Decimal(14, 2)
+  currency              String    @default("INR") @db.Char(3)
+  checkoutChecklistJson Json?     @map("checkout_checklist_json")
+  returnChecklistJson   Json?     @map("return_checklist_json")
+  damageNote            String?   @map("damage_note") @db.Text
+  notes                 String?   @db.Text
+  rateSnapshotJson      Json?     @map("rate_snapshot_json")
+  createdBy             String?   @map("created_by")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  asset               PartnerAsset         @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  fleetUnit           AssetFleetUnit       @relation(fields: [fleetUnitId], references: [id], onDelete: Cascade)
+  fleetRate           AssetFleetRate?      @relation(fields: [fleetRateId], references: [id], onDelete: SetNull)
+  inventoryAllocation InventoryAllocation? @relation(fields: [inventoryAllocationId], references: [id], onDelete: SetNull)
+  inventoryHold       InventoryHold?       @relation(fields: [inventoryHoldId], references: [id], onDelete: SetNull)
+  party               Party?               @relation(fields: [partyId], references: [id], onDelete: SetNull)
+  folioCharges        FolioCharge[]
+
+  @@index([assetId, status])
+  @@index([fleetUnitId, startAt, endAt])
+  @@index([partyId])
+  @@map("rental_reservations")
+}
+
+/**
+ * Driver duty / transfer job (Mobility Driver OS 1.0).
+ * Lifecycle: offered → assigned → en_route → completed | cancelled | no_show
+ */
+model DriverJob {
+  id                    String    @id @default(cuid())
+  assetId               String    @map("asset_id")
+  inventoryAllocationId String?   @map("inventory_allocation_id")
+  inventoryHoldId       String?   @map("inventory_hold_id")
+  serviceRequestId      String?   @map("service_request_id")
+  partyId               String?   @map("party_id")
+  guestName             String    @map("guest_name")
+  guestPhone            String?   @map("guest_phone")
+  pickupLocation        String?   @map("pickup_location")
+  dropLocation          String?   @map("drop_location")
+  startAt               DateTime  @map("start_at")
+  endAt                 DateTime  @map("end_at")
+  /** offered | assigned | en_route | completed | cancelled | no_show */
+  status                String    @default("offered")
+  rateAmount            Decimal?  @map("rate_amount") @db.Decimal(14, 2)
+  amountPaid            Decimal   @default(0) @map("amount_paid") @db.Decimal(14, 2)
+  currency              String    @default("INR") @db.Char(3)
+  notes                 String?   @db.Text
+  completionNote        String?   @map("completion_note") @db.Text
+  createdBy             String?   @map("created_by")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  asset               PartnerAsset         @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  inventoryAllocation InventoryAllocation? @relation(fields: [inventoryAllocationId], references: [id], onDelete: SetNull)
+  inventoryHold       InventoryHold?       @relation(fields: [inventoryHoldId], references: [id], onDelete: SetNull)
+  serviceRequest      ServiceRequest?      @relation(fields: [serviceRequestId], references: [id], onDelete: SetNull)
+  party               Party?               @relation(fields: [partyId], references: [id], onDelete: SetNull)
+
+  @@index([assetId, status])
+  @@index([assetId, startAt, endAt])
+  @@index([serviceRequestId])
+  @@index([partyId])
+  @@map("driver_jobs")
+}
+
+/** Busy / available / booked intervals for assets or fleet units (also drivers). */
+model AssetCalendarBlock {
+  id           String   @id @default(cuid())
+  assetId      String   @map("asset_id")
+  fleetUnitId  String?  @map("fleet_unit_id")
+  startAt      DateTime @map("start_at")
+  endAt        DateTime @map("end_at")
+  /** available | blocked | booked */
+  kind         String   @default("blocked")
+  allocationId String?  @map("allocation_id")
+  notes        String?  @db.Text
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  asset      PartnerAsset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  fleetUnit  AssetFleetUnit?        @relation(fields: [fleetUnitId], references: [id], onDelete: Cascade)
+  allocation InventoryAllocation?   @relation(fields: [allocationId], references: [id], onDelete: SetNull)
+
+  @@index([assetId, startAt, endAt])
+  @@index([fleetUnitId, startAt, endAt])
+  @@map("asset_calendar_blocks")
+}
+
+/** Restaurant meal / package offer with optional capacity. */
+model AssetServiceOffer {
+  id            String    @id @default(cuid())
+  assetId       String    @map("asset_id")
+  name          String
+  description   String?   @db.Text
+  capacity      Int?
+  serviceDate   DateTime? @map("service_date") @db.Date
+  /** breakfast | lunch | dinner | all_day | custom */
+  serviceWindow String?   @map("service_window")
+  rateHint      Decimal?  @map("rate_hint") @db.Decimal(14, 2)
+  isActive      Boolean   @default(true) @map("is_active")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  deletedAt     DateTime? @map("deleted_at")
+
+  asset PartnerAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([assetId, isActive])
+  @@index([assetId, serviceDate])
+  @@map("asset_service_offers")
+}
+
+/**
+ * Reservation against stay allotment or fleet/driver calendar.
+ * Bound to BookingComponent when confirmed from ops / inbound.
+ */
+model InventoryAllocation {
+  id                 String    @id @default(cuid())
+  assetId            String    @map("asset_id")
+  roomProductId      String?   @map("room_product_id")
+  fleetUnitId        String?   @map("fleet_unit_id")
+  bookingComponentId String?   @map("booking_component_id")
+  checkIn            DateTime? @map("check_in") @db.Date
+  checkOut           DateTime? @map("check_out") @db.Date
+  startAt            DateTime? @map("start_at")
+  endAt              DateTime? @map("end_at")
+  quantity           Int       @default(1)
+  /** hold | confirmed | released */
+  status             String    @default("hold")
+  notes              String?   @db.Text
+  createdBy          String?   @map("created_by")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  asset            PartnerAsset      @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  roomProduct      AssetRoomProduct? @relation(fields: [roomProductId], references: [id], onDelete: SetNull)
+  fleetUnit        AssetFleetUnit?   @relation(fields: [fleetUnitId], references: [id], onDelete: SetNull)
+  bookingComponent BookingComponent? @relation(fields: [bookingComponentId], references: [id], onDelete: SetNull)
+  calendarBlocks     AssetCalendarBlock[]
+  stayReservations   StayReservation[]
+  rentalReservations RentalReservation[]
+  driverJobs         DriverJob[]
+
+  @@index([assetId, status])
+  @@index([roomProductId, checkIn, checkOut])
+  @@index([fleetUnitId, startAt, endAt])
+  @@index([bookingComponentId])
+  @@map("inventory_allocations")
+}
+
+model OrgRelationship {
+  id                 String   @id @default(cuid())
+  fromOrganizationId String   @map("from_organization_id")
+  toOrganizationId   String   @map("to_organization_id")
+  status             String   @default("following") // following | preferred | contracted | blocked
+  notes              String?  @db.Text
+  createdBy          String?  @map("created_by")
+  updatedBy          String?  @map("updated_by")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  fromOrganization Organization @relation("OrgRelationshipFrom", fields: [fromOrganizationId], references: [id], onDelete: Cascade)
+  toOrganization   Organization @relation("OrgRelationshipTo", fields: [toOrganizationId], references: [id], onDelete: Cascade)
+  negotiatedRates  NegotiatedRate[]
+
+  @@unique([fromOrganizationId, toOrganizationId])
+  @@index([toOrganizationId, status])
+  @@index([fromOrganizationId, status])
+  @@map("org_relationships")
+}
+
+model OrganizationMembership {
+  id             String    @id @default(cuid())
+  organizationId String    @map("organization_id")
+  userId         String    @map("user_id")
+  isOwner        Boolean   @default(false) @map("is_owner")
+  isActive       Boolean   @default(true) @map("is_active")
+  /** Bumped on role/membership change to invalidate stale access tokens. */
+  authVersion    Int       @default(0) @map("auth_version")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  organization Organization      @relation(fields: [organizationId], references: [id])
+  user         User              @relation(fields: [userId], references: [id])
+  roles        MembershipRole[]
+  propertyScopes MembershipPropertyScope[]
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@map("organization_memberships")
+}
+
+model Role {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  name           String
+  key            String
+  isSystem       Boolean  @default(false) @map("is_system")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization     @relation(fields: [organizationId], references: [id])
+  permissions  RolePermission[]
+  memberships  MembershipRole[]
+
+  @@unique([organizationId, key])
+  @@map("roles")
+}
+
+model Permission {
+  id          String @id @default(cuid())
+  key         String @unique
+  description String
+
+  roles RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String @map("role_id")
+  permissionId String @map("permission_id")
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model MembershipRole {
+  membershipId String @map("membership_id")
+  roleId       String @map("role_id")
+
+  membership OrganizationMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  role       Role                   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([membershipId, roleId])
+  @@map("membership_roles")
+}
+
+/**
+ * Property/branch scope assignment (RBAC Integrity 1.0 / P1-3). Links a
+ * membership to the PartnerAsset(s) it is scoped to. A membership with no rows
+ * is treated as org-wide (all properties) for backward compatibility; once any
+ * assignment exists, property-scoped permissions are limited to those assets.
+ */
+model MembershipPropertyScope {
+  membershipId   String   @map("membership_id")
+  partnerAssetId String   @map("partner_asset_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  membership   OrganizationMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  partnerAsset PartnerAsset           @relation(fields: [partnerAssetId], references: [id], onDelete: Cascade)
+
+  @@id([membershipId, partnerAssetId])
+  @@index([partnerAssetId])
+  @@map("membership_property_scopes")
+}
+
+/**
+ * Member invitation (P2 admin maturity). A tokenised invite to join an existing
+ * organization with a preset role set. Mirrors the SupplierInvite token pattern
+ * (hashed token, expiry, status). Accepting creates the membership (and the User
+ * with a chosen password when the invitee has no account yet).
+ */
+model MemberInvite {
+  id             String    @id @default(cuid())
+  organizationId String    @map("organization_id")
+  email          String
+  fullName       String?   @map("full_name")
+  /** Role ids to assign on accept (snapshot at invite time). */
+  roleIdsJson    Json      @map("role_ids_json")
+  tokenHash      String    @unique @map("token_hash")
+  status         String    @default("pending") // pending | accepted | revoked | expired
+  invitedBy      String?   @map("invited_by")
+  acceptedUserId String?   @map("accepted_user_id")
+  acceptedAt     DateTime? @map("accepted_at")
+  expiresAt      DateTime  @map("expires_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@index([organizationId, status])
+  @@index([email])
+  @@map("member_invites")
+}
+
+model RefreshToken {
+  id             String    @id @default(cuid())
+  userId         String    @map("user_id")
+  /** Selected organization for this session (org switcher). */
+  organizationId String?   @map("organization_id")
+  tokenHash      String    @map("token_hash")
+  expiresAt      DateTime  @map("expires_at")
+  revokedAt      DateTime? @map("revoked_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@map("refresh_tokens")
+}
+
+// ─── Platform ─────────────────────────────────────────────────────────
+
+model AuditEvent {
+  id             String   @id @default(cuid())
+  organizationId String?  @map("organization_id")
+  actorUserId    String?  @map("actor_user_id")
+  action         String
+  entityType     String   @map("entity_type")
+  entityId       String?  @map("entity_id")
+  metadataJson   Json?    @map("metadata_json")
+  correlationId  String?  @map("correlation_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization? @relation(fields: [organizationId], references: [id])
+  actor        User?         @relation("AuditActor", fields: [actorUserId], references: [id])
+
+  @@index([organizationId, createdAt])
+  @@index([entityType, entityId])
+  @@map("audit_events")
+}
+
+model OutboxEvent {
+  id             String    @id @default(cuid())
+  organizationId String    @map("organization_id")
+  eventType      String    @map("event_type")
+  payloadJson    Json      @map("payload_json")
+  correlationId  String?   @map("correlation_id")
+  status         String    @default("pending") // pending | processing | completed | failed
+  attempts       Int       @default(0)
+  availableAt    DateTime  @default(now()) @map("available_at")
+  processedAt    DateTime? @map("processed_at")
+  lastError      String?   @map("last_error") @db.Text
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([status, availableAt])
+  @@index([organizationId])
+  @@map("outbox_events")
+}
+
+model Document {
+  id             String    @id @default(cuid())
+  organizationId String    @map("organization_id")
+  entityType     String    @map("entity_type")
+  entityId       String    @map("entity_id")
+  name           String
+  /** proposal | quotation | invoice | voucher | contract | … */
+  documentType   String    @default("other") @map("document_type")
+  version        Int       @default(1)
+  mimeType       String    @map("mime_type")
+  sizeBytes      Int       @map("size_bytes")
+  storageKey     String    @map("storage_key")
+  visibility     String    @default("internal") // internal | customer | restricted
+  status         String    @default("active") // draft | active | superseded | archived
+  createdBy      String?   @map("created_by")
+  updatedBy      String?   @map("updated_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId, entityType, entityId])
+  @@index([organizationId, documentType])
+  @@map("documents")
+}
+
+model Notification {
+  id             String    @id @default(cuid())
+  organizationId String    @map("organization_id")
+  userId         String    @map("user_id")
+  channel        String    @default("in_app") // in_app | email | both
+  title          String
+  body           String    @db.Text
+  linkPath       String?   @map("link_path")
+  readAt         DateTime? @map("read_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  user         User         @relation(fields: [userId], references: [id])
+
+  @@index([organizationId, userId, readAt])
+  @@map("notifications")
+}
+
+model Task {
+  id             String    @id @default(cuid())
+  organizationId String    @map("organization_id")
+  title          String
+  description    String?   @db.Text
+  status         String    @default("open") // open | done | cancelled
+  priority       String    @default("normal") // low | normal | high
+  dueAt          DateTime? @map("due_at")
+  assigneeId     String?   @map("assignee_id")
+  entityType     String?   @map("entity_type")
+  entityId       String?   @map("entity_id")
+  createdBy      String?   @map("created_by")
+  updatedBy      String?   @map("updated_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  assignee     User?        @relation("TaskAssignee", fields: [assigneeId], references: [id])
+
+  @@index([organizationId, status, dueAt])
+  @@index([organizationId, entityType, entityId])
+  @@map("tasks")
+}
+
+// ─── CRM: Parties ─────────────────────────────────────────────────────
+
+model Party {
+  id             String    @id @default(cuid())
+  organizationId String    @map("organization_id")
+  type           String // individual | organization
+  displayName    String    @map("display_name")
+  email          String?
+  phone          String?
+  taxId          String?   @map("tax_id")
+  businessType   String?   @map("business_type") // corporate | travel_agency | reseller | supplier | dmc | hotel | transport | activity
+  creditLimit    Decimal?  @map("credit_limit") @db.Decimal(14, 2)
+  paymentTerms   String?   @map("payment_terms")
+  notes          String?   @db.Text
+  metadataJson   Json?     @map("metadata_json")
+  /** Consent — WhatsApp Cloud API template sends require an explicit opt-in. */
+  whatsappOptIn  Boolean   @default(true) @map("whatsapp_opt_in")
+  emailOptIn     Boolean   @default(true) @map("email_opt_in")
+  marketingOptIn Boolean   @default(false) @map("marketing_opt_in")
+  optedOutAt     DateTime? @map("opted_out_at")
+  createdBy      String?   @map("created_by")
+  updatedBy      String?   @map("updated_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  contacts     PartyContact[]
+  addresses    Address[]
+  leads        Lead[]
+  inquiries    Inquiry[]
+  trips        Trip[]
+  contextRoles  PartyContextRole[]
+  conversations            Conversation[]
+  mealReservations         MealReservation[]
+  mealInquiries            MealInquiry[]
+  experienceReservations   ExperienceReservation[]
+  rentalReservations       RentalReservation[]
+  driverJobs               DriverJob[]
+  interactions             Interaction[]
+  engagementConversations  EngagementConversation[]
+
+  @@index([organizationId, type])
+  @@index([organizationId, email])
+  @@index([organizationId, phone])
+  @@map("parties")
+}
+
+/** Context role for a party on a business entity (guest, diner, traveller…). */
+model PartyContextRole {
+  id         String   @id @default(cuid())
+  partyId    String   @map("party_id")
+  role       String
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  party Party @relation(fields: [partyId], references: [id], onDelete: Cascade)
+
+  @@index([partyId])
+  @@index([entityType, entityId])
+  @@unique([partyId, role, entityType, entityId])
+  @@map("party_context_roles")
+}
+
+model PartyContact {
+  id        String   @id @default(cuid())
+  partyId   String   @map("party_id")
+  fullName  String   @map("full_name")
+  email     String?
+  phone     String?
+  title     String?
+  isPrimary Boolean  @default(false) @map("is_primary")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  party Party @relation(fields: [partyId], references: [id], onDelete: Cascade)
+
+  @@index([partyId])
+  @@map("party_contacts")
+}
+
+model Address {
+  id        String  @id @default(cuid())
+  partyId   String  @map("party_id")
+  label     String  @default("primary")
+  line1     String
+  line2     String?
+  city      String?
+  state     String?
+  postalCode String? @map("postal_code")
+  country   String? @db.Char(2)
+
+  party Party @relation(fields: [partyId], references: [id], onDelete: Cascade)
+
+  @@index([partyId])
+  @@map("addresses")
+}
+
+// ─── CRM: Leads ───────────────────────────────────────────────────────
+
+model LeadSource {
+  id             String  @id @default(cuid())
+  organizationId String  @map("organization_id")
+  name           String
+  key            String
+  isActive       Boolean @default(true) @map("is_active")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  leads        Lead[]
+
+  @@unique([organizationId, key])
+  @@map("lead_sources")
+}
+
+/** Meta-approved WhatsApp template metadata for outbound template sends (marketing/utility). */
+model WhatsAppTemplate {
+  id               String   @id @default(cuid())
+  organizationId   String   @map("organization_id")
+  name             String
+  metaTemplateName String   @map("meta_template_name")
+  languageCode     String   @map("language_code")
+  bodyPreview      String?  @map("body_preview") @db.Text
+  variableCount    Int      @default(0) @map("variable_count")
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@unique([organizationId, name])
+  @@map("whatsapp_templates")
+}
+
+/** Org-defined extra fields for leads/parties, values stored in each entity's customFieldsJson. */
+model CustomFieldDefinition {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  /// lead | party
+  entity         String
+  key            String
+  label          String
+  /// text | number | boolean | select
+  fieldType      String   @default("text") @map("field_type")
+  optionsJson    Json?    @map("options_json")
+  required       Boolean  @default(false)
+  position       Int      @default(0)
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@unique([organizationId, entity, key])
+  @@map("custom_field_definitions")
+}
+
+/// Shared place catalog (system + tenant) used as origin, destination, or stop.
+model Place {
+  id             String    @id @default(cuid())
+  organizationId String?   @map("organization_id")
+  name           String
+  key            String
+  /// country | region | state | city | area | landmark | airport | railway_station
+  kind           String    @default("city")
+  parentId       String?   @map("parent_id")
+  country        String    @default("India")
+  /// @deprecated Prefer parent chain; kept as display fallback
+  region         String?
+  domesticOrIntl String    @default("domestic") @map("domestic_or_intl") // domestic | international
+  isSystem       Boolean   @default(false) @map("is_system")
+  isActive       Boolean   @default(true) @map("is_active")
+  /** Rich profile: description, images, hours, duration, maps, suitability, coords… */
+  profileJson    Json?     @map("profile_json")
+  createdBy      String?   @map("created_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  organization Organization? @relation(fields: [organizationId], references: [id])
+  parent       Place?        @relation("PlaceTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children     Place[]       @relation("PlaceTree")
+  subcategoryLinks PlaceSubcategoryLink[]
+  edgesFrom    PlaceEdge[]   @relation("PlaceEdgeFrom")
+  edgesTo      PlaceEdge[]   @relation("PlaceEdgeTo")
+  contributions PlaceContribution[]
+  knowledge    PlaceKnowledge[]
+  suppliersNear Supplier[]   @relation("SupplierNearPlace")
+  partnerAssets PartnerAsset[] @relation("PartnerAssetPlace")
+  transferFaresFrom TransferFare[] @relation("TransferFareFrom")
+  transferFaresTo   TransferFare[] @relation("TransferFareTo")
+  hotelRates        SupplierHotelRate[]
+
+  @@index([organizationId, isActive])
+  @@index([isSystem, isActive])
+  @@index([key])
+  @@index([parentId])
+  @@index([kind, isActive])
+  @@map("places")
+}
+
+/** Canonical drive/flight/rail leg between two places (platform knowledge). */
+model PlaceEdge {
+  id              String   @id @default(cuid())
+  fromPlaceId     String   @map("from_place_id")
+  toPlaceId       String   @map("to_place_id")
+  mode            String   @default("drive") // drive | flight | rail | walk
+  distanceKm      Float?   @map("distance_km")
+  durationMin     Int?     @map("duration_min")
+  roadHint        String?  @map("road_hint")
+  stopsJson       Json?    @map("stops_json") // recommended stops [{name,hint}]
+  isSystem        Boolean  @default(true) @map("is_system")
+  organizationId  String?  @map("organization_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  fromPlace Place @relation("PlaceEdgeFrom", fields: [fromPlaceId], references: [id], onDelete: Cascade)
+  toPlace   Place @relation("PlaceEdgeTo", fields: [toPlaceId], references: [id], onDelete: Cascade)
+
+  @@unique([fromPlaceId, toPlaceId, mode])
+  @@index([toPlaceId])
+  @@map("place_edges")
+}
+
+/** Community suggest/edit for platform places (moderated). */
+model PlaceContribution {
+  id               String   @id @default(cuid())
+  organizationId   String   @map("organization_id")
+  submittedByUserId String  @map("submitted_by_user_id")
+  placeId          String?  @map("place_id") // null = suggest new
+  kind             String   @default("create") // create | edit
+  status           String   @default("pending") // pending | approved | rejected
+  payloadJson      Json     @map("payload_json")
+  reviewNote       String?  @map("review_note") @db.Text
+  reviewedByUserId String?  @map("reviewed_by_user_id")
+  reviewedAt       DateTime? @map("reviewed_at")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  place Place? @relation(fields: [placeId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([organizationId])
+  @@map("place_contributions")
+}
+
+/** Seasonal / tip overlays for a place (platform knowledge). */
+model PlaceKnowledge {
+  id        String   @id @default(cuid())
+  placeId   String   @map("place_id")
+  season    String   @default("all") // all | winter | summer | monsoon | autumn
+  kind      String   // weather | packing | tip | safety | season_rating
+  title     String?
+  body      String   @db.Text
+  metaJson  Json?    @map("meta_json")
+  isSystem  Boolean  @default(true) @map("is_system")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  place Place @relation(fields: [placeId], references: [id], onDelete: Cascade)
+
+  @@index([placeId, season, kind])
+  @@map("place_knowledge")
+}
+
+model PlaceCategory {
+  id             String    @id @default(cuid())
+  organizationId String?   @map("organization_id")
+  name           String
+  key            String
+  isSystem       Boolean   @default(false) @map("is_system")
+  isActive       Boolean   @default(true) @map("is_active")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  organization  Organization?     @relation(fields: [organizationId], references: [id])
+  subcategories PlaceSubcategory[]
+
+  @@index([organizationId, isActive])
+  @@index([isSystem, isActive])
+  @@index([key])
+  @@map("place_categories")
+}
+
+model PlaceSubcategory {
+  id             String    @id @default(cuid())
+  categoryId     String    @map("category_id")
+  organizationId String?   @map("organization_id")
+  name           String
+  key            String
+  isSystem       Boolean   @default(false) @map("is_system")
+  isActive       Boolean   @default(true) @map("is_active")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  category   PlaceCategory          @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  organization Organization?        @relation(fields: [organizationId], references: [id])
+  placeLinks PlaceSubcategoryLink[]
+
+  @@index([categoryId])
+  @@index([organizationId, isActive])
+  @@index([key])
+  @@map("place_subcategories")
+}
+
+model PlaceSubcategoryLink {
+  placeId        String @map("place_id")
+  subcategoryId  String @map("subcategory_id")
+
+  place       Place             @relation(fields: [placeId], references: [id], onDelete: Cascade)
+  subcategory PlaceSubcategory  @relation(fields: [subcategoryId], references: [id], onDelete: Cascade)
+
+  @@id([placeId, subcategoryId])
+  @@map("place_subcategory_links")
+}
+
+/// Shared room type catalog (system + tenant) for hotel itinerary items.
+model RoomType {
+  id             String    @id @default(cuid())
+  organizationId String?   @map("organization_id")
+  name           String
+  key            String
+  description    String?
+  isSystem       Boolean   @default(false) @map("is_system")
+  isActive       Boolean   @default(true) @map("is_active")
+  createdBy      String?   @map("created_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  organization Organization? @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId, isActive])
+  @@index([isSystem, isActive])
+  @@index([key])
+  @@map("room_types")
+}
+
+/// Shared vehicle type catalog (system + tenant) for transfer itinerary items.
+model VehicleType {
+  id             String    @id @default(cuid())
+  organizationId String?   @map("organization_id")
+  name           String
+  key            String
+  description    String?   @db.Text
+  seats          Int?
+  /** { imageUrl, imageUrls, suitabilityTags… } */
+  profileJson    Json?     @map("profile_json")
+  isSystem       Boolean   @default(false) @map("is_system")
+  isActive       Boolean   @default(true) @map("is_active")
+  createdBy      String?   @map("created_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  organization Organization? @relation(fields: [organizationId], references: [id])
+  transferFares TransferFare[]
+
+  @@index([organizationId, isActive])
+  @@index([isSystem, isActive])
+  @@index([key])
+  @@map("vehicle_types")
+}
+
+model Campaign {
+  id             String  @id @default(cuid())
+  organizationId String  @map("organization_id")
+  name           String
+  externalId     String? @map("external_id")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  leads        Lead[]
+
+  @@index([organizationId])
+  @@map("campaigns")
+}
+
+model Pipeline {
+  id             String  @id @default(cuid())
+  organizationId String  @map("organization_id")
+  name           String
+  isDefault      Boolean @default(false) @map("is_default")
+
+  organization Organization    @relation(fields: [organizationId], references: [id])
+  stages       PipelineStage[]
+  leads        Lead[]
+
+  @@index([organizationId])
+  @@map("pipelines")
+}
+
+model PipelineStage {
+  id         String  @id @default(cuid())
+  pipelineId String  @map("pipeline_id")
+  name       String
+  key        String
+  position   Int
+  isWon      Boolean @default(false) @map("is_won")
+  isLost     Boolean @default(false) @map("is_lost")
+
+  pipeline Pipeline           @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  leads    Lead[]
+  history  LeadStageHistory[]
+
+  @@unique([pipelineId, key])
+  @@index([pipelineId, position])
+  @@map("pipeline_stages")
+}
+
+model Lead {
+  id               String    @id @default(cuid())
+  organizationId   String    @map("organization_id")
+  pipelineId       String    @map("pipeline_id")
+  stageId          String    @map("stage_id")
+  partyId          String?   @map("party_id")
+  sourceId         String?   @map("source_id")
+  campaignId       String?   @map("campaign_id")
+  ownerId          String?   @map("owner_id")
+  title            String
+  contactName      String?   @map("contact_name")
+  email            String?
+  phone            String?
+  priority         String    @default("normal")
+  score            Int?
+  tagsJson         Json?     @map("tags_json")
+  followUpAt       DateTime? @map("follow_up_at")
+  lostReason       String?   @map("lost_reason")
+  externalId       String?   @map("external_id")
+  idempotencyKey   String?   @map("idempotency_key")
+  /** How this lead's creating interaction arrived (phone, whatsapp, website…). */
+  channel          String?
+  customFieldsJson Json?     @map("custom_fields_json")
+  createdBy        String?   @map("created_by")
+  updatedBy        String?   @map("updated_by")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  deletedAt        DateTime? @map("deleted_at")
+
+  organization Organization       @relation(fields: [organizationId], references: [id])
+  pipeline     Pipeline           @relation(fields: [pipelineId], references: [id])
+  stage        PipelineStage      @relation(fields: [stageId], references: [id])
+  party        Party?             @relation(fields: [partyId], references: [id])
+  source       LeadSource?        @relation(fields: [sourceId], references: [id])
+  campaign     Campaign?          @relation(fields: [campaignId], references: [id])
+  owner        User?              @relation("LeadOwner", fields: [ownerId], references: [id])
+  activities   Activity[]
+  stageHistory LeadStageHistory[]
+  inquiries    Inquiry[]
+  interactions Interaction[]
+
+  @@unique([organizationId, idempotencyKey])
+  @@index([organizationId, stageId])
+  @@index([organizationId, ownerId])
+  @@index([organizationId, email])
+  @@index([organizationId, phone])
+  @@map("leads")
+}
+
+model LeadStageHistory {
+  id        String   @id @default(cuid())
+  leadId    String   @map("lead_id")
+  stageId   String   @map("stage_id")
+  changedBy String?  @map("changed_by")
+  note      String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  lead  Lead          @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  stage PipelineStage @relation(fields: [stageId], references: [id])
+
+  @@index([leadId, createdAt])
+  @@map("lead_stage_history")
+}
+
+model Activity {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  leadId         String?  @map("lead_id")
+  inquiryId      String?  @map("inquiry_id")
+  tripId         String?  @map("trip_id")
+  type           String // note | call | email | status_change | system
+  body           String   @db.Text
+  createdBy      String?  @map("created_by")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  lead Lead? @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, leadId])
+  @@map("activities")
+}
+
+/**
+ * Sales engagement thread — one customer, many channels, many travel requests (inquiries).
+ * Distinct from commerce `Conversation` (ops/B2B entity chat).
+ */
+model EngagementConversation {
+  id                 String    @id @default(cuid())
+  organizationId     String    @map("organization_id")
+  partyId            String?   @map("party_id")
+  /** open | waiting | closed */
+  status             String    @default("open")
+  assignedUserId     String?   @map("assigned_user_id")
+  subject            String?
+  lastInteractionAt  DateTime  @default(now()) @map("last_interaction_at")
+  unreadCount        Int       @default(0) @map("unread_count")
+  /** Ordered channel hops for journey analytics, e.g. ["facebook","website","whatsapp"]. */
+  journeyPathJson    Json?     @map("journey_path_json")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  party        Party?       @relation(fields: [partyId], references: [id], onDelete: SetNull)
+  interactions Interaction[]
+  inquiries    Inquiry[]
+
+  @@index([organizationId, lastInteractionAt], map: "eng_conv_org_last_idx")
+  @@index([organizationId, status, lastInteractionAt], map: "eng_conv_org_status_last_idx")
+  @@index([organizationId, assignedUserId, lastInteractionAt], map: "eng_conv_org_assignee_last_idx")
+  @@index([partyId, status], map: "eng_conv_party_status_idx")
+  @@map("engagement_conversations")
+}
+
+/**
+ * Omnichannel touchpoint — every inbound/outbound contact before or around a travel request.
+ * Channel = how they reached us; acquisitionSourceKey = how they first found us (optional).
+ */
+model Interaction {
+  id                     String   @id @default(cuid())
+  organizationId         String   @map("organization_id")
+  conversationId         String?  @map("conversation_id")
+  partyId                String?  @map("party_id")
+  leadId                 String?  @map("lead_id")
+  inquiryId              String?  @map("inquiry_id")
+  /** phone | whatsapp | website | email | walk_in | import | api | facebook | instagram */
+  channel                String
+  /** LeadSource.key for first-touch discovery when known. */
+  acquisitionSourceKey   String?  @map("acquisition_source_key")
+  staffUserId            String?  @map("staff_user_id")
+  occurredAt             DateTime @default(now()) @map("occurred_at")
+  /** pending | created_travel_request | attached_existing | follow_up | spam | no_interest */
+  outcome                String   @default("pending")
+  unread                 Boolean  @default(true)
+  summary                String?  @db.Text
+  /** Webhook/CSV dedupe key — unique per organization when set. */
+  idempotencyKey         String?  @map("idempotency_key")
+  rawPayloadJson         Json?    @map("raw_payload_json")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  organization Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  conversation EngagementConversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  party        Party?                  @relation(fields: [partyId], references: [id], onDelete: SetNull)
+  lead         Lead?                   @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, idempotencyKey])
+  @@index([organizationId, occurredAt])
+  @@index([organizationId, channel, occurredAt])
+  @@index([organizationId, unread, occurredAt])
+  @@index([partyId, occurredAt])
+  @@index([conversationId, occurredAt])
+  @@index([inquiryId])
+  @@map("interactions")
+}
+
+/** Lightweight automation on engagement conversation events (assign, SLA flag, auto-tag). */
+model EngagementAutomationRule {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  name           String
+  /** interaction.ingested | conversation.waiting | conversation.unread_sla */
+  trigger        String
+  /** channel filter optional */
+  channel        String?
+  /** JSON action: { assignUserId?, setStatus?, tag? } */
+  actionJson     Json     @map("action_json")
+  isActive       Boolean  @default(true) @map("is_active")
+  position       Int      @default(0)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, isActive, position], map: "eng_auto_org_active_pos_idx")
+  @@map("engagement_automation_rules")
+}
+
+// ─── Inquiries ────────────────────────────────────────────────────────
+
+model Inquiry {
+  id                 String    @id @default(cuid())
+  organizationId     String    @map("organization_id")
+  inquiryNumber      String    @map("inquiry_number")
+  partyId            String?   @map("party_id")
+  leadId             String?   @map("lead_id")
+  /** Sales EngagementConversation this travel request hangs off (many TRs per conversation). */
+  engagementConversationId String? @map("engagement_conversation_id")
+  ownerId            String?   @map("owner_id")
+  status             String    @default("open") // open | qualified | converted | lost | closed
+  travelType         String?   @map("travel_type")
+  domesticOrIntl     String?   @map("domestic_or_intl") // domestic | international
+  origin             String?
+  originPlaceId      String?   @map("origin_place_id")
+  destinationsJson   Json?     @map("destinations_json")
+  stopsJson          Json?     @map("stops_json")
+  dateFlexible       Boolean   @default(false) @map("date_flexible")
+  startDate          DateTime? @map("start_date")
+  endDate            DateTime? @map("end_date")
+  nights             Int?
+  adults             Int       @default(1)
+  children           Int       @default(0)
+  infants            Int       @default(0)
+  roomRequirements   String?   @map("room_requirements") @db.Text
+  budgetAmount       Decimal?  @map("budget_amount") @db.Decimal(14, 2)
+  budgetCurrency     String?   @map("budget_currency") @db.Char(3)
+  hotelCategory      String?   @map("hotel_category")
+  meals              String?
+  transportPref      String?   @map("transport_pref")
+  flightsRequired    Boolean   @default(false) @map("flights_required")
+  visaAssistance     Boolean   @default(false) @map("visa_assistance")
+  insurance          Boolean   @default(false)
+  interestsJson      Json?     @map("interests_json")
+  specialRequirements String?  @map("special_requirements") @db.Text
+  internalNotes      String?   @map("internal_notes") @db.Text
+  expectedCloseAt    DateTime? @map("expected_close_at")
+  missingFieldsJson  Json?     @map("missing_fields_json")
+  createdBy          String?   @map("created_by")
+  updatedBy          String?   @map("updated_by")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+  deletedAt          DateTime? @map("deleted_at")
+
+  organization             Organization             @relation(fields: [organizationId], references: [id])
+  party                    Party?                   @relation(fields: [partyId], references: [id])
+  lead                     Lead?                    @relation(fields: [leadId], references: [id])
+  engagementConversation   EngagementConversation?  @relation(fields: [engagementConversationId], references: [id], onDelete: SetNull)
+  statusHistory InquiryStatusHistory[]
+  trips        Trip[]
+
+  @@unique([organizationId, inquiryNumber])
+  @@index([organizationId, status])
+  @@index([organizationId, ownerId])
+  @@index([engagementConversationId])
+  @@map("inquiries")
+}
+
+model InquiryStatusHistory {
+  id        String   @id @default(cuid())
+  inquiryId String   @map("inquiry_id")
+  status    String
+  changedBy String?  @map("changed_by")
+  note      String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  inquiry Inquiry @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+
+  @@index([inquiryId, createdAt])
+  @@map("inquiry_status_history")
+}
+
+// ─── Trips / travellers / itineraries / quotations ────────────────────
+
+model Trip {
+  id             String    @id @default(cuid())
+  organizationId String    @map("organization_id")
+  tripNumber     String    @map("trip_number")
+  inquiryId      String?   @map("inquiry_id")
+  partyId        String?   @map("party_id")
+  ownerId        String?   @map("owner_id")
+  title          String
+  status         String    @default("planning")
+  startDate      DateTime? @map("start_date")
+  endDate        DateTime? @map("end_date")
+  destinationsJson Json?   @map("destinations_json")
+  cancellationReason String? @map("cancellation_reason") @db.Text
+  createdBy      String?   @map("created_by")
+  updatedBy      String?   @map("updated_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  organization Organization       @relation(fields: [organizationId], references: [id])
+  inquiry      Inquiry?           @relation(fields: [inquiryId], references: [id])
+  party        Party?             @relation(fields: [partyId], references: [id])
+  travellers   TripTraveller[]
+  itineraries  Itinerary[]
+  quotations   Quotation[]
+  bookings     BookingComponent[]
+  payments     TripPayment[]
+  readinessItems TripReadinessItem[]
+  supplierInvoices SupplierInvoice[]
+  feedback     TripFeedback[]
+  itineraryShareLinks ItineraryShareLink[]
+  serviceRequests ServiceRequest[]
+  changeCases  TripChangeCase[]
+  cancellationCases CancellationCase[]
+  incidents    ServiceIncident[]
+  closure      TripClosure?
+
+  @@unique([organizationId, tripNumber])
+  @@index([organizationId, status])
+  @@map("trips")
+}
+
+model Traveller {
+  id             String    @id @default(cuid())
+  organizationId String    @map("organization_id")
+  fullName       String    @map("full_name")
+  type           String    @default("adult") // adult | child | infant
+  dateOfBirth    DateTime? @map("date_of_birth")
+  passportNumber String?   @map("passport_number") // sensitive
+  passportExpiry DateTime? @map("passport_expiry")
+  nationality    String?
+  email          String?
+  phone          String?
+  emergencyContact String? @map("emergency_contact")
+  preferencesJson Json?    @map("preferences_json")
+  createdBy      String?   @map("created_by")
+  updatedBy      String?   @map("updated_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  trips TripTraveller[]
+
+  @@index([organizationId])
+  @@map("travellers")
+}
+
+model TripTraveller {
+  id           String  @id @default(cuid())
+  tripId       String  @map("trip_id")
+  travellerId  String  @map("traveller_id")
+  isLead       Boolean @default(false) @map("is_lead")
+  roomAllocation String? @map("room_allocation")
+
+  trip      Trip      @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  traveller Traveller @relation(fields: [travellerId], references: [id], onDelete: Cascade)
+
+  @@unique([tripId, travellerId])
+  @@map("trip_travellers")
+}
+
+model Itinerary {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  tripId         String   @map("trip_id")
+  title          String   @default("Main itinerary")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  trip     Trip               @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  versions ItineraryVersion[]
+
+  @@index([tripId])
+  @@map("itineraries")
+}
+
+model ItineraryVersion {
+  id           String   @id @default(cuid())
+  itineraryId  String   @map("itinerary_id")
+  versionNumber Int     @map("version_number")
+  label        String?
+  status       String   @default("draft") // draft | published | archived
+  contentJson  Json     @map("content_json") // days + items structured
+  versionLock  Int      @default(1) @map("version_lock")
+  createdBy    String?  @map("created_by")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  itinerary Itinerary @relation(fields: [itineraryId], references: [id], onDelete: Cascade)
+  shareLinks ItineraryShareLink[]
+
+  @@unique([itineraryId, versionNumber])
+  @@map("itinerary_versions")
+}
+
+model ItineraryShareLink {
+  id                  String    @id @default(cuid())
+  organizationId      String    @map("organization_id")
+  tripId              String    @map("trip_id")
+  itineraryVersionId  String    @map("itinerary_version_id")
+  token               String    @unique
+  /** bcrypt hash of family discussion PIN; null = legacy open thread */
+  familyPinHash       String?   @map("family_pin_hash")
+  expiresAt           DateTime? @map("expires_at")
+  revokedAt           DateTime? @map("revoked_at")
+  createdBy           String?   @map("created_by")
+  createdAt           DateTime  @default(now()) @map("created_at")
+
+  trip    Trip             @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  version ItineraryVersion @relation(fields: [itineraryVersionId], references: [id], onDelete: Cascade)
+  participants ProposalParticipant[]
+  reactions    ProposalReaction[]
+  messages     ProposalMessage[]
+
+  @@index([organizationId, tripId])
+  @@map("itinerary_share_links")
+}
+
+/** Soft-identified family member / co-viewer on a shared proposal. */
+model ProposalParticipant {
+  id           String   @id @default(cuid())
+  shareLinkId  String   @map("share_link_id")
+  viewerKey    String   @map("viewer_key")
+  displayName  String   @map("display_name")
+  relationHint String?  @map("relation_hint")
+  lastSeenAt   DateTime @default(now()) @map("last_seen_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  shareLink ItineraryShareLink @relation(fields: [shareLinkId], references: [id], onDelete: Cascade)
+  reactions ProposalReaction[]
+  messages  ProposalMessage[]
+
+  @@unique([shareLinkId, viewerKey])
+  @@index([shareLinkId])
+  @@map("proposal_participants")
+}
+
+model ProposalReaction {
+  id            String   @id @default(cuid())
+  shareLinkId   String   @map("share_link_id")
+  participantId String   @map("participant_id")
+  kind          String   @default("love")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  shareLink   ItineraryShareLink  @relation(fields: [shareLinkId], references: [id], onDelete: Cascade)
+  participant ProposalParticipant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  @@unique([shareLinkId, participantId, kind])
+  @@index([shareLinkId])
+  @@map("proposal_reactions")
+}
+
+model ProposalMessage {
+  id            String   @id @default(cuid())
+  shareLinkId   String   @map("share_link_id")
+  participantId String?  @map("participant_id")
+  authorRole    String   @map("author_role") // family | agency
+  authorName    String   @map("author_name")
+  kind          String   @default("comment") // comment | question | answer
+  body          String   @db.Text
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  shareLink   ItineraryShareLink   @relation(fields: [shareLinkId], references: [id], onDelete: Cascade)
+  participant ProposalParticipant? @relation(fields: [participantId], references: [id], onDelete: SetNull)
+
+  @@index([shareLinkId, createdAt])
+  @@map("proposal_messages")
+}
+
+model ItineraryBlock {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  name           String
+  itemType       String   @map("item_type") // hotel | transfer | flight | activity | meal | free_time | note | package_day | package
+  /** Day/item skeleton; may include catalogPlaceId refs for hydrate-on-apply. */
+  contentJson    Json     @map("content_json")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId, itemType])
+  @@map("itinerary_blocks")
+}
+
+model Quotation {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  tripId         String   @map("trip_id")
+  quoteNumber    String   @map("quote_number")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  trip     Trip               @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  versions QuotationVersion[]
+
+  @@unique([organizationId, quoteNumber])
+  @@index([tripId])
+  @@map("quotations")
+}
+
+model QuotationVersion {
+  id              String    @id @default(cuid())
+  quotationId     String    @map("quotation_id")
+  versionNumber   Int       @map("version_number")
+  label           String?
+  status          String    @default("draft") // draft | pending_approval | approved | sent | accepted | rejected | expired
+  currency        String    @default("INR") @db.Char(3)
+  validUntil      DateTime? @map("valid_until")
+  exchangeRatesJson Json?   @map("exchange_rates_json")
+  itemsJson       Json      @map("items_json")
+  inclusions      String?   @db.Text
+  exclusions      String?   @db.Text
+  terms           String?   @db.Text
+  costTotal       Decimal   @default(0) @map("cost_total") @db.Decimal(14, 2)
+  sellTotal       Decimal   @default(0) @map("sell_total") @db.Decimal(14, 2)
+  taxTotal        Decimal   @default(0) @map("tax_total") @db.Decimal(14, 2)
+  discountTotal   Decimal   @default(0) @map("discount_total") @db.Decimal(14, 2)
+  marginAmount    Decimal   @default(0) @map("margin_amount") @db.Decimal(14, 2)
+  marginPercent   Decimal   @default(0) @map("margin_percent") @db.Decimal(8, 4)
+  pdfDocumentId   String?   @map("pdf_document_id")
+  versionLock     Int       @default(1) @map("version_lock")
+  acceptedAt      DateTime? @map("accepted_at")
+  createdBy       String?   @map("created_by")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  quotation Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+
+  @@unique([quotationId, versionNumber])
+  @@map("quotation_versions")
+}
+
+model QuoteTemplate {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  name           String
+  contentJson    Json     @map("content_json")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+  @@map("quote_templates")
+}
+
+// ─── Operations & finance ─────────────────────────────────────────────
+
+model Supplier {
+  id                   String    @id @default(cuid())
+  organizationId       String    @map("organization_id")
+  name                 String
+  /** hotel | homestay | farmstay | car_rental | driver | restaurant | dmc | other (+ legacy transfer/activity/flight_ref) */
+  type                 String    @default("other")
+  email                String?
+  phone                String?
+  notes                String?   @db.Text
+  linkedOrganizationId String?   @map("linked_organization_id")
+  /** Preferred Stage B link: specific partner property / vehicle / driver. */
+  linkedAssetId        String?   @map("linked_asset_id")
+  /** Nearest city / area place for discovery. */
+  placeId              String?   @map("place_id")
+  /** { imageUrl, imageUrls, amenities, roomHints, vehicleHints, capacityHint… } */
+  profileJson          Json?     @map("profile_json")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+  deletedAt            DateTime? @map("deleted_at")
+
+  organization       Organization  @relation(fields: [organizationId], references: [id])
+  linkedOrganization Organization? @relation("SupplierLinkedOrg", fields: [linkedOrganizationId], references: [id])
+  linkedAsset        PartnerAsset? @relation("SupplierLinkedAsset", fields: [linkedAssetId], references: [id], onDelete: SetNull)
+  place              Place?        @relation("SupplierNearPlace", fields: [placeId], references: [id], onDelete: SetNull)
+  bookings           BookingComponent[]
+  invoices           SupplierInvoice[]
+  invites            SupplierInvite[]
+  hotelRates         SupplierHotelRate[]
+  contracts          SupplierContract[]
+  serviceRequests    ServiceRequest[]
+  incidents          ServiceIncident[]
+
+  @@index([organizationId, type])
+  @@index([linkedOrganizationId])
+  @@index([linkedAssetId])
+  @@index([placeId])
+  @@unique([organizationId, linkedAssetId])
+  @@map("suppliers")
+}
+
+/** Agency hotel tariff card — cost per room-night for a stay supplier. */
+/**
+ * Hotel rate card — agency supplier rates or system place+room defaults.
+ * System: isSystem=true, organizationId=null, placeId set, supplierId null.
+ * Agency: organizationId set; usually supplierId; optional placeId for override of system place defaults.
+ */
+model SupplierHotelRate {
+  id             String    @id @default(cuid())
+  organizationId String?   @map("organization_id")
+  supplierId     String?   @map("supplier_id")
+  /** City/area place for system (or agency override) place-level defaults. */
+  placeId        String?   @map("place_id")
+  isSystem       Boolean   @default(false) @map("is_system")
+  /** Empty/null = default rate for supplier; else matches itinerary details.roomType. */
+  roomType       String?   @map("room_type")
+  unitCost       Decimal   @map("unit_cost") @db.Decimal(14, 2)
+  currency       String    @default("INR") @db.Char(3)
+  startDate      DateTime? @map("start_date") @db.Date
+  endDate        DateTime? @map("end_date") @db.Date
+  isActive       Boolean   @default(true) @map("is_active")
+  createdBy      String?   @map("created_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  supplier     Supplier?     @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  place        Place?        @relation(fields: [placeId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, supplierId, isActive])
+  @@index([organizationId, isActive])
+  @@index([isSystem, isActive])
+  @@index([placeId, roomType, isActive])
+  @@map("supplier_hotel_rates")
+}
+
+/**
+ * Transfer fare — agency override or system catalog.
+ * unitCost = adult / per-vehicle base cost depending on pricingMode.
+ */
+model TransferFare {
+  id             String    @id @default(cuid())
+  organizationId String?   @map("organization_id")
+  isSystem       Boolean   @default(false) @map("is_system")
+  fromPlaceId    String    @map("from_place_id")
+  toPlaceId      String    @map("to_place_id")
+  vehicleTypeId  String    @map("vehicle_type_id")
+  /** Adult tariff (per_vehicle full cab OR per_adult seat). */
+  unitCost       Decimal   @map("unit_cost") @db.Decimal(14, 2)
+  childUnitCost  Decimal?  @map("child_unit_cost") @db.Decimal(14, 2)
+  infantUnitCost Decimal?  @map("infant_unit_cost") @db.Decimal(14, 2)
+  /** per_vehicle | per_adult */
+  pricingMode    String    @default("per_vehicle") @map("pricing_mode")
+  currency       String    @default("INR") @db.Char(3)
+  startDate      DateTime? @map("start_date") @db.Date
+  endDate        DateTime? @map("end_date") @db.Date
+  isActive       Boolean   @default(true) @map("is_active")
+  createdBy      String?   @map("created_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  fromPlace    Place         @relation("TransferFareFrom", fields: [fromPlaceId], references: [id], onDelete: Restrict)
+  toPlace      Place         @relation("TransferFareTo", fields: [toPlaceId], references: [id], onDelete: Restrict)
+  vehicleType  VehicleType   @relation(fields: [vehicleTypeId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, fromPlaceId, toPlaceId, vehicleTypeId, isActive])
+  @@index([organizationId, isActive])
+  @@index([isSystem, isActive])
+  @@index([fromPlaceId, toPlaceId, vehicleTypeId, isSystem, isActive])
+  @@map("transfer_fares")
+}
+
+/** Stage B — agency invites a local supplier to claim a partner organization link. */
+model SupplierInvite {
+  id                     String    @id @default(cuid())
+  invitingOrganizationId String    @map("inviting_organization_id")
+  supplierId             String    @map("supplier_id")
+  email                  String?
+  tokenHash              String    @unique @map("token_hash")
+  suggestedKind          String?   @map("suggested_kind") // hotel | dmc | …
+  status                 String    @default("pending") // pending | accepted | revoked | expired
+  claimedOrganizationId  String?   @map("claimed_organization_id")
+  claimedByUserId        String?   @map("claimed_by_user_id")
+  expiresAt              DateTime  @map("expires_at")
+  createdBy              String?   @map("created_by")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+  acceptedAt             DateTime? @map("accepted_at")
+
+  invitingOrganization Organization  @relation("SupplierInviteFrom", fields: [invitingOrganizationId], references: [id], onDelete: Cascade)
+  supplier             Supplier      @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  claimedOrganization  Organization? @relation("SupplierInviteClaimed", fields: [claimedOrganizationId], references: [id], onDelete: SetNull)
+
+  @@index([supplierId, status])
+  @@index([invitingOrganizationId, status])
+  @@map("supplier_invites")
+}
+
+model BookingComponent {
+  id             String    @id @default(cuid())
+  organizationId String    @map("organization_id")
+  tripId         String    @map("trip_id")
+  supplierId     String?   @map("supplier_id")
+  /** Partner asset that fulfilled / confirmed this booking (Stage B). */
+  partnerAssetId String?   @map("partner_asset_id")
+  /**
+   * Legacy single SR link (deprecated). Prefer ServiceRequestItem.
+   * No longer unique — many SRs can negotiate for one requirement.
+   */
+  serviceRequestId String? @map("service_request_id")
+  type           String    // hotel | transfer | activity | flight_ref | meal | other
+  title          String
+  /**
+   * Agency delivery readiness (BookingRequirement status).
+   * pending | required | drafted | requested | acknowledged | held | confirmed | rejected | expired | cancelled
+   */
+  status         String    @default("pending")
+  confirmationRef String?  @map("confirmation_ref")
+  voucherNote    String?   @map("voucher_note") @db.Text
+  startAt        DateTime? @map("start_at")
+  endAt          DateTime? @map("end_at")
+  costAmount     Decimal?  @map("cost_amount") @db.Decimal(14, 2)
+  quotedAmount   Decimal?  @map("quoted_amount") @db.Decimal(14, 2)
+  confirmedAmount Decimal? @map("confirmed_amount") @db.Decimal(14, 2)
+  currency       String    @default("INR") @db.Char(3)
+  /** BookingRequirement: required quantity / pax / dietary etc. */
+  requiredQuantity       Decimal? @map("required_quantity") @db.Decimal(14, 2)
+  travellerRequirementsJson Json? @map("traveller_requirements_json")
+  itineraryItemIdsJson   Json?    @map("itinerary_item_ids_json")
+  createdBy      String?   @map("created_by")
+  updatedBy      String?   @map("updated_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  trip         Trip          @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  supplier     Supplier?     @relation(fields: [supplierId], references: [id])
+  partnerAsset PartnerAsset? @relation(fields: [partnerAssetId], references: [id], onDelete: SetNull)
+  serviceRequest    ServiceRequest? @relation(fields: [serviceRequestId], references: [id], onDelete: SetNull)
+  serviceRequestItems ServiceRequestItem[]
+  invoices          SupplierInvoice[]
+  payments          TripPayment[]
+  allocations       InventoryAllocation[]
+  stayReservations  StayReservation[]
+
+  @@index([tripId, status])
+  @@index([organizationId])
+  @@index([partnerAssetId])
+  @@index([serviceRequestId])
+  @@map("booking_components")
+}
+
+model SupplierInvoice {
+  id                 String    @id @default(cuid())
+  organizationId     String    @map("organization_id")
+  tripId             String    @map("trip_id")
+  supplierId         String    @map("supplier_id")
+  bookingComponentId String?   @map("booking_component_id")
+  invoiceNumber      String    @map("invoice_number")
+  amount             Decimal   @db.Decimal(14, 2)
+  currency           String    @default("INR") @db.Char(3)
+  dueAt              DateTime? @map("due_at")
+  status             String    @default("open") // open | partial | paid | cancelled
+  notes              String?   @db.Text
+  createdBy          String?   @map("created_by")
+  updatedBy          String?   @map("updated_by")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  organization     Organization      @relation(fields: [organizationId], references: [id])
+  trip             Trip              @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  supplier         Supplier          @relation(fields: [supplierId], references: [id])
+  bookingComponent BookingComponent? @relation(fields: [bookingComponentId], references: [id])
+  payments         TripPayment[]
+
+  @@index([tripId, status])
+  @@index([organizationId, supplierId])
+  @@map("supplier_invoices")
+}
+
+model TripPayment {
+  id                 String    @id @default(cuid())
+  organizationId     String    @map("organization_id")
+  tripId             String    @map("trip_id")
+  direction          String    // customer | supplier
+  label              String
+  amount             Decimal   @db.Decimal(14, 2)
+  amountPaid         Decimal   @default(0) @map("amount_paid") @db.Decimal(14, 2)
+  currency           String    @default("INR") @db.Char(3)
+  method             String?   // cash | upi | bank_transfer | card | cheque | other
+  reference          String?
+  dueAt              DateTime? @map("due_at")
+  paidAt             DateTime? @map("paid_at")
+  status             String    @default("scheduled") // scheduled | partial | paid | overdue | cancelled
+  notes              String?   @db.Text
+  supplierInvoiceId  String?   @map("supplier_invoice_id")
+  bookingComponentId String?   @map("booking_component_id")
+  createdBy          String?   @map("created_by")
+  updatedBy          String?   @map("updated_by")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  trip             Trip              @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  supplierInvoice  SupplierInvoice?  @relation(fields: [supplierInvoiceId], references: [id])
+  bookingComponent BookingComponent? @relation(fields: [bookingComponentId], references: [id])
+
+  @@index([tripId, direction, status])
+  @@index([organizationId])
+  @@map("trip_payments")
+}
+
+model TripFeedback {
+  id        String   @id @default(cuid())
+  tripId    String   @map("trip_id")
+  score     Int
+  note      String?  @db.Text
+  createdBy String?  @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  trip Trip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  @@index([tripId, createdAt])
+  @@map("trip_feedback")
+}
+
+model TripReadinessItem {
+  id        String   @id @default(cuid())
+  tripId    String   @map("trip_id")
+  label     String
+  done      Boolean  @default(false)
+  position  Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  trip Trip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  @@index([tripId])
+  @@map("trip_readiness_items")
+}
+
+// ─── Multi-Org Commerce Foundation ────────────────────────────────────
+
+model Policy {
+  id             String    @id @default(cuid())
+  organizationId String    @map("organization_id")
+  name           String
+  policyType     String    @map("policy_type")
+  rulesJson      Json?     @map("rules_json")
+  textBody       String?   @map("text_body") @db.Text
+  isDefault      Boolean   @default(false) @map("is_default")
+  effectiveFrom  DateTime? @map("effective_from") @db.Date
+  effectiveUntil DateTime? @map("effective_until") @db.Date
+  createdBy      String?   @map("created_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  attachments  PolicyAttachment[]
+
+  @@index([organizationId, policyType])
+  @@map("policies")
+}
+
+model PolicyAttachment {
+  id         String   @id @default(cuid())
+  policyId   String   @map("policy_id")
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  policy Policy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+
+  @@unique([policyId, entityType, entityId])
+  @@index([entityType, entityId])
+  @@map("policy_attachments")
+}
+
+model ServiceRequest {
+  id                   String    @id @default(cuid())
+  buyerOrganizationId  String    @map("buyer_organization_id")
+  sellerOrganizationId String?   @map("seller_organization_id")
+  supplierId           String?   @map("supplier_id")
+  partnerAssetId       String?   @map("partner_asset_id")
+  serviceType          String    @map("service_type")
+  title                String
+  status               String    @default("drafted")
+  sourceEntityType     String?   @map("source_entity_type")
+  sourceEntityId       String?   @map("source_entity_id")
+  tripId               String?   @map("trip_id")
+  quotationLineId      String?   @map("quotation_line_id")
+  serviceStartAt       DateTime? @map("service_start_at")
+  serviceEndAt         DateTime? @map("service_end_at")
+  quantity             Decimal?  @db.Decimal(14, 2)
+  adults               Int?
+  children             Int?
+  requirementsJson     Json?     @map("requirements_json")
+  quotedAmount         Decimal?  @map("quoted_amount") @db.Decimal(14, 2)
+  agreedAmount         Decimal?  @map("agreed_amount") @db.Decimal(14, 2)
+  currency             String    @default("INR") @db.Char(3)
+  confirmationRef      String?   @map("confirmation_ref")
+  reservationId        String?   @map("reservation_id")
+  reservationType      String?   @map("reservation_type")
+  rateSnapshotJson     Json?     @map("rate_snapshot_json")
+  policySnapshotJson   Json?     @map("policy_snapshot_json")
+  rejectReason         String?   @map("reject_reason") @db.Text
+  notes                String?   @db.Text
+  confirmIdempotencyKey String?  @map("confirm_idempotency_key")
+  createdBy            String?   @map("created_by")
+  updatedBy            String?   @map("updated_by")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  buyerOrganization  Organization @relation("ServiceRequestBuyer", fields: [buyerOrganizationId], references: [id], onDelete: Cascade)
+  sellerOrganization Organization? @relation("ServiceRequestSeller", fields: [sellerOrganizationId], references: [id], onDelete: SetNull)
+  supplier           Supplier?     @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  partnerAsset       PartnerAsset? @relation(fields: [partnerAssetId], references: [id], onDelete: SetNull)
+  trip               Trip?         @relation(fields: [tripId], references: [id], onDelete: SetNull)
+  bookingComponents  BookingComponent[]
+  items              ServiceRequestItem[]
+  stayReservations   StayReservation[]
+  mealReservations   MealReservation[]
+  driverJobs         DriverJob[]
+  commercialDocuments CommercialDocument[]
+  incidents          ServiceIncident[]
+  settlements        PartnerSettlement[]
+  ratings            PartnerRating[]
+
+  @@index([buyerOrganizationId, status])
+  @@index([sellerOrganizationId, status])
+  @@index([tripId])
+  @@index([partnerAssetId])
+  @@index([buyerOrganizationId, confirmIdempotencyKey])
+  @@map("service_requests")
+}
+
+/** Line on a ServiceRequest — links requirement, terms, hold, and fulfilment. */
+model ServiceRequestItem {
+  id                 String    @id @default(cuid())
+  serviceRequestId   String    @map("service_request_id")
+  bookingComponentId String?   @map("booking_component_id")
+  productRef         String?   @map("product_ref")
+  quantity           Decimal   @default(1) @db.Decimal(14, 2)
+  requestedTermsJson Json?     @map("requested_terms_json")
+  offeredTermsJson   Json?     @map("offered_terms_json")
+  /** Only one selected item should fulfil a simple stay requirement. */
+  selected           Boolean   @default(false)
+  status             String    @default("drafted")
+  reservationType    String?   @map("reservation_type")
+  reservationId      String?   @map("reservation_id")
+  rateSnapshotJson   Json?     @map("rate_snapshot_json")
+  policySnapshotJson Json?     @map("policy_snapshot_json")
+  agreedAmount       Decimal?  @map("agreed_amount") @db.Decimal(14, 2)
+  currency           String    @default("INR") @db.Char(3)
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  serviceRequest   ServiceRequest   @relation(fields: [serviceRequestId], references: [id], onDelete: Cascade)
+  bookingComponent BookingComponent? @relation(fields: [bookingComponentId], references: [id], onDelete: SetNull)
+  inventoryHold    InventoryHold?
+
+  @@index([serviceRequestId])
+  @@index([bookingComponentId])
+  @@index([reservationType, reservationId])
+  @@map("service_request_items")
+}
+
+/** Atomic, expiring capacity hold. */
+model InventoryHold {
+  id                         String    @id @default(cuid())
+  organizationId             String    @map("organization_id")
+  resourceType               String    @map("resource_type")
+  resourceId                 String    @map("resource_id")
+  quantity                   Decimal   @default(1) @db.Decimal(14, 2)
+  windowStart                DateTime? @map("window_start")
+  windowEnd                  DateTime? @map("window_end")
+  expiresAt                  DateTime  @map("expires_at")
+  sourceServiceRequestItemId String?   @unique @map("source_service_request_item_id")
+  /** active | confirmed | released | expired */
+  status                     String    @default("active")
+  idempotencyKey             String?   @map("idempotency_key")
+  releasedAt                 DateTime? @map("released_at")
+  createdAt                  DateTime  @default(now()) @map("created_at")
+  updatedAt                  DateTime  @updatedAt @map("updated_at")
+
+  organization             Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  serviceRequestItem       ServiceRequestItem?     @relation(fields: [sourceServiceRequestItemId], references: [id], onDelete: SetNull)
+  mealReservations         MealReservation[]
+  experienceReservations   ExperienceReservation[]
+  rentalReservations       RentalReservation[]
+  driverJobs               DriverJob[]
+
+  @@index([organizationId, idempotencyKey])
+  @@index([organizationId, status, expiresAt])
+  @@index([resourceType, resourceId, status])
+  @@map("inventory_holds")
+}
+
+model CommercialDocument {
+  id                  String    @id @default(cuid())
+  organizationId      String    @map("organization_id")
+  docType             String    @default("invoice") @map("doc_type")
+  direction           String
+  counterpartyPartyId String?   @map("counterparty_party_id")
+  counterpartyOrgId   String?   @map("counterparty_org_id")
+  supplierId          String?   @map("supplier_id")
+  linkedEntityType    String?   @map("linked_entity_type")
+  linkedEntityId      String?   @map("linked_entity_id")
+  tripId              String?   @map("trip_id")
+  serviceRequestId    String?   @map("service_request_id")
+  documentNumber      String?   @map("document_number")
+  label               String
+  amount              Decimal   @db.Decimal(14, 2)
+  taxAmount           Decimal   @default(0) @map("tax_amount") @db.Decimal(14, 2)
+  amountPaid          Decimal   @default(0) @map("amount_paid") @db.Decimal(14, 2)
+  currency            String    @default("INR") @db.Char(3)
+  status              String    @default("open")
+  dueAt               DateTime? @map("due_at")
+  notes               String?   @db.Text
+  /** GST e-invoice / IRN ack payload when provider configured */
+  eInvoiceJson        Json?     @map("e_invoice_json")
+  createdBy           String?   @map("created_by")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  organization   Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  serviceRequest ServiceRequest?         @relation(fields: [serviceRequestId], references: [id], onDelete: SetNull)
+  lines          CommercialDocumentLine[]
+  payments       PaymentRecord[]
+  allocations    PaymentAllocation[]
+  mealInquiries  MealInquiry[]
+
+  @@index([organizationId, direction, status])
+  @@index([serviceRequestId])
+  @@map("commercial_documents")
+}
+
+model CommercialDocumentLine {
+  id                   String  @id @default(cuid())
+  commercialDocumentId String  @map("commercial_document_id")
+  description          String
+  quantity             Decimal @default(1) @db.Decimal(14, 2)
+  unitAmount           Decimal @map("unit_amount") @db.Decimal(14, 2)
+  taxAmount            Decimal @default(0) @map("tax_amount") @db.Decimal(14, 2)
+
+  document CommercialDocument @relation(fields: [commercialDocumentId], references: [id], onDelete: Cascade)
+
+  @@index([commercialDocumentId])
+  @@map("commercial_document_lines")
+}
+
+model PaymentRecord {
+  id                   String    @id @default(cuid())
+  organizationId       String    @map("organization_id")
+  commercialDocumentId String?   @map("commercial_document_id")
+  direction            String
+  amount               Decimal   @db.Decimal(14, 2)
+  currency             String    @default("INR") @db.Char(3)
+  method               String?
+  reference            String?
+  paidAt               DateTime? @map("paid_at")
+  linkedEntityType     String?   @map("linked_entity_type")
+  linkedEntityId       String?   @map("linked_entity_id")
+  tripId               String?   @map("trip_id")
+  notes                String?   @db.Text
+  createdBy            String?   @map("created_by")
+  createdAt            DateTime  @default(now()) @map("created_at")
+
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  commercialDocument CommercialDocument? @relation(fields: [commercialDocumentId], references: [id], onDelete: SetNull)
+  allocations        PaymentAllocation[]
+
+  @@index([organizationId, createdAt])
+  @@index([commercialDocumentId])
+  @@map("payment_records")
+}
+
+model PaymentAllocation {
+  id                   String   @id @default(cuid())
+  paymentId            String   @map("payment_id")
+  commercialDocumentId String   @map("commercial_document_id")
+  amount               Decimal  @db.Decimal(14, 2)
+  allocatedAt          DateTime @default(now()) @map("allocated_at")
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  payment            PaymentRecord      @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  commercialDocument CommercialDocument @relation(fields: [commercialDocumentId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId])
+  @@index([commercialDocumentId])
+  @@map("payment_allocations")
+}
+
+model Conversation {
+  id                String    @id @default(cuid())
+  organizationId    String    @map("organization_id")
+  subject           String
+  status            String    @default("open")
+  linkedEntityType  String?   @map("linked_entity_type")
+  linkedEntityId    String?   @map("linked_entity_id")
+  counterpartyOrgId String?   @map("counterparty_org_id")
+  partyId           String?   @map("party_id")
+  assignedUserId    String?   @map("assigned_user_id")
+  createdBy         String?   @map("created_by")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  party        Party?               @relation(fields: [partyId], references: [id], onDelete: SetNull)
+  messages     ConversationMessage[]
+
+  @@index([organizationId, status])
+  @@index([linkedEntityType, linkedEntityId])
+  @@map("conversations")
+}
+
+model ConversationMessage {
+  id             String   @id @default(cuid())
+  conversationId String   @map("conversation_id")
+  body           String   @db.Text
+  visibility     String   @default("internal")
+  authorUserId   String?  @map("author_user_id")
+  attachmentsJson Json?   @map("attachments_json")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@map("conversation_messages")
+}
+
+model BusinessTimelineEvent {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  eventType      String   @map("event_type")
+  entityType     String   @map("entity_type")
+  entityId       String   @map("entity_id")
+  summary        String
+  payloadJson    Json?    @map("payload_json")
+  actorUserId    String?  @map("actor_user_id")
+  occurredAt     DateTime @default(now()) @map("occurred_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, occurredAt])
+  @@index([entityType, entityId])
+  @@map("business_timeline_events")
+}
+
+model SupplierContract {
+  id                 String    @id @default(cuid())
+  organizationId     String    @map("organization_id")
+  supplierId         String    @map("supplier_id")
+  title              String
+  status             String    @default("draft")
+  effectiveFrom      DateTime? @map("effective_from") @db.Date
+  effectiveUntil     DateTime? @map("effective_until") @db.Date
+  creditLimit        Decimal?  @map("credit_limit") @db.Decimal(14, 2)
+  paymentTerms       String?   @map("payment_terms")
+  cancellationTerms  String?   @map("cancellation_terms") @db.Text
+  commissionPercent  Decimal?  @map("commission_percent") @db.Decimal(5, 2)
+  preferred          Boolean   @default(false)
+  blackoutJson       Json?     @map("blackout_json")
+  notes              String?   @db.Text
+  createdBy          String?   @map("created_by")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+  deletedAt          DateTime? @map("deleted_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  supplier     Supplier     @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, supplierId])
+  @@index([organizationId, status])
+  @@map("supplier_contracts")
+}
+
+model TripChangeCase {
+  id                String    @id @default(cuid())
+  organizationId    String    @map("organization_id")
+  tripId            String    @map("trip_id")
+  changeType        String    @map("change_type")
+  summary           String
+  status            String    @default("requested")
+  impactJson        Json?     @map("impact_json")
+  additionalAmount  Decimal?  @map("additional_amount") @db.Decimal(14, 2)
+  currency          String    @default("INR") @db.Char(3)
+  resolutionNote    String?   @map("resolution_note") @db.Text
+  createdBy         String?   @map("created_by")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  trip         Trip         @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  @@index([tripId, status])
+  @@index([organizationId])
+  @@map("trip_change_cases")
+}
+
+model CancellationCase {
+  id                      String    @id @default(cuid())
+  organizationId          String    @map("organization_id")
+  tripId                  String?   @map("trip_id")
+  scope                   String
+  requestedBy             String?   @map("requested_by")
+  reason                  String?
+  affectedEntitiesJson    Json?     @map("affected_entities_json")
+  applicablePolicySnapshotJson Json? @map("applicable_policy_snapshot_json")
+  calculatedCharges       Decimal?  @map("calculated_charges") @db.Decimal(14, 2)
+  expectedRefund          Decimal?  @map("expected_refund") @db.Decimal(14, 2)
+  supplierPenalty         Decimal?  @map("supplier_penalty") @db.Decimal(14, 2)
+  currency                String    @default("INR") @db.Char(3)
+  /** draft | awaiting_approval | approved | applying | applied | partially_applied | failed | rejected */
+  approvalStatus          String    @default("draft") @map("approval_status")
+  executionStatus         String    @default("pending") @map("execution_status")
+  evaluationJson          Json?     @map("evaluation_json")
+  idempotencyKey          String?   @map("idempotency_key")
+  createdBy               String?   @map("created_by")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  trip         Trip?        @relation(fields: [tripId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, executionStatus])
+  @@index([tripId])
+  @@index([organizationId, idempotencyKey])
+  @@map("cancellation_cases")
+}
+
+model DataQualityIssue {
+  id             String    @id @default(cuid())
+  organizationId String    @map("organization_id")
+  ruleCode       String    @map("rule_code")
+  entityType     String    @map("entity_type")
+  entityId       String    @map("entity_id")
+  severity       String    @default("warn")
+  state          String    @default("open")
+  message        String?   @db.Text
+  detectedAt     DateTime  @default(now()) @map("detected_at")
+  resolvedAt     DateTime? @map("resolved_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, state])
+  @@index([entityType, entityId])
+  @@index([ruleCode, state])
+  @@map("data_quality_issues")
+}
+
+model ServiceIncident {
+  id                  String    @id @default(cuid())
+  organizationId      String    @map("organization_id")
+  tripId              String?   @map("trip_id")
+  serviceRequestId    String?   @map("service_request_id")
+  supplierId          String?   @map("supplier_id")
+  severity            String    @default("medium")
+  category            String
+  title               String
+  description         String?   @db.Text
+  status              String    @default("open")
+  reportedBy          String?   @map("reported_by")
+  assignedUserId      String?   @map("assigned_user_id")
+  travellerImpact     String?   @map("traveller_impact") @db.Text
+  resolution          String?   @db.Text
+  compensationAmount  Decimal?  @map("compensation_amount") @db.Decimal(14, 2)
+  currency            String    @default("INR") @db.Char(3)
+  createdBy           String?   @map("created_by")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  trip           Trip?          @relation(fields: [tripId], references: [id], onDelete: SetNull)
+  serviceRequest ServiceRequest? @relation(fields: [serviceRequestId], references: [id], onDelete: SetNull)
+  supplier       Supplier?      @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status])
+  @@index([tripId])
+  @@map("service_incidents")
+}
+
+model TripClosure {
+  id                  String   @id @default(cuid())
+  tripId              String   @unique @map("trip_id")
+  organizationId      String   @map("organization_id")
+  reconciliationNote  String?  @map("reconciliation_note") @db.Text
+  suppliersSettled    Boolean  @default(false) @map("suppliers_settled")
+  feedbackRequested   Boolean  @default(false) @map("feedback_requested")
+  closeReason         String?  @map("close_reason")
+  closedBy            String?  @map("closed_by")
+  closedAt            DateTime @default(now()) @map("closed_at")
+
+  trip Trip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("trip_closures")
+}
+
+model AssetBuilding {
+  id         String   @id @default(cuid())
+  assetId    String   @map("asset_id")
+  name       String
+  floorsHint Int?     @map("floors_hint")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  asset  PartnerAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  floors AssetFloor[]
+  units  AssetRoomUnit[]
+
+  @@index([assetId])
+  @@map("asset_buildings")
+}
+
+model AssetFloor {
+  id         String   @id @default(cuid())
+  buildingId String   @map("building_id")
+  name       String
+  level      Int      @default(0)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  building AssetBuilding   @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  units    AssetRoomUnit[]
+
+  @@index([buildingId])
+  @@map("asset_floors")
+}
+
+model HousekeepingTask {
+  id             String    @id @default(cuid())
+  assetId        String    @map("asset_id")
+  roomUnitId     String    @map("room_unit_id")
+  status         String    @default("pending")
+  priority       String    @default("normal")
+  checklistJson  Json?     @map("checklist_json")
+  assignedUserId String?   @map("assigned_user_id")
+  dueAt          DateTime? @map("due_at")
+  notes          String?   @db.Text
+  startedAt      DateTime? @map("started_at")
+  completedAt    DateTime? @map("completed_at")
+  inspectedAt    DateTime? @map("inspected_at")
+  inspectedByUserId String? @map("inspected_by_user_id")
+  reopenedReason String?   @map("reopened_reason") @db.Text
+  createdBy      String?   @map("created_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  asset    PartnerAsset  @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  roomUnit AssetRoomUnit @relation(fields: [roomUnitId], references: [id], onDelete: Cascade)
+
+  @@index([assetId, status])
+  @@index([roomUnitId])
+  @@map("housekeeping_tasks")
+}
+
+model MaintenanceWorkOrder {
+  id             String    @id @default(cuid())
+  assetId        String    @map("asset_id")
+  roomUnitId     String?   @map("room_unit_id")
+  title          String
+  description    String?   @db.Text
+  status         String    @default("open")
+  priority       String    @default("normal")
+  assignedTo     String?   @map("assigned_to")
+  estimatedCost  Decimal?  @map("estimated_cost") @db.Decimal(14, 2)
+  actualCost     Decimal?  @map("actual_cost") @db.Decimal(14, 2)
+  blockInventory Boolean   @default(false) @map("block_inventory")
+  resolution     String?   @db.Text
+  category       String?
+  vendorName     String?   @map("vendor_name")
+  downtimeFrom   DateTime? @map("downtime_from")
+  downtimeTo     DateTime? @map("downtime_to")
+  partsJson      Json?     @map("parts_json")
+  recurring      Boolean   @default(false)
+  createdBy      String?   @map("created_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  asset    PartnerAsset   @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  roomUnit AssetRoomUnit? @relation(fields: [roomUnitId], references: [id], onDelete: SetNull)
+
+  @@index([assetId, status])
+  @@map("maintenance_work_orders")
+}
+
+/** End-of-day close-out for a stay property's front office (Independent OS Phase 1). */
+model PropertyDayClose {
+  id                     String    @id @default(cuid())
+  assetId                String    @map("asset_id")
+  businessDate           DateTime  @map("business_date") @db.Date
+  postedRoomCharges      Int       @default(0) @map("posted_room_charges")
+  noShowsMarked          Int       @default(0) @map("no_shows_marked")
+  unresolvedArrivalsJson Json?     @map("unresolved_arrivals_json")
+  unpaidDeparturesJson   Json?     @map("unpaid_departures_json")
+  summaryJson            Json?     @map("summary_json")
+  closedBy               String?   @map("closed_by")
+  createdAt              DateTime  @default(now()) @map("created_at")
+
+  asset PartnerAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([assetId, businessDate])
+  @@map("property_day_closes")
+}
+
+/** Durable log of workflow steps that failed mid-execution and need retry/compensation. */
+model WorkflowRecoveryItem {
+  id                   String    @id @default(cuid())
+  organizationId       String    @map("organization_id")
+  workflowType         String    @map("workflow_type")
+  failedStep           String    @map("failed_step")
+  affectedEntitiesJson Json?     @map("affected_entities_json")
+  lastError            String?   @map("last_error") @db.Text
+  retryEligible        Boolean   @default(true) @map("retry_eligible")
+  compensationJson     Json?     @map("compensation_json")
+  /** open | retrying | resolved | dead */
+  status               String    @default("open")
+  assignedUserId       String?   @map("assigned_user_id")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status])
+  @@map("workflow_recovery_items")
+}
+
+model FolioCharge {
+  id                   String   @id @default(cuid())
+  stayReservationId    String?  @map("stay_reservation_id")
+  mealReservationId    String?  @map("meal_reservation_id")
+  rentalReservationId  String?  @map("rental_reservation_id")
+  tableSessionId       String?  @map("table_session_id")
+  description          String
+  category             String   @default("other")
+  amount               Decimal  @db.Decimal(14, 2)
+  taxAmount            Decimal  @default(0) @map("tax_amount") @db.Decimal(14, 2)
+  currency             String   @default("INR") @db.Char(3)
+  createdBy            String?  @map("created_by")
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  stayReservation   StayReservation?   @relation(fields: [stayReservationId], references: [id], onDelete: Cascade)
+  mealReservation   MealReservation?   @relation(fields: [mealReservationId], references: [id], onDelete: Cascade)
+  rentalReservation RentalReservation? @relation(fields: [rentalReservationId], references: [id], onDelete: Cascade)
+  tableSession      TableSession?      @relation(fields: [tableSessionId], references: [id], onDelete: Cascade)
+
+  @@index([stayReservationId])
+  @@index([mealReservationId])
+  @@index([rentalReservationId])
+  @@index([tableSessionId])
+  @@map("folio_charges")
+}
+
+/** Group/event dining inquiry for Restaurant OS (independent of agency Inquiry). */
+model MealInquiry {
+  id                 String    @id @default(cuid())
+  assetId            String    @map("asset_id")
+  partyId            String?   @map("party_id")
+  contactName        String    @map("contact_name")
+  contactPhone       String?   @map("contact_phone")
+  contactEmail       String?   @map("contact_email")
+  guestCount         Int       @map("guest_count")
+  preferredServiceAt DateTime? @map("preferred_service_at")
+  mealPackageId      String?   @map("meal_package_id")
+  /** open | quoted | converted | closed | cancelled */
+  status             String    @default("open")
+  quotedAmount       Decimal?  @map("quoted_amount") @db.Decimal(14, 2)
+  currency           String    @default("INR") @db.Char(3)
+  commercialDocumentId String? @map("commercial_document_id")
+  notes              String?   @db.Text
+  createdBy          String?   @map("created_by")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  asset              PartnerAsset       @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  party              Party?             @relation(fields: [partyId], references: [id], onDelete: SetNull)
+  mealPackage        MealPackage?       @relation(fields: [mealPackageId], references: [id], onDelete: SetNull)
+  commercialDocument CommercialDocument? @relation(fields: [commercialDocumentId], references: [id], onDelete: SetNull)
+  reservations       MealReservation[]
+
+  @@index([assetId, status])
+  @@index([partyId])
+  @@map("meal_inquiries")
+}
+
+model ExperienceProduct {
+  id                  String    @id @default(cuid())
+  assetId             String    @map("asset_id")
+  title               String
+  category            String?
+  durationMinutes     Int?      @map("duration_minutes")
+  capacity            Int?
+  ageMin              Int?      @map("age_min")
+  ageMax              Int?      @map("age_max")
+  seasonalJson        Json?     @map("seasonal_json")
+  safetyJson          Json?     @map("safety_json")
+  price               Decimal?  @db.Decimal(14, 2)
+  currency            String    @default("INR") @db.Char(3)
+  instructorRequired  Boolean   @default(false) @map("instructor_required")
+  weatherDependent    Boolean   @default(false) @map("weather_dependent")
+  description         String?   @db.Text
+  isActive            Boolean   @default(true) @map("is_active")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+  deletedAt           DateTime? @map("deleted_at")
+
+  asset        PartnerAsset            @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  slots        ExperienceSlot[]
+  reservations ExperienceReservation[]
+
+  @@index([assetId, isActive])
+  @@map("experience_products")
+}
+
+model ExperienceSlot {
+  id                  String   @id @default(cuid())
+  experienceProductId String   @map("experience_product_id")
+  startAt             DateTime @map("start_at")
+  endAt               DateTime @map("end_at")
+  capacity            Int
+  reserved            Int      @default(0)
+  held                Int      @default(0)
+  status              String   @default("available")
+
+  experienceProduct ExperienceProduct       @relation(fields: [experienceProductId], references: [id], onDelete: Cascade)
+  reservations      ExperienceReservation[]
+
+  @@index([experienceProductId, startAt])
+  @@map("experience_slots")
+}
+
+/** Booked seats on an experience slot (Farmstay / Experience OS 1.0). */
+model ExperienceReservation {
+  id                   String    @id @default(cuid())
+  assetId              String    @map("asset_id")
+  experienceProductId  String    @map("experience_product_id")
+  experienceSlotId     String    @map("experience_slot_id")
+  inventoryHoldId      String?   @map("inventory_hold_id")
+  partyId              String?   @map("party_id")
+  bookerName           String    @map("booker_name")
+  bookerPhone          String?   @map("booker_phone")
+  guestCount           Int       @map("guest_count")
+  /** requested | held | confirmed | checked_in | completed | cancelled | no_show */
+  status               String    @default("requested")
+  rateAmount           Decimal?  @map("rate_amount") @db.Decimal(14, 2)
+  currency             String    @default("INR") @db.Char(3)
+  notes                String?   @db.Text
+  /** Booker-level waiver acknowledgement (A-XP-04). */
+  waiverAckAt          DateTime? @map("waiver_ack_at")
+  waiverTextSnapshot   String?   @map("waiver_text_snapshot") @db.Text
+  createdBy            String?   @map("created_by")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  asset             PartnerAsset            @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  experienceProduct ExperienceProduct       @relation(fields: [experienceProductId], references: [id], onDelete: Cascade)
+  experienceSlot    ExperienceSlot          @relation(fields: [experienceSlotId], references: [id], onDelete: Cascade)
+  inventoryHold     InventoryHold?          @relation(fields: [inventoryHoldId], references: [id], onDelete: SetNull)
+  party             Party?                  @relation(fields: [partyId], references: [id], onDelete: SetNull)
+  participants      ExperienceParticipant[]
+
+  @@index([assetId, status])
+  @@index([experienceSlotId])
+  @@index([partyId])
+  @@map("experience_reservations")
+}
+
+model ExperienceParticipant {
+  id                      String    @id @default(cuid())
+  experienceReservationId String    @map("experience_reservation_id")
+  fullName                String    @map("full_name")
+  age                     Int?
+  attended                Boolean   @default(false)
+  attendedAt              DateTime? @map("attended_at")
+  waiverAckAt             DateTime? @map("waiver_ack_at")
+  notes                   String?   @db.Text
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+
+  reservation ExperienceReservation @relation(fields: [experienceReservationId], references: [id], onDelete: Cascade)
+
+  @@index([experienceReservationId])
+  @@map("experience_participants")
+}
+
+model MealPackage {
+  id                 String    @id @default(cuid())
+  assetId            String    @map("asset_id")
+  name               String
+  mealType           String    @map("meal_type")
+  pricePerPerson     Decimal   @map("price_per_person") @db.Decimal(14, 2)
+  currency           String    @default("INR") @db.Char(3)
+  minGuests          Int?      @map("min_guests")
+  maxGuests          Int?      @map("max_guests")
+  advanceNoticeHours Int?      @map("advance_notice_hours")
+  serviceWindow      String?   @map("service_window")
+  itemsIncludedJson  Json?     @map("items_included_json")
+  dietaryOptionsJson Json?     @map("dietary_options_json")
+  description        String?   @db.Text
+  isActive           Boolean   @default(true) @map("is_active")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+  deletedAt          DateTime? @map("deleted_at")
+
+  asset        PartnerAsset      @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  reservations MealReservation[]
+  inquiries    MealInquiry[]
+
+  @@index([assetId, isActive])
+  @@map("meal_packages")
+}
+
+model DiningCapacity {
+  id            String   @id @default(cuid())
+  assetId       String   @map("asset_id")
+  serviceDate   DateTime @map("service_date") @db.Date
+  slotStart     DateTime @map("slot_start")
+  slotEnd       DateTime @map("slot_end")
+  totalCapacity Int      @map("total_capacity")
+  reserved      Int      @default(0)
+  held          Int      @default(0)
+  zone          String?
+  stopSell      Boolean  @default(false) @map("stop_sell")
+
+  asset        PartnerAsset      @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  reservations MealReservation[]
+
+  @@index([assetId, serviceDate])
+  @@map("dining_capacities")
+}
+
+model MealReservation {
+  id                 String    @id @default(cuid())
+  assetId            String    @map("asset_id")
+  mealPackageId      String?   @map("meal_package_id")
+  diningCapacityId   String?   @map("dining_capacity_id")
+  inventoryHoldId    String?   @map("inventory_hold_id")
+  mealInquiryId      String?   @map("meal_inquiry_id")
+  serviceRequestId   String?   @map("service_request_id")
+  partyId            String?   @map("party_id")
+  serviceAt          DateTime  @map("service_at")
+  guestCount         Int       @map("guest_count")
+  guestName          String    @map("guest_name")
+  status             String    @default("requested")
+  preparationStatus  String    @default("pending") @map("preparation_status")
+  source             String    @default("manual")
+  dietaryJson        Json?     @map("dietary_json")
+  rateAmount         Decimal?  @map("rate_amount") @db.Decimal(14, 2)
+  amountPaid         Decimal   @default(0) @map("amount_paid") @db.Decimal(14, 2)
+  currency           String    @default("INR") @db.Char(3)
+  rateSnapshotJson   Json?     @map("rate_snapshot_json")
+  policySnapshotJson Json?     @map("policy_snapshot_json")
+  notes              String?   @db.Text
+  createdBy          String?   @map("created_by")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  asset            PartnerAsset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  mealPackage      MealPackage?    @relation(fields: [mealPackageId], references: [id], onDelete: SetNull)
+  diningCapacity   DiningCapacity? @relation(fields: [diningCapacityId], references: [id], onDelete: SetNull)
+  inventoryHold    InventoryHold?  @relation(fields: [inventoryHoldId], references: [id], onDelete: SetNull)
+  mealInquiry      MealInquiry?    @relation(fields: [mealInquiryId], references: [id], onDelete: SetNull)
+  serviceRequest   ServiceRequest? @relation(fields: [serviceRequestId], references: [id], onDelete: SetNull)
+  party            Party?          @relation(fields: [partyId], references: [id], onDelete: SetNull)
+  folioCharges     FolioCharge[]
+
+  @@index([assetId, status])
+  @@index([assetId, serviceAt])
+  @@index([serviceRequestId])
+  @@index([partyId])
+  @@index([mealInquiryId])
+  @@map("meal_reservations")
+}
+
+model NegotiatedRate {
+  id               String    @id @default(cuid())
+  relationshipId   String    @map("relationship_id")
+  buyerOrganizationId String @map("buyer_organization_id")
+  serviceType      String    @map("service_type")
+  partnerAssetId   String?   @map("partner_asset_id")
+  productRef       String?   @map("product_ref")
+  amount           Decimal   @db.Decimal(14, 2)
+  currency         String    @default("INR") @db.Char(3)
+  effectiveFrom    DateTime? @map("effective_from") @db.Date
+  effectiveUntil   DateTime? @map("effective_until") @db.Date
+  notes            String?   @db.Text
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  relationship      OrgRelationship @relation(fields: [relationshipId], references: [id], onDelete: Cascade)
+  buyerOrganization Organization    @relation("NegotiatedRateBuyer", fields: [buyerOrganizationId], references: [id], onDelete: Cascade)
+
+  @@index([relationshipId])
+  @@index([buyerOrganizationId, serviceType])
+  @@map("negotiated_rates")
+}
+
+model PartnerSettlement {
+  id                 String   @id @default(cuid())
+  organizationId     String   @map("organization_id")
+  counterpartyOrgId  String   @map("counterparty_org_id")
+  serviceRequestId   String?  @map("service_request_id")
+  amount             Decimal  @db.Decimal(14, 2)
+  commissionAmount   Decimal  @default(0) @map("commission_amount") @db.Decimal(14, 2)
+  currency           String   @default("INR") @db.Char(3)
+  status             String   @default("open")
+  notes              String?  @db.Text
+  createdBy          String?  @map("created_by")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  serviceRequest ServiceRequest? @relation(fields: [serviceRequestId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status])
+  @@map("partner_settlements")
+}
+
+model PartnerRating {
+  id                   String   @id @default(cuid())
+  fromOrganizationId   String   @map("from_organization_id")
+  targetOrganizationId String   @map("target_organization_id")
+  serviceRequestId     String?  @map("service_request_id")
+  score                Int
+  note                 String?  @db.Text
+  createdBy            String?  @map("created_by")
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  fromOrganization   Organization    @relation("PartnerRatingFrom", fields: [fromOrganizationId], references: [id], onDelete: Cascade)
+  targetOrganization Organization    @relation("PartnerRatingTo", fields: [targetOrganizationId], references: [id], onDelete: Cascade)
+  serviceRequest     ServiceRequest? @relation(fields: [serviceRequestId], references: [id], onDelete: SetNull)
+
+  @@index([targetOrganizationId])
+  @@index([fromOrganizationId])
+  @@map("partner_ratings")
+}
+
+// ——— QR Guest Services (Phase 1) ———
+
+/** Place a guest can scan (table, room, zone). Token in QR is opaque publicToken. */
+model ServiceLocation {
+  id             String    @id @default(cuid())
+  organizationId String    @map("organization_id")
+  assetId        String    @map("asset_id")
+  /** RESTAURANT_TABLE | HOTEL_ROOM | HOMESTAY_ROOM | FARMSTAY_UNIT | DINING_ZONE | EVENT_AREA */
+  locationType   String    @map("location_type")
+  /** Optional link to AssetRoomUnit.id or free-form external key */
+  locationRef    String?   @map("location_ref")
+  label          String
+  publicToken    String    @unique @map("public_token")
+  /** active | disabled */
+  status         String    @default("active")
+  lastScannedAt  DateTime? @map("last_scanned_at")
+  createdBy      String?   @map("created_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  asset        PartnerAsset  @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  tableSessions TableSession[]
+  serviceOrders ServiceOrder[]
+  guestServiceRequests GuestServiceRequest[]
+  guestQrFeedbacks GuestQrFeedback[]
+
+  @@index([organizationId, assetId])
+  @@index([assetId, status])
+  @@map("service_locations")
+}
+
+/** A la carte / room-service catalogue item (not MealPackage). */
+model ServiceOffering {
+  id             String    @id @default(cuid())
+  organizationId String    @map("organization_id")
+  assetId        String    @map("asset_id")
+  name           String
+  description    String?   @db.Text
+  category       String    @default("other")
+  /** food | beverage | laundry | housekeeping | transport | maintenance | other */
+  kind           String    @default("food")
+  unitPrice      Decimal   @map("unit_price") @db.Decimal(14, 2)
+  taxPercent     Decimal   @default(0) @map("tax_percent") @db.Decimal(5, 2)
+  currency       String    @default("INR") @db.Char(3)
+  dietaryLabels  Json?     @map("dietary_labels")
+  imageUrl       String?   @map("image_url")
+  sortOrder      Int       @default(0) @map("sort_order")
+  isActive       Boolean   @default(true) @map("is_active")
+  stopSell       Boolean   @default(false) @map("stop_sell")
+  maxQuantity    Int?      @map("max_quantity")
+  /** Minutes; advisory for guest UI */
+  prepMinutes    Int?      @map("prep_minutes")
+  /** Optional HH:mm window when available (null = always during accepting-hours) */
+  availableFrom  String?   @map("available_from") @db.VarChar(5)
+  availableUntil String?   @map("available_until") @db.VarChar(5)
+  /** [{ id, name, minSelect, maxSelect, options: [{ id, name, priceDelta }] }] */
+  modifiersJson  Json?     @map("modifiers_json")
+  createdBy      String?   @map("created_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  asset        PartnerAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  orderItems   ServiceOrderItem[]
+  ratings      ServiceOfferingRating[]
+
+  @@index([organizationId, assetId, isActive])
+  @@index([assetId, category])
+  @@map("service_offerings")
+}
+
+/** Guest-submitted star rating for a catalogue dish (real aggregates only). */
+model ServiceOfferingRating {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  assetId        String   @map("asset_id")
+  offeringId     String   @map("offering_id")
+  serviceOrderId String?  @map("service_order_id")
+  stars          Int
+  comment        String?  @db.Text
+  fingerprint    String?  @db.VarChar(64)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  asset        PartnerAsset   @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  offering     ServiceOffering @relation(fields: [offeringId], references: [id], onDelete: Cascade)
+
+  @@unique([offeringId, serviceOrderId])
+  @@index([assetId, offeringId])
+  @@index([organizationId, createdAt])
+  @@map("service_offering_ratings")
+}
+
+/** Post-meal / post-stay QR companion feedback. */
+model GuestQrFeedback {
+  id                String   @id @default(cuid())
+  organizationId    String   @map("organization_id")
+  assetId           String   @map("asset_id")
+  serviceLocationId String   @map("service_location_id")
+  tableSessionId    String?  @map("table_session_id")
+  stayReservationId String?  @map("stay_reservation_id")
+  /** 0–10 NPS */
+  nps               Int
+  /** 1–5 overall stars */
+  stars             Int?
+  tagsJson          Json?    @map("tags_json")
+  comment           String?  @db.Text
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  asset           PartnerAsset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  serviceLocation ServiceLocation @relation(fields: [serviceLocationId], references: [id], onDelete: Cascade)
+
+  @@index([assetId, createdAt])
+  @@index([organizationId, createdAt])
+  @@map("guest_qr_feedbacks")
+}
+
+/** Open dining cover for a restaurant table QR. */
+model TableSession {
+  id             String    @id @default(cuid())
+  organizationId String    @map("organization_id")
+  assetId        String    @map("asset_id")
+  serviceLocationId String @map("service_location_id")
+  guestCount     Int       @default(1) @map("guest_count")
+  /** open | bill_requested | billed | paid | closed */
+  status         String    @default("open")
+  amountPaid     Decimal   @default(0) @map("amount_paid") @db.Decimal(14, 2)
+  currency       String    @default("INR") @db.Char(3)
+  openedBy       String?   @map("opened_by")
+  openedAt       DateTime  @default(now()) @map("opened_at")
+  closedAt       DateTime? @map("closed_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  asset           PartnerAsset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  serviceLocation ServiceLocation @relation(fields: [serviceLocationId], references: [id], onDelete: Cascade)
+  serviceOrders   ServiceOrder[]
+  folioCharges    FolioCharge[]
+
+  @@index([assetId, status])
+  @@index([serviceLocationId, status])
+  @@map("table_sessions")
+}
+
+model ServiceOrder {
+  id                String    @id @default(cuid())
+  organizationId    String    @map("organization_id")
+  assetId           String    @map("asset_id")
+  serviceLocationId String    @map("service_location_id")
+  tableSessionId    String?   @map("table_session_id")
+  stayReservationId String?   @map("stay_reservation_id")
+  /** QR | STAFF | PHONE | GUEST_PORTAL */
+  sourceType        String    @default("QR") @map("source_type")
+  /** draft | placed | accepted | preparing | ready | out_for_delivery | served | completed | rejected | cancelled */
+  status            String    @default("placed")
+  currency          String    @default("INR") @db.Char(3)
+  subtotal          Decimal   @db.Decimal(14, 2)
+  taxTotal          Decimal   @default(0) @map("tax_total") @db.Decimal(14, 2)
+  total             Decimal   @db.Decimal(14, 2)
+  customerNote      String?   @map("customer_note") @db.Text
+  idempotencyKey    String?   @map("idempotency_key")
+  folioPostedAt     DateTime? @map("folio_posted_at")
+  placedAt          DateTime  @default(now()) @map("placed_at")
+  acceptedAt        DateTime? @map("accepted_at")
+  completedAt       DateTime? @map("completed_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  asset           PartnerAsset     @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  serviceLocation ServiceLocation  @relation(fields: [serviceLocationId], references: [id], onDelete: Cascade)
+  tableSession    TableSession?     @relation(fields: [tableSessionId], references: [id], onDelete: SetNull)
+  stayReservation StayReservation? @relation(fields: [stayReservationId], references: [id], onDelete: SetNull)
+  items           ServiceOrderItem[]
+
+  @@unique([organizationId, idempotencyKey])
+  @@index([assetId, status])
+  @@index([serviceLocationId, placedAt])
+  @@index([tableSessionId])
+  @@index([stayReservationId])
+  @@map("service_orders")
+}
+
+model ServiceOrderItem {
+  id              String  @id @default(cuid())
+  orderId         String  @map("order_id")
+  offeringId      String? @map("offering_id")
+  nameSnapshot    String  @map("name_snapshot")
+  quantity        Int     @default(1)
+  unitPriceSnapshot Decimal @map("unit_price_snapshot") @db.Decimal(14, 2)
+  taxSnapshot     Decimal @default(0) @map("tax_snapshot") @db.Decimal(14, 2)
+  lineTotal       Decimal @map("line_total") @db.Decimal(14, 2)
+  instructions    String? @db.Text
+  /** Snapshotted modifier picks [{ groupId, optionId, name, priceDelta }] */
+  modifiersSnapshotJson Json? @map("modifiers_snapshot_json")
+  /** placed | accepted | preparing | ready | served | cancelled */
+  status          String  @default("placed")
+
+  order    ServiceOrder     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  offering ServiceOffering? @relation(fields: [offeringId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@map("service_order_items")
+}
+
+/** Non-food guest request from QR UI (towels, maintenance…). */
+model GuestServiceRequest {
+  id                String    @id @default(cuid())
+  organizationId    String    @map("organization_id")
+  assetId           String    @map("asset_id")
+  serviceLocationId String    @map("service_location_id")
+  stayReservationId String?   @map("stay_reservation_id")
+  /** housekeeping | laundry | maintenance | front_desk | transport | other */
+  category          String    @default("housekeeping")
+  title             String
+  notes             String?   @db.Text
+  /** requested | accepted | in_progress | done | cancelled */
+  status            String    @default("requested")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  completedAt       DateTime? @map("completed_at")
+
+  organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  asset           PartnerAsset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  serviceLocation ServiceLocation @relation(fields: [serviceLocationId], references: [id], onDelete: Cascade)
+
+  @@index([assetId, status])
+  @@map("guest_service_requests")
+}
+

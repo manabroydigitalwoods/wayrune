@@ -1,0 +1,29 @@
+{
+  "name": "@travel/worker",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "tsc-watch -p tsconfig.json --onSuccess \"node dist/main.js\"",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/main.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "echo ok",
+    "test": "echo no-tests"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.1.0",
+    "@travel/config": "workspace:*",
+    "@travel/observability": "workspace:*",
+    "bullmq": "^5.34.5",
+    "ioredis": "^5.4.2",
+    "nodemailer": "^9.0.3",
+    "pino": "^9.6.0"
+  },
+  "devDependencies": {
+    "@types/nodemailer": "^8.0.1",
+    "pino-pretty": "^13.0.0",
+    "tsc-watch": "^6.3.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

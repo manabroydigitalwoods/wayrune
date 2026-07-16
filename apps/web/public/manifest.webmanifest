@@ -1,0 +1,17 @@
+{
+  "name": "CodePoetry Travel",
+  "short_name": "Travel ERP",
+  "description": "Travel agency and partner OS — driver, stay, restaurant, and care.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f766e",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

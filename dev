@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")"
+export PATH="/opt/homebrew/opt/redis/bin:/opt/homebrew/opt/mysql@8.4/bin:${PATH:-}"
+
+ENV_NAME="${APP_ENV:-local}"
+if [[ "${1:-}" == "--env" ]]; then
+  ENV_NAME="${2:?missing env name}"
+  shift 2
+fi
+
+case "$ENV_NAME" in
+  local|dev|prod) ;;
+  *)
+    echo "APP_ENV must be local, dev, or prod"
+    exit 1
+    ;;
+esac
+
+export APP_ENV="$ENV_NAME"
+exec ./scripts/with-env.sh "$ENV_NAME" ./scripts/pnpm.sh dev "$@"

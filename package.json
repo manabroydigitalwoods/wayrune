@@ -1,0 +1,38 @@
+{
+  "name": "travel-agency-erp",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "dev": "APP_ENV=local turbo run dev --parallel --log-prefix=none",
+    "dev:local": "APP_ENV=local turbo run dev --parallel --log-prefix=none",
+    "dev:dev": "APP_ENV=dev turbo run dev --parallel --log-prefix=none",
+    "build": "APP_ENV=${APP_ENV:-prod} turbo run build",
+    "build:dev": "APP_ENV=dev turbo run build",
+    "build:prod": "APP_ENV=prod turbo run build",
+    "start:api": "APP_ENV=${APP_ENV:-prod} pnpm --filter @travel/api start",
+    "start:worker": "APP_ENV=${APP_ENV:-prod} pnpm --filter @travel/worker start",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "APP_ENV=local turbo run test",
+    "test:integration": "APP_ENV=local turbo run test:integration",
+    "db:generate": "prisma generate --schema=prisma/schema.prisma",
+    "db:migrate": "prisma migrate dev --schema=prisma/schema.prisma",
+    "db:migrate:deploy": "prisma migrate deploy --schema=prisma/schema.prisma",
+    "db:seed": "node --import tsx prisma/seed/seed.ts",
+    "db:studio": "prisma studio --schema=prisma/schema.prisma"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^22.10.2",
+    "prettier": "^3.4.2",
+    "prisma": "^6.1.0",
+    "tsx": "^4.19.2",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.1.0",
+    "@travel/config": "workspace:*",
+    "bcryptjs": "^2.4.3"
+  }
+}

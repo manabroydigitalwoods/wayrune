@@ -1,0 +1,177 @@
+const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) || '/api/v1';
+
+/** In-flight GET promises — coalesces React Strict Mode double-mounts and parallel identical reads. */
+const inflightGets = new Map<string, Promise<unknown>>();
+
+let refreshPromise: Promise<boolean> | null = null;
+
+export type ApiInit = RequestInit & {
+  /** When false, skip in-flight GET deduplication (default true for GET). */
+  dedupe?: boolean;
+  /** Skip 401 → refresh → retry (used by refresh/login itself). */
+  skipAuthRefresh?: boolean;
+};
+
+/** @deprecated Tokens live in httpOnly cookies; no-op kept for call-site compatibility. */
+export function setToken(_token: string | null) {
+  /* intentionally empty */
+}
+
+async function tryRefreshSession(): Promise<boolean> {
+  if (refreshPromise) return refreshPromise;
+  refreshPromise = (async () => {
+    try {
+      const res = await fetch(`${API_BASE}/auth/refresh`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      return res.ok;
+    } catch {
+      return false;
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+  return refreshPromise;
+}
+
+export async function api<T>(path: string, init: ApiInit = {}): Promise<T> {
+  const { dedupe = true, skipAuthRefresh = false, ...requestInit } = init;
+  const method = (requestInit.method ?? 'GET').toUpperCase();
+  const shouldDedupe = dedupe && method === 'GET' && !requestInit.body;
+  const dedupeKey = shouldDedupe ? `${method}:${path}` : null;
+
+  if (method !== 'GET') inflightGets.clear();
+
+  if (dedupeKey) {
+    const existing = inflightGets.get(dedupeKey);
+    if (existing) return existing as Promise<T>;
+  }
+
+  const request = (async (): Promise<T> => {
+    const headers = new Headers(requestInit.headers);
+    if (!headers.has('Content-Type') && requestInit.body) {
+      headers.set('Content-Type', 'application/json');
+    }
+
+    const doFetch = () =>
+      fetch(`${API_BASE}${path}`, {
+        ...requestInit,
+        headers,
+        credentials: 'include',
+      });
+
+    let res = await doFetch();
+
+    if (
+      res.status === 401 &&
+      !skipAuthRefresh &&
+      path !== '/auth/refresh' &&
+      path !== '/auth/login' &&
+      path !== '/auth/register' &&
+      path !== '/auth/logout'
+    ) {
+      const refreshed = await tryRefreshSession();
+      if (refreshed) {
+        res = await doFetch();
+      }
+    }
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      const msg =
+        (typeof body.message === 'string' && body.message) ||
+        (Array.isArray(body.message) && body.message[0]) ||
+        body.detail ||
+        res.statusText;
+      throw Object.assign(new Error(msg), { status: res.status, body });
+    }
+    if (res.status === 204) return undefined as T;
+    return res.json();
+  })();
+
+  if (dedupeKey) {
+    inflightGets.set(dedupeKey, request);
+    void request.finally(() => {
+      if (inflightGets.get(dedupeKey) === request) inflightGets.delete(dedupeKey);
+    });
+  }
+
+  return request;
+}
+
+/** Multipart upload (do not set Content-Type — browser sets boundary). */
+export async function apiUpload<T>(
+  path: string,
+  formData: FormData,
+  init: Omit<ApiInit, 'body'> = {},
+): Promise<T> {
+  const { dedupe: _d, skipAuthRefresh = false, ...requestInit } = init;
+  inflightGets.clear();
+
+  const doFetch = () =>
+    fetch(`${API_BASE}${path}`, {
+      ...requestInit,
+      method: requestInit.method ?? 'POST',
+      body: formData,
+      credentials: 'include',
+    });
+
+  let res = await doFetch();
+
+  if (
+    res.status === 401 &&
+    !skipAuthRefresh &&
+    path !== '/auth/refresh' &&
+    path !== '/auth/login' &&
+    path !== '/auth/register' &&
+    path !== '/auth/logout'
+  ) {
+    const refreshed = await tryRefreshSession();
+    if (refreshed) res = await doFetch();
+  }
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw Object.assign(new Error(body.detail || res.statusText), { status: res.status, body });
+  }
+  if (res.status === 204) return undefined as T;
+  return res.json();
+}
+
+/** Binary download (PDF / files) with cookie auth + refresh. */
+export async function apiBlob(path: string, init: ApiInit = {}): Promise<Blob> {
+  const { dedupe: _d, skipAuthRefresh = false, ...requestInit } = init;
+  inflightGets.clear();
+
+  const doFetch = () =>
+    fetch(`${API_BASE}${path}`, {
+      ...requestInit,
+      credentials: 'include',
+    });
+
+  let res = await doFetch();
+
+  if (
+    res.status === 401 &&
+    !skipAuthRefresh &&
+    path !== '/auth/refresh' &&
+    path !== '/auth/login' &&
+    path !== '/auth/register' &&
+    path !== '/auth/logout'
+  ) {
+    const refreshed = await tryRefreshSession();
+    if (refreshed) res = await doFetch();
+  }
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw Object.assign(new Error(body.detail || body.message || res.statusText), {
+      status: res.status,
+      body,
+    });
+  }
+  return res.blob();
+}
