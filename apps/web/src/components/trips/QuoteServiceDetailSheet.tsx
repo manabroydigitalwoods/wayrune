@@ -36,6 +36,7 @@ import {
   priceSourceLabel,
   pricingUnitForServiceType,
   quantityFromServiceDetails,
+  rateBlockReasonMessage,
   rateMatchFingerprint,
   resolvePayloadFromQuoteDetails,
   shouldAutoRematchRate,
@@ -78,6 +79,7 @@ export type QuoteServiceDetailLine = {
   rateKind?: 'hotel' | 'transfer';
   rateId?: string;
   rateUnmatched?: boolean;
+  rateBlockReason?: 'blackout' | 'stop_sell';
   details?: QuoteServiceDetails;
 };
 
@@ -992,7 +994,7 @@ export function QuoteServiceDetailSheet({
       return;
     }
     setMatching(true);
-    const noMatchMessage =
+    const defaultNoMatch =
       serviceType === 'transfer'
         ? 'No active transport rate found for this route, vehicle and date.'
         : 'No active matching rate found for these dates and meal plan.';
@@ -1008,7 +1010,7 @@ export function QuoteServiceDetailSheet({
       });
       const hit = res.items[0];
       if (!hit) {
-        toastError(noMatchMessage);
+        toastError(defaultNoMatch);
         return;
       }
 
@@ -1034,6 +1036,9 @@ export function QuoteServiceDetailSheet({
       setStaleBuyUnit(null);
 
       if (!hit.matched) {
+        const noMatchMessage = appliedForced.rateBlockReason
+          ? rateBlockReasonMessage(appliedForced.rateBlockReason)
+          : defaultNoMatch;
         setLastMatchFailure(noMatchMessage);
         onSave({
           id: line.id,
@@ -1047,6 +1052,7 @@ export function QuoteServiceDetailSheet({
           rateKind: appliedForced.rateKind,
           rateId: undefined,
           rateUnmatched: true,
+          rateBlockReason: appliedForced.rateBlockReason,
         });
         toastError(noMatchMessage);
         return;
@@ -1079,6 +1085,7 @@ export function QuoteServiceDetailSheet({
         rateKind: appliedForced.rateKind,
         rateId: appliedForced.rateId,
         rateUnmatched: false,
+        rateBlockReason: undefined,
       });
       if (matchedDescription) setDescription(matchedDescription);
       if (appliedForced.unitSell != null) setUnitSell(String(appliedForced.unitSell));

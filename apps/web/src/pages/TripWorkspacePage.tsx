@@ -93,6 +93,8 @@ import {
   quoteServiceDetailsSummary,
   resolvePayloadFromQuoteDetails,
   applyRateResolveHit,
+  rateBlockReasonLabel,
+  rateBlockReasonMessage,
   type QuoteServiceDetails,
 } from '../lib/quoteServiceDetails';
 import {
@@ -257,6 +259,8 @@ type QuoteLine = {
   rateId?: string;
   /** True when hotel/transfer had no matching rate card. */
   rateUnmatched?: boolean;
+  /** Why resolve blocked the match (blackout / stop-sell). */
+  rateBlockReason?: 'blackout' | 'stop_sell';
   details?: QuoteServiceDetails;
   includedMeta?: {
     at: string;
@@ -314,6 +318,10 @@ function quoteLinesFromVersion(version: {
           : undefined,
       rateId: typeof item.rateId === 'string' ? item.rateId : undefined,
       rateUnmatched: unmatched,
+      rateBlockReason:
+        item.rateBlockReason === 'blackout' || item.rateBlockReason === 'stop_sell'
+          ? item.rateBlockReason
+          : undefined,
       details: parseQuoteServiceDetails(item.details),
       includedMeta:
         item.includedMeta && typeof item.includedMeta === 'object'
@@ -370,6 +378,7 @@ function serializeQuoteLine(item: QuoteLine) {
     ...(item.rateKind ? { rateKind: item.rateKind } : {}),
     ...(item.rateId ? { rateId: item.rateId } : {}),
     ...(item.rateUnmatched ? { rateUnmatched: true } : {}),
+    ...(item.rateBlockReason ? { rateBlockReason: item.rateBlockReason } : {}),
     ...(item.details ? { details: item.details } : {}),
     ...(item.includedMeta ? { includedMeta: item.includedMeta } : {}),
     ...(item.marginOverride?.reason?.trim()
@@ -2036,6 +2045,7 @@ export function TripWorkspacePage() {
             rateKind: applied.rateKind || line.rateKind,
             rateId: applied.rateId,
             rateUnmatched: applied.rateUnmatched,
+            rateBlockReason: applied.rateBlockReason,
           };
         }),
       );
@@ -2634,6 +2644,17 @@ export function TripWorkspacePage() {
               ) : row.original.details?.priceSource === 'manual' ||
                 row.original.details?.priceSource === 'overridden' ? (
                 <span className="text-[10px] text-muted-foreground">Manual</span>
+              ) : row.original.rateBlockReason ? (
+                <BrandTooltip
+                  label={rateBlockReasonMessage(row.original.rateBlockReason)}
+                  side="top"
+                  align="start"
+                  className="max-w-xs whitespace-normal break-words text-left font-normal leading-snug"
+                >
+                  <span className="text-[10px] text-amber-700 dark:text-amber-400">
+                    {rateBlockReasonLabel(row.original.rateBlockReason)}
+                  </span>
+                </BrandTooltip>
               ) : row.original.rateUnmatched ? (
                 <span className="text-[10px] text-amber-700 dark:text-amber-400">No rate</span>
               ) : null}
@@ -3333,6 +3354,12 @@ export function TripWorkspacePage() {
                         {quoteItems.filter((l) => l.rateUnmatched).length} service
                         {quoteItems.filter((l) => l.rateUnmatched).length === 1 ? '' : 's'} with no
                         rate-card match
+                        {quoteItems.some((l) => l.rateBlockReason === 'blackout')
+                          ? ` · ${quoteItems.filter((l) => l.rateBlockReason === 'blackout').length} blackout`
+                          : ''}
+                        {quoteItems.some((l) => l.rateBlockReason === 'stop_sell')
+                          ? ` · ${quoteItems.filter((l) => l.rateBlockReason === 'stop_sell').length} stop-sell`
+                          : ''}
                       </li>
                     ) : null}
                   </ul>

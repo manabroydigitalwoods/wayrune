@@ -1143,6 +1143,31 @@ export type RateResolveHit = {
   rateMeta?: Record<string, unknown> | null;
 };
 
+export type RateBlockReason = 'blackout' | 'stop_sell';
+
+export function rateBlockReasonFromMeta(
+  meta?: Record<string, unknown> | null,
+): RateBlockReason | undefined {
+  const reason = meta?.blockReason;
+  return reason === 'blackout' || reason === 'stop_sell' ? reason : undefined;
+}
+
+export function rateBlockReasonLabel(reason?: RateBlockReason | null): string | undefined {
+  if (reason === 'blackout') return 'Blackout';
+  if (reason === 'stop_sell') return 'Stop-sell';
+  return undefined;
+}
+
+export function rateBlockReasonMessage(reason?: RateBlockReason | null): string {
+  if (reason === 'blackout') {
+    return 'Supplier contract blackout covers these dates — adjust dates or clear the blackout on the contract.';
+  }
+  if (reason === 'stop_sell') {
+    return 'Stop-sell is active on the linked property for these dates.';
+  }
+  return 'No matching rate for these dates';
+}
+
 /**
  * Apply a `/rates/resolve` hit onto quote line pricing.
  * Preserves prior sell when `details.sellManual` is set (unless `forceSell` is true).
@@ -1162,6 +1187,7 @@ export function applyRateResolveHit(opts: {
   taxPercent: number;
   rateId: string | undefined;
   rateUnmatched: boolean;
+  rateBlockReason?: RateBlockReason;
   rateKind: 'hotel' | 'transfer' | undefined;
   pricingUnit?: string;
 } {
@@ -1174,6 +1200,7 @@ export function applyRateResolveHit(opts: {
   const baseDetails = opts.details || {};
   const markupPercent = opts.defaultMarkupPercent ?? 20;
   const meta = opts.hit.rateMeta || {};
+  const blockReason = rateBlockReasonFromMeta(meta);
 
   if (!opts.hit.matched || !serviceType) {
     return {
@@ -1191,6 +1218,7 @@ export function applyRateResolveHit(opts: {
       taxPercent: opts.hit.taxPercent ?? 0,
       rateId: undefined,
       rateUnmatched: true,
+      rateBlockReason: blockReason,
       rateKind: serviceType,
     };
   }
@@ -1261,6 +1289,7 @@ export function applyRateResolveHit(opts: {
     taxPercent: opts.hit.taxPercent ?? 0,
     rateId: opts.hit.rateId || undefined,
     rateUnmatched: false,
+    rateBlockReason: undefined,
     rateKind: serviceType,
     pricingUnit: opts.hit.pricingUnit || undefined,
   };

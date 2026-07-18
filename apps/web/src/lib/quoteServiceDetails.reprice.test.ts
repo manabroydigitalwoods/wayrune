@@ -117,4 +117,23 @@ describe('applyRateResolveHit', () => {
     expect(applied.unitCost).toBeNull();
     expect(applied.details.priceSource).toBe('none');
   });
+
+  it('surfaces blackout / stop-sell block reasons from rateMeta', () => {
+    const blocked = applyRateResolveHit({
+      serviceType: 'hotel',
+      details: { placeId: 'p1', nights: 2 },
+      hit: {
+        matched: false,
+        rateKind: 'hotel',
+        rateId: null,
+        unitCost: 0,
+        unitSell: 0,
+        quantity: 1,
+        taxPercent: 5,
+        rateMeta: { blockReason: 'blackout' },
+      },
+    });
+    expect(blocked.rateUnmatched).toBe(true);
+    expect(blocked.rateBlockReason).toBe('blackout');
+  });
 });

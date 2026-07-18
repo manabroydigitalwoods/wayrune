@@ -534,6 +534,21 @@ export const CreateSupplierContractSchema = z.object({
   notes: z.preprocess(blankToNull, z.string().nullable()).optional(),
 });
 
+export const UpdateSupplierContractSchema = z.object({
+  title: RequiredText('Contract title').optional(),
+  status: z.enum(['draft', 'active', 'expired', 'terminated']).optional(),
+  effectiveFrom: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  effectiveUntil: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  creditLimit: z.number().nonnegative().nullable().optional(),
+  paymentTerms: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  cancellationTerms: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  commissionPercent: z.number().min(0).max(100).nullable().optional(),
+  preferred: z.boolean().optional(),
+  /** Pass [] to clear blackouts. */
+  blackoutJson: z.array(ContractBlackoutRangeSchema).optional(),
+  notes: z.preprocess(blankToNull, z.string().nullable()).optional(),
+});
+
 export const CreateTripChangeCaseSchema = z.object({
   tripId: z.string().min(1),
   changeType: z.enum([

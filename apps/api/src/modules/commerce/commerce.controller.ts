@@ -26,6 +26,7 @@ import {
   CreateServiceRequestItemSchema,
   CreateServiceRequestSchema,
   CreateSupplierContractSchema,
+  UpdateSupplierContractSchema,
   CreateTripChangeCaseSchema,
   ImportNegotiatedRateCsvSchema,
   NegotiateServiceRequestSchema,
@@ -254,6 +255,20 @@ export class CommerceController {
       user.organizationId,
       user.sub,
       CreateSupplierContractSchema.parse(body),
+    );
+  }
+
+  @Patch('supplier-contracts/:id')
+  @RequirePermissions('ops.write')
+  updateContract(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    return this.commerce.updateSupplierContract(
+      user.organizationId,
+      id,
+      UpdateSupplierContractSchema.parse(body),
     );
   }
 

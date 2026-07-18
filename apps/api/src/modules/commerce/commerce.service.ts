@@ -32,6 +32,7 @@ import type {
   CreateServiceRequestItemSchema,
   CreateServiceRequestSchema,
   CreateSupplierContractSchema,
+  UpdateSupplierContractSchema,
   CreateTripChangeCaseSchema,
   ImportNegotiatedRateCsvSchema,
   NegotiateServiceRequestSchema,
@@ -880,6 +881,47 @@ export class CommerceService {
         notes: input.notes ?? null,
         createdBy: userId,
       },
+    });
+  }
+
+  async updateSupplierContract(
+    organizationId: string,
+    contractId: string,
+    input: z.infer<typeof UpdateSupplierContractSchema>,
+  ) {
+    const existing = await this.prisma.supplierContract.findFirst({
+      where: { id: contractId, organizationId, deletedAt: null },
+    });
+    if (!existing) throw new NotFoundException('Contract not found');
+
+    return this.prisma.supplierContract.update({
+      where: { id: contractId },
+      data: {
+        ...(input.title !== undefined ? { title: input.title } : {}),
+        ...(input.status !== undefined ? { status: input.status } : {}),
+        ...(input.effectiveFrom !== undefined
+          ? { effectiveFrom: input.effectiveFrom ? new Date(input.effectiveFrom) : null }
+          : {}),
+        ...(input.effectiveUntil !== undefined
+          ? {
+              effectiveUntil: input.effectiveUntil ? new Date(input.effectiveUntil) : null,
+            }
+          : {}),
+        ...(input.creditLimit !== undefined ? { creditLimit: input.creditLimit } : {}),
+        ...(input.paymentTerms !== undefined ? { paymentTerms: input.paymentTerms } : {}),
+        ...(input.cancellationTerms !== undefined
+          ? { cancellationTerms: input.cancellationTerms }
+          : {}),
+        ...(input.commissionPercent !== undefined
+          ? { commissionPercent: input.commissionPercent }
+          : {}),
+        ...(input.preferred !== undefined ? { preferred: input.preferred } : {}),
+        ...(input.blackoutJson !== undefined
+          ? { blackoutJson: input.blackoutJson as Prisma.InputJsonValue }
+          : {}),
+        ...(input.notes !== undefined ? { notes: input.notes } : {}),
+      },
+      include: { supplier: { select: { id: true, name: true, type: true } } },
     });
   }
 
