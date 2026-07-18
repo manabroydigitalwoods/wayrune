@@ -79,6 +79,7 @@ import {
 export type ItineraryItemDetails = {
   nights?: number;
   roomType?: string;
+  mealPlan?: string;
   stars?: number;
   amenities?: string[];
   checkIn?: string;
