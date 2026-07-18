@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Link2 } from 'lucide-react';
-import { Button, Card, CardContent, Combobox, PageHeader, StatusBadge, toastError, toastSuccess } from '@travel/ui';
+import { Button, Card, CardContent, Combobox, PageHeader, StatusBadge, toastError, toastSuccess } from '@wayrune/ui';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';

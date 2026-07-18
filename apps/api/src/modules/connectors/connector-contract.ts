@@ -1,4 +1,4 @@
-import { CONNECTOR_CAPABILITIES, type ConnectorCapabilities } from '@travel/contracts';
+import { CONNECTOR_CAPABILITIES, type ConnectorCapabilities } from '@wayrune/contracts';
 
 /**
  * Connector contract: every inbound adapter must Normalize → Interaction → Conversation.

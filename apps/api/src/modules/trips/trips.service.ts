@@ -1,11 +1,11 @@
 import { Prisma } from '@prisma/client';
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { buildAbility, hasPermission } from '@travel/auth';
+import { buildAbility, hasPermission } from '@wayrune/auth';
 import type {
   CreateTravellerSchema,
   CreateTripInput,
   UpdateTripDestinationsInput,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import { z } from 'zod';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -182,7 +182,7 @@ export class TripsService {
     const trip = await this.prisma.trip.findFirst({
       where: { id, organizationId: user.organizationId, deletedAt: null },
       include: {
-        organization: { select: { currency: true } },
+        organization: { select: { currency: true, settingsJson: true, kind: true } },
         party: true,
         inquiry: true,
         travellers: { include: { traveller: true } },

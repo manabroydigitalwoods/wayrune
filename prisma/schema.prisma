@@ -24,6 +24,7 @@ model User {
   assignedTasks    Task[]                   @relation("TaskAssignee")
   notifications    Notification[]
   auditEvents      AuditEvent[]             @relation("AuditActor")
+  presenceCatalogReviews PresenceCatalogReview[]
 
   @@map("users")
 }
@@ -32,6 +33,12 @@ model Organization {
   id             String   @id @default(cuid())
   name           String
   slug           String   @unique
+  /** Human-friendly public id (invoices, widget, ingest URLs). Starts at 10001. */
+  publicCode     Int      @unique @map("public_code")
+  /** Host label → {subdomain}.{SITE_BASE_DOMAIN} */
+  subdomain      String?  @unique
+  /** Optional custom apex/www domain (verification/TLS later). */
+  customDomain   String?  @unique @map("custom_domain")
   kind           String   @default("travel_agency") // travel_agency | platform | hotel | homestay | farmstay | car_rental | driver | restaurant | dmc | other
   timezone       String   @default("Asia/Kolkata")
   currency       String   @default("INR") @db.Char(3)
@@ -104,6 +111,18 @@ model Organization {
   whatsappTemplates      WhatsAppTemplate[]
   customFieldDefinitions CustomFieldDefinition[]
   engagementAutomationRules EngagementAutomationRule[]
+  googleConnections      GoogleConnection[]
+  presenceSites          PresenceSite[]
+  presenceFormDefinitions PresenceFormDefinition[]
+  presenceChatWidgets    PresenceChatWidget[]
+  presenceThemes         PresenceTheme[]
+  presenceModuleDefinitions PresenceModuleDefinition[]
+  presenceAssetVersions  PresenceAssetVersion[]
+  presenceMarketplaceListings PresenceMarketplaceListing[]
+  presenceSiteTemplates  PresenceSiteTemplate[]
+  presencePageTemplates  PresencePageTemplate[]
+  presenceAnalyticsEvents PresenceAnalyticsEvent[]
+  presenceCatalogReviews PresenceCatalogReview[]
 
   @@index([kind])
   @@map("organizations")
@@ -787,6 +806,10 @@ model Document {
   mimeType       String    @map("mime_type")
   sizeBytes      Int       @map("size_bytes")
   storageKey     String    @map("storage_key")
+  /** local | drive — Drive-backed when Google file storage is enabled. */
+  storageProvider String   @default("local") @map("storage_provider")
+  driveFileId    String?   @map("drive_file_id")
+  driveWebViewLink String? @map("drive_web_view_link") @db.Text
   visibility     String    @default("internal") // internal | customer | restricted
   status         String    @default("active") // draft | active | superseded | archived
   createdBy      String?   @map("created_by")
@@ -1335,6 +1358,41 @@ model Activity {
 
   @@index([organizationId, leadId])
   @@map("activities")
+}
+
+/**
+ * Org-scoped Google Workspace / Business connection (CodePoetry platform OAuth app).
+ * Refresh tokens encrypted at rest — never paste Meta-style tokens for Google.
+ */
+model GoogleConnection {
+  id                   String    @id @default(cuid())
+  organizationId       String    @map("organization_id")
+  connectedByUserId    String?   @map("connected_by_user_id")
+  googleAccountEmail   String?   @map("google_account_email")
+  /** AES-GCM ciphertext of the refresh token. */
+  refreshTokenEnc      String    @map("refresh_token_enc") @db.Text
+  scopesJson           Json      @map("scopes_json")
+  accessTokenEnc       String?   @map("access_token_enc") @db.Text
+  tokenExpiry          DateTime? @map("token_expiry")
+  /** connected | revoked | error */
+  status               String    @default("connected")
+  /** Selected GBP location resource names / ids. */
+  locationsJson        Json?     @map("locations_json")
+  calendarId           String?   @map("calendar_id")
+  driveRootFolderId    String?   @map("drive_root_folder_id")
+  /** When true, new uploads are also stored in the agency Drive folder. */
+  useDriveAsFileStorage Boolean  @default(false) @map("use_drive_as_file_storage")
+  syncFollowUpsToCalendar Boolean @default(true) @map("sync_follow_ups_to_calendar")
+  lastSyncAt           DateTime? @map("last_sync_at")
+  lastError            String?   @map("last_error") @db.Text
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId])
+  @@index([status])
+  @@map("google_connections")
 }
 
 /**
@@ -3183,5 +3241,483 @@ model GuestServiceRequest {
 
   @@index([assetId, status])
   @@map("guest_service_requests")
+}
+
+// ─── Digital Presence Platform ───────────────────────────────────────────────
+
+/** Curated typography stacks for theme tokens (Display / Body dropdowns). */
+model PresenceFont {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  label     String
+  /** CSS font-family stack stored on theme tokens */
+  stack     String
+  /** display | body | both */
+  role      String   @default("both")
+  /** google | system */
+  source    String   @default("google")
+  sortOrder Int      @default(0) @map("sort_order")
+  isActive  Boolean  @default(true) @map("is_active")
+  isSystem  Boolean  @default(true) @map("is_system")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([isActive, sortOrder])
+  @@map("presence_fonts")
+}
+
+model PresenceTheme {
+  id           String   @id @default(cuid())
+  key          String
+  name         String
+  previewUrl   String?  @map("preview_url")
+  /** Platform theme when organizationId is null. */
+  organizationId String? @map("organization_id")
+  isSystem     Boolean  @default(true) @map("is_system")
+  /** draft | published | archived */
+  status       String   @default("published")
+  tokensJson   Json     @map("tokens_json")
+  tokensSchemaJson Json? @map("tokens_schema_json")
+  schemaJson   Json?    @map("schema_json")
+  layoutJson   Json?    @map("layout_json")
+  regionsJson  Json?    @map("regions_json")
+  previewAssetsJson Json? @map("preview_assets_json")
+  /** AI suggestion hints (orgKinds, moods, useCases, priority, …). */
+  suggestJson  Json?    @map("suggest_json")
+  /** WordPress-style child theme: inherit from parent then override. */
+  parentThemeId String? @map("parent_theme_id")
+  /** legacy_json | v1 (file package) */
+  packageFormat String  @default("legacy_json") @map("package_format")
+  /** Storage prefix / root key for extracted package files. */
+  packageRootKey String? @map("package_root_key")
+  /** Copy of theme.json when packageFormat = v1. */
+  manifestJson Json?    @map("manifest_json")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  parentTheme  PresenceTheme?  @relation("PresenceThemeChildren", fields: [parentThemeId], references: [id], onDelete: SetNull)
+  childThemes  PresenceTheme[] @relation("PresenceThemeChildren")
+  sites PresenceSite[]
+
+  @@unique([organizationId, key])
+  @@index([organizationId, status])
+  @@index([parentThemeId])
+  @@map("presence_themes")
+}
+
+model PresenceSite {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  themeId        String   @map("theme_id")
+  templateId     String?  @map("template_id")
+  homePageId     String?  @unique @map("home_page_id")
+  primaryDomain  String?  @unique @map("primary_domain")
+  /** Platform subdomain label for non-primary sites (`{slug}.{publicCode}.base`). */
+  platformSlug   String?  @unique @map("platform_slug")
+  name           String
+  /** marketing | landing */
+  kind           String   @default("marketing")
+  /** draft | published */
+  status         String   @default("draft")
+  isPrimary      Boolean  @default(false) @map("is_primary")
+  settingsJson   Json?    @map("settings_json")
+  /** AI suggestion hints stamped on create (orgKinds, siteKinds, …). */
+  suggestJson    Json?    @map("suggest_json")
+  navigationJson Json?    @map("navigation_json")
+  /** Named menus (primary, footer, …). See PresenceMenusJsonSchema. */
+  menusJson      Json?    @map("menus_json")
+  /** Theme location key → menu key. See PresenceMenuAssignmentsSchema. */
+  menuAssignmentsJson Json? @map("menu_assignments_json")
+  globalRegionsJson Json? @map("global_regions_json")
+  publishedSnapshotJson Json? @map("published_snapshot_json")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  theme        PresenceTheme     @relation(fields: [themeId], references: [id])
+  template     PresenceSiteTemplate? @relation(fields: [templateId], references: [id])
+  pages        PresencePage[]
+  homePage     PresencePage?     @relation("PresenceSiteHomePage", fields: [homePageId], references: [id], onDelete: SetNull)
+  publishVersions PresencePublishVersion[]
+  globalSections  PresenceGlobalSection[]
+  collections     PresenceCollection[]
+  analyticsEvents PresenceAnalyticsEvent[]
+
+  @@index([organizationId, status])
+  @@index([organizationId, primaryDomain])
+  @@map("presence_sites")
+}
+
+/** Immutable snapshot of a site publish (rollback history). */
+model PresencePublishVersion {
+  id              String   @id @default(cuid())
+  siteId          String   @map("site_id")
+  version         Int
+  label           String?
+  snapshotJson    Json     @map("snapshot_json")
+  createdByUserId String?  @map("created_by_user_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  site PresenceSite @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@unique([siteId, version])
+  @@index([siteId, createdAt])
+  @@map("presence_publish_versions")
+}
+
+/** Site-wide chrome slots (announcement, header, footer, cookie, sticky CTA). */
+model PresenceGlobalSection {
+  id                 String   @id @default(cuid())
+  siteId             String   @map("site_id")
+  /** announcement | header | footer | cookie | sticky_cta */
+  slotKey            String   @map("slot_key")
+  name               String
+  moduleDefinitionId String?  @map("module_definition_id")
+  type               String   @default("rich_text")
+  propsJson          Json     @map("props_json")
+  enabled            Boolean  @default(true)
+  position           Int      @default(0)
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  site PresenceSite @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@unique([siteId, slotKey])
+  @@index([siteId, enabled])
+  @@map("presence_global_sections")
+}
+
+model PresencePage {
+  id          String    @id @default(cuid())
+  siteId      String    @map("site_id")
+  templateId  String?   @map("template_id")
+  path        String    @default("/")
+  title       String
+  layoutKey   String?   @map("layout_key")
+  /** flow | freeform */
+  layoutMode  String    @default("flow") @map("layout_mode")
+  seoJson     Json?     @map("seo_json")
+  draftJson   Json?     @map("draft_json")
+  /** AI hints for the page (typically pageRoles from path). */
+  suggestJson Json?     @map("suggest_json")
+  publishedSnapshotJson Json? @map("published_snapshot_json")
+  /** draft | published */
+  status      String    @default("draft")
+  publishedAt DateTime? @map("published_at")
+  /** Optional content schedule (engine filters by ctx.now). */
+  publishAt   DateTime? @map("publish_at")
+  unpublishAt DateTime? @map("unpublish_at")
+  position    Int       @default(0)
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  site     PresenceSite      @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  template PresencePageTemplate? @relation(fields: [templateId], references: [id])
+  sections PresenceSection[]
+  siteHome PresenceSite? @relation("PresenceSiteHomePage")
+
+  @@unique([siteId, path])
+  @@index([siteId, status])
+  @@map("presence_pages")
+}
+
+model PresenceSection {
+  id        String   @id @default(cuid())
+  pageId    String   @map("page_id")
+  parentId  String?  @map("parent_id")
+  slotKey   String?  @map("slot_key")
+  moduleDefinitionId String? @map("module_definition_id")
+  /** hero | rich_text | gallery | faq | form | widget_cta | testimonials | cta */
+  type      String
+  propsJson Json     @map("props_json")
+  position  Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  page PresencePage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  parent PresenceSection? @relation("PresenceSectionChildren", fields: [parentId], references: [id], onDelete: Cascade)
+  children PresenceSection[] @relation("PresenceSectionChildren")
+  moduleDefinition PresenceModuleDefinition? @relation(fields: [moduleDefinitionId], references: [id], onDelete: SetNull)
+
+  @@index([pageId, position])
+  @@index([parentId, position])
+  @@map("presence_sections")
+}
+
+model PresenceModuleDefinition {
+  id             String   @id @default(cuid())
+  key            String
+  name           String
+  category       String
+  rendererKey    String   @map("renderer_key")
+  organizationId String?  @map("organization_id")
+  isSystem       Boolean  @default(false) @map("is_system")
+  /** draft | published | archived */
+  status         String   @default("published")
+  schemaJson     Json?    @map("schema_json")
+  defaultPropsJson Json   @map("default_props_json")
+  previewJson    Json?    @map("preview_json")
+  assetsJson     Json?    @map("assets_json")
+  styleSchemaJson Json?   @map("style_schema_json")
+  defaultStyleJson Json?  @map("default_style_json")
+  /** Design variations for this component (shared rendererKey; pick via props.variant). */
+  variantsJson   Json?    @map("variants_json")
+  /** AI suggestion hints (orgKinds, pageRoles, useCases, priority, …). */
+  suggestJson    Json?    @map("suggest_json")
+  /** Liquid template source for rendererKey=liquid */
+  templateSource String?  @map("template_source") @db.Text
+  /** JS module source for rendererKey=js_module */
+  moduleSource   String?  @map("module_source") @db.Text
+  publishedVersionId String? @map("published_version_id")
+  installedFromListingId String? @map("installed_from_listing_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sections     PresenceSection[]
+
+  @@unique([organizationId, key])
+  @@index([category, status])
+  @@map("presence_module_definitions")
+}
+
+/**
+ * Marketplace-style rating for a theme or component (module definition).
+ * One review per user per org per catalog target.
+ */
+model PresenceCatalogReview {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  userId         String   @map("user_id")
+  /** theme | module */
+  targetType     String   @map("target_type")
+  targetId       String   @map("target_id")
+  rating         Int
+  body           String?  @db.Text
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId, targetType, targetId], map: "presence_catalog_reviews_org_user_target_key")
+  @@index([targetType, targetId, createdAt])
+  @@index([organizationId, createdAt])
+  @@map("presence_catalog_reviews")
+}
+
+model PresenceSiteTemplate {
+  id             String   @id @default(cuid())
+  key            String
+  name           String
+  category       String   @default("marketing")
+  organizationId String?  @map("organization_id")
+  isSystem       Boolean  @default(false) @map("is_system")
+  /** draft | published | archived */
+  status         String   @default("published")
+  description    String? 
+  previewUrl     String?  @map("preview_url")
+  recommendedThemeKeysJson Json? @map("recommended_theme_keys_json")
+  /** AI suggestion hints for starter ranking. */
+  suggestJson    Json?    @map("suggest_json")
+  structureJson  Json     @map("structure_json")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sites        PresenceSite[]
+
+  @@unique([organizationId, key])
+  @@index([category, status])
+  @@map("presence_site_templates")
+}
+
+model PresencePageTemplate {
+  id             String   @id @default(cuid())
+  key            String
+  name           String
+  category       String   @default("page")
+  organizationId String?  @map("organization_id")
+  isSystem       Boolean  @default(false) @map("is_system")
+  /** draft | published | archived */
+  status         String   @default("published")
+  description    String?
+  previewUrl     String?  @map("preview_url")
+  layoutKey      String?  @map("layout_key")
+  /** AI suggestion hints (typically pageRoles). */
+  suggestJson    Json?    @map("suggest_json")
+  structureJson  Json     @map("structure_json")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pages        PresencePage[]
+
+  @@unique([organizationId, key])
+  @@index([category, status])
+  @@map("presence_page_templates")
+}
+
+model PresenceFormDefinition {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  key            String
+  name           String
+  /** travel_request | honeymoon | table_reservation | room_booking | … */
+  orgKindPreset  String?  @map("org_kind_preset")
+  fieldsJson     Json     @map("fields_json")
+  /** Maps to widget ingest mode / interaction outcome hint */
+  ingestMode     String   @default("contact") @map("ingest_mode")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, key])
+  @@index([organizationId])
+  @@map("presence_form_definitions")
+}
+
+/** Org-owned conversation widgets / chatflows (Presence sites + external embed). */
+model PresenceChatWidget {
+  id              String   @id @default(cuid())
+  organizationId  String   @map("organization_id")
+  key             String
+  name            String
+  publicKey       String   @unique @map("public_key")
+  enabled         Boolean  @default(true)
+  /** Lower = higher priority in chatflows list. */
+  priority        Int      @default(100)
+  brandName       String?  @map("brand_name")
+  primaryColor    String?  @map("primary_color")
+  whatsappNumber  String?  @map("whatsapp_number")
+  defaultGreeting String?  @map("default_greeting") @db.Text
+  /** bottom-right | bottom-left | top-right | top-left */
+  position        String   @default("bottom-right")
+  /** string[] path patterns; empty = all pages (legacy / compiled from targetRules) */
+  includePathsJson Json?   @map("include_paths_json")
+  /** string[]; exclusions win over includes */
+  excludePathsJson Json?   @map("exclude_paths_json")
+  /** HubSpot-style show/hide URL rules. See PresenceChatTargetRulesSchema. */
+  targetRulesJson  Json?   @map("target_rules_json")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, key])
+  @@index([organizationId, enabled])
+  @@index([organizationId, priority])
+  @@map("presence_chat_widgets")
+}
+
+/** Immutable published snapshot of a theme / module / site-template / page-template. */
+model PresenceAssetVersion {
+  id             String   @id @default(cuid())
+  organizationId String?  @map("organization_id")
+  /** theme | module | site_template | page_template */
+  assetType      String   @map("asset_type")
+  assetId        String   @map("asset_id")
+  version        Int
+  /** draft | published | yanked */
+  status         String   @default("draft")
+  changelog      String?
+  snapshotJson   Json     @map("snapshot_json")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  marketplaceListings PresenceMarketplaceListing[]
+
+  @@unique([assetType, assetId, version])
+  @@index([organizationId, assetType, assetId])
+  @@map("presence_asset_versions")
+}
+
+/** Platform marketplace listing pointing at a published asset version. */
+model PresenceMarketplaceListing {
+  id                   String   @id @default(cuid())
+  organizationId       String?  @map("organization_id")
+  sourceAssetVersionId String   @map("source_asset_version_id")
+  key                  String
+  name                 String
+  category             String   @default("general")
+  description          String?
+  /** free | paid (paid reserved) */
+  priceTier            String   @default("free") @map("price_tier")
+  screenshotsJson      Json?    @map("screenshots_json")
+  /** draft | published | archived */
+  status               String   @default("draft")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  organization       Organization?       @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  sourceAssetVersion PresenceAssetVersion @relation(fields: [sourceAssetVersionId], references: [id], onDelete: Cascade)
+
+  @@unique([key])
+  @@index([status, category])
+  @@map("presence_marketplace_listings")
+}
+
+/** CMS collection (blogs, destinations, …) registered as a data source. */
+model PresenceCollection {
+  id                 String   @id @default(cuid())
+  siteId             String   @map("site_id")
+  key                String
+  name               String
+  fieldsJson         Json?    @map("fields_json")
+  /** e.g. /blog */
+  listingPath        String?  @map("listing_path")
+  /** e.g. /blog/:slug */
+  detailPathPattern  String?  @map("detail_path_pattern")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  site    PresenceSite               @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  entries PresenceCollectionEntry[]
+
+  @@unique([siteId, key])
+  @@index([siteId])
+  @@map("presence_collections")
+}
+
+model PresenceCollectionEntry {
+  id           String    @id @default(cuid())
+  collectionId String    @map("collection_id")
+  slug         String
+  title        String
+  dataJson     Json?     @map("data_json")
+  /** draft | published */
+  status       String    @default("draft")
+  publishedAt  DateTime? @map("published_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  collection PresenceCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+
+  @@unique([collectionId, slug])
+  @@index([collectionId, status])
+  @@map("presence_collection_entries")
+}
+
+/** First-party Presence analytics events. */
+model PresenceAnalyticsEvent {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  siteId         String   @map("site_id")
+  eventType      String   @map("event_type")
+  path           String?
+  visitorId      String?  @map("visitor_id")
+  metaJson       Json?    @map("meta_json")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  site         PresenceSite @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@index([siteId, eventType, createdAt])
+  @@index([organizationId, createdAt])
+  @@map("presence_analytics_events")
 }
 

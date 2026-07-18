@@ -1,5 +1,5 @@
 import type { Response } from 'express';
-import { loadEnv } from '@travel/config';
+import { loadEnv } from '@wayrune/config';
 
 export const ACCESS_COOKIE = 'travel_access';
 export const REFRESH_COOKIE = 'travel_refresh';

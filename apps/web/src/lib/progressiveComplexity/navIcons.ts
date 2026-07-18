@@ -11,6 +11,7 @@ import {
   ClipboardList,
   Contact,
   FileText,
+  Globe,
   Inbox,
   IndianRupee,
   LayoutDashboard,
@@ -60,6 +61,7 @@ const NAV_ICONS: Record<string, LucideIcon> = {
   Shield,
   ShieldCheck,
   Plug,
+  Globe,
   Circle,
 };
 

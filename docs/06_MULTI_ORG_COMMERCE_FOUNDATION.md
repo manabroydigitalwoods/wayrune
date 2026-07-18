@@ -6,7 +6,7 @@ Architecture note for Phases 0–6. Complements [00_PRODUCT_BIBLE.md](./00_PRODU
 
 1. Independent Business OS first — network is optional.
 2. One shared vocabulary (Product, Inventory, Reservation, Rate, Party, Policy, Invoice, Document, Message, Incident).
-3. AI later; structure now — see `AI_READY_DATA_RULES` in `@travel/contracts` (`commerce-foundation.ts`).
+3. AI later; structure now — see `AI_READY_DATA_RULES` in `@wayrune/contracts` (`commerce-foundation.ts`).
 4. Evolve existing models (`BookingComponent`, `StayReservation`, `Party`, trip finance) toward generics — no parallel HotelPayment stacks.
 
 ## Canonical contracts

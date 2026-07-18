@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button, Input, toastError, toastSuccess } from '@travel/ui';
+import { Button, Input, toastError, toastSuccess } from '@wayrune/ui';
 import { api } from '../../../api';
 
 type Rule = {

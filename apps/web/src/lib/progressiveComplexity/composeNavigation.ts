@@ -1,4 +1,4 @@
-import { hasAllPermissions, hasAnyPermission } from '@travel/rbac';
+import { hasAllPermissions, hasAnyPermission } from '@wayrune/rbac';
 import type {
   AgencyOrgKind,
   ComposedNavItem,

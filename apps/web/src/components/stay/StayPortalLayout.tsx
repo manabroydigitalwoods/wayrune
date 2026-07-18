@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Combobox } from '@travel/ui';
+import { Combobox } from '@wayrune/ui';
 import { stayTabLabel } from '../../lib/orgKind';
 
 export const STAY_TABS = [

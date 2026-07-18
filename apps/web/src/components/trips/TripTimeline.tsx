@@ -7,7 +7,7 @@ import {
   RefreshCw,
   Wallet,
 } from 'lucide-react';
-import { Card, CardContent, EmptyState, StatusBadge, formatDateTime } from '@travel/ui';
+import { Card, CardContent, EmptyState, StatusBadge, formatDateTime } from '@wayrune/ui';
 import { api } from '../../api';
 import { reportError } from '../../lib/errors';
 

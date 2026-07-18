@@ -1,0 +1,29 @@
+{
+  "name": "presence-promo-banner-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "node ./scripts/build.mjs",
+    "build:preview": "vite build",
+    "validate": "pnpm build && node ../../dist/cli.js validate dist --type component",
+    "pack": "pnpm build && node ../../dist/cli.js pack dist -o out/promo-banner.zip --type component",
+    "deploy": "pnpm build && node ../../dist/cli.js deploy dist --type component",
+    "deploy:dry": "pnpm build && node ../../dist/cli.js deploy dist --type component --dry-run"
+  },
+  "dependencies": {
+    "@wayrune/presence-sdk": "workspace:*",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.0"
+  }
+}

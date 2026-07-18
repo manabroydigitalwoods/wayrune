@@ -1,6 +1,4 @@
 export type IntegrationsSettings = {
-  googleSsoEnabled: boolean;
-  microsoftSsoEnabled: boolean;
   hubspotEnabled: boolean;
   webhookUrl: string;
   whatsapp: {
@@ -48,8 +46,6 @@ export type IntegrationsSettings = {
 };
 
 export const EMPTY_INTEGRATIONS: IntegrationsSettings = {
-  googleSsoEnabled: false,
-  microsoftSsoEnabled: false,
   hubspotEnabled: false,
   webhookUrl: '',
   whatsapp: {
@@ -152,8 +148,6 @@ export function parseIntegrationsSettings(settingsJson: unknown): IntegrationsSe
     { key: 'accessToken', configuredKey: 'accessTokenConfigured' },
   ]);
   return {
-    googleSsoEnabled: bool(integrations.googleSsoEnabled, false),
-    microsoftSsoEnabled: bool(integrations.microsoftSsoEnabled, false),
     hubspotEnabled: bool(integrations.hubspotEnabled, false),
     webhookUrl: str(integrations.webhookUrl),
     whatsapp: {

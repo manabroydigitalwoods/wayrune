@@ -28,7 +28,7 @@ import {
   UpdateAssetRatePlanSchema,
   UpdateAssetRoomUnitSchema,
   UpdateStayReservationSchema,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import {
   CurrentUser,
   RequirePermissions,

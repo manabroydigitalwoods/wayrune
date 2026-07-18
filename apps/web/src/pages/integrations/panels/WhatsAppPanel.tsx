@@ -9,7 +9,7 @@ import {
   StatusBadge,
   toastError,
   toastSuccess,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import { api } from '../../../api';
 import { ToggleRow } from '../ToggleRow';
 import {

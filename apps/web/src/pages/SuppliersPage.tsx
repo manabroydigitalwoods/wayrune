@@ -22,7 +22,7 @@ import {
   SuggestionChips,
   toastError,
   toastSuccess,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import { api } from '../api';
 import { Can } from '../components/Can';
 import { CAP } from '../lib/capabilities';

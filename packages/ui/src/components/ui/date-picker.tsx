@@ -12,22 +12,60 @@ function atLocalNoon(date: Date) {
   return next;
 }
 
+function startOfMonth(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1, 12, 0, 0, 0);
+}
+
 export function DatePicker({
   value,
   onChange,
   placeholder = 'Pick a date',
   disabled,
   className,
+  /**
+   * Month to open on when there is no value, or when the current value falls
+   * outside `preferredRange` (e.g. trip start when service date is off-trip).
+   */
+  preferredMonth,
+  /** Inclusive date window — when `value` is outside, open on `preferredMonth`. */
+  preferredRange,
 }: {
   value?: Date;
   onChange: (date: Date | undefined) => void;
   placeholder?: string;
   disabled?: boolean;
   className?: string;
+  preferredMonth?: Date;
+  preferredRange?: { start?: Date; end?: Date };
 }) {
   const [open, setOpen] = React.useState(false);
   const today = startOfDay(new Date());
   const tomorrow = addDays(today, 1);
+
+  const [month, setMonth] = React.useState<Date>(() =>
+    startOfMonth(value || preferredMonth || today),
+  );
+
+  function isOutsidePreferredRange(date: Date) {
+    if (!preferredRange?.start && !preferredRange?.end) return false;
+    const day = startOfDay(date).getTime();
+    if (preferredRange.start && day < startOfDay(preferredRange.start).getTime()) {
+      return true;
+    }
+    if (preferredRange.end && day > startOfDay(preferredRange.end).getTime()) {
+      return true;
+    }
+    return false;
+  }
+
+  function monthToShowOnOpen() {
+    if (value && !isOutsidePreferredRange(value)) {
+      return startOfMonth(value);
+    }
+    if (preferredMonth) return startOfMonth(preferredMonth);
+    if (value) return startOfMonth(value);
+    return startOfMonth(today);
+  }
 
   function select(date: Date | undefined) {
     onChange(date ? atLocalNoon(date) : undefined);
@@ -35,7 +73,14 @@ export function DatePicker({
   }
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      modal
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (next) setMonth(monthToShowOnOpen());
+      }}
+    >
       <PopoverTrigger asChild>
         <Button
           type="button"
@@ -51,7 +96,11 @@ export function DatePicker({
           <span className="truncate">{value ? format(value, 'PPP') : placeholder}</span>
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-auto space-y-2 p-2" onOpenAutoFocus={(e) => e.preventDefault()}>
+      <PopoverContent
+        align="start"
+        className="w-auto space-y-2 p-2"
+        onOpenAutoFocus={(e) => e.preventDefault()}
+      >
         <div className="flex flex-wrap gap-1.5 px-1 pt-1">
           <Button
             type="button"
@@ -71,6 +120,20 @@ export function DatePicker({
           >
             Tomorrow
           </Button>
+          {preferredMonth ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-7 rounded-full px-2.5 text-xs text-muted-foreground"
+              onClick={() => {
+                setMonth(startOfMonth(preferredMonth));
+                select(preferredMonth);
+              }}
+            >
+              Trip start
+            </Button>
+          ) : null}
           {value ? (
             <Button
               type="button"
@@ -89,7 +152,8 @@ export function DatePicker({
           mode="single"
           selected={value}
           onSelect={select}
-          defaultMonth={value || today}
+          month={month}
+          onMonthChange={setMonth}
         />
       </PopoverContent>
     </Popover>

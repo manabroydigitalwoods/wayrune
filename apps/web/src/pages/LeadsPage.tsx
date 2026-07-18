@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useOrgNavigate } from '../hooks/useOrgNavigate';
 import type { ColumnDef } from '@tanstack/react-table';
 import {
   ArrowUpRight,
@@ -13,7 +14,7 @@ import {
   UserPlus,
   Users,
 } from 'lucide-react';
-import { CreateLeadSchema, parseWithFieldErrors } from '@travel/contracts';
+import { CreateLeadSchema, parseWithFieldErrors } from '@wayrune/contracts';
 import {
   Button,
   DataTable,
@@ -41,7 +42,7 @@ import {
   localStorageKit,
   RecordDialog,
   type PipelineColumnData,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import { api } from '../api';
 import { Can } from '../components/Can';
 import { CAP } from '../lib/capabilities';
@@ -175,7 +176,7 @@ function writeLeadsView(view: 'board' | 'table') {
 export function LeadsPage() {
   const copy = LEADS_PAGE_COPY;
   useDocumentTitle(copy.documentTitle);
-  const navigate = useNavigate();
+  const { navigate } = useOrgNavigate();
   const { hasAny } = usePermissions();
   const canLeadWrite = hasAny(CAP.leadWrite);
   const showNewLead = useCanonicalCreateVisibility('lead');

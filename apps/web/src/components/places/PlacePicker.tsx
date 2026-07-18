@@ -7,7 +7,7 @@ import {
   toastError,
   toastSuccess,
   type ComboboxOption,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import { api } from '../../api';
 import type { PlaceProfile } from '../../lib/placeSnapshot';
 import {

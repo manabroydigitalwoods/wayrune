@@ -1,4 +1,4 @@
-import { Label, Switch } from '@travel/ui';
+import { Label, Switch } from '@wayrune/ui';
 
 export function ToggleRow({
   label,

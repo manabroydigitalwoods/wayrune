@@ -15,7 +15,7 @@ if [[ -z "${ENV_NAME}" || -z "${1:-}" ]]; then
   echo "Usage: ./scripts/with-env.sh <local|dev|prod> <command...>"
   echo "Examples:"
   echo "  ./scripts/with-env.sh local ./scripts/pnpm.sh db:seed"
-  echo "  ./scripts/with-env.sh prod ./scripts/pnpm.sh --filter @travel/api start"
+  echo "  ./scripts/with-env.sh prod ./scripts/pnpm.sh --filter @wayrune/api start"
   exit 1
 fi
 

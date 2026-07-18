@@ -1,0 +1,45 @@
+.trip-highlight {
+  padding: 1.75rem 1.5rem;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--primary, #0d4f4a), #163a38);
+  color: #f7f4ef;
+  font-family: system-ui, sans-serif;
+}
+.trip-highlight .eyebrow {
+  margin: 0 0 0.35rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+.trip-highlight h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.5rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.trip-highlight p {
+  margin: 0 0 1rem;
+  opacity: 0.92;
+  line-height: 1.5;
+}
+.trip-highlight .meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+.trip-highlight .price {
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+.trip-highlight a {
+  display: inline-block;
+  padding: 0.45rem 0.9rem;
+  border-radius: 999px;
+  background: #c45c26;
+  color: #fff;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.9rem;
+}

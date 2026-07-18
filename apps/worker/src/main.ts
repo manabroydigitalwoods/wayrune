@@ -3,11 +3,11 @@ import { join, resolve } from 'path';
 import { PrismaClient } from '@prisma/client';
 import { Worker, Queue } from 'bullmq';
 import nodemailer from 'nodemailer';
-import { bootstrapEnv, findMonorepoRoot, loadEnv } from '@travel/config';
+import { bootstrapEnv, findMonorepoRoot, loadEnv } from '@wayrune/config';
 import {
   createRootLogger,
   runWithLogContextAsync,
-} from '@travel/observability';
+} from '@wayrune/observability';
 
 bootstrapEnv();
 const env = loadEnv(true);
@@ -532,7 +532,7 @@ async function runNotificationDigests() {
             title: n.title,
             body: n.body,
             linkPath: '/',
-            fromName: flags.emailFromName || org.name || 'Travel ERP',
+            fromName: flags.emailFromName || org.name || 'Wayrune',
             replyTo: flags.emailReplyTo,
           },
         },

@@ -31,6 +31,10 @@ export const StorageKeys = {
     hotelColumns: 'rates.hotelColumns',
     transferColumns: 'rates.transferColumns',
   },
+  presence: {
+    columns: 'presence.columns',
+    builderUi: 'presence.builderUi',
+  },
 } as const;
 
 export const LegacyStorageKeys = {

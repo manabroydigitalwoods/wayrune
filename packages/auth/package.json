@@ -1,5 +1,5 @@
 {
-  "name": "@travel/auth",
+  "name": "@wayrune/auth",
   "version": "0.0.1",
   "private": true,
   "main": "./dist/index.js",
@@ -10,7 +10,7 @@
     "lint": "echo ok"
   },
   "dependencies": {
-    "@travel/rbac": "workspace:*",
+    "@wayrune/rbac": "workspace:*",
     "bcryptjs": "^2.4.3",
     "jsonwebtoken": "^9.0.2"
   },

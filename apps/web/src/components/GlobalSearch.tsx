@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Search } from 'lucide-react';
-import { Input } from '@travel/ui';
+import { Input } from '@wayrune/ui';
 import { api } from '../api';
 
 type SearchHit = {

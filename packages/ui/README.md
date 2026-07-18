@@ -1,10 +1,10 @@
-# @travel/ui
+# @wayrune/ui
 
-Shared design system for CodePoetry Travel (shadcn/ui + Tailwind v4).
+Shared design system for Wayrune (shadcn/ui + Tailwind v4).
 
 ## Theme
 
-- Tokens: `src/styles/globals.css` (CodePoetry teal ramp, soft semantic surfaces, light + `.dark`)
+- Tokens: `src/styles/globals.css` (teal ramp, soft semantic surfaces, light + `.dark`)
 - Runtime: `ThemeProvider` / `useTheme`
 
 ## CRM composites (reuse these — do not fork)

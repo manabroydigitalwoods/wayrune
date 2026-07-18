@@ -1,4 +1,4 @@
-import type { PlaceRef } from '@travel/contracts';
+import type { PlaceRef } from '@wayrune/contracts';
 import { PrismaService } from '../prisma/prisma.service';
 
 export type PlaceRefLike = string | PlaceRef | null | undefined;

@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Button, toastError, toastSuccess } from '@travel/ui';
+import { Button, toastError, toastSuccess } from '@wayrune/ui';
 import { api } from '../../api';
 import { CAP } from '../../lib/capabilities';
 import { usePermissions } from '../../lib/permissions';

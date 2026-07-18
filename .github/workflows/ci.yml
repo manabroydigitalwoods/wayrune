@@ -58,4 +58,4 @@ jobs:
       - run: pnpm build
       - run: pnpm typecheck
       - run: pnpm test
-      - run: pnpm --filter @travel/api test:integration
+      - run: pnpm --filter @wayrune/api test:integration

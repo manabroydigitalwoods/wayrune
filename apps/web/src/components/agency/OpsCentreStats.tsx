@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useOrgNavigate } from '../../hooks/useOrgNavigate';
 import {
   AlertTriangle,
   CalendarClock,
@@ -10,7 +11,7 @@ import {
   Wallet,
   Wrench,
 } from 'lucide-react';
-import { StatCard } from '@travel/ui';
+import { StatCard } from '@wayrune/ui';
 import { api } from '../../api';
 import { reportError } from '../../lib/errors';
 
@@ -29,7 +30,7 @@ type OpsCentre = {
 };
 
 export function OpsCentreStats() {
-  const navigate = useNavigate();
+  const { navigate } = useOrgNavigate();
   const [data, setData] = useState<OpsCentre | null>(null);
 
   useEffect(() => {

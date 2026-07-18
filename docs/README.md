@@ -1,4 +1,8 @@
-# CodePoetry Travel Platform — Docs
+# Wayrune — Docs
+
+**Brand:** Wayrune · **Domains:** wayrune.com · wayrune.ai · wayrune.in · **Studio:** CodePoetry
+
+Trademark / domain ops: [brand/wayrune-trademark-checklist.md](./brand/wayrune-trademark-checklist.md)
 
 **Start here:** [Travel OS Index](./travel-os/README.md) — navigation for the Travel Commerce Operating System, Domain Model, Capability Matrix, and Phase A backlog.
 
@@ -24,7 +28,8 @@ Keep using these until chapter-by-chapter migration after each OS reaches stable
 6. [Delivery Phases and Acceptance](./05_PHASES_DELIVERY_AND_ACCEPTANCE.md)
 7. [Multi-Organization Commerce Foundation](./06_MULTI_ORG_COMMERCE_FOUNDATION.md)
 8. [Commerce Integrity](./commerce-integrity/README.md) (docs 01–11)
+9. [Sembark vs Travel OS strategy](./strategy/sembark-vs-travel-os.md) (competitive maturity + 90-day P0)
 
 Stack: Node.js + TypeScript + NestJS (API), Vite React (web), Prisma/MySQL.
 
-Thesis: multi-org Travel Commerce OS — vertical business OSes share a commerce spine; network connects organizations. Contracts: `@travel/contracts` → `commerce-foundation.ts`.
+Thesis: multi-org Travel Commerce OS — vertical business OSes share a commerce spine; network connects organizations. Contracts: `@wayrune/contracts` → `commerce-foundation.ts`.

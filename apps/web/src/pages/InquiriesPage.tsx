@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, Navigate, useSearchParams } from 'react-router-dom';
+import { useOrgNavigate } from '../hooks/useOrgNavigate';
 import type { ColumnDef } from '@tanstack/react-table';
 import { ArrowUpRight, Contact, Copy, MoreHorizontal, Plane, Plus } from 'lucide-react';
 import {
@@ -23,7 +24,7 @@ import {
   formatDateTime,
   toastError,
   toastSuccess,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import { useAuth } from '../auth';
 import { api } from '../api';
 import { Can } from '../components/Can';
@@ -87,7 +88,7 @@ const DOMESTIC_LABELS: Record<string, string> = {
 };
 
 export function InquiriesPage() {
-  const navigate = useNavigate();
+  const { navigate, toOrgPath } = useOrgNavigate();
   const [searchParams] = useSearchParams();
   const variant = useInquiriesPageVariant();
   const copy = INQUIRIES_PAGE_COPY[variant];
@@ -395,7 +396,7 @@ export function InquiriesPage() {
   );
 
   if (searchParams.get('status') === 'open' && variant === 'all') {
-    return <Navigate to={AGENCY_ROUTES.workPlanning} replace />;
+    return <Navigate to={toOrgPath(AGENCY_ROUTES.workPlanning)} replace />;
   }
 
   return (

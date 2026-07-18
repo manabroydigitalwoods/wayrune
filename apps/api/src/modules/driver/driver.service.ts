@@ -9,7 +9,7 @@ import type {
   CompleteDriverJobInput,
   CreateDriverJobInput,
   RecordDriverPaymentInput,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import type { AuthUser } from '../../common/helpers';
 import { PrismaService } from '../../prisma/prisma.service';
 import { OutboxService } from '../outbox/outbox.service';

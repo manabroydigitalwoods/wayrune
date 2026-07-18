@@ -15,7 +15,7 @@ import {
   toastError,
   toastSuccess,
   formatCurrency,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import { api } from '../../api';
 import {
   formatDateInput,

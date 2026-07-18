@@ -12,7 +12,7 @@ import type {
   CreateMealReservationSchema,
   QuoteMealInquiryInput,
   UpdateMealReservationSchema,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import type { z } from 'zod';
 import type { AuthUser } from '../../common/helpers';
 import { PrismaService } from '../../prisma/prisma.service';

@@ -27,7 +27,7 @@ import {
   UpdateServiceOfferingSchema,
   UpdateServiceOrderStatusSchema,
   UpdateGuestServiceRequestStatusSchema,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import {
   CurrentUser,
   Public,

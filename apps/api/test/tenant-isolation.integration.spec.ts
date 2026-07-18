@@ -3,7 +3,7 @@ import { Test } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import cookieParser from 'cookie-parser';
-import { PARTNER_ALLOWED_PERMISSIONS } from '@travel/rbac';
+import { PARTNER_ALLOWED_PERMISSIONS } from '@wayrune/rbac';
 import { AppModule } from '../src/app.module';
 import { ZodExceptionFilter } from '../src/common/zod-exception.filter';
 import { ACCESS_COOKIE } from '../src/modules/auth/auth-cookies';

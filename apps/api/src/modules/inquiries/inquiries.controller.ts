@@ -4,7 +4,7 @@ import {
   PaginationQuerySchema,
   UpdateInquirySchema,
   UpdateInquiryStatusSchema,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import {
   CurrentUser,
   RequireAgencyOrg,

@@ -1,10 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { PERMISSIONS, PARTNER_ROLE_PERMISSION_MAP, ROLE_PERMISSION_MAP } from '@travel/config';
-import { permissionAllowedForOrgKind, roleAllowedForOrgKind } from '@travel/rbac';
+import { PERMISSIONS, PARTNER_ROLE_PERMISSION_MAP, ROLE_PERMISSION_MAP } from '@wayrune/config';
+import { permissionAllowedForOrgKind, roleAllowedForOrgKind } from '@wayrune/rbac';
 import type {
   CreateAdditionalOrganizationInput,
   UpdateOrganizationSettingsInput,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { slugify, type AuthUser } from '../../common/helpers';
@@ -13,6 +13,13 @@ import {
   isPartnerOrgKind,
   orgKindToAssetKind,
 } from '../partner-assets/partner-assets.helpers';
+import { OrgIdentityService } from './org-identity.service';
+import {
+  ensureOrgPresenceFormPresets,
+  ensureSystemPresenceModuleDefinitions,
+  ensureSystemPresenceTemplates,
+  ensureSystemPresenceThemes,
+} from '../presence/presence-seed';
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -70,6 +77,7 @@ export class OrganizationsService {
   constructor(
     private prisma: PrismaService,
     private partnerAssets: PartnerAssetsService,
+    private orgIdentity: OrgIdentityService,
   ) {}
 
   async ensurePermissions() {
@@ -106,10 +114,14 @@ export class OrganizationsService {
     const isPartnerKind = isPartnerOrgKind(kind);
 
     const org = await this.prisma.$transaction(async (tx) => {
+      const publicCode = await this.orgIdentity.allocatePublicCode(tx);
+      const subdomain = await this.orgIdentity.allocateSubdomain(input.name, tx);
       const created = await tx.organization.create({
         data: {
           name: input.name,
           slug,
+          publicCode,
+          subdomain,
           kind,
           settingsJson: { indiaReady: true, defaultTaxPercent: 5 },
           brandingJson: { primaryColor: '#0f6e56', companyName: input.name },
@@ -219,6 +231,11 @@ export class OrganizationsService {
       await this.partnerAssets.ensureStayStarterInventory(asset);
     }
 
+    await ensureSystemPresenceThemes(this.prisma);
+    await ensureSystemPresenceModuleDefinitions(this.prisma);
+    await ensureSystemPresenceTemplates(this.prisma);
+    await ensureOrgPresenceFormPresets(this.prisma, org.id, kind);
+
     return org;
   }
 
@@ -246,6 +263,8 @@ export class OrganizationsService {
       name: org.name,
       slug: org.slug,
       kind: org.kind,
+      publicCode: org.publicCode,
+      subdomain: org.subdomain,
     };
   }
 
@@ -254,7 +273,15 @@ export class OrganizationsService {
       where: { userId, isActive: true, deletedAt: null },
       include: {
         organization: {
-          select: { id: true, name: true, slug: true, kind: true },
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            kind: true,
+            publicCode: true,
+            subdomain: true,
+            customDomain: true,
+          },
         },
       },
       orderBy: { createdAt: 'asc' },
@@ -264,6 +291,9 @@ export class OrganizationsService {
       name: m.organization.name,
       slug: m.organization.slug,
       kind: m.organization.kind,
+      publicCode: m.organization.publicCode,
+      subdomain: m.organization.subdomain,
+      customDomain: m.organization.customDomain,
       isOwner: m.isOwner,
     }));
   }

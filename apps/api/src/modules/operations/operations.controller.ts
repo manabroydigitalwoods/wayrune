@@ -6,7 +6,7 @@ import {
   MarkPaymentPaidSchema,
   UpdateSupplierInvoiceSchema,
   UpdateTripPaymentSchema,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import {
   CurrentUser,
   RequireAgencyOrg,

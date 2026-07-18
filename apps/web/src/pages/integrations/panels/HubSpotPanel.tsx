@@ -1,4 +1,4 @@
-import { Input, SimpleFormField as FormField } from '@travel/ui';
+import { Input, SimpleFormField as FormField } from '@wayrune/ui';
 import { ToggleRow } from '../ToggleRow';
 import type { IntegrationsSettings } from '../types';
 

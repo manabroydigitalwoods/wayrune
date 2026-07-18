@@ -13,7 +13,7 @@ import {
   CreateVehicleTypeSchema,
   ReviewPlaceContributionSchema,
   UpdatePlaceSchema,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import {
   CurrentUser,
   RequirePermissions,

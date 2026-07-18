@@ -21,7 +21,7 @@ import {
   UpdateAssetFleetUnitSchema,
   UpdateAssetRoomProductSchema,
   UpdateAssetServiceOfferSchema,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import {
   CurrentUser,
   RequirePermissions,

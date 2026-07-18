@@ -25,7 +25,7 @@ import {
   cn,
   formatMonthYear,
   formatDateTime,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import { api, apiUpload } from '../../api';
 import { Can } from '../Can';
 import { CAP } from '../../lib/capabilities';

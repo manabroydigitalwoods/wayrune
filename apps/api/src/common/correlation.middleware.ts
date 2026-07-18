@@ -1,6 +1,6 @@
 import { Injectable, NestMiddleware } from '@nestjs/common';
 import type { NextFunction, Request, Response } from 'express';
-import { newCorrelationId, runWithLogContext } from '@travel/observability';
+import { newCorrelationId, runWithLogContext } from '@wayrune/observability';
 
 export type RequestWithCorrelation = Request & {
   correlationId?: string;

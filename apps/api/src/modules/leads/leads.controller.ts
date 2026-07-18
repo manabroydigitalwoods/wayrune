@@ -7,6 +7,7 @@ import {
   PaginationQuerySchema,
   ReplyEmailSchema,
   ReplyInstagramSchema,
+  ReplyWebsiteSchema,
   ReplyWhatsappSchema,
   ReplyWhatsappTemplateSchema,
   UpdateLeadActivitySchema,
@@ -14,7 +15,8 @@ import {
   UpdateLeadStageSchema,
   WebhookLeadSchema,
   WidgetIngestSchema,
-} from '@travel/contracts';
+  WidgetMessagesQuerySchema,
+} from '@wayrune/contracts';
 import {
   CurrentUser,
   Public,
@@ -23,11 +25,19 @@ import {
   type AuthUser,
 } from '../../common/helpers';
 import { LeadsService } from './leads.service';
+import { OrgIdentityService } from '../organizations/org-identity.service';
 
 @Controller('leads')
 @RequireAgencyOrg()
 export class LeadsController {
-  constructor(private leads: LeadsService) {}
+  constructor(
+    private leads: LeadsService,
+    private orgIdentity: OrgIdentityService,
+  ) {}
+
+  private async orgId(ref: string) {
+    return (await this.orgIdentity.resolveRef(ref)).id;
+  }
 
   @Post()
   @RequirePermissions('lead.write')
@@ -164,14 +174,25 @@ export class LeadsController {
     return this.leads.replyInstagram(user, interactionId, ReplyInstagramSchema.parse(body));
   }
 
+  @Post('website/reply/:interactionId')
+  @RequirePermissions('lead.write')
+  websiteReply(
+    @CurrentUser() user: AuthUser,
+    @Param('interactionId') interactionId: string,
+    @Body() body: unknown,
+  ) {
+    return this.leads.replyWebsite(user, interactionId, ReplyWebsiteSchema.parse(body));
+  }
+
   @Public()
   @Post('ingest/webhook/:organizationId')
-  webhook(
+  async webhook(
     @Param('organizationId') organizationId: string,
     @Body() body: unknown,
     @Headers('x-webhook-ingest-token') sharedSecret: string | undefined,
   ) {
-    return this.leads.ingestWebhook(organizationId, WebhookLeadSchema.parse(body), {
+    const id = await this.orgId(organizationId);
+    return this.leads.ingestWebhook(id, WebhookLeadSchema.parse(body), {
       sharedSecretHeader: sharedSecret,
     });
   }
@@ -185,7 +206,8 @@ export class LeadsController {
     @Query('hub.challenge') challenge: string | undefined,
     @Res() res: Response,
   ) {
-    const text = await this.leads.verifyWhatsappWebhook(organizationId, {
+    const id = await this.orgId(organizationId);
+    const text = await this.leads.verifyWhatsappWebhook(id, {
       mode,
       verify_token: verifyToken,
       challenge,
@@ -195,13 +217,14 @@ export class LeadsController {
 
   @Public()
   @Post('ingest/whatsapp/:organizationId')
-  whatsappReceive(
+  async whatsappReceive(
     @Param('organizationId') organizationId: string,
     @Req() req: Request & { rawBody?: Buffer },
     @Body() body: unknown,
     @Headers('x-hub-signature-256') signature: string | undefined,
   ) {
-    return this.leads.ingestWhatsappWebhook(organizationId, body, {
+    const id = await this.orgId(organizationId);
+    return this.leads.ingestWhatsappWebhook(id, body, {
       signatureHeader: signature,
       rawBody: req.rawBody,
     });
@@ -216,7 +239,8 @@ export class LeadsController {
     @Query('hub.challenge') challenge: string | undefined,
     @Res() res: Response,
   ) {
-    const text = await this.leads.verifyFacebookWebhook(organizationId, {
+    const id = await this.orgId(organizationId);
+    const text = await this.leads.verifyFacebookWebhook(id, {
       mode,
       verify_token: verifyToken,
       challenge,
@@ -226,13 +250,14 @@ export class LeadsController {
 
   @Public()
   @Post('ingest/facebook/:organizationId')
-  facebookReceive(
+  async facebookReceive(
     @Param('organizationId') organizationId: string,
     @Req() req: Request & { rawBody?: Buffer },
     @Body() body: unknown,
     @Headers('x-hub-signature-256') signature: string | undefined,
   ) {
-    return this.leads.ingestFacebookWebhook(organizationId, body, {
+    const id = await this.orgId(organizationId);
+    return this.leads.ingestFacebookWebhook(id, body, {
       signatureHeader: signature,
       rawBody: req.rawBody,
     });
@@ -240,12 +265,13 @@ export class LeadsController {
 
   @Public()
   @Post('ingest/email/:organizationId')
-  emailReceive(
+  async emailReceive(
     @Param('organizationId') organizationId: string,
     @Body() body: unknown,
     @Headers('x-email-ingest-token') sharedSecret: string | undefined,
   ) {
-    return this.leads.ingestEmailWebhook(organizationId, body, {
+    const id = await this.orgId(organizationId);
+    return this.leads.ingestEmailWebhook(id, body, {
       sharedSecretHeader: sharedSecret,
     });
   }
@@ -259,7 +285,8 @@ export class LeadsController {
     @Query('hub.challenge') challenge: string | undefined,
     @Res() res: Response,
   ) {
-    const text = await this.leads.verifyInstagramWebhook(organizationId, {
+    const id = await this.orgId(organizationId);
+    const text = await this.leads.verifyInstagramWebhook(id, {
       mode,
       verify_token: verifyToken,
       challenge,
@@ -269,13 +296,14 @@ export class LeadsController {
 
   @Public()
   @Post('ingest/instagram/:organizationId')
-  instagramReceive(
+  async instagramReceive(
     @Param('organizationId') organizationId: string,
     @Req() req: Request & { rawBody?: Buffer },
     @Body() body: unknown,
     @Headers('x-hub-signature-256') signature: string | undefined,
   ) {
-    return this.leads.ingestInstagramWebhook(organizationId, body, {
+    const id = await this.orgId(organizationId);
+    return this.leads.ingestInstagramWebhook(id, body, {
       signatureHeader: signature,
       rawBody: req.rawBody,
     });
@@ -284,11 +312,24 @@ export class LeadsController {
   /** Conversation widget config (public). */
   @Public()
   @Get('widget/:organizationId/config')
-  widgetConfig(
+  async widgetConfig(
     @Param('organizationId') organizationId: string,
     @Query('publicKey') publicKey: string | undefined,
   ) {
-    return this.leads.widgetConfig(organizationId, publicKey);
+    const id = await this.orgId(organizationId);
+    return this.leads.widgetConfig(id, publicKey);
+  }
+
+  /** Conversation widget — poll agent replies (public). */
+  @Public()
+  @Get('widget/:organizationId/messages')
+  async widgetMessages(
+    @Param('organizationId') organizationId: string,
+    @Query() query: Record<string, string | undefined>,
+  ) {
+    const id = await this.orgId(organizationId);
+    const parsed = WidgetMessagesQuerySchema.parse(query);
+    return this.leads.widgetMessages(id, parsed);
   }
 
   /** Conversation widget ingest — Interaction-first (never creates Lead). */
@@ -298,18 +339,15 @@ export class LeadsController {
     return this.leads.ingestWidget(WidgetIngestSchema.parse(body));
   }
 
-  /**
-   * HubSpot inbound webhook — Interaction only (never creates Lead/Inquiry/Trip).
-   * Configure HubSpot workflow webhook to POST contact payloads here.
-   */
   @Public()
   @Post('ingest/hubspot/:organizationId')
-  hubspotInbound(
+  async hubspotInbound(
     @Param('organizationId') organizationId: string,
     @Body() body: unknown,
     @Headers('x-hubspot-ingest-token') sharedSecret: string | undefined,
   ) {
-    return this.leads.ingestHubspotInbound(organizationId, body, {
+    const id = await this.orgId(organizationId);
+    return this.leads.ingestHubspotInbound(id, body, {
       sharedSecretHeader: sharedSecret,
     });
   }

@@ -5,7 +5,7 @@ import {
   CreatePlaceSchema,
   CreateTravelRequestSchema,
   parseWithFieldErrors,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import {
   DatePicker,
   EmailInput,
@@ -28,7 +28,7 @@ import {
   formatCurrency,
   type ComboboxOption,
   EntityCombobox,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import { api } from '../../api';
 import { formatDateInput, parseDateInput } from '../../lib/dateInput';
 import { PlaceMultiPicker, PlaceSinglePicker } from '../places/PlacePicker';

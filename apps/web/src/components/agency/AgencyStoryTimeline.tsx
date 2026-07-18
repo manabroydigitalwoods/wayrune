@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { Contact, FileText, MessageSquare, Plane } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle, formatDateTime } from '@travel/ui';
+import { Card, CardContent, CardHeader, CardTitle, formatDateTime } from '@wayrune/ui';
 import { inquiryStatusLabel, tripStatusLabel } from '../../lib/agencyStatusLabels';
 
 type LeadActivity = {

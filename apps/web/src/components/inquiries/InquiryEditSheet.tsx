@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { UpdateInquirySchema, parseWithFieldErrors } from '@travel/contracts';
+import { UpdateInquirySchema, parseWithFieldErrors } from '@wayrune/contracts';
 import {
   DatePicker,
   FormGrid,
@@ -14,7 +14,7 @@ import {
   formatCurrency,
   toastError,
   toastSuccess,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import { api } from '../../api';
 import { formatDateInput, parseDateInput } from '../../lib/dateInput';
 import { PlaceMultiPicker, PlaceSinglePicker } from '../places/PlacePicker';

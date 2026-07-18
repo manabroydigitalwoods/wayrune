@@ -5,7 +5,7 @@ import {
   PARTNER_ROLE_PERMISSION_MAP,
   PLATFORM_ROLE_PERMISSION_MAP,
   hasPermission,
-} from '@travel/rbac';
+} from '@wayrune/rbac';
 
 function can(permissions: readonly string[], cap: CapabilityKey): boolean {
   return CAP[cap].some((p) => hasPermission(permissions, p));

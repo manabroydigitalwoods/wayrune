@@ -8,7 +8,7 @@ import {
   cn,
   toastError,
   toastSuccess,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import { Copy, Heart, Lock, Mail, MessageCircle, Share2, Users } from 'lucide-react';
 import { api } from '../../api';
 import { reportError } from '../../lib/errors';

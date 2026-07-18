@@ -12,8 +12,8 @@ import type {
   CreateSupplierInviteInput,
   UpdateOrgRelationshipInput,
   UpdatePartnerProfileInput,
-} from '@travel/contracts';
-import { generateRefreshToken, hashToken } from '@travel/auth';
+} from '@wayrune/contracts';
+import { generateRefreshToken, hashToken } from '@wayrune/auth';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { InventoryService } from '../inventory/inventory.service';

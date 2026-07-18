@@ -1,10 +1,10 @@
 /**
- * @travel/rbac — the single, browser-safe source of truth for the platform's
+ * @wayrune/rbac — the single, browser-safe source of truth for the platform's
  * role/permission model.
  *
  * This package has ZERO Node dependencies (no `fs`/`path`) so it can be consumed
  * unchanged by the API, the worker, `packages/auth`, and the Vite web bundle.
- * `@travel/config` re-exports everything here for backwards compatibility.
+ * `@wayrune/config` re-exports everything here for backwards compatibility.
  *
  * P1 (RBAC Integrity 1.0) upgrades this from a flat string list to a permission
  * *registry* with metadata (group/description/allowedOrgKinds/risk/scope), a
@@ -735,6 +735,7 @@ export const ROLE_PERMISSION_MAP: Record<string, PermissionKey[]> = {
     'quote.view_cost',
     'quote.approve',
     'discount.approve',
+    'below_margin.approve',
     'traveller.passport.read',
     'task.read',
     'task.write',

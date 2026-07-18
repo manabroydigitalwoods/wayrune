@@ -10,16 +10,17 @@ import {
   hashToken,
   signAccessToken,
   verifyPassword,
-} from '@travel/auth';
+} from '@wayrune/auth';
 import {
   loadEnv,
   PARTNER_ALLOWED_PERMISSIONS,
   PARTNER_ROLE_PERMISSION_MAP,
   ROLE_PERMISSION_MAP,
-} from '@travel/config';
-import { ORG_KINDS, permissionAllowedForOrgKind } from '@travel/rbac';
-import type { LoginInput, RegisterInput } from '@travel/contracts';
-import { createLogger } from '@travel/observability';
+} from '@wayrune/config';
+import { ORG_KINDS, permissionAllowedForOrgKind } from '@wayrune/rbac';
+import type { LoginInput, RegisterInput } from '@wayrune/contracts';
+import { createLogger } from '@wayrune/observability';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { OrganizationsService } from '../organizations/organizations.service';
 import { AuditService } from '../audit/audit.service';
@@ -184,7 +185,17 @@ export class AuthService {
     const membershipRows = await this.prisma.organizationMembership.findMany({
       where: { userId: user.sub, isActive: true, deletedAt: null },
       include: {
-        organization: { select: { id: true, name: true, slug: true, kind: true } },
+        organization: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            kind: true,
+            publicCode: true,
+            subdomain: true,
+            customDomain: true,
+          },
+        },
       },
       orderBy: { createdAt: 'asc' },
     });
@@ -225,6 +236,9 @@ export class AuthService {
         name: org.name,
         slug: org.slug,
         kind: org.kind,
+        publicCode: org.publicCode,
+        subdomain: org.subdomain,
+        customDomain: org.customDomain,
         timezone: org.timezone,
         currency: org.currency,
         dateFormat,
@@ -235,6 +249,9 @@ export class AuthService {
         name: m.organization.name,
         slug: m.organization.slug,
         kind: m.organization.kind,
+        publicCode: m.organization.publicCode,
+        subdomain: m.organization.subdomain,
+        customDomain: m.organization.customDomain,
       })),
       roles: activeMembership?.roles.map((mr) => mr.role.key) ?? [],
       permissions: user.permissions,
@@ -499,19 +516,6 @@ export class AuthService {
         ? memberships.find((m) => m.organization.slug === orgSlug)
         : undefined;
       organizationId = (matched ?? memberships[0]!).organizationId;
-    }
-
-    const org = await this.prisma.organization.findUniqueOrThrow({
-      where: { id: organizationId },
-      select: { settingsJson: true },
-    });
-    const settings = (org.settingsJson ?? {}) as Record<string, unknown>;
-    const integrations = (settings.integrations ?? {}) as Record<string, unknown>;
-    const flagKey = provider === 'google' ? 'googleSsoEnabled' : 'microsoftSsoEnabled';
-    if (integrations[flagKey] === false) {
-      throw new UnauthorizedException(
-        `${provider === 'google' ? 'Google' : 'Microsoft'} sign-in is disabled for this organization`,
-      );
     }
 
     await this.audit.record({

@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Navigate, useSearchParams } from 'react-router-dom';
 import { Plane } from 'lucide-react';
-import { LoginSchema, RegisterSchema, parseWithFieldErrors } from '@travel/contracts';
+import { LoginSchema, RegisterSchema, parseWithFieldErrors } from '@wayrune/contracts';
 import {
   Button,
   Card,
@@ -12,9 +12,13 @@ import {
   SuggestionChips,
   toastError,
   toastWarning,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import { useAuth } from '../auth';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import { orgPath, orgPortalRef } from '../lib/agencyRoutes';
+import { isAgencyKind, isPartnerOrgKind, isPlatformKind } from '../lib/orgKind';
+
+const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) || '/api/v1';
 
 const isDev = import.meta.env.DEV;
 const isLocalApp =
@@ -118,6 +122,11 @@ const DEMO_ORGS: DemoOrg[] = [
     roles: [{ key: 'platform_admin', label: 'Platform admin', email: 'admin@travelos.platform' }],
   },
   { key: 'agency', label: 'Agency', roles: rolesFor('owner@demo.travel', AGENCY_ROLE_KEYS, AGENCY_EMAIL_OVERRIDES) },
+  {
+    key: 'agency_sso',
+    label: 'Agency (SSO)',
+    roles: [{ key: 'owner', label: 'Owner', email: 'manab@digitalwoods.io' }],
+  },
   { key: 'hotel', label: 'Hotel', roles: rolesFor('hotel.goa@demo.travel', PARTNER_ROLE_KEYS) },
   { key: 'homestay', label: 'Homestay', roles: rolesFor('homestay.manali@demo.travel', PARTNER_ROLE_KEYS) },
   { key: 'farmstay', label: 'Farmstay', roles: rolesFor('farmstay.coorg@demo.travel', PARTNER_ROLE_KEYS) },
@@ -201,12 +210,15 @@ export function LoginPage() {
   useDocumentTitle('Sign in');
   const { me, login, register } = useAuth();
   const [searchParams] = useSearchParams();
-  const nextPath = searchParams.get('next') || '/';
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [demoOrgKey, setDemoOrgKey] = useState<string>('agency');
+  const [ssoProviders, setSsoProviders] = useState<{ google: boolean; microsoft: boolean }>({
+    google: false,
+    microsoft: false,
+  });
   const [form, setForm] = useState({
     email: isLocalApp ? DEMO_LOGIN.email : '',
     password: isLocalApp ? DEMO_LOGIN.password : '',
@@ -222,6 +234,19 @@ export function LoginPage() {
       toastError('Sign-in failed — try again or use email/password');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/auth/oauth/providers`, { credentials: 'include' })
+      .then(async (res) => {
+        if (!res.ok) return;
+        const data = (await res.json()) as { google?: boolean; microsoft?: boolean };
+        setSsoProviders({
+          google: Boolean(data.google),
+          microsoft: Boolean(data.microsoft),
+        });
+      })
+      .catch(() => undefined);
   }, []);
 
   function patchForm(patch: Partial<typeof form>) {
@@ -252,14 +277,26 @@ export function LoginPage() {
   }
 
   function startSso(provider: 'google' | 'microsoft') {
-    const apiBase = (import.meta.env.VITE_API_BASE_URL as string | undefined) || '/api/v1';
-    window.location.href = `${apiBase}/auth/oauth/${provider}`;
+    window.location.href = `${API_BASE}/auth/oauth/${provider}`;
   }
 
   const activeDemoOrg =
     DEMO_ORGS.find((o) => o.key === demoOrgKey) ?? DEMO_ORGS[1];
+  const showSso = ssoProviders.google || ssoProviders.microsoft;
 
-  if (me) return <Navigate to={nextPath.startsWith('/') ? nextPath : '/'} replace />;
+  const nextParam = searchParams.get('next');
+  const resolvedNext = (() => {
+    if (nextParam && nextParam.startsWith('/') && nextParam !== '/') return nextParam;
+    if (!me) return '/';
+    if (isAgencyKind(me.organization.kind) && !isPlatformKind(me.organization.kind)) {
+      return orgPath(orgPortalRef(me.organization), '/');
+    }
+    if (isPartnerOrgKind(me.organization.kind)) {
+      return orgPath(orgPortalRef(me.organization), '/');
+    }
+    return '/';
+  })();
+  if (me) return <Navigate to={resolvedNext} replace />;
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -318,7 +355,7 @@ export function LoginPage() {
               <SoftIcon icon={Plane} />
             </div>
             <div>
-              <p className="text-sm font-semibold tracking-wide text-primary">CodePoetry Travel</p>
+              <p className="text-sm font-semibold tracking-wide text-primary">Wayrune</p>
               <h1 className="mt-1 font-display text-2xl font-bold tracking-tight text-foreground">
                 {mode === 'login' ? 'Welcome back' : 'Create your account'}
               </h1>
@@ -330,26 +367,30 @@ export function LoginPage() {
             </div>
           </div>
 
-          {mode === 'login' ? (
+          {showSso ? (
             <div className="space-y-2.5">
-              <Button
-                type="button"
-                variant="outline"
-                className="h-11 w-full justify-center gap-2.5 text-sm font-semibold"
-                onClick={() => startSso('google')}
-              >
-                <GoogleIcon className="size-5" />
-                Continue with Google
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="h-11 w-full justify-center gap-2.5 text-sm font-semibold"
-                onClick={() => startSso('microsoft')}
-              >
-                <MicrosoftIcon className="size-5" />
-                Continue with Microsoft
-              </Button>
+              {ssoProviders.google ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-11 w-full justify-center gap-2.5 text-sm font-semibold"
+                  onClick={() => startSso('google')}
+                >
+                  <GoogleIcon className="size-5" />
+                  {mode === 'login' ? 'Continue with Google' : 'Sign up with Google'}
+                </Button>
+              ) : null}
+              {ssoProviders.microsoft ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-11 w-full justify-center gap-2.5 text-sm font-semibold"
+                  onClick={() => startSso('microsoft')}
+                >
+                  <MicrosoftIcon className="size-5" />
+                  {mode === 'login' ? 'Continue with Microsoft' : 'Sign up with Microsoft'}
+                </Button>
+              ) : null}
               <div className="relative py-1">
                 <div className="absolute inset-0 flex items-center">
                   <span className="w-full border-t border-border/70" />

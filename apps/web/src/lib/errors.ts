@@ -1,4 +1,4 @@
-import { toastError } from '@travel/ui';
+import { toastError } from '@wayrune/ui';
 
 /** True when an error thrown by `api()` is a permission (403) failure. */
 export function isPermissionError(e: unknown): boolean {

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ScrollText } from 'lucide-react';
-import { EmptyState, PageHeader } from '@travel/ui';
+import { EmptyState, PageHeader } from '@wayrune/ui';
 import { api } from '../api';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 

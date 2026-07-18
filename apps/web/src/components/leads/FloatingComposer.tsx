@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { GripHorizontal, X } from 'lucide-react';
-import { Button, StorageKeys, cn, usePersistentState } from '@travel/ui';
+import { Button, StorageKeys, cn, usePersistentState } from '@wayrune/ui';
 
 type FloatingComposerProps = {
   open: boolean;

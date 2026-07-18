@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Plug } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { useOrgNavigate } from '../../hooks/useOrgNavigate';
+import { BookOpen, Plug } from 'lucide-react';
 import {
   Button,
   Card,
@@ -12,10 +14,11 @@ import {
   SuggestionChips,
   toastError,
   toastSuccess,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import { api } from '../../api';
 import { Can } from '../../components/Can';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle';
+import { AGENCY_ROUTES } from '../../lib/agencyRoutes';
 import { CAP } from '../../lib/capabilities';
 import { usePermissions } from '../../lib/permissions';
 import {
@@ -26,12 +29,11 @@ import {
   type IntegrationDefinition,
   type IntegrationId,
 } from './integrationRegistry';
-import { ConversationWidgetPanel } from './panels/ConversationWidgetPanel';
 import { EmailIngestPanel } from './panels/EmailIngestPanel';
 import { EngagementAutomationPanel } from './panels/EngagementAutomationPanel';
 import { FacebookPanel } from './panels/FacebookPanel';
+import { GoogleWorkspacePanel } from './panels/GoogleWorkspacePanel';
 import { HubSpotPanel } from './panels/HubSpotPanel';
-import { PreferencePanel } from './panels/PreferencePanel';
 import { WebhookPanel } from './panels/WebhookPanel';
 import { WhatsAppPanel } from './panels/WhatsAppPanel';
 import {
@@ -42,6 +44,7 @@ import {
 
 export function IntegrationsPage() {
   useDocumentTitle('Integrations');
+  const { toOrgPath } = useOrgNavigate();
   const { hasAny } = usePermissions();
   const canWrite = hasAny(CAP.orgSettingsWrite);
 
@@ -53,17 +56,30 @@ export function IntegrationsPage() {
   const [filter, setFilter] = useState('all');
   const [activeId, setActiveId] = useState<IntegrationId | null>(null);
   const [saving, setSaving] = useState(false);
+  const [googleWorkspaceConnected, setGoogleWorkspaceConnected] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    api('/organizations/current')
-      .then((org) => {
+    Promise.all([
+      api('/organizations/current'),
+      api<{ connected?: boolean }>('/integrations/google/status').catch(() => ({
+        connected: false,
+      })),
+    ])
+      .then(([org, googleStatus]) => {
         if (cancelled) return;
-        const record = org as { id: string; settingsJson?: unknown };
+        const record = org as {
+          id: string;
+          publicCode?: number;
+          settingsJson?: unknown;
+        };
         const parsed = parseIntegrationsSettings(record.settingsJson);
-        setOrgId(record.id);
+        setOrgId(
+          record.publicCode != null ? String(record.publicCode) : record.id,
+        );
         setSettings(parsed);
+        setGoogleWorkspaceConnected(Boolean(googleStatus.connected));
         setLoadError('');
       })
       .catch((err: unknown) => {
@@ -78,18 +94,23 @@ export function IntegrationsPage() {
     };
   }, []);
 
+  const extras = useMemo(
+    () => ({ googleWorkspaceConnected }),
+    [googleWorkspaceConnected],
+  );
+
   const activeDef = useMemo(
     () => INTEGRATION_CATALOG.find((item) => item.id === activeId) ?? null,
     [activeId],
   );
 
   const visible = useMemo(
-    () => filterIntegrations(INTEGRATION_CATALOG, settings, filter),
-    [settings, filter],
+    () => filterIntegrations(INTEGRATION_CATALOG, settings, filter, extras),
+    [settings, filter, extras],
   );
 
   function openConnector(item: IntegrationDefinition) {
-    if (item.getStatus(settings) === 'coming_soon') return;
+    if (item.getStatus(settings, extras) === 'coming_soon') return;
     if (item.id === 'instagram_leads') {
       setDraft(settings);
       setActiveId('facebook_leads');
@@ -104,7 +125,7 @@ export function IntegrationsPage() {
   }
 
   async function saveActive() {
-    if (!activeId || !canWrite) return;
+    if (!activeId || !canWrite || activeId === 'google_workspace') return;
     setSaving(true);
     try {
       const patch = buildConnectorPatch(activeId, draft);
@@ -134,7 +155,15 @@ export function IntegrationsPage() {
       <PageHeader
         icon={Plug}
         title="Integrations"
-        subtitle="SSO, CRM, messaging and inbound webhooks."
+        subtitle="CRM, messaging, and inbound webhooks for your agency."
+        actions={
+          <Button asChild variant="outline" size="sm">
+            <Link to={toOrgPath(AGENCY_ROUTES.settingsIntegrationHelp)}>
+              <BookOpen className="mr-1.5 h-4 w-4" />
+              How-to guide
+            </Link>
+          </Button>
+        }
       />
 
       <div className="mt-4 space-y-4">
@@ -149,7 +178,7 @@ export function IntegrationsPage() {
         {visible.length ? (
           <ul className="grid gap-3 md:grid-cols-2">
             {visible.map((item) => {
-              const status = item.getStatus(settings);
+              const status = item.getStatus(settings, extras);
               const badge = statusBadgeProps(status);
               const comingSoon = status === 'coming_soon';
               return (
@@ -217,10 +246,18 @@ export function IntegrationsPage() {
         description={activeDef?.description}
         size="wide"
         submitting={saving}
-        onSubmit={canWrite ? () => void saveActive() : undefined}
+        onSubmit={
+          canWrite && activeId !== 'google_workspace' ? () => void saveActive() : undefined
+        }
         submitLabel="Save"
-        hideFooter={!canWrite}
+        hideFooter={!canWrite || activeId === 'google_workspace'}
       >
+        {activeId === 'google_workspace' ? (
+          <GoogleWorkspacePanel
+            organizationId={orgId}
+            onStatusChange={setGoogleWorkspaceConnected}
+          />
+        ) : null}
         {activeId === 'whatsapp' ? (
           <WhatsAppPanel
             organizationId={orgId}
@@ -237,37 +274,6 @@ export function IntegrationsPage() {
             onWebsiteIngestChange={(websiteIngest) =>
               setDraft((prev) => ({ ...prev, websiteIngest }))
             }
-          />
-        ) : null}
-        {activeId === 'conversation_widget' ? (
-          <ConversationWidgetPanel
-            organizationId={orgId}
-            value={draft.conversationWidget}
-            onChange={(conversationWidget) =>
-              setDraft((prev) => ({ ...prev, conversationWidget }))
-            }
-          />
-        ) : null}
-        {activeId === 'google_sso' ? (
-          <PreferencePanel
-            label="Google SSO"
-            description="Members can sign in with Google from the login page."
-            checked={draft.googleSsoEnabled}
-            onCheckedChange={(googleSsoEnabled) =>
-              setDraft((prev) => ({ ...prev, googleSsoEnabled }))
-            }
-            note="Requires GOOGLE_OAUTH_CLIENT_ID/SECRET to be configured on the server. Turning this off rejects Google sign-in for this org."
-          />
-        ) : null}
-        {activeId === 'microsoft_sso' ? (
-          <PreferencePanel
-            label="Microsoft SSO"
-            description="Members can sign in with Microsoft from the login page."
-            checked={draft.microsoftSsoEnabled}
-            onCheckedChange={(microsoftSsoEnabled) =>
-              setDraft((prev) => ({ ...prev, microsoftSsoEnabled }))
-            }
-            note="Requires MICROSOFT_OAUTH_CLIENT_ID/SECRET to be configured on the server. Turning this off rejects Microsoft sign-in for this org."
           />
         ) : null}
         {activeId === 'hubspot' ? (
@@ -317,24 +323,6 @@ function buildConnectorPatch(
         sharedSecret: draft.websiteIngest.sharedSecret.trim(),
       },
     };
-  }
-  if (id === 'conversation_widget') {
-    return {
-      conversationWidget: {
-        enabled: draft.conversationWidget.enabled,
-        publicKey: draft.conversationWidget.publicKey.trim(),
-        brandName: draft.conversationWidget.brandName.trim(),
-        primaryColor: draft.conversationWidget.primaryColor.trim(),
-        whatsappNumber: draft.conversationWidget.whatsappNumber.trim(),
-        defaultGreeting: draft.conversationWidget.defaultGreeting.trim(),
-      },
-    };
-  }
-  if (id === 'google_sso') {
-    return { googleSsoEnabled: draft.googleSsoEnabled };
-  }
-  if (id === 'microsoft_sso') {
-    return { microsoftSsoEnabled: draft.microsoftSsoEnabled };
   }
   if (id === 'hubspot') {
     return {

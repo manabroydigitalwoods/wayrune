@@ -2,7 +2,7 @@ import { Body, Controller, Get, Patch, Post } from '@nestjs/common';
 import {
   CreateAdditionalOrganizationSchema,
   UpdateOrganizationSettingsSchema,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import { CurrentUser, RequirePermissions, type AuthUser } from '../../common/helpers';
 import { OrganizationsService } from './organizations.service';
 
@@ -37,7 +37,7 @@ export class OrganizationsController {
 
   @Patch('current')
   @RequirePermissions('org.settings.write')
-  update(@CurrentUser() user: AuthUser, @Body() body: Record<string, unknown>) {
+  update(@CurrentUser() user: AuthUser, @Body() body: unknown) {
     return this.orgs.updateSettings(
       user.organizationId,
       UpdateOrganizationSettingsSchema.parse(body),

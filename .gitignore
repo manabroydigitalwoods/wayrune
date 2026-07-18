@@ -17,3 +17,4 @@ apps/worker/dist
 prisma/*.db
 .pnpm-store
 .data/
+tmp/

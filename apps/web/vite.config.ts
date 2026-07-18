@@ -3,6 +3,10 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { resolve } from 'path';
 import { existsSync, readFileSync } from 'fs';
+import {
+  presenceApiProxyOptions,
+  presenceLocalSitesPlugin,
+} from './src/vite-plugins/presenceLocalSites';
 
 function loadRootEnvFile(appEnv: string, root: string): Record<string, string> {
   const file = resolve(root, 'envs', `${appEnv}.env`);
@@ -40,29 +44,48 @@ export default defineConfig(({ mode }) => {
     ...loadRootEnvFile(appEnv, root),
   };
   const apiTarget = fileEnv.API_PUBLIC_URL || 'http://localhost:3001';
+  const siteBaseDomain = (fileEnv.SITE_BASE_DOMAIN || 'codepoetry.app').trim().replace(/^\./, '');
+  const webPort = Number(fileEnv.WEB_PORT || 5173);
+  const localSites = appEnv !== 'prod';
 
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [
+      react(),
+      tailwindcss(),
+      ...(localSites
+        ? [
+            presenceLocalSitesPlugin({
+              apiTarget,
+              siteBaseDomain,
+              previewDrafts: true,
+            }),
+          ]
+        : []),
+    ],
     envDir: root,
     envPrefix: ['VITE_'],
     define: {
       'import.meta.env.VITE_APP_ENV': JSON.stringify(fileEnv.VITE_APP_ENV || appEnv),
       'import.meta.env.VITE_API_BASE_URL': JSON.stringify(fileEnv.VITE_API_BASE_URL || '/api/v1'),
+      'import.meta.env.VITE_SITE_BASE_DOMAIN': JSON.stringify(siteBaseDomain),
+      'import.meta.env.VITE_WEB_PORT': JSON.stringify(String(webPort)),
     },
     server: {
-      port: Number(fileEnv.WEB_PORT || 5173),
+      port: webPort,
+      // Local tunnels + *.codepoetry.localhost presence hosts
+      allowedHosts:
+        appEnv === 'prod'
+          ? ['localhost', '127.0.0.1']
+          : true,
       proxy: {
-        '/api': {
-          target: apiTarget,
-          changeOrigin: true,
-        },
+        '/api': presenceApiProxyOptions(apiTarget),
       },
     },
     resolve: {
       alias: {
         // Use TypeScript source so Vite gets ESM named exports (dist is CJS).
-        '@travel/contracts': resolve(__dirname, '../../packages/contracts/src/index.ts'),
-        '@travel/rbac': resolve(__dirname, '../../packages/rbac/src/index.ts'),
+        '@wayrune/contracts': resolve(__dirname, '../../packages/contracts/src/index.ts'),
+        '@wayrune/rbac': resolve(__dirname, '../../packages/rbac/src/index.ts'),
       },
     },
   };

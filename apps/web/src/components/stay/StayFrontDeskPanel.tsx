@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { DoorOpen, LogIn, LogOut, Users } from 'lucide-react';
-import { Button, Card, CardContent, StatusBadge, toastError, toastSuccess } from '@travel/ui';
+import { Button, Card, CardContent, StatusBadge, toastError, toastSuccess } from '@wayrune/ui';
 import { api } from '../../api';
 import { CAP } from '../../lib/capabilities';
 import { reportError } from '../../lib/errors';

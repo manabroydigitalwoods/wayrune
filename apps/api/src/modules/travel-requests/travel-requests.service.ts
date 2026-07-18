@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import type { CreateTravelRequestInput } from '@travel/contracts';
+import type { CreateTravelRequestInput } from '@wayrune/contracts';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { PartiesService } from '../parties/parties.service';

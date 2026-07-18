@@ -4,20 +4,20 @@ import {
   Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { loadEnv } from '@travel/config';
+import { loadEnv } from '@wayrune/config';
 import type {
   AssistRewriteInput,
   AssistSummarizeInput,
   GenerateProposalStoryInput,
   ProposalStoryDraft,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import {
   ProposalStoryDraftSchema,
   looksLikeIdealSeasonRange,
   pickSeasonalKnowledgeBody,
   tripClimateSeason,
   tripWindowHeadline,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PlacesService } from '../places/places.service';
 

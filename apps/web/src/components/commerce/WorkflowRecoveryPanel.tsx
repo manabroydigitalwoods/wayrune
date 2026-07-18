@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Button, Card, CardContent, StatusBadge, toastError, toastSuccess } from '@travel/ui';
+import { Button, Card, CardContent, StatusBadge, toastError, toastSuccess } from '@wayrune/ui';
 import { api } from '../../api';
 import { reportError } from '../../lib/errors';
 

@@ -1,6 +1,8 @@
+import type { ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Button, type ButtonProps } from './ui/button';
+import { BrandTooltip } from './ui/tooltip';
 
 const sizeMap = {
   sm: 'size-3.5',
@@ -35,13 +37,36 @@ export function Icon({
 export function IconButton({
   icon: Lucide,
   label,
+  tooltip,
+  tooltipSide = 'bottom',
   className,
   ...props
-}: Omit<ButtonProps, 'children'> & { icon: LucideIcon; label: string }) {
-  return (
-    <Button type="button" size="icon" variant="ghost" className={className} aria-label={label} {...props}>
+}: Omit<ButtonProps, 'children'> & {
+  icon: LucideIcon;
+  label: string;
+  /** When set (or omitted defaults to label), shows a brand tooltip. Pass `false` to disable. */
+  tooltip?: ReactNode | false;
+  tooltipSide?: 'top' | 'right' | 'bottom' | 'left';
+}) {
+  const tip = tooltip === false ? null : tooltip === undefined ? label : tooltip;
+  const button = (
+    <Button
+      type="button"
+      size="icon"
+      variant="ghost"
+      className={className}
+      aria-label={label}
+      {...props}
+    >
       <Lucide className="size-4" />
     </Button>
+  );
+  return tip ? (
+    <BrandTooltip label={tip} side={tooltipSide}>
+      {button}
+    </BrandTooltip>
+  ) : (
+    button
   );
 }
 

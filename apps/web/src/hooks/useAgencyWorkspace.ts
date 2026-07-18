@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react';
-import { usePersistentState } from '@travel/ui';
+import { usePersistentState } from '@wayrune/ui';
 import { useAuth } from '../auth';
 import { isAgencyKind } from '../lib/orgKind';
 import {

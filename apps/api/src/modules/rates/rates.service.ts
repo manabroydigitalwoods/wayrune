@@ -13,11 +13,11 @@ import type {
   SuggestTransferFareInput,
   UpdateSupplierHotelRateInput,
   UpdateTransferFareInput,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import {
   SYSTEM_FARE_CLUSTERS,
   SYSTEM_VEHICLE_RATE_BANDS,
-} from '@travel/config';
+} from '@wayrune/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PlacesService } from '../places/places.service';
 
@@ -1012,6 +1012,9 @@ export class RatesService {
           isSystem: best.isSystem,
           placeId: best.placeId,
           supplierId: best.supplierId,
+          roomType: best.roomType,
+          startDate: best.startDate ? best.startDate.toISOString().slice(0, 10) : null,
+          endDate: best.endDate ? best.endDate.toISOString().slice(0, 10) : null,
         },
       });
     }

@@ -7,9 +7,9 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { verifyAccessToken, type AccessClaims } from '@travel/auth';
-import { hasAnyPermission, hasAllPermissions } from '@travel/rbac';
-import { loadEnv } from '@travel/config';
+import { verifyAccessToken, type AccessClaims } from '@wayrune/auth';
+import { hasAnyPermission, hasAllPermissions } from '@wayrune/rbac';
+import { loadEnv } from '@wayrune/config';
 import {
   AGENCY_ONLY_KEY,
   ALL_PERMISSIONS_KEY,

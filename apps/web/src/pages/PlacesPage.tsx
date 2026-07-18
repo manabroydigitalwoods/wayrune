@@ -24,8 +24,8 @@ import {
   toastError,
   toastSuccess,
   type ComboboxOption,
-} from '@travel/ui';
-import { CreatePlaceSchema, parseWithFieldErrors } from '@travel/contracts';
+} from '@wayrune/ui';
+import { CreatePlaceSchema, parseWithFieldErrors } from '@wayrune/contracts';
 import { api } from '../api';
 import { reportError } from '../lib/errors';
 import type { PlaceProfile } from '../lib/placeSnapshot';

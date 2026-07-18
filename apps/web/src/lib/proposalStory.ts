@@ -2,7 +2,7 @@ import {
   pickSeasonalKnowledgeBody,
   tripClimateSeason,
   tripWindowHeadline,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import { loadPlace, type PlaceApiItem } from '../components/places/PlacePicker';
 import { placeName, toPlaceRef } from './placeRefs';
 

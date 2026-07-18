@@ -1,5 +1,5 @@
 import { Controller, Get } from '@nestjs/common';
-import { CONNECTOR_CAPABILITIES } from '@travel/contracts';
+import { CONNECTOR_CAPABILITIES } from '@wayrune/contracts';
 import { RequireAgencyOrg, RequirePermissions } from '../../common/helpers';
 
 @Controller('connectors')

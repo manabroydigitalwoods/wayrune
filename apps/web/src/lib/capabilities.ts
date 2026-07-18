@@ -1,4 +1,4 @@
-import type { PermissionKey } from '@travel/rbac';
+import type { PermissionKey } from '@wayrune/rbac';
 
 /**
  * Central registry: UI capability -> permission(s) required to use it.
@@ -9,7 +9,7 @@ import type { PermissionKey } from '@travel/rbac';
  *
  * Every value MUST match the backend `@RequirePermissions(...)` on the endpoint
  * the control calls. Values are typed as `PermissionKey` (from the shared
- * browser-safe `@travel/rbac` core) so typos/drift fail the build, and a unit
+ * browser-safe `@wayrune/rbac` core) so typos/drift fail the build, and a unit
  * test cross-checks against the backend permission list.
  */
 export const CAP = {

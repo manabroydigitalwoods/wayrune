@@ -5,22 +5,18 @@ import {
   Instagram,
   Mail,
   MessageCircle,
-  MessageSquare,
-  Shield,
   Workflow,
 } from 'lucide-react';
 import type { IntegrationsSettings } from './types';
 
-export type IntegrationCategory = 'auth' | 'crm' | 'messaging' | 'webhooks';
+export type IntegrationCategory = 'crm' | 'messaging' | 'webhooks';
 
 export type IntegrationStatus = 'connected' | 'available' | 'coming_soon';
 
 export type IntegrationId =
   | 'whatsapp'
   | 'webhook'
-  | 'conversation_widget'
-  | 'google_sso'
-  | 'microsoft_sso'
+  | 'google_workspace'
   | 'hubspot'
   | 'facebook_leads'
   | 'instagram_leads'
@@ -33,19 +29,32 @@ export type IntegrationDefinition = {
   category: IntegrationCategory;
   icon: LucideIcon;
   softTone: 'primary' | 'success' | 'warning' | 'danger' | 'info';
-  getStatus: (settings: IntegrationsSettings) => IntegrationStatus;
+  getStatus: (
+    settings: IntegrationsSettings,
+    extras?: { googleWorkspaceConnected?: boolean },
+  ) => IntegrationStatus;
 };
 
 export const INTEGRATION_FILTERS: { value: string; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'connected', label: 'Connected' },
-  { value: 'auth', label: 'Auth' },
   { value: 'crm', label: 'CRM' },
   { value: 'messaging', label: 'Messaging' },
   { value: 'webhooks', label: 'Webhooks' },
 ];
 
 export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
+  {
+    id: 'google_workspace',
+    name: 'Google Workspace',
+    description:
+      'Connect Google once for Business Profile inbox, Calendar follow-ups, Drive quotes, and Sheets.',
+    category: 'messaging',
+    icon: Globe,
+    softTone: 'info',
+    getStatus: (_s, extras) =>
+      extras?.googleWorkspaceConnected ? 'connected' : 'available',
+  },
   {
     id: 'whatsapp',
     name: 'WhatsApp Cloud API',
@@ -64,34 +73,6 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     softTone: 'primary',
     getStatus: (s) =>
       s.websiteIngest.sharedSecretConfigured ? 'connected' : 'available',
-  },
-  {
-    id: 'conversation_widget',
-    name: 'Conversation widget',
-    description:
-      'One website embed for chat, contact, travel enquiry, callback, and WhatsApp — all as Interactions.',
-    category: 'webhooks',
-    icon: MessageSquare,
-    softTone: 'success',
-    getStatus: (s) => (s.conversationWidget.enabled ? 'connected' : 'available'),
-  },
-  {
-    id: 'google_sso',
-    name: 'Google SSO',
-    description: 'Lets members sign in with Google. Disable to require this org use another method.',
-    category: 'auth',
-    icon: Shield,
-    softTone: 'info',
-    getStatus: (s) => (s.googleSsoEnabled ? 'connected' : 'available'),
-  },
-  {
-    id: 'microsoft_sso',
-    name: 'Microsoft SSO',
-    description: 'Lets members sign in with Microsoft. Disable to require this org use another method.',
-    category: 'auth',
-    icon: Shield,
-    softTone: 'info',
-    getStatus: (s) => (s.microsoftSsoEnabled ? 'connected' : 'available'),
   },
   {
     id: 'hubspot',
@@ -145,10 +126,11 @@ export function filterIntegrations(
   catalog: IntegrationDefinition[],
   settings: IntegrationsSettings,
   filter: string,
+  extras?: { googleWorkspaceConnected?: boolean },
 ) {
   const key = filter || 'all';
   return catalog.filter((item) => {
-    const status = item.getStatus(settings);
+    const status = item.getStatus(settings, extras);
     if (key === 'all') return true;
     if (key === 'connected') return status === 'connected';
     return item.category === key;

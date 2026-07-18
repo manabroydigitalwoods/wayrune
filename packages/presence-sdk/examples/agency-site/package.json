@@ -1,0 +1,29 @@
+{
+  "name": "presence-agency-site-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "node ./scripts/build.mjs",
+    "build:preview": "vite build",
+    "validate": "pnpm build && node ../../dist/cli.js validate dist",
+    "pack": "pnpm build && node ../../dist/cli.js pack dist -o out/agency-site.zip",
+    "deploy": "pnpm build && node ../../dist/cli.js deploy dist",
+    "deploy:dry": "pnpm build && node ../../dist/cli.js deploy dist --dry-run"
+  },
+  "dependencies": {
+    "@wayrune/presence-sdk": "workspace:*",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.0"
+  }
+}

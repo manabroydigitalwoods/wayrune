@@ -1,0 +1,43 @@
+{
+  "name": "@wayrune/presence-sdk",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "wr": "./dist/cli.js",
+    "wayrune": "./dist/cli.js",
+    "presence": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./cli": {
+      "types": "./dist/cli/index.d.ts",
+      "import": "./dist/cli/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "presence": "node dist/cli.js",
+    "wr": "node dist/cli.js"
+  },
+  "dependencies": {
+    "@wayrune/contracts": "workspace:*",
+    "jszip": "^3.10.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  },
+  "files": [
+    "dist",
+    "examples",
+    "templates",
+    "README.md"
+  ]
+}

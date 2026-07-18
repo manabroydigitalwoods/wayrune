@@ -9,7 +9,7 @@ import {
   RichTextEditor,
   SimpleFormField as FormField,
   toastError,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import { api, apiUpload } from '../../api';
 import { FloatingComposer } from './FloatingComposer';
 

@@ -27,7 +27,7 @@ export class NotificationsService {
       emailFromName:
         typeof n.emailFromName === 'string' && n.emailFromName.trim()
           ? n.emailFromName.trim()
-          : org?.name || 'Travel ERP',
+          : org?.name || 'Wayrune',
       emailReplyTo:
         typeof n.emailReplyTo === 'string' && n.emailReplyTo.trim()
           ? n.emailReplyTo.trim()

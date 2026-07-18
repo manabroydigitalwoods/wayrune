@@ -1,6 +1,7 @@
 import {
   Check,
   Moon,
+  Sun,
   Menu,
   PanelLeft,
   PanelLeftClose,
@@ -27,10 +28,8 @@ import {
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import {
-  Tooltip,
-  TooltipContent,
   TooltipProvider,
-  TooltipTrigger,
+  BrandTooltip,
 } from './ui/tooltip';
 import { useTheme } from '../theme/theme-provider';
 import { localStorageKit } from '../storage/create-storage';
@@ -44,7 +43,7 @@ export type AppShellNavItem = {
   label: string;
   active?: boolean;
   icon?: LucideIcon;
-  /** Optional section heading, e.g. "Sales" → shown uppercase; collapsed shows first letter */
+  /** Optional section heading, e.g. "Sales" → shown uppercase when expanded */
   section?: string;
 };
 
@@ -155,7 +154,7 @@ function useSidebarScroll(storageKey: string) {
 }
 
 export function AppShell({
-  brandTitle = 'CodePoetry',
+  brandTitle = 'Wayrune',
   brandSubtitle = 'Travel Agency ERP',
   nav,
   user,
@@ -282,11 +281,13 @@ export function AppShell({
             onPick?.();
           }}
           className={cn(
-            'flex w-full items-center rounded-xl text-left text-sm font-medium transition-colors',
-            compact ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2.5',
+            'flex items-center rounded-xl text-left text-sm font-medium transition-colors',
+            compact
+              ? 'mx-auto size-10 justify-center p-0'
+              : 'w-full gap-3 px-3 py-2.5',
             showBookmarkToggle && !compact ? 'pr-9' : '',
             item.active
-              ? 'bg-primary/10 text-primary'
+              ? 'bg-primary/15 text-primary'
               : 'text-foreground/75 hover:bg-primary/5 hover:text-foreground',
           )}
         >
@@ -297,7 +298,7 @@ export function AppShell({
           ) : null}
           {!compact ? <span className="truncate">{item.label}</span> : null}
         </button>
-        {showBookmarkToggle ? (
+        {showBookmarkToggle && !compact ? (
           <button
             type="button"
             aria-label={bookmarked ? 'Remove bookmark' : 'Bookmark this page'}
@@ -307,8 +308,7 @@ export function AppShell({
               toggleBookmark(id);
             }}
             className={cn(
-              'absolute rounded-md p-1 text-muted-foreground hover:bg-muted/60 hover:text-foreground',
-              compact ? 'right-0 top-1/2 -translate-y-1/2' : 'right-1.5 top-1/2 -translate-y-1/2',
+              'absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground hover:bg-muted/60 hover:text-foreground',
               bookmarked
                 ? 'text-amber-500 opacity-100 hover:text-amber-500'
                 : 'pointer-events-none opacity-0 group-hover/nav:pointer-events-auto group-hover/nav:opacity-100',
@@ -323,12 +323,9 @@ export function AppShell({
     if (!compact) return button;
 
     return (
-      <Tooltip delayDuration={150}>
-        <TooltipTrigger asChild>{button}</TooltipTrigger>
-        <TooltipContent side="right" sideOffset={10}>
-          {item.label}
-        </TooltipContent>
-      </Tooltip>
+      <BrandTooltip label={item.label} side="right" sideOffset={10} delayDuration={150}>
+        {button}
+      </BrandTooltip>
     );
   };
 
@@ -342,9 +339,9 @@ export function AppShell({
         aria-expanded={!compact}
         onClick={() => setCollapsedPersistent((prev) => !prev)}
         className={cn(
-          'flex w-full items-center rounded-xl text-sm font-medium text-foreground/70 transition-colors',
+          'flex items-center rounded-xl text-sm font-medium text-foreground/70 transition-colors',
           'hover:bg-primary/5 hover:text-foreground',
-          compact ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2',
+          compact ? 'mx-auto size-10 justify-center p-0' : 'w-full gap-3 px-3 py-2',
         )}
       >
         <Icon className="size-[18px] shrink-0 opacity-80" />
@@ -355,12 +352,64 @@ export function AppShell({
     if (!compact) return button;
 
     return (
-      <Tooltip delayDuration={150}>
-        <TooltipTrigger asChild>{button}</TooltipTrigger>
-        <TooltipContent side="right" sideOffset={10}>
-          {label}
-        </TooltipContent>
-      </Tooltip>
+      <BrandTooltip label={label} side="right" sideOffset={10} delayDuration={150}>
+        {button}
+      </BrandTooltip>
+    );
+  };
+
+  const ThemeToggle = ({ compact }: { compact?: boolean }) => {
+    const label = dark ? 'Switch to light mode' : 'Switch to dark mode';
+    if (compact) {
+      const button = (
+        <button
+          type="button"
+          role="switch"
+          aria-checked={dark}
+          aria-label={label}
+          onClick={toggle}
+          className={cn(
+            'mx-auto flex size-10 items-center justify-center rounded-xl transition-colors',
+            dark
+              ? 'bg-primary/15 text-primary'
+              : 'text-foreground/75 hover:bg-primary/5 hover:text-foreground',
+          )}
+        >
+          {dark ? <Sun className="size-[18px]" /> : <Moon className="size-[18px] opacity-80" />}
+        </button>
+      );
+      return (
+        <BrandTooltip label={label} side="right" sideOffset={10} delayDuration={150}>
+          {button}
+        </BrandTooltip>
+      );
+    }
+
+    return (
+      <div className="flex items-center justify-between gap-2 rounded-xl px-3 py-2">
+        <span className="flex items-center gap-3 text-sm font-medium text-foreground/75">
+          <Moon className="size-[18px] opacity-80" />
+          Dark mode
+        </span>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={dark}
+          aria-label={label}
+          onClick={toggle}
+          className={cn(
+            'relative h-6 w-11 shrink-0 rounded-full transition-colors',
+            dark ? 'bg-primary' : 'bg-muted',
+          )}
+        >
+          <span
+            className={cn(
+              'absolute top-0.5 size-5 rounded-full bg-card shadow transition-transform',
+              dark ? 'left-[22px]' : 'left-0.5',
+            )}
+          />
+        </button>
+      </div>
     );
   };
 
@@ -376,7 +425,7 @@ export function AppShell({
     const trigger = compact ? (
       <button
         type="button"
-        className="mx-auto flex size-9 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary ring-offset-background hover:ring-2 hover:ring-primary/30"
+        className="mx-auto flex size-10 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground ring-offset-background hover:ring-2 hover:ring-primary/40"
         aria-label="Account menu"
       >
         {(user.name || '?').slice(0, 1).toUpperCase()}
@@ -479,8 +528,8 @@ export function AppShell({
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <div
         className={cn(
-          'mb-4 flex shrink-0',
-          compact ? 'flex-col items-center gap-2' : 'items-center gap-2.5',
+          'mb-3 flex shrink-0',
+          compact ? 'flex-col items-center' : 'items-center gap-2.5',
         )}
       >
         <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">
@@ -499,7 +548,10 @@ export function AppShell({
       <div
         ref={navScrollRef}
         onScroll={onScroll}
-        className="sidebar-nav-scroll min-h-0 flex-1 space-y-4 overflow-y-auto overflow-x-hidden overscroll-y-contain"
+        className={cn(
+          'sidebar-nav-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain',
+          compact ? 'space-y-2' : 'space-y-4',
+        )}
       >
         {sections.map((section, sectionIndex) => {
           const isSystem = section.key === 'system';
@@ -508,15 +560,16 @@ export function AppShell({
             <div
               key={section.key}
               className={cn(
-                sectionIndex > 0 && 'border-t border-border/50 pt-4',
-                isBookmarks && 'rounded-xl border border-amber-500/20 bg-amber-500/5 p-2 pt-3',
+                sectionIndex > 0 &&
+                  (compact
+                    ? 'border-t border-border/40 pt-2'
+                    : 'border-t border-border/50 pt-4'),
+                isBookmarks &&
+                  !compact &&
+                  'rounded-xl border border-amber-500/20 bg-amber-500/5 p-2 pt-3',
               )}
             >
-              {compact ? (
-                <div className="mb-1.5 text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">
-                  {isBookmarks ? '★' : section.label.charAt(0)}
-                </div>
-              ) : (
+              {!compact ? (
                 <div
                   className={cn(
                     'mb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.14em]',
@@ -525,8 +578,8 @@ export function AppShell({
                 >
                   {section.label}
                 </div>
-              )}
-              <div className="grid gap-0.5">
+              ) : null}
+              <div className={cn('grid', compact ? 'gap-1' : 'gap-0.5')}>
                 {section.items.map((item) => (
                   <NavItemButton
                     key={navItemId(item)}
@@ -535,90 +588,29 @@ export function AppShell({
                     onPick={onPick}
                   />
                 ))}
-                {isSystem ? (
-                  <div
-                    className={cn(
-                      'flex items-center rounded-xl',
-                      compact ? 'justify-center px-2 py-2' : 'justify-between gap-2 px-3 py-2',
-                    )}
-                  >
-                    {!compact ? (
-                      <span className="flex items-center gap-3 text-sm font-medium text-foreground/75">
-                        <Moon className="size-[18px] opacity-80" />
-                        Dark mode
-                      </span>
-                    ) : null}
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={dark}
-                      aria-label="Toggle dark mode"
-                      onClick={toggle}
-                      className={cn(
-                        'relative h-6 w-11 shrink-0 rounded-full transition-colors',
-                        dark ? 'bg-primary' : 'bg-muted',
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          'absolute top-0.5 size-5 rounded-full bg-card shadow transition-transform',
-                          dark ? 'left-[22px]' : 'left-0.5',
-                        )}
-                      />
-                    </button>
-                  </div>
-                ) : null}
+                {isSystem ? <ThemeToggle compact={compact} /> : null}
               </div>
             </div>
           );
         })}
         {!sections.some((s) => s.key === 'system') ? (
-          <div className="border-t border-border/50 pt-4">
-            {compact ? (
-              <div className="mb-1.5 text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">
-                S
-              </div>
-            ) : (
+          <div className={cn(compact ? 'border-t border-border/40 pt-2' : 'border-t border-border/50 pt-4')}>
+            {!compact ? (
               <div className="mb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
                 System
               </div>
-            )}
-            <div
-              className={cn(
-                'flex items-center rounded-xl',
-                compact ? 'justify-center px-2 py-2' : 'justify-between gap-2 px-3 py-2',
-              )}
-            >
-              {!compact ? (
-                <span className="flex items-center gap-3 text-sm font-medium text-foreground/75">
-                  <Moon className="size-[18px] opacity-80" />
-                  Dark mode
-                </span>
-              ) : null}
-              <button
-                type="button"
-                role="switch"
-                aria-checked={dark}
-                aria-label="Toggle dark mode"
-                onClick={toggle}
-                className={cn(
-                  'relative h-6 w-11 shrink-0 rounded-full transition-colors',
-                  dark ? 'bg-primary' : 'bg-muted',
-                )}
-              >
-                <span
-                  className={cn(
-                    'absolute top-0.5 size-5 rounded-full bg-card shadow transition-transform',
-                    dark ? 'left-[22px]' : 'left-0.5',
-                  )}
-                />
-              </button>
-            </div>
+            ) : null}
+            <ThemeToggle compact={compact} />
           </div>
         ) : null}
       </div>
 
-      <div className="mt-3 shrink-0 space-y-1 border-t border-border/70 pt-3">
+      <div
+        className={cn(
+          'mt-2 shrink-0 border-t border-border/70',
+          compact ? 'space-y-1.5 pt-2' : 'space-y-1 pt-3',
+        )}
+      >
         <SidebarToggle compact={compact} />
         <UserMenu compact={compact} />
       </div>
@@ -632,7 +624,7 @@ export function AppShell({
         <aside
           className={cn(
             'relative z-10 hidden h-svh min-h-0 shrink-0 flex-col overflow-hidden border-r text-foreground transition-[width] duration-200 ease-out md:flex glass-panel',
-            collapsed ? 'w-[76px] px-2.5 py-4' : 'w-[260px] px-4 py-5',
+            collapsed ? 'w-[64px] px-1.5 py-3' : 'w-[260px] px-4 py-5',
           )}
         >
           <SidebarChrome compact={collapsed} scroll={desktopScroll} />

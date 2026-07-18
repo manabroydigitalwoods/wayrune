@@ -24,6 +24,7 @@ import {
   Wallet,
   Wrench,
 } from 'lucide-react';
+import { stripOrgPrefix } from './agencyRoutes';
 import {
   isDriverOrgKind,
   isFleetOrgKind,
@@ -416,12 +417,14 @@ export function partnerOsSectionFromPath(
   pathname: string,
   kind?: string | null,
 ): string {
+  // Support HubSpot-style `/:orgRef/companion-settings` as well as flat paths.
+  const relative = stripOrgPrefix(pathname);
   const nav = partnerOsNavForKind(kind);
-  const hit = nav.find((n) => n.path === pathname && !isExternalPartnerPath(n.path));
+  const hit = nav.find((n) => n.path === relative && !isExternalPartnerPath(n.path));
   if (hit) return hit.id;
-  if (pathname === '/') return partnerOsDefaultSectionId(kind);
+  if (relative === '/') return partnerOsDefaultSectionId(kind);
 
-  const seg = pathname.replace(/^\//, '').replace(/-/g, '_');
+  const seg = relative.replace(/^\//, '').replace(/-/g, '_');
   if (seg === 'rate_plans') return 'rates';
   if (seg === 'front_desk') return 'front_desk';
   if (!seg) return partnerOsDefaultSectionId(kind);

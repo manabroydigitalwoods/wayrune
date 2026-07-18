@@ -4,13 +4,13 @@ import {
   ForbiddenException,
   SetMetadata,
 } from '@nestjs/common';
-import type { AccessClaims } from '@travel/auth';
+import type { AccessClaims } from '@wayrune/auth';
 import {
   canAccessRecord,
   type PermissionKey,
   type PermissionScope,
   type RecordScopeContext,
-} from '@travel/rbac';
+} from '@wayrune/rbac';
 
 export const IS_PUBLIC_KEY = 'isPublic';
 export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
@@ -82,7 +82,7 @@ export function propertyScopeWhere(
 
 /**
  * Assert record-level access for a scoped action. Services resolve the caller's
- * effective scope (via `effectiveScope` from `@travel/rbac`) and pass the record
+ * effective scope (via `effectiveScope` from `@wayrune/rbac`) and pass the record
  * context here; throws 403 when the caller may not act on the record.
  */
 export function assertRecordAccess(
@@ -123,13 +123,23 @@ export function computeMissingInquiryFields(data: {
   return missing;
 }
 
-export function calcQuoteTotals(items: Array<{ quantity: number; unitCost: number; unitSell: number; taxPercent: number }>, discountTotal = 0) {
+export function calcQuoteTotals(
+  items: Array<{
+    quantity: number;
+    unitCost: number | null | undefined;
+    unitSell: number | null | undefined;
+    taxPercent: number;
+  }>,
+  discountTotal = 0,
+) {
   let costTotal = 0;
   let sellSubtotal = 0;
   let taxTotal = 0;
   for (const item of items) {
-    const lineCost = item.quantity * item.unitCost;
-    const lineSell = item.quantity * item.unitSell;
+    const unitCost = item.unitCost == null ? 0 : item.unitCost;
+    const unitSell = item.unitSell == null ? 0 : item.unitSell;
+    const lineCost = item.quantity * unitCost;
+    const lineSell = item.quantity * unitSell;
     costTotal += lineCost;
     sellSubtotal += lineSell;
     taxTotal += (lineSell * item.taxPercent) / 100;

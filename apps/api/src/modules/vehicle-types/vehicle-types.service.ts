@@ -1,6 +1,6 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { CreateVehicleTypeInput } from '@travel/contracts';
+import type { CreateVehicleTypeInput } from '@wayrune/contracts';
 import { PrismaService } from '../../prisma/prisma.service';
 
 function slugify(name: string) {

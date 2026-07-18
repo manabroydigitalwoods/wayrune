@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Building2, ClipboardList, Network, Plus } from 'lucide-react';
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import {
   Button,
   Card,
@@ -17,8 +17,9 @@ import {
   SuggestionChips,
   toastError,
   toastSuccess,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import { api } from '../api';
+import { useOrgNavigate } from '../hooks/useOrgNavigate';
 import { PartnerInventoryPanel } from '../components/partner/PartnerInventoryPanel';
 import {
   StayPortalLayout,
@@ -165,7 +166,7 @@ export function PartnerHomePage() {
   const fleetPortal = isFleetOrgKind(orgKind);
   const driverPortal = isDriverOrgKind(orgKind);
   const location = useLocation();
-  const navigate = useNavigate();
+  const { navigate } = useOrgNavigate();
   const [searchParams] = useSearchParams();
 
   // Legacy bookmarks: /?tab=kitchen → /kitchen ; /guest-services?gs=menu → /guest-menu

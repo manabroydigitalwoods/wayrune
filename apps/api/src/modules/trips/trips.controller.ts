@@ -5,7 +5,7 @@ import {
   PaginationQuerySchema,
   RecordTripFeedbackSchema,
   UpdateTripDestinationsSchema,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import {
   CurrentUser,
   RequireAgencyOrg,

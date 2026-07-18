@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Navigate, useSearchParams } from 'react-router-dom';
+import { useOrgNavigate } from '../hooks/useOrgNavigate';
 import {
   Building2,
   Bell,
@@ -9,6 +10,7 @@ import {
   DollarSign,
   Euro,
   FileText,
+  Inbox,
   IndianRupee,
   Network,
   Paintbrush,
@@ -49,7 +51,7 @@ import {
   type ComboboxOption,
   type DateFormatId,
   type TimeFormatId,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { Can } from '../components/Can';
@@ -73,6 +75,7 @@ type SettingsSection =
   | 'business'
   | 'policies'
   | 'security'
+  | 'inbox'
   | 'integrations'
   | 'lead-sources'
   | 'notifications'
@@ -211,6 +214,12 @@ const SECTIONS: {
     label: 'Security',
     description: 'Session, MFA and password policy.',
     icon: Shield,
+  },
+  {
+    id: 'inbox',
+    label: 'Inbox',
+    description: 'Channels, chat settings, and chatflows.',
+    icon: Inbox,
   },
   {
     id: 'integrations',
@@ -387,6 +396,7 @@ export function SettingsPage({
 } = {}) {
   useDocumentTitle('Settings');
   const { me, refreshMe, switchOrganization } = useAuth();
+  const { toOrgPath, navigate } = useOrgNavigate();
   const { hasAny } = usePermissions();
   const canUserManage = hasAny(CAP.userManage);
   const [showAdvancedByDefault, setShowAdvancedByDefault] = useAdvancedToolsPreference();
@@ -394,7 +404,7 @@ export function SettingsPage({
     () =>
       SECTIONS.filter((s) => {
         if (s.id === 'members') return canUserManage;
-        // Integrations lives on its own route.
+        // Integrations / lead sources live on their own routes (System nav).
         if (s.id === 'integrations') return false;
         if (s.id === 'lead-sources') return false;
         return true;
@@ -431,6 +441,7 @@ export function SettingsPage({
   const [taxLabel, setTaxLabel] = useState('GST');
   const [defaultTaxPercent, setDefaultTaxPercent] = useState(5);
   const [defaultMarkupPercent, setDefaultMarkupPercent] = useState(20);
+  const [minMarginPercent, setMinMarginPercent] = useState(0);
   const [branding, setBranding] = useState<BrandingForm>({
     companyName: '',
     tagline: '',
@@ -513,6 +524,7 @@ export function SettingsPage({
     setTaxLabel(o.taxLabel || 'GST');
     setDefaultTaxPercent(num(settings.defaultTaxPercent, 5));
     setDefaultMarkupPercent(num(settings.defaultMarkupPercent, 20));
+    setMinMarginPercent(num(settings.minMarginPercent, 0));
     setDisplay(nextDisplay);
     setDateTimePrefs(nextDisplay);
     setBranding({
@@ -592,6 +604,10 @@ export function SettingsPage({
   }, []);
 
   function setSection(next: SettingsSection) {
+    if (next === 'inbox') {
+      navigate(AGENCY_ROUTES.settingsInbox);
+      return;
+    }
     const params = new URLSearchParams(searchParams);
     if (next === 'general') params.delete('section');
     else params.set('section', next);
@@ -651,6 +667,7 @@ export function SettingsPage({
         settingsJson: {
           defaultTaxPercent,
           defaultMarkupPercent,
+          minMarginPercent,
           itinerary,
           display,
         },
@@ -696,6 +713,7 @@ export function SettingsPage({
     taxLabel,
     defaultTaxPercent,
     defaultMarkupPercent,
+    minMarginPercent,
     itinerary,
     display,
     name,
@@ -732,19 +750,22 @@ export function SettingsPage({
   if (!org) return <p className="text-sm text-muted-foreground">Loading…</p>;
 
   if (!forcedSection && searchParams.get('section') === 'audit') {
-    return <Navigate to={AGENCY_ROUTES.settingsAudit} replace />;
+    return <Navigate to={toOrgPath(AGENCY_ROUTES.settingsAudit)} replace />;
   }
   if (!forcedSection && searchParams.get('section') === 'access') {
-    return <Navigate to={AGENCY_ROUTES.teamMembers} replace />;
+    return <Navigate to={toOrgPath(AGENCY_ROUTES.teamMembers)} replace />;
   }
   if (!forcedSection && searchParams.get('section') === 'members') {
-    return <Navigate to={AGENCY_ROUTES.teamMembers} replace />;
+    return <Navigate to={toOrgPath(AGENCY_ROUTES.teamMembers)} replace />;
+  }
+  if (!forcedSection && searchParams.get('section') === 'inbox') {
+    return <Navigate to={toOrgPath(AGENCY_ROUTES.settingsInbox)} replace />;
   }
   if (!forcedSection && searchParams.get('section') === 'integrations') {
-    return <Navigate to={AGENCY_ROUTES.settingsIntegrations} replace />;
+    return <Navigate to={toOrgPath(AGENCY_ROUTES.settingsIntegrations)} replace />;
   }
   if (!forcedSection && searchParams.get('section') === 'lead-sources') {
-    return <Navigate to={AGENCY_ROUTES.settingsLeadSources} replace />;
+    return <Navigate to={toOrgPath(AGENCY_ROUTES.settingsLeadSources)} replace />;
   }
 
   const sectionMeta = SECTIONS.find((s) => s.id === section)!;
@@ -794,7 +815,7 @@ export function SettingsPage({
         </nav>
         )}
 
-        <Card className="min-w-0 max-w-3xl">
+        <Card className="min-w-0 max-w-4xl">
           <CardContent className="space-y-5 p-5">
             {standalone ? null : (
             <div className="space-y-1">
@@ -1080,6 +1101,21 @@ export function SettingsPage({
                           }
                         />
                       </FormField>
+                      <FormField
+                        label="Minimum margin %"
+                        description="Lines below this margin on sell need below-margin approval before send. 0 = only block sell-below-cost."
+                      >
+                        <Input
+                          type="number"
+                          min={0}
+                          max={100}
+                          step={0.5}
+                          value={minMarginPercent}
+                          onChange={(e) =>
+                            setMinMarginPercent(Number(e.target.value))
+                          }
+                        />
+                      </FormField>
                       <FormField label="Share link default (days)">
                         <Input
                           type="number"
@@ -1118,8 +1154,28 @@ export function SettingsPage({
                     </FormField>
                     <dl className="grid gap-2 rounded-xl border px-3 py-3 text-sm glass-well">
                       <div className="flex justify-between gap-3">
+                        <dt className="text-muted-foreground">Public code</dt>
+                        <dd className="font-medium tabular-nums">
+                          {me?.organization.publicCode ?? '—'}
+                        </dd>
+                      </div>
+                      <div className="flex justify-between gap-3">
                         <dt className="text-muted-foreground">Slug</dt>
                         <dd className="font-medium tabular-nums">{org.slug}</dd>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <dt className="text-muted-foreground">Subdomain</dt>
+                        <dd className="font-medium text-right">
+                          {me?.organization.subdomain
+                            ? `${me.organization.subdomain}.${(import.meta.env.VITE_SITE_BASE_DOMAIN as string | undefined) || 'codepoetry.app'}`
+                            : '—'}
+                        </dd>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <dt className="text-muted-foreground">Custom domain</dt>
+                        <dd className="font-medium text-right text-muted-foreground">
+                          {me?.organization.customDomain || 'Not set'}
+                        </dd>
                       </div>
                       <div className="flex justify-between gap-3">
                         <dt className="text-muted-foreground">Kind</dt>
@@ -1127,7 +1183,8 @@ export function SettingsPage({
                       </div>
                     </dl>
                     <ComingSoonNote>
-                      Slug changes and org transfers will be available in a later release.
+                      Custom domain DNS/SSL verification ships later. Open Website pages from the
+                      sidebar — URLs use your public org code like HubSpot HubID.
                     </ComingSoonNote>
                   </>
                 ) : null}

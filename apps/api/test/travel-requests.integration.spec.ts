@@ -3,7 +3,7 @@ import { Test } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import cookieParser from 'cookie-parser';
-import { hashPassword } from '@travel/auth';
+import { hashPassword } from '@wayrune/auth';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { ZodExceptionFilter } from '../src/common/zod-exception.filter';

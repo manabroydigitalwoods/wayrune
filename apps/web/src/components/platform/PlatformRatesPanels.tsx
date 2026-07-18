@@ -12,7 +12,7 @@ import {
   formatCurrency,
   toastError,
   toastSuccess,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import { api } from '../../api';
 import { reportError } from '../../lib/errors';
 import { PlaceSinglePicker } from '../places/PlacePicker';

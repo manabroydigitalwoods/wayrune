@@ -13,8 +13,8 @@ import type {
   CreatePlaceSubcategoryInput,
   ReviewPlaceContributionInput,
   UpdatePlaceInput,
-} from '@travel/contracts';
-import { loadEnv } from '@travel/config';
+} from '@wayrune/contracts';
+import { loadEnv } from '@wayrune/config';
 import { PrismaService } from '../../prisma/prisma.service';
 
 function slugify(name: string) {

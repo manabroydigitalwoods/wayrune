@@ -10,7 +10,7 @@ import {
   UpdateEngagementAutomationRuleSchema,
   UpdateEngagementConversationSchema,
   UpdateInteractionSchema,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import {
   CurrentUser,
   RequireAgencyOrg,
@@ -97,8 +97,19 @@ export class InteractionsController {
 
   @Get('threads/:threadKey')
   @RequirePermissions('lead.read', 'lead.read.own', 'inquiry.read')
-  threadMessages(@CurrentUser() user: AuthUser, @Param('threadKey') threadKey: string) {
-    return this.interactions.listThreadMessages(user, decodeURIComponent(threadKey));
+  threadMessages(
+    @CurrentUser() user: AuthUser,
+    @Param('threadKey') threadKey: string,
+    @Query('limit') limit?: string,
+    @Query('before') before?: string,
+    @Query('beforeId') beforeId?: string,
+  ) {
+    const parsedLimit = limit ? Number.parseInt(limit, 10) : undefined;
+    return this.interactions.listThreadMessages(user, decodeURIComponent(threadKey), {
+      limit: Number.isFinite(parsedLimit) ? parsedLimit : undefined,
+      before: before || undefined,
+      beforeId: beforeId || undefined,
+    });
   }
 
   @Get('conversations/:id')
@@ -125,6 +136,18 @@ export class InteractionsController {
   @RequirePermissions('lead.write', 'inquiry.write')
   claimConversation(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.interactions.claimConversation(user, id);
+  }
+
+  @Post('conversations/:id/read')
+  @RequirePermissions('lead.write', 'inquiry.write')
+  markConversationRead(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.interactions.markConversationRead(user, id);
+  }
+
+  @Post('conversations/:id/unread')
+  @RequirePermissions('lead.write', 'inquiry.write')
+  markConversationUnread(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.interactions.markConversationUnread(user, id);
   }
 
   @Post('conversations/:id/assign')

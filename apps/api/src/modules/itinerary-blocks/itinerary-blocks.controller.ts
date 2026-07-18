@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
-import { CreateItineraryBlockSchema } from '@travel/contracts';
+import { CreateItineraryBlockSchema } from '@wayrune/contracts';
 import {
   CurrentUser,
   RequireAgencyOrg,

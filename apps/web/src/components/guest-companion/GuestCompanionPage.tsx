@@ -17,7 +17,7 @@ import {
   WifiOff,
   X,
 } from 'lucide-react';
-import { toastError, toastSuccess } from '@travel/ui';
+import { toastError, toastSuccess } from '@wayrune/ui';
 import { api } from '../../api';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 import {

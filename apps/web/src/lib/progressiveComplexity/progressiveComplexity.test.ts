@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PERMISSIONS } from '@travel/rbac';
+import { PERMISSIONS } from '@wayrune/rbac';
 import { TRAVEL_REQUEST_PERMISSIONS } from '../capabilities';
 import {
   AGENCY_UI_CAPABILITIES,

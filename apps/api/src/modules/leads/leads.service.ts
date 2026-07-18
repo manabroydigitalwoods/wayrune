@@ -2,11 +2,14 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  Inject,
   Injectable,
   NotFoundException,
+  forwardRef,
 } from '@nestjs/common';
 import { createHmac, timingSafeEqual } from 'crypto';
-import { hasPermission } from '@travel/auth';
+import { hasPermission } from '@wayrune/auth';
+import { parseInboxChatSettings, isInboxChatWithinHours } from '@wayrune/contracts';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -15,6 +18,7 @@ import { PartiesService } from '../parties/parties.service';
 import { InteractionsService } from '../interactions/interactions.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { MetaCloudMessagingProvider } from '../messaging/meta-cloud.messaging';
+import { OrgIdentityService } from '../organizations/org-identity.service';
 import type { AuthUser } from '../../common/helpers';
 import type {
   CreateCampaignInput,
@@ -27,6 +31,7 @@ import type {
   CreateWhatsAppTemplateInput,
   ReplyEmailInput,
   ReplyInstagramInput,
+  ReplyWebsiteInput,
   ReplyWhatsappInput,
   ReplyWhatsappTemplateInput,
   UpdateCampaignInput,
@@ -37,11 +42,11 @@ import type {
   UpdatePipelineInput,
   UpdateWhatsAppTemplateInput,
   WebhookLeadInput,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import {
   mapAcquisitionFromIngest,
   resolveIngestChannelKey,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 
 /** Prefer E.164-ish storage; fall back to last 10 digits for India mobiles. */
 function normalizeWhatsappPhone(waId: string): string | null {
@@ -59,10 +64,12 @@ export class LeadsService {
     private prisma: PrismaService,
     private audit: AuditService,
     private notifications: NotificationsService,
-    private parties: PartiesService,
+    @Inject(forwardRef(() => PartiesService)) private parties: PartiesService,
+    @Inject(forwardRef(() => InteractionsService))
     private interactions: InteractionsService,
     private outbox: OutboxService,
     private messaging: MetaCloudMessagingProvider,
+    private orgIdentity: OrgIdentityService,
   ) {}
 
   private async defaultPipeline(
@@ -797,7 +804,7 @@ export class LeadsService {
   async ingestInboundTouch(
     organizationId: string,
     input: {
-      channel: 'website' | 'whatsapp' | 'facebook' | 'email' | 'api' | 'instagram' | 'phone' | 'walk_in' | 'import';
+      channel: 'website' | 'whatsapp' | 'facebook' | 'email' | 'api' | 'instagram' | 'phone' | 'walk_in' | 'import' | 'google_business';
       summary: string;
       contactName?: string | null;
       phone?: string | null;
@@ -1027,7 +1034,7 @@ export class LeadsService {
       throw new ForbiddenException('WhatsApp ingest is not enabled');
     }
 
-    if (cfg.appSecret) {
+    if (cfg.appSecret && !cfg.accessToken.startsWith('seed-demo-')) {
       if (!opts?.rawBody?.length || !opts.signatureHeader?.startsWith('sha256=')) {
         throw new ForbiddenException('Missing WhatsApp signature');
       }
@@ -1220,7 +1227,7 @@ export class LeadsService {
     if (!cfg.enabled) {
       throw new ForbiddenException('Facebook Lead Ads ingest is not enabled');
     }
-    if (cfg.appSecret) {
+    if (cfg.appSecret && !cfg.accessToken.startsWith('seed-demo-')) {
       this.assertHubSignature(cfg.appSecret, opts);
     }
 
@@ -1267,7 +1274,7 @@ export class LeadsService {
           ad_id: change.value?.ad_id,
         };
 
-        if (cfg.accessToken) {
+        if (cfg.accessToken && !cfg.accessToken.startsWith('seed-demo-')) {
           try {
             const fetched = await this.fetchFacebookLead(leadgenId, cfg.accessToken);
             fields = { ...fields, ...fetched };
@@ -1275,6 +1282,11 @@ export class LeadsService {
             // Still create a pending touch with leadgen id so sales can follow up
             fields.title = fields.title || 'Facebook Lead (details pending)';
           }
+        } else if (cfg.accessToken.startsWith('seed-demo-')) {
+          fields.full_name = fields.full_name || 'Demo Facebook Lead';
+          fields.email = fields.email || 'fb.lead@example.com';
+          fields.phone_number = fields.phone_number || '+919988776655';
+          fields.title = fields.title || 'Facebook Lead Ads — demo form';
         } else {
           fields.title = 'Facebook Lead (configure access token to pull fields)';
         }
@@ -1829,12 +1841,15 @@ export class LeadsService {
     if (!to) throw new BadRequestException('No WhatsApp recipient phone on this touch');
 
     const digits = to.replace(/\D/g, '');
-    await this.messaging.sendText({
-      to: digits,
-      text: input.text.trim(),
-      phoneNumberId: cfg.phoneNumberId,
-      accessToken: cfg.accessToken,
-    });
+    const demo = cfg.accessToken.startsWith('seed-demo-');
+    if (!demo) {
+      await this.messaging.sendText({
+        to: digits,
+        text: input.text.trim(),
+        phoneNumberId: cfg.phoneNumberId,
+        accessToken: cfg.accessToken,
+      });
+    }
 
     await this.interactions.markRead(user, interactionId);
 
@@ -1844,6 +1859,7 @@ export class LeadsService {
       partyId: interaction.partyId,
       leadId: interaction.leadId,
       inquiryId: interaction.inquiryId,
+      conversationId: interaction.conversationId,
       outcome: 'pending',
       unread: false,
       summary: `Outbound: ${input.text.trim().slice(0, 240)}`,
@@ -1853,10 +1869,11 @@ export class LeadsService {
         to: digits,
         text: input.text.trim(),
         inReplyTo: interactionId,
+        demo,
       },
     });
 
-    return { ok: true, outbound, interactionId };
+    return { ok: true, outbound, demo, interactionId };
   }
 
   /**
@@ -2026,6 +2043,7 @@ export class LeadsService {
       partyId: interaction.partyId,
       leadId: interaction.leadId,
       inquiryId: interaction.inquiryId,
+      conversationId: interaction.conversationId,
       outcome: 'pending',
       unread: false,
       summary: `Outbound: ${input.text.trim().slice(0, 240)}`,
@@ -2086,7 +2104,7 @@ export class LeadsService {
     if (!cfg.enabled) {
       throw new ForbiddenException('Instagram ingest is not enabled');
     }
-    if (cfg.appSecret) {
+    if (cfg.appSecret && !cfg.accessToken.startsWith('seed-demo-')) {
       this.assertHubSignature(cfg.appSecret, opts);
     }
 
@@ -2156,22 +2174,25 @@ export class LeadsService {
     const senderId = typeof raw.senderId === 'string' ? raw.senderId : '';
     if (!senderId) throw new BadRequestException('No Instagram sender on this touch');
 
-    const url = new URL('https://graph.facebook.com/v21.0/me/messages');
-    url.searchParams.set('access_token', cfg.accessToken);
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        recipient: { id: senderId },
-        message: { text: input.text.trim() },
-      }),
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!res.ok) {
-      const errBody = await res.text().catch(() => '');
-      throw new BadRequestException(
-        `Instagram send failed (${res.status})${errBody ? `: ${errBody.slice(0, 200)}` : ''}`,
-      );
+    const demo = cfg.accessToken.startsWith('seed-demo-');
+    if (!demo) {
+      const url = new URL('https://graph.facebook.com/v21.0/me/messages');
+      url.searchParams.set('access_token', cfg.accessToken);
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipient: { id: senderId },
+          message: { text: input.text.trim() },
+        }),
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => '');
+        throw new BadRequestException(
+          `Instagram send failed (${res.status})${errBody ? `: ${errBody.slice(0, 200)}` : ''}`,
+        );
+      }
     }
 
     await this.interactions.markRead(user, interactionId);
@@ -2182,6 +2203,7 @@ export class LeadsService {
       partyId: interaction.partyId,
       leadId: interaction.leadId,
       inquiryId: interaction.inquiryId,
+      conversationId: interaction.conversationId,
       outcome: 'pending',
       unread: false,
       summary: `Outbound: ${input.text.trim().slice(0, 240)}`,
@@ -2191,10 +2213,187 @@ export class LeadsService {
         senderId,
         text: input.text.trim(),
         inReplyTo: interactionId,
+        demo,
       },
     });
 
-    return { ok: true, outbound, interactionId };
+    return { ok: true, outbound, demo, interactionId };
+  }
+
+  /**
+   * Reply on a Website chat touch. Message is stored as an outbound Interaction;
+   * the public widget polls and shows it to the visitor.
+   */
+  async replyWebsite(user: AuthUser, interactionId: string, input: ReplyWebsiteInput) {
+    const interaction = await this.interactions.get(user, interactionId);
+    if (interaction.channel !== 'website') {
+      throw new BadRequestException('Reply is only supported for Website chat touches');
+    }
+
+    const text = input.text.trim();
+    if (!text) throw new BadRequestException('Message is required');
+
+    const raw = (interaction.rawPayloadJson as Record<string, unknown> | null) ?? {};
+    await this.interactions.markRead(user, interactionId);
+
+    const outbound = await this.interactions.create(user, {
+      channel: 'website',
+      acquisitionSourceKey: interaction.acquisitionSourceKey,
+      partyId: interaction.partyId,
+      leadId: interaction.leadId,
+      inquiryId: interaction.inquiryId,
+      conversationId: interaction.conversationId,
+      outcome: 'pending',
+      unread: false,
+      summary: `Outbound: ${text.slice(0, 240)}`,
+      staffUserId: user.sub,
+      rawPayloadJson: {
+        direction: 'outbound',
+        text,
+        inReplyTo: interactionId,
+        widgetId: typeof raw.widgetId === 'string' ? raw.widgetId : null,
+        siteId: typeof raw.siteId === 'string' ? raw.siteId : null,
+        source: typeof raw.source === 'string' ? raw.source : 'embed',
+      },
+    });
+
+    return {
+      ok: true,
+      outbound,
+      interactionId,
+      conversationId: outbound.conversationId ?? interaction.conversationId,
+    };
+  }
+
+  /**
+   * Public: visitor widget polls for agent outbound replies on their conversation.
+   */
+  async widgetMessages(
+    organizationId: string,
+    opts: {
+      publicKey: string;
+      conversationId?: string | null;
+      email?: string | null;
+      phone?: string | null;
+      after?: string | null;
+    },
+  ) {
+    await this.widgetConfig(organizationId, opts.publicKey);
+
+    let conversationId =
+      typeof opts.conversationId === 'string' && opts.conversationId.trim()
+        ? opts.conversationId.trim()
+        : null;
+
+    if (!conversationId && (opts.email || opts.phone)) {
+      const email = opts.email?.trim() || '';
+      const phoneRaw = opts.phone?.trim() || '';
+      const digits = phoneRaw.replace(/\D/g, '');
+      const last10 = digits.length >= 10 ? digits.slice(-10) : digits;
+      const phoneOr: Array<{ phone: string } | { phone: { endsWith: string } }> = [];
+      if (phoneRaw) phoneOr.push({ phone: phoneRaw });
+      if (digits) phoneOr.push({ phone: digits });
+      if (last10) {
+        phoneOr.push({ phone: last10 });
+        phoneOr.push({ phone: { endsWith: last10 } });
+        if (last10.length === 10) phoneOr.push({ phone: `91${last10}` });
+      }
+
+      const party = await this.prisma.party.findFirst({
+        where: {
+          organizationId,
+          deletedAt: null,
+          OR: [
+            ...(email ? [{ email }] : []),
+            ...phoneOr,
+          ],
+        },
+        select: { id: true },
+        orderBy: { updatedAt: 'desc' },
+      });
+      if (party) {
+        const recent = await this.prisma.interaction.findFirst({
+          where: {
+            organizationId,
+            partyId: party.id,
+            channel: 'website',
+            conversationId: { not: null },
+          },
+          orderBy: { occurredAt: 'desc' },
+          select: { conversationId: true },
+        });
+        conversationId = recent?.conversationId ?? null;
+      }
+    }
+
+    if (!conversationId) {
+      return {
+        conversationId: null as string | null,
+        messages: [] as Array<{
+          id: string;
+          text: string;
+          at: string;
+          direction: 'inbound' | 'outbound';
+        }>,
+      };
+    }
+
+    const conv = await this.prisma.engagementConversation.findFirst({
+      where: { id: conversationId, organizationId },
+      select: { id: true },
+    });
+    if (!conv) {
+      throw new NotFoundException('Conversation not found');
+    }
+
+    // Full thread for the widget (visitor inbound + agent outbound). Client dedupes by id.
+    const rows = await this.prisma.interaction.findMany({
+      where: {
+        organizationId,
+        conversationId,
+        channel: 'website',
+      },
+      orderBy: { occurredAt: 'desc' },
+      take: 80,
+      select: {
+        id: true,
+        occurredAt: true,
+        summary: true,
+        rawPayloadJson: true,
+      },
+    });
+
+    const messages = rows
+      .map((row) => {
+        const raw = (row.rawPayloadJson as Record<string, unknown> | null) ?? {};
+        const direction =
+          raw.direction === 'outbound'
+            ? ('outbound' as const)
+            : raw.direction === 'inbound'
+              ? ('inbound' as const)
+              : null;
+        if (!direction) return null;
+        const text =
+          (typeof raw.text === 'string' && raw.text.trim()) ||
+          (typeof raw.message === 'string' && raw.message.trim()) ||
+          (typeof row.summary === 'string' &&
+            row.summary
+              .replace(/^Outbound:\s*/i, '')
+              .replace(/^Website chat[^\n—]*[—–-]\s*/i, '')
+              .trim()) ||
+          '';
+        if (!text) return null;
+        return {
+          id: row.id,
+          text,
+          at: row.occurredAt.toISOString(),
+          direction,
+        };
+      })
+      .filter((m): m is NonNullable<typeof m> => Boolean(m))
+      .reverse();
+
+    return { conversationId, messages };
   }
 
   async listPipelines(user: AuthUser) {
@@ -2334,6 +2533,44 @@ export class LeadsService {
       select: { id: true, name: true, settingsJson: true, brandingJson: true },
     });
     if (!org) throw new NotFoundException('Organization not found');
+
+    const branding = (org.brandingJson ?? {}) as Record<string, unknown>;
+    const orgChat = parseInboxChatSettings(org.settingsJson);
+
+    // Prefer PresenceChatWidget registry; fall back to legacy Integrations blob once.
+    if (publicKey) {
+      const row = await this.prisma.presenceChatWidget.findFirst({
+        where: { organizationId: org.id, publicKey },
+      });
+      if (row) {
+        if (!row.enabled) {
+          throw new ForbiddenException('Conversation widget is not enabled');
+        }
+        return {
+          organizationId: org.id,
+          widgetId: row.id,
+          widgetName: row.name,
+          brandName: row.brandName?.trim() || org.name,
+          // Accent lives under Inbox → Chat (org settings); chatflow override is ignored.
+          primaryColor:
+            orgChat.accentColor ||
+            (typeof branding.primaryColor === 'string' && branding.primaryColor) ||
+            row.primaryColor?.trim() ||
+            '#0f766e',
+          whatsappNumber: row.whatsappNumber?.trim() || null,
+          defaultGreeting:
+            row.defaultGreeting?.trim() || 'Need help planning your trip?',
+          replyTimeHint: orgChat.availableReplyTime,
+          allowDrag: orgChat.allowDrag,
+          fontFamily: orgChat.fontFamily,
+          placementSide: orgChat.placementSide,
+          withinHours: isInboxChatWithinHours(orgChat),
+          afterHoursMessage: orgChat.afterHoursMessage,
+          modes: ['chat', 'contact', 'travel_enquiry', 'callback', 'whatsapp'] as const,
+        };
+      }
+    }
+
     const settings = (org.settingsJson ?? {}) as Record<string, unknown>;
     const integrations = (settings.integrations ?? {}) as Record<string, unknown>;
     const widget = (integrations.conversationWidget ?? {}) as Record<string, unknown>;
@@ -2344,19 +2581,27 @@ export class LeadsService {
     if (!expected || !publicKey || publicKey !== expected) {
       throw new ForbiddenException('Invalid widget public key');
     }
-    const branding = (org.brandingJson ?? {}) as Record<string, unknown>;
     return {
       organizationId: org.id,
+      widgetId: null as string | null,
+      widgetName: 'Default',
       brandName: (typeof widget.brandName === 'string' && widget.brandName) || org.name,
       primaryColor:
-        (typeof widget.primaryColor === 'string' && widget.primaryColor) ||
+        orgChat.accentColor ||
         (typeof branding.primaryColor === 'string' && branding.primaryColor) ||
+        (typeof widget.primaryColor === 'string' && widget.primaryColor) ||
         '#0f766e',
       whatsappNumber:
         typeof widget.whatsappNumber === 'string' ? widget.whatsappNumber : null,
       defaultGreeting:
         (typeof widget.defaultGreeting === 'string' && widget.defaultGreeting) ||
         'Need help planning your trip?',
+      replyTimeHint: orgChat.availableReplyTime,
+      allowDrag: orgChat.allowDrag,
+      fontFamily: orgChat.fontFamily,
+      placementSide: orgChat.placementSide,
+      withinHours: isInboxChatWithinHours(orgChat),
+      afterHoursMessage: orgChat.afterHoursMessage,
       modes: ['chat', 'contact', 'travel_enquiry', 'callback', 'whatsapp'] as const,
     };
   }
@@ -2375,8 +2620,39 @@ export class LeadsService {
     phone?: string | null;
     destinations?: string | null;
     idempotencyKey: string;
+    formKey?: string | null;
+    widgetId?: string | null;
+    siteId?: string | null;
+    path?: string | null;
+    pageUrl?: string | null;
+    referrer?: string | null;
+    source?: 'presence' | 'embed';
   }) {
-    await this.widgetConfig(input.organizationId, input.publicKey);
+    const org = await this.orgIdentity.resolveRef(input.organizationId);
+    const config = await this.widgetConfig(org.id, input.publicKey);
+
+    let widgetRow =
+      config.widgetId != null
+        ? await this.prisma.presenceChatWidget.findFirst({
+            where: { id: config.widgetId, organizationId: org.id },
+          })
+        : null;
+    if (!widgetRow && input.widgetId) {
+      widgetRow = await this.prisma.presenceChatWidget.findFirst({
+        where: { id: input.widgetId, organizationId: org.id, publicKey: input.publicKey },
+      });
+    }
+
+    let siteName: string | null = null;
+    if (input.siteId) {
+      const site = await this.prisma.presenceSite.findFirst({
+        where: { id: input.siteId, organizationId: org.id },
+        select: { name: true },
+      });
+      siteName = site?.name ?? null;
+    }
+
+    const widgetName = widgetRow?.name || config.widgetName || 'Widget';
     const modeLabel: Record<string, string> = {
       chat: 'Website chat',
       contact: 'Contact form',
@@ -2384,14 +2660,21 @@ export class LeadsService {
       callback: 'Callback request',
       whatsapp: 'WhatsApp handoff',
     };
-    const parts = [
-      modeLabel[input.mode] || input.mode,
-      input.destinations?.trim() ? `Destination: ${input.destinations.trim()}` : null,
-      input.message?.trim() || null,
-    ].filter(Boolean);
-    return this.ingestInboundTouch(input.organizationId, {
+    const visitorText = input.message?.trim() || '';
+    const summary =
+      visitorText ||
+      [
+        `${modeLabel[input.mode] || input.mode} · ${widgetName}`,
+        siteName ? `Site: ${siteName}` : null,
+        input.path?.trim() ? `Path: ${input.path.trim()}` : null,
+        input.formKey ? `Form: ${input.formKey}` : null,
+        input.destinations?.trim() ? `Destination: ${input.destinations.trim()}` : null,
+      ]
+        .filter(Boolean)
+        .join(' — ');
+    return this.ingestInboundTouch(org.id, {
       channel: 'website',
-      summary: parts.join(' — '),
+      summary,
       contactName: input.contactName,
       phone: input.phone,
       email: input.email,
@@ -2400,9 +2683,18 @@ export class LeadsService {
       rawPayload: {
         direction: 'inbound',
         widgetMode: input.mode,
+        formKey: input.formKey ?? null,
         message: input.message,
         destinations: input.destinations,
         text: input.message,
+        widgetId: widgetRow?.id || config.widgetId || input.widgetId || null,
+        widgetName,
+        siteId: input.siteId ?? null,
+        siteName,
+        path: input.path ?? null,
+        pageUrl: input.pageUrl ?? null,
+        referrer: input.referrer ?? null,
+        source: input.source || (input.siteId ? 'presence' : 'embed'),
       },
     });
   }

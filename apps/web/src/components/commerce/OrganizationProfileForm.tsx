@@ -9,7 +9,7 @@ import {
   SimpleFormField as FormField,
   toastError,
   toastSuccess,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import { api } from '../../api';
 import { Can } from '../Can';
 import { CAP } from '../../lib/capabilities';

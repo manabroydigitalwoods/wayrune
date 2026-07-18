@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import type { ColumnDef } from '@tanstack/react-table';
 import { ArrowUpRight, Building2, Copy, MoreHorizontal, Pencil, Plus, Upload } from 'lucide-react';
-import { CreatePartySchema, parseWithFieldErrors } from '@travel/contracts';
+import { CreatePartySchema, parseWithFieldErrors } from '@wayrune/contracts';
 import {
   Button,
   Combobox,
@@ -26,7 +26,7 @@ import {
   formatDate,
   toastError,
   toastSuccess,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { Can } from '../components/Can';

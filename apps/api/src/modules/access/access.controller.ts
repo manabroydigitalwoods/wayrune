@@ -16,7 +16,7 @@ import {
   InviteMemberSchema,
   SetPropertyScopesSchema,
   UpdateRoleSchema,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import { CurrentUser, Public, RequirePermissions, type AuthUser } from '../../common/helpers';
 import { AccessService } from './access.service';
 

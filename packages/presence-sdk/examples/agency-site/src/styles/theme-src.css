@@ -1,0 +1,162 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --presence-primary: #0d4f4a;
+    --presence-accent: #c45c26;
+    --presence-bg: #f7f4ef;
+    --presence-fg: #1a1f1e;
+    --presence-muted: #5c6b68;
+    --presence-surface: #ffffff;
+    --presence-radius: 12px;
+    --presence-font-display: "Fraunces", Georgia, serif;
+    --presence-font-body: "Source Sans 3", system-ui, sans-serif;
+  }
+}
+
+@layer components {
+  .presence-site {
+    @apply min-h-screen;
+    background: var(--presence-bg);
+    color: var(--presence-fg);
+    font-family: var(--presence-font-body);
+  }
+
+  .presence-header {
+    @apply sticky top-0 z-20 border-b backdrop-blur;
+    background: color-mix(in srgb, var(--presence-surface) 92%, transparent);
+    border-color: rgba(26, 31, 30, 0.1);
+  }
+
+  .presence-header-inner {
+    @apply mx-auto flex max-w-6xl items-center justify-between gap-4 px-5 py-3;
+  }
+
+  .presence-brand {
+    @apply text-lg font-semibold tracking-tight no-underline;
+    font-family: var(--presence-font-display);
+    color: var(--presence-fg);
+  }
+
+  .presence-nav {
+    @apply hidden items-center gap-5 text-sm md:flex;
+  }
+
+  .presence-nav a {
+    @apply no-underline;
+    color: var(--presence-muted);
+  }
+
+  .presence-nav a:hover {
+    color: var(--presence-fg);
+  }
+
+  .presence-header-cta {
+    @apply inline-flex items-center rounded-full px-4 py-2 text-sm font-semibold no-underline;
+    background: var(--presence-primary);
+    color: #fff;
+  }
+
+  .presence-footer {
+    @apply mt-16 border-t;
+    border-color: rgba(26, 31, 30, 0.1);
+    background: color-mix(in srgb, var(--presence-primary) 8%, var(--presence-bg));
+  }
+
+  .presence-footer-inner {
+    @apply mx-auto flex max-w-6xl flex-col gap-6 px-5 py-10 sm:flex-row sm:justify-between;
+  }
+
+  .presence-footer-brand {
+    @apply m-0 text-base font-semibold;
+    font-family: var(--presence-font-display);
+  }
+
+  .presence-footer-note {
+    @apply m-0 mt-1 text-sm;
+    color: var(--presence-muted);
+  }
+
+  .presence-footer-nav {
+    @apply flex flex-wrap gap-4 text-sm;
+  }
+
+  .presence-footer-nav a {
+    @apply no-underline;
+    color: var(--presence-muted);
+  }
+
+  .presence-main {
+    @apply mx-auto flex max-w-6xl flex-col gap-10 px-5 py-10;
+  }
+
+  .presence-section {
+    @apply rounded-[var(--presence-radius)];
+  }
+
+  .presence-hero {
+    @apply relative overflow-hidden rounded-[var(--presence-radius)] px-8 py-16 text-white;
+    background: linear-gradient(
+      135deg,
+      var(--presence-primary),
+      color-mix(in srgb, var(--presence-primary) 40%, #0a1f1e)
+    );
+  }
+
+  .presence-hero h1 {
+    @apply m-0 max-w-2xl text-4xl font-semibold leading-tight md:text-5xl;
+    font-family: var(--presence-font-display);
+  }
+
+  .presence-eyebrow {
+    @apply mb-2 text-xs font-semibold uppercase tracking-[0.08em];
+    color: var(--presence-accent);
+  }
+
+  .presence-hero .presence-eyebrow {
+    color: color-mix(in srgb, #fff 80%, var(--presence-accent));
+  }
+
+  .presence-stats {
+    @apply grid grid-cols-2 gap-4 md:grid-cols-4;
+  }
+
+  .presence-stat {
+    @apply rounded-[var(--presence-radius)] bg-white p-4 text-center shadow-sm;
+  }
+
+  .presence-stat strong {
+    @apply block text-2xl;
+    font-family: var(--presence-font-display);
+    color: var(--presence-primary);
+  }
+
+  .presence-grid {
+    @apply grid gap-4 sm:grid-cols-2 lg:grid-cols-3;
+  }
+
+  .presence-card {
+    @apply overflow-hidden rounded-[var(--presence-radius)] bg-white shadow-sm;
+  }
+
+  .presence-card img {
+    @apply aspect-[4/3] w-full object-cover;
+  }
+
+  .presence-card-body {
+    @apply p-4;
+  }
+
+  .presence-cta-band {
+    @apply rounded-[var(--presence-radius)] px-8 py-10 text-center text-white;
+    background: var(--presence-primary);
+  }
+
+  .presence-btn {
+    @apply inline-flex items-center rounded-full px-4 py-2 text-sm font-semibold no-underline;
+    background: var(--presence-accent);
+    color: #fff;
+  }
+}

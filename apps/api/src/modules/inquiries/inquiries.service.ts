@@ -1,14 +1,22 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  Optional,
+  forwardRef,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type {
   CreateInquiryInput,
   UpdateInquiryInput,
   UpdateInquiryStatusInput,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { TripsService } from '../trips/trips.service';
 import { LeadsService } from '../leads/leads.service';
+import { GoogleService } from '../google/google.service';
 import { computeMissingInquiryFields, type AuthUser } from '../../common/helpers';
 import {
   placeRefsFromJson,
@@ -23,6 +31,9 @@ export class InquiriesService {
     private audit: AuditService,
     private trips: TripsService,
     private leads: LeadsService,
+    @Optional()
+    @Inject(forwardRef(() => GoogleService))
+    private google?: GoogleService,
   ) {}
 
   private async nextNumber(
@@ -115,6 +126,7 @@ export class InquiriesService {
         entityType: 'inquiry',
         entityId: inquiry.id,
       });
+      await this.maybeSyncInquiryCalendar(user.organizationId, inquiry);
     }
 
     return inquiry;
@@ -292,7 +304,28 @@ export class InquiriesService {
       metadata: { missingFields: missing },
     });
 
+    if (input.startDate !== undefined || input.endDate !== undefined) {
+      await this.maybeSyncInquiryCalendar(user.organizationId, inquiry);
+    }
+
     return inquiry;
+  }
+
+  private async maybeSyncInquiryCalendar(
+    organizationId: string,
+    inquiry: { id: string; inquiryNumber: string; startDate: Date | null; endDate: Date | null },
+  ) {
+    if (!this.google || !inquiry.startDate) return;
+    try {
+      await this.google.syncTravelRequestWindow(organizationId, {
+        id: inquiry.id,
+        inquiryNumber: inquiry.inquiryNumber,
+        startDate: inquiry.startDate,
+        endDate: inquiry.endDate,
+      });
+    } catch {
+      /* Calendar sync is best-effort */
+    }
   }
 
   /**

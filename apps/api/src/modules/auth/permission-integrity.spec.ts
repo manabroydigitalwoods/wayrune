@@ -14,7 +14,7 @@ import {
   permissionAllowedForOrgKind,
   roleAllowedForOrgKind,
   type PermissionKey,
-} from '@travel/rbac';
+} from '@wayrune/rbac';
 
 /**
  * RBAC Integrity 1.0 — CI permission-integrity suite (backend).
@@ -22,7 +22,7 @@ import {
  * Belt-and-suspenders on top of the now-typed `@RequirePermissions` decorators:
  * statically scans every controller for guard metadata and cross-checks it, the
  * role maps, and the implication map against the single `PERMISSIONS` list in
- * `@travel/rbac`. Runs with the normal `vitest` unit pass (no DB/Nest boot).
+ * `@wayrune/rbac`. Runs with the normal `vitest` unit pass (no DB/Nest boot).
  */
 
 const MODULES_DIR = resolve(process.cwd(), 'src/modules');
@@ -256,7 +256,7 @@ describe('permission integrity: implication map', () => {
   });
 
   it('a broad grant satisfies each implied (narrower) permission', async () => {
-    const { hasPermission } = await import('@travel/rbac');
+    const { hasPermission } = await import('@wayrune/rbac');
     for (const [broad, narrows] of Object.entries(impl)) {
       for (const narrow of narrows) {
         expect(hasPermission([broad], narrow), `${broad} should imply ${narrow}`).toBe(true);

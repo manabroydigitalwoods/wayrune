@@ -7,7 +7,7 @@ export default defineConfig({
   resolve: {
     alias: {
       // Resolve the shared RBAC core from source so tests need no build step.
-      '@travel/rbac': resolve(__dirname, '../../packages/rbac/src/index.ts'),
+      '@wayrune/rbac': resolve(__dirname, '../../packages/rbac/src/index.ts'),
     },
   },
   test: {

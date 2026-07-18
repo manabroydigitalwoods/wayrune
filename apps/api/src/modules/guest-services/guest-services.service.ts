@@ -22,7 +22,7 @@ import type {
   UpdateServiceOfferingInput,
   UpdateServiceOrderStatusInput,
   UpdateGuestServiceRequestStatusInput,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import { PrismaService } from '../../prisma/prisma.service';
 import { InventoryService } from '../inventory/inventory.service';
 import { OutboxService } from '../outbox/outbox.service';

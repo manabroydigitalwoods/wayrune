@@ -3,7 +3,7 @@ import {
   AckExperienceWaiverSchema,
   AddExperienceParticipantSchema,
   CreateExperienceReservationSchema,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import {
   CurrentUser,
   RequirePermissions,

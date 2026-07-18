@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { randomBytes, randomInt } from 'crypto';
 import { Prisma } from '@prisma/client';
-import { hashPassword, verifyPassword } from '@travel/auth';
+import { hashPassword, verifyPassword } from '@wayrune/auth';
 import type {
   CreateItineraryShareInput,
   ProposalFamilyAgencyReplyInput,
@@ -17,8 +17,8 @@ import type {
   ProposalFamilyMessageInput,
   ProposalFamilyReactInput,
   SaveItineraryVersionInput,
-} from '@travel/contracts';
-import { tripClimateSeason } from '@travel/contracts';
+} from '@wayrune/contracts';
+import { tripClimateSeason } from '@wayrune/contracts';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';

@@ -4,7 +4,7 @@ import { createHash, randomBytes } from 'crypto';
 
 /**
  * Re-export the canonical permission helpers from the shared browser-safe core.
- * The `.own`/implication logic lives in exactly one place (`@travel/rbac`) so the
+ * The `.own`/implication logic lives in exactly one place (`@wayrune/rbac`) so the
  * API guard, worker, and web UI can never drift.
  */
 export {
@@ -27,7 +27,7 @@ export {
   type PermissionScope,
   type PermissionDiff,
   type RecordScopeContext,
-} from '@travel/rbac';
+} from '@wayrune/rbac';
 
 export async function hashPassword(password: string) {
   return bcrypt.hash(password, 10);
@@ -57,7 +57,7 @@ export type AccessClaims = {
    * PartnerAsset ids this membership is scoped to (RBAC Integrity 1.0 / P1-3).
    * Empty/absent means org-wide (all properties) for backward compatibility;
    * services evaluate property-scoped permissions against this list via
-   * `canAccessRecord(...)` from `@travel/rbac`.
+   * `canAccessRecord(...)` from `@wayrune/rbac`.
    */
   propertyScopes?: string[];
 };

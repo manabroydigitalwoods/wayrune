@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Post, Query } from '@nestjs/common';
-import { CreateVehicleTypeSchema } from '@travel/contracts';
+import { CreateVehicleTypeSchema } from '@wayrune/contracts';
 import {
   CurrentUser,
   RequireAgencyOrg,

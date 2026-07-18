@@ -15,7 +15,7 @@ import {
   SuggestTransferFareSchema,
   UpdateSupplierHotelRateSchema,
   UpdateTransferFareSchema,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import {
   CurrentUser,
   RequireAgencyOrg,

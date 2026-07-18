@@ -1,4 +1,4 @@
-import type { PermissionKey } from '@travel/rbac';
+import type { PermissionKey } from '@wayrune/rbac';
 
 /** How much complexity the interface exposes at a moment in time. */
 export type DisclosureLevel = 'primary' | 'secondary' | 'advanced';

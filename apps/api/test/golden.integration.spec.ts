@@ -6,7 +6,7 @@ import cookieParser from 'cookie-parser';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { ZodExceptionFilter } from '../src/common/zod-exception.filter';
-import { hashPassword } from '@travel/auth';
+import { hashPassword } from '@wayrune/auth';
 import { ACCESS_COOKIE } from '../src/modules/auth/auth-cookies';
 
 function cookieValue(res: request.Response, name: string): string {

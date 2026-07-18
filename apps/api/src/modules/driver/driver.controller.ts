@@ -3,7 +3,7 @@ import {
   CompleteDriverJobSchema,
   CreateDriverJobSchema,
   RecordDriverPaymentSchema,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import {
   CurrentUser,
   RequirePermissions,

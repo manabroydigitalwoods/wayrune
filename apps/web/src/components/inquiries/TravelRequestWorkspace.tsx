@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useOrgNavigate } from '../../hooks/useOrgNavigate';
 import { Minus, Plus } from 'lucide-react';
-import { CreateTravelRequestSchema, parseWithFieldErrors } from '@travel/contracts';
+import { CreateTravelRequestSchema, parseWithFieldErrors } from '@wayrune/contracts';
 import {
   Button,
   ConfirmDialog,
@@ -17,7 +18,7 @@ import {
   toastError,
   toastSuccess,
   cn,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import { api } from '../../api';
 import { formatDateInput, parseDateInput } from '../../lib/dateInput';
 import { trackExperienceEvent } from '../../lib/progressiveComplexity';
@@ -235,7 +236,7 @@ export function TravelRequestWorkspace({
   defaults?: InquiryCreateDefaults;
   onCreated?: (inquiry: CreatedInquiry) => void;
 }) {
-  const navigate = useNavigate();
+  const { navigate } = useOrgNavigate();
   const [phase, setPhase] = useState<'capture' | 'summary'>('capture');
   const [step, setStep] = useState<CallStep>('customer');
   const [submitting, setSubmitting] = useState(false);

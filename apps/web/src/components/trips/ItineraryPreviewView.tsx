@@ -11,7 +11,7 @@ import {
   formatTimeRange,
   type DateFormatId,
   type TimeFormatId,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import {
   BedDouble,
   Car,
@@ -33,7 +33,7 @@ import {
   CloudSun,
   type LucideIcon,
 } from 'lucide-react';
-import { resolveTripWindowDisplay } from '@travel/contracts';
+import { resolveTripWindowDisplay } from '@wayrune/contracts';
 import { placeName } from '../../lib/placeRefs';
 import {
   ProposalExploreSheet,

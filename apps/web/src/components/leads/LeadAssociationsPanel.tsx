@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom';
+import { useOrgNavigate } from '../../hooks/useOrgNavigate';
 import { CheckSquare, ClipboardList, Plus } from 'lucide-react';
 import {
   Button,
@@ -8,7 +9,7 @@ import {
   formatCurrency,
   formatDate,
   formatDateTime,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import { useState } from 'react';
 import { Can } from '../Can';
 import { CAP } from '../../lib/capabilities';
@@ -78,7 +79,7 @@ export function LeadAssociationsPanel({
   className,
   showHeader = true,
 }: LeadAssociationsPanelProps) {
-  const navigate = useNavigate();
+  const { navigate } = useOrgNavigate();
   const { hasAny } = usePermissions();
   const canTaskWrite = hasAny(CAP.taskWrite);
   const openTasks = tasks.filter((t) => t.status !== 'done');

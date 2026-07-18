@@ -38,7 +38,7 @@ import {
   UpdateServiceIncidentSchema,
   UpdateServiceRequestSchema,
   UpdateTripChangeCaseSchema,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import {
   CurrentUser,
   RequirePermissions,

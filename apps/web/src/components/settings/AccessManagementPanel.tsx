@@ -29,7 +29,7 @@ import {
   toastError,
   toastSuccess,
   type ComboboxOption,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import { api } from '../../api';
 import { useAuth } from '../../auth';
 

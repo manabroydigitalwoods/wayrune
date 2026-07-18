@@ -1,0 +1,413 @@
+{
+  "navigation": [
+    { "label": "Home", "path": "/" },
+    { "label": "Destinations", "path": "/destinations" },
+    { "label": "Trips", "path": "/trips" },
+    { "label": "About", "path": "/about" },
+    { "label": "Contact", "path": "/contact" }
+  ],
+  "globalRegions": {
+    "header": {
+      "links": ["Home", "Destinations", "Trips", "About", "Contact"],
+      "ctaLabel": "Plan a trip",
+      "ctaHref": "/contact"
+    },
+    "footer": { "note": "Crafted journeys · Powered by Wayrune" }
+  },
+  "menus": {
+    "primary": {
+      "label": "Primary",
+      "items": [
+        { "label": "Home", "href": "/" },
+        { "label": "Destinations", "href": "/destinations" },
+        { "label": "Trips", "href": "/trips" },
+        { "label": "About", "href": "/about" },
+        { "label": "Contact", "href": "/contact" }
+      ]
+    },
+    "footer": {
+      "label": "Footer",
+      "items": [
+        { "label": "Destinations", "href": "/destinations" },
+        { "label": "Trips", "href": "/trips" },
+        { "label": "About", "href": "/about" },
+        { "label": "Contact", "href": "/contact" }
+      ]
+    }
+  },
+  "menuAssignments": {
+    "primary": "primary",
+    "footer": "footer"
+  },
+  "pages": [
+    {
+      "path": "/",
+      "title": "Home",
+      "layoutKey": "default",
+      "sections": [
+        {
+          "type": "offer_banner",
+          "propsJson": {
+            "eyebrow": "Limited seats",
+            "title": "Autumn departures filling fast",
+            "body": "Enquire for early-bird rates while inventory lasts.",
+            "imageUrl": "https://images.unsplash.com/photo-1506929562365-f9e4a1d0c5b5?auto=format&fit=crop&w=1400&q=80",
+            "ctaLabel": "Enquire now",
+            "ctaHref": "/contact"
+          }
+        },
+        {
+          "type": "hero",
+          "propsJson": {
+            "eyebrow": "Travel · Tailor-made",
+            "headline": "Journeys shaped around you",
+            "subhead": "From Himalayan trails to island escapes — local expertise, calm planning, memorable days.",
+            "ctaLabel": "Plan my trip",
+            "ctaHref": "/contact",
+            "secondaryCtaLabel": "Browse trips",
+            "secondaryCtaHref": "/trips",
+            "variant": "immersive",
+            "imageUrl": "https://images.unsplash.com/photo-1506929562365-f9e4a1d0c5b5?auto=format&fit=crop&w=1400&q=80"
+          }
+        },
+        {
+          "type": "stats",
+          "propsJson": {
+            "eyebrow": "By the numbers",
+            "items": [
+              { "value": "12+", "label": "Years planning" },
+              { "value": "400+", "label": "Trips crafted" },
+              { "value": "98%", "label": "Would recommend" },
+              { "value": "24h", "label": "Typical reply" }
+            ]
+          }
+        },
+        {
+          "type": "destination_grid",
+          "propsJson": {
+            "eyebrow": "Go places",
+            "title": "Destinations we love",
+            "items": [
+              {
+                "image": "https://images.unsplash.com/photo-1506929562365-f9e4a1d0c5b5?auto=format&fit=crop&w=1200&q=80",
+                "name": "Sri Lanka",
+                "tagline": "Tea country to the south coast",
+                "href": "/destinations"
+              },
+              {
+                "image": "https://images.unsplash.com/photo-1528183429752-a97d0bf99b5a?auto=format&fit=crop&w=1200&q=80",
+                "name": "Vietnam",
+                "tagline": "Cities, islands, quiet countryside",
+                "href": "/destinations"
+              },
+              {
+                "image": "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?auto=format&fit=crop&w=1200&q=80",
+                "name": "Himalaya",
+                "tagline": "Trails, lodges, and long views",
+                "href": "/destinations"
+              }
+            ]
+          }
+        },
+        {
+          "type": "trip-highlight",
+          "moduleKey": "trip-highlight",
+          "propsJson": {
+            "eyebrow": "Featured",
+            "title": "Coastal week",
+            "body": "Seven nights of shore roads, seafood, and unhurried mornings — refined with you.",
+            "price": "From $1,290",
+            "ctaLabel": "Enquire",
+            "ctaHref": "/contact"
+          }
+        },
+        {
+          "type": "testimonials",
+          "propsJson": {
+            "eyebrow": "Traveller stories",
+            "title": "Trips people still talk about",
+            "items": [
+              {
+                "quote": "Every transfer, stay, and tip felt considered — we never felt alone on the road.",
+                "author": "The Shahs · Rajasthan"
+              },
+              {
+                "quote": "They listened first, then built an itinerary that matched how we actually travel.",
+                "author": "Mira K. · Bali"
+              }
+            ]
+          }
+        },
+        {
+          "type": "cta",
+          "propsJson": {
+            "eyebrow": "Start here",
+            "title": "Tell us where you want to go",
+            "body": "Share dates, pace, and must-sees — we will reply with a thoughtful outline.",
+            "label": "Request a plan",
+            "href": "/contact",
+            "variant": "band"
+          }
+        }
+      ]
+    },
+    {
+      "path": "/destinations",
+      "title": "Destinations",
+      "layoutKey": "default",
+      "sections": [
+        {
+          "type": "section_heading",
+          "propsJson": {
+            "eyebrow": "Destinations",
+            "title": "Places we know well",
+            "subhead": "Regions we plan with care — ask us about seasons, pacing, and the quiet corners."
+          }
+        },
+        {
+          "type": "destination_grid",
+          "propsJson": {
+            "eyebrow": "Featured",
+            "title": "Explore by place",
+            "items": [
+              {
+                "image": "https://images.unsplash.com/photo-1506929562365-f9e4a1d0c5b5?auto=format&fit=crop&w=1200&q=80",
+                "name": "Sri Lanka",
+                "tagline": "Tea country to the south coast",
+                "href": "/contact"
+              },
+              {
+                "image": "https://images.unsplash.com/photo-1528183429752-a97d0bf99b5a?auto=format&fit=crop&w=1200&q=80",
+                "name": "Vietnam",
+                "tagline": "Cities, islands, quiet countryside",
+                "href": "/contact"
+              },
+              {
+                "image": "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?auto=format&fit=crop&w=1200&q=80",
+                "name": "Himalaya",
+                "tagline": "Trails, lodges, and long views",
+                "href": "/contact"
+              },
+              {
+                "image": "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1200&q=80",
+                "name": "Maldives",
+                "tagline": "Still water and unhurried days",
+                "href": "/contact"
+              }
+            ]
+          }
+        },
+        {
+          "type": "gallery",
+          "propsJson": {
+            "eyebrow": "Mood",
+            "title": "Places & moments",
+            "images": [
+              {
+                "url": "https://images.unsplash.com/photo-1506929562365-f9e4a1d0c5b5?auto=format&fit=crop&w=1200&q=80",
+                "alt": "Coast"
+              },
+              {
+                "url": "https://images.unsplash.com/photo-1520250497591-112f2f40a3f4?auto=format&fit=crop&w=1200&q=80",
+                "alt": "Pool"
+              },
+              {
+                "url": "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?auto=format&fit=crop&w=1200&q=80",
+                "alt": "Mountains"
+              },
+              {
+                "url": "https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=1200&q=80",
+                "alt": "Road"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "path": "/trips",
+      "title": "Trips",
+      "layoutKey": "default",
+      "sections": [
+        {
+          "type": "section_heading",
+          "propsJson": {
+            "eyebrow": "Packages",
+            "title": "Ready-to-tailor trips",
+            "subhead": "Starting points we refine with you — dates, hotels, and pace included."
+          }
+        },
+        {
+          "type": "package_grid",
+          "propsJson": {
+            "eyebrow": "Trips",
+            "title": "Featured packages",
+            "items": [
+              {
+                "image": "https://images.unsplash.com/photo-1506929562365-f9e4a1d0c5b5?auto=format&fit=crop&w=1200&q=80",
+                "name": "Coastal week",
+                "price": "From $1,290",
+                "nights": "7 nights",
+                "highlights": "Beach stay\nOne day tour\nAirport transfers",
+                "ctaLabel": "Enquire",
+                "ctaHref": "/contact"
+              },
+              {
+                "image": "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?auto=format&fit=crop&w=1200&q=80",
+                "name": "Hill escape",
+                "price": "From $980",
+                "nights": "5 nights",
+                "highlights": "Tea country lodge\nGuided walks\nTrain journey",
+                "ctaLabel": "Enquire",
+                "ctaHref": "/contact"
+              },
+              {
+                "image": "https://images.unsplash.com/photo-1528183429752-a97d0bf99b5a?auto=format&fit=crop&w=1200&q=80",
+                "name": "Culture circuit",
+                "price": "From $1,650",
+                "nights": "10 nights",
+                "highlights": "Private guide\nHeritage stays\nFlexible pacing",
+                "ctaLabel": "Enquire",
+                "ctaHref": "/contact"
+              }
+            ]
+          }
+        },
+        {
+          "type": "itinerary_timeline",
+          "propsJson": {
+            "eyebrow": "Sample",
+            "title": "Coastal week — day by day",
+            "items": [
+              {
+                "day": "Day 1",
+                "title": "Arrive & settle",
+                "body": "Airport meet, check-in, and a gentle evening walk."
+              },
+              {
+                "day": "Day 2",
+                "title": "Coast road",
+                "body": "Scenic drive with lunch by the water."
+              },
+              {
+                "day": "Day 3",
+                "title": "Free morning",
+                "body": "Optional spa or market — your pace."
+              }
+            ]
+          }
+        },
+        {
+          "type": "cta",
+          "propsJson": {
+            "title": "Need something more bespoke?",
+            "body": "Tell us your dates and we will shape a private itinerary.",
+            "label": "Request a custom plan",
+            "href": "/contact",
+            "variant": "band"
+          }
+        }
+      ]
+    },
+    {
+      "path": "/about",
+      "title": "About",
+      "layoutKey": "default",
+      "sections": [
+        {
+          "type": "section_heading",
+          "propsJson": {
+            "eyebrow": "About",
+            "title": "Local knowledge, calm logistics",
+            "subhead": "A small travel team obsessed with pacing, hospitality partners, and the details that make a trip feel effortless."
+          }
+        },
+        {
+          "type": "split_content",
+          "propsJson": {
+            "eyebrow": "Our story",
+            "title": "We started by planning for friends",
+            "body": "Today we still work the same way — listen first, then shape options that fit real life.",
+            "imageUrl": "https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=1200&q=80",
+            "imageAlt": "Travel overlook",
+            "ctaLabel": "Talk to us",
+            "ctaHref": "/contact",
+            "imageSide": "right"
+          }
+        },
+        {
+          "type": "team_profiles",
+          "propsJson": {
+            "eyebrow": "People",
+            "title": "Meet the team",
+            "body": "The humans behind the journeys.",
+            "items": [
+              {
+                "photo": "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=400&q=80",
+                "name": "Maya Chen",
+                "role": "Founder",
+                "bio": "Fifteen years crafting trips across Asia."
+              },
+              {
+                "photo": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=400&q=80",
+                "name": "Leo Park",
+                "role": "Trip designer",
+                "bio": "Obsessed with quiet trails and good food."
+              }
+            ]
+          }
+        },
+        {
+          "type": "faq",
+          "propsJson": {
+            "eyebrow": "Planning",
+            "title": "Common questions",
+            "items": [
+              {
+                "q": "How far ahead should we enquire?",
+                "a": "Ideal is 6–12 weeks for popular seasons; last-minute is possible when inventory allows."
+              },
+              {
+                "q": "Do you book flights?",
+                "a": "We can coordinate flights or work with tickets you already hold — tell us what you prefer."
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "path": "/contact",
+      "title": "Contact",
+      "layoutKey": "default",
+      "sections": [
+        {
+          "type": "section_heading",
+          "propsJson": {
+            "eyebrow": "Contact",
+            "title": "Plan your trip",
+            "subhead": "We typically reply within one business day."
+          }
+        },
+        {
+          "type": "trip_inquiry",
+          "propsJson": {
+            "eyebrow": "Enquire",
+            "title": "Tell us about your trip",
+            "body": "• Reply within one business day\n• No obligation quote\n• Tailored to your dates",
+            "formKey": "travel_request",
+            "formTitle": "Travel enquiry"
+          }
+        },
+        {
+          "type": "rich_text",
+          "propsJson": {
+            "eyebrow": "Visit",
+            "title": "Find us",
+            "body": "12 Harbour Lane\nYour City, 00000\n\nPhone: +1 555 0100\nEmail: hello@example.com\nHours: Mon–Fri 9:00–18:00"
+          }
+        }
+      ]
+    }
+  ]
+}

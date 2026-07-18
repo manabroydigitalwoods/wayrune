@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useOrgNavigate } from '../../hooks/useOrgNavigate';
 import {
   ChevronDown,
   ChevronRight,
@@ -43,14 +44,14 @@ import {
   formatTime,
   formatTimeRange as formatClockRange,
   type ComboboxOption,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import {
   CreatePlaceSchema,
   CreateRoomTypeSchema,
   CreateSupplierSchema,
   CreateVehicleTypeSchema,
   parseWithFieldErrors,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import { api, apiUpload } from '../../api';
 import {
   CatalogLandmarkPicker,
@@ -1386,7 +1387,7 @@ export function ItineraryBuilder({
   /** When true, disables all editing affordances (role lacks itinerary.edit). */
   readOnly?: boolean;
 }) {
-  const navigate = useNavigate();
+  const { navigate } = useOrgNavigate();
   const normalized = useMemo(
     () => normalizeDays(days, tripStartDate),
     [days, tripStartDate],

@@ -5,7 +5,7 @@ import {
   pickSeasonalKnowledgeBody,
   tripClimateSeason,
   tripWindowHeadline,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 
 export type ContentDay = {
   id?: string;

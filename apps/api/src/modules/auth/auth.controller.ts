@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Post, Query, Req, Res } from '@nestjs/common';
-import { LoginSchema, RegisterSchema, SwitchOrganizationSchema } from '@travel/contracts';
-import { loadEnv } from '@travel/config';
+import { LoginSchema, RegisterSchema, SwitchOrganizationSchema } from '@wayrune/contracts';
+import { loadEnv } from '@wayrune/config';
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import {
@@ -82,6 +82,17 @@ export class AuthController {
     );
     setAuthCookies(res, tokens);
     return publicAuthPayload(tokens);
+  }
+
+  @Public()
+  @Get('oauth/providers')
+  /** Platform-level SSO availability (env credentials). Not per-organization. */
+  oauthProviders() {
+    const env = loadEnv();
+    return {
+      google: Boolean(env.googleOauthClientId && env.googleOauthClientSecret),
+      microsoft: Boolean(env.microsoftOauthClientId && env.microsoftOauthClientSecret),
+    };
   }
 
   @Public()

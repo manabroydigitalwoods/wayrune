@@ -4,9 +4,9 @@ import { dirname, join } from 'path';
 export type AppEnvName = 'local' | 'dev' | 'prod';
 
 /**
- * RBAC core now lives in the browser-safe `@travel/rbac` package (no `fs`/`path`).
+ * RBAC core now lives in the browser-safe `@wayrune/rbac` package (no `fs`/`path`).
  * Re-exported here for backwards compatibility so existing
- * `import { PERMISSIONS, ROLE_PERMISSION_MAP, ... } from '@travel/config'`
+ * `import { PERMISSIONS, ROLE_PERMISSION_MAP, ... } from '@wayrune/config'`
  * call sites keep working unchanged.
  */
 export {
@@ -52,7 +52,7 @@ export {
   type AgencyRoleKey,
   type PartnerRoleKey,
   type PlatformRoleKey,
-} from '@travel/rbac';
+} from '@wayrune/rbac';
 
 function parseEnvFile(contents: string): Record<string, string> {
   const out: Record<string, string> = {};
@@ -163,6 +163,10 @@ export type AppEnv = {
   microsoftOauthClientId: string;
   microsoftOauthClientSecret: string;
   oauthRedirectBase: string;
+  /** Encrypt GoogleConnection refresh/access tokens (32+ chars recommended). */
+  googleTokenEncryptionKey: string;
+  /** Public site host suffix, e.g. codepoetry.app → {subdomain}.codepoetry.app */
+  siteBaseDomain: string;
 };
 
 let cached: AppEnv | null = null;
@@ -226,10 +230,17 @@ export function loadEnv(force = false): AppEnv {
       process.env.API_PUBLIC_URL ||
       `http://localhost:${process.env.API_PORT ?? 3001}`
     ).trim(),
+    googleTokenEncryptionKey: (
+      process.env.GOOGLE_TOKEN_ENCRYPTION_KEY ||
+      process.env.JWT_ACCESS_SECRET ||
+      'dev-google-token-encryption-key-32c'
+    ).trim(),
+    siteBaseDomain: (process.env.SITE_BASE_DOMAIN || 'codepoetry.app').trim().replace(/^\./, ''),
   };
   return cached;
 }
 
+export { BRAND, type Brand } from './branding';
 export {
   SYSTEM_PLACES,
   SYSTEM_PLACES as SYSTEM_DESTINATIONS,

@@ -3,14 +3,18 @@ import {
   setDateTimePrefs,
   type DateFormatId,
   type TimeFormatId,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import { api, setToken } from './api';
+import { orgPath, orgPortalRef } from './lib/agencyRoutes';
 
 type Membership = {
   organizationId: string;
   name: string;
   slug: string;
   kind: string;
+  publicCode?: number;
+  subdomain?: string | null;
+  customDomain?: string | null;
 };
 
 type Me = {
@@ -22,6 +26,9 @@ type Me = {
     name: string;
     slug: string;
     kind?: string;
+    publicCode?: number;
+    subdomain?: string | null;
+    customDomain?: string | null;
     timezone?: string;
     currency?: string;
     dateFormat?: DateFormatId;
@@ -48,7 +55,7 @@ type AuthState = {
   }) => Promise<void>;
   logout: () => Promise<void>;
   refreshMe: () => Promise<Me | null>;
-  switchOrganization: (organizationId: string) => Promise<void>;
+  switchOrganization: (organizationId: string, opts?: { redirectTo?: string | false }) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -139,7 +146,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return null;
         }
       },
-      async switchOrganization(organizationId: string) {
+      async switchOrganization(organizationId: string, opts?: { redirectTo?: string | false }) {
         await api('/auth/switch-organization', {
           method: 'POST',
           body: JSON.stringify({ organizationId }),
@@ -147,7 +154,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const user = await api<Me>('/auth/me');
         applyOrgDateTimePrefs(user);
         setMe(user);
-        window.location.assign('/');
+        if (opts?.redirectTo === false) return;
+        const home = orgPath(orgPortalRef(user.organization), '/');
+        window.location.assign(opts?.redirectTo ?? home);
       },
     }),
     [me, loading],

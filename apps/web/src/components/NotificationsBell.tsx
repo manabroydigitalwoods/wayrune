@@ -8,7 +8,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import { api } from '../api';
 
 type NotificationRow = {

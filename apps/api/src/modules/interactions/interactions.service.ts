@@ -1,11 +1,11 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException, forwardRef } from '@nestjs/common';
 import type {
   CreateInteractionInput,
   ResolveInteractionInput,
   UpdateEngagementConversationInput,
   UpdateInteractionInput,
-} from '@travel/contracts';
-import { CONNECTOR_CAPABILITIES } from '@travel/contracts';
+} from '@wayrune/contracts';
+import { CONNECTOR_CAPABILITIES } from '@wayrune/contracts';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TasksService } from '../tasks/tasks.service';
@@ -16,7 +16,7 @@ import { runEngagementAutomation } from '../connectors/engagement-automation';
 export class InteractionsService {
   constructor(
     private prisma: PrismaService,
-    private tasks: TasksService,
+    @Inject(forwardRef(() => TasksService)) private tasks: TasksService,
   ) {}
 
   /**
@@ -565,6 +565,8 @@ export class InteractionsService {
 
     const where: Prisma.EngagementConversationWhereInput = {
       organizationId: user.organizationId,
+      // Hide empty shells left by older reply paths that created then moved messages
+      interactions: { some: {} },
       ...(ownership === 'mine' ? { assignedUserId: user.sub } : {}),
       ...(ownership === 'unassigned' ? { assignedUserId: null } : {}),
       ...(opts.unread === true ? { unreadCount: { gt: 0 } } : {}),
@@ -648,7 +650,11 @@ export class InteractionsService {
     return { items, total, page, pageSize };
   }
 
-  async listThreadMessages(user: AuthUser, threadKey: string) {
+  async listThreadMessages(
+    user: AuthUser,
+    threadKey: string,
+    opts?: { limit?: number; before?: string; beforeId?: string },
+  ) {
     let conversationId: string | null = null;
     let where: Prisma.InteractionWhereInput = { organizationId: user.organizationId };
 
@@ -661,37 +667,56 @@ export class InteractionsService {
       const id = threadKey.split(':').pop();
       where = { ...where, id: id || '__none__' };
     } else {
-      // Treat bare id as conversation id
       conversationId = threadKey;
       where = { ...where, conversationId };
     }
 
-    const items = await this.prisma.interaction.findMany({
+    const limit = Math.min(100, Math.max(1, opts?.limit ?? 40));
+    const beforeAt = opts?.before ? new Date(opts.before) : null;
+    const beforeId = opts?.beforeId?.trim() || null;
+    if (beforeAt && !Number.isNaN(beforeAt.getTime())) {
+      where = {
+        ...where,
+        OR: beforeId
+          ? [
+              { occurredAt: { lt: beforeAt } },
+              { occurredAt: beforeAt, id: { lt: beforeId } },
+            ]
+          : [{ occurredAt: { lt: beforeAt } }],
+      };
+    }
+
+    // Newest page first, then reverse for chat order (oldest → newest)
+    const rows = await this.prisma.interaction.findMany({
       where,
       include: {
         party: { select: { id: true, displayName: true, phone: true, email: true } },
       },
-      orderBy: { occurredAt: 'asc' },
-      take: 200,
+      orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
     });
 
-    if (conversationId) {
-      const unreadIds = items.filter((i) => i.unread).map((i) => i.id);
-      if (unreadIds.length) {
-        await this.prisma.interaction.updateMany({
-          where: { id: { in: unreadIds } },
-          data: { unread: false },
-        });
-        await this.prisma.engagementConversation.update({
-          where: { id: conversationId },
-          data: { unreadCount: 0 },
-        });
-      }
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+    const items = [...page].reverse();
+
+    // Mark conversation read on the initial (latest) page only
+    if (conversationId && !beforeAt) {
+      await this.prisma.interaction.updateMany({
+        where: { organizationId: user.organizationId, conversationId, unread: true },
+        data: { unread: false },
+      });
+      await this.prisma.engagementConversation.update({
+        where: { id: conversationId },
+        data: { unreadCount: 0 },
+      });
     }
 
     return {
       threadKey,
       conversationId: conversationId || items[0]?.conversationId || null,
+      hasMore,
+      limit,
       items: items.map((row) => {
         const raw = (row.rawPayloadJson ?? {}) as Record<string, unknown>;
         return {
@@ -779,6 +804,36 @@ export class InteractionsService {
       data: { staffUserId: user.sub },
     });
     return updated;
+  }
+
+  async markConversationRead(user: AuthUser, conversationId: string) {
+    await this.getConversation(user, conversationId);
+    await this.prisma.interaction.updateMany({
+      where: { organizationId: user.organizationId, conversationId, unread: true },
+      data: { unread: false },
+    });
+    return this.prisma.engagementConversation.update({
+      where: { id: conversationId },
+      data: { unreadCount: 0 },
+    });
+  }
+
+  async markConversationUnread(user: AuthUser, conversationId: string) {
+    await this.getConversation(user, conversationId);
+    const latest = await this.prisma.interaction.findFirst({
+      where: { organizationId: user.organizationId, conversationId },
+      orderBy: { occurredAt: 'desc' },
+    });
+    if (latest) {
+      await this.prisma.interaction.update({
+        where: { id: latest.id },
+        data: { unread: true },
+      });
+    }
+    return this.prisma.engagementConversation.update({
+      where: { id: conversationId },
+      data: { unreadCount: 1 },
+    });
   }
 
   async assignConversation(user: AuthUser, conversationId: string, staffUserId: string) {

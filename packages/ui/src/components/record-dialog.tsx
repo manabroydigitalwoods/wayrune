@@ -21,6 +21,7 @@ export function RecordDialog({
   submitLabel = 'Save',
   cancelLabel = 'Cancel',
   submitting,
+  submitDisabled,
   size = 'md',
   hideFooter,
   footer,
@@ -36,6 +37,8 @@ export function RecordDialog({
   submitLabel?: string;
   cancelLabel?: string;
   submitting?: boolean;
+  /** Disables the primary submit button (e.g. nothing selected). */
+  submitDisabled?: boolean;
   size?: 'md' | 'lg';
   hideFooter?: boolean;
   footer?: ReactNode;
@@ -66,7 +69,7 @@ export function RecordDialog({
               {cancelLabel}
             </Button>
             {onSubmit ? (
-              <Button type="button" onClick={onSubmit} disabled={submitting}>
+              <Button type="button" onClick={onSubmit} disabled={submitting || submitDisabled}>
                 {submitting ? 'Saving…' : submitLabel}
               </Button>
             ) : null}

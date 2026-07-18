@@ -1,1 +1,1 @@
-{"root":["./src/fields.ts","./src/index.ts"],"version":"5.9.3"}
+{"root":["./src/commerce-foundation.ts","./src/fields.ts","./src/index.ts","./src/presence-extra-modules-html.ts","./src/presence-fonts.ts","./src/presence-module-aliases.ts","./src/trip-season.ts"],"version":"5.9.3"}

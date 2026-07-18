@@ -1,8 +1,10 @@
-# CodePoetry Travel Agency Platform — Product Blueprint
+# Wayrune — Product Blueprint
 
 ## 1. Product Definition
 
 A multi-tenant SaaS platform that starts as a **travel-agency ERP** and extends into a **Travel Operating System** with a shared destination knowledge layer and a **connected B2B business network** (Travel Exchange foresight — not a marketplace).
+
+**Product:** Wayrune · **Domains:** wayrune.com · wayrune.ai · wayrune.in · **Studio:** CodePoetry
 
 Canonical vision and staging: [00_PRODUCT_BIBLE.md](./00_PRODUCT_BIBLE.md).
 
@@ -34,6 +36,14 @@ Architect with Organization kinds; ship the Agency experience first.
 ## 2. Product Positioning
 
 **A travel-agency business management platform that converts leads into profitable, operationally manageable trips — designed to become a connected travel business network without launching as a full multi-portal marketplace.**
+
+**External headline:** From Travel Enquiry to Successful Trip — All in One Place.
+
+**Primary promise:** Capture every enquiry, create professional quotations faster, manage bookings and suppliers, collect payments and operate every trip from one place.
+
+**Secondary (after outcomes):** Connected WhatsApp and email, agency website, customer-facing proposals, hotel/DMC collaboration, multi-organization network, AI assistance. Presence and partner network are differentiators — not the first sales wedge.
+
+**Claim discipline:** Public quote-speed target is under three minutes until median creation time is measured. Prefer telemetry over unverified multipliers. Competitive depth plan: [strategy/sembark-vs-travel-os.md](./strategy/sembark-vs-travel-os.md).
 
 AI is a utility layer. Users remain in control. Local (offline) suppliers remain first-class forever.
 

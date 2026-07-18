@@ -6,7 +6,7 @@ import {
   CreateMealReservationSchema,
   QuoteMealInquirySchema,
   UpdateMealReservationSchema,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import {
   CurrentUser,
   RequirePermissions,

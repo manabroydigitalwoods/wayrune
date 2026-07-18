@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
-import { cn } from '@travel/ui';
+import { cn } from '@wayrune/ui';
 
 type DisclosureSectionProps = {
   title: string;

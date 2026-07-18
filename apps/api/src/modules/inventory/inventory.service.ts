@@ -18,7 +18,7 @@ import type {
   UpdateAssetFleetUnitInput,
   UpdateAssetRoomProductInput,
   UpdateAssetServiceOfferInput,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import type { AuthUser } from '../../common/helpers';

@@ -1,4 +1,4 @@
-import { hasAnyPermission } from '@travel/rbac';
+import { hasAnyPermission } from '@wayrune/rbac';
 import type { AgencyWorkspace, WorkspaceWidget } from './types';
 
 /** Shared dashboard widgets — composed per workspace in WorkspaceHomePage. */

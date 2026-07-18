@@ -1,0 +1,14 @@
+{
+  "name": "presence-component-vite",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "pack": "pnpm build && node ./scripts/pack.mjs"
+  },
+  "devDependencies": {
+    "jszip": "^3.10.1",
+    "vite": "^6.0.0"
+  }
+}

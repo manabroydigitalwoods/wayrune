@@ -7,7 +7,7 @@ import {
   SimpleFormField as FormField,
   StatusBadge,
   toastSuccess,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import { ToggleRow } from '../ToggleRow';
 import {
   absoluteApiUrl,

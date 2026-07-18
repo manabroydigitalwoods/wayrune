@@ -1,5 +1,5 @@
 {
-  "name": "travel-agency-erp",
+  "name": "wayrune",
   "private": true,
   "packageManager": "pnpm@9.15.0",
   "scripts": {
@@ -9,8 +9,8 @@
     "build": "APP_ENV=${APP_ENV:-prod} turbo run build",
     "build:dev": "APP_ENV=dev turbo run build",
     "build:prod": "APP_ENV=prod turbo run build",
-    "start:api": "APP_ENV=${APP_ENV:-prod} pnpm --filter @travel/api start",
-    "start:worker": "APP_ENV=${APP_ENV:-prod} pnpm --filter @travel/worker start",
+    "start:api": "APP_ENV=${APP_ENV:-prod} pnpm --filter @wayrune/api start",
+    "start:worker": "APP_ENV=${APP_ENV:-prod} pnpm --filter @wayrune/worker start",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "APP_ENV=local turbo run test",
@@ -19,7 +19,17 @@
     "db:migrate": "prisma migrate dev --schema=prisma/schema.prisma",
     "db:migrate:deploy": "prisma migrate deploy --schema=prisma/schema.prisma",
     "db:seed": "node --import tsx prisma/seed/seed.ts",
-    "db:studio": "prisma studio --schema=prisma/schema.prisma"
+    "db:studio": "prisma studio --schema=prisma/schema.prisma",
+    "presence:catalog:backup": "node --import tsx scripts/presence-catalog/cli.ts backup",
+    "presence:catalog:reset": "node --import tsx scripts/presence-catalog/cli.ts reset",
+    "presence:catalog:seed": "node --import tsx scripts/presence-catalog/cli.ts seed",
+    "presence:catalog:validate": "node --import tsx scripts/presence-catalog/cli.ts validate",
+    "presence:catalog:smoke": "node --import tsx scripts/presence-catalog/cli.ts smoke",
+    "wr:catalog:backup": "node --import tsx scripts/presence-catalog/cli.ts backup",
+    "wr:catalog:reset": "node --import tsx scripts/presence-catalog/cli.ts reset",
+    "wr:catalog:seed": "node --import tsx scripts/presence-catalog/cli.ts seed",
+    "wr:catalog:validate": "node --import tsx scripts/presence-catalog/cli.ts validate",
+    "wr:catalog:smoke": "node --import tsx scripts/presence-catalog/cli.ts smoke"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
@@ -32,7 +42,7 @@
   },
   "dependencies": {
     "@prisma/client": "^6.1.0",
-    "@travel/config": "workspace:*",
+    "@wayrune/config": "workspace:*",
     "bcryptjs": "^2.4.3"
   }
 }

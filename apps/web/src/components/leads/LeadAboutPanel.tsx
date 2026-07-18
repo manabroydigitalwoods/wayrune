@@ -13,7 +13,7 @@ import {
   toastSuccess,
   formatDate,
   formatDateTime,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import { api } from '../../api';
 import { CAP } from '../../lib/capabilities';
 import { usePermissions } from '../../lib/permissions';

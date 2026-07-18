@@ -1,0 +1,26 @@
+:root {
+  --presence-primary: #0f766e;
+  --presence-accent: #f59e0b;
+  --presence-bg: #f8fafc;
+  --presence-fg: #0f172a;
+  --presence-muted: #64748b;
+  --presence-radius: 14px;
+}
+
+.presence-site {
+  background: var(--presence-bg);
+  color: var(--presence-fg);
+  font-family: system-ui, sans-serif;
+}
+
+.presence-header {
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.presence-header-cta {
+  background: var(--presence-primary);
+  color: #fff;
+  border-radius: var(--presence-radius);
+  padding: 0.45rem 0.9rem;
+  font-weight: 600;
+}

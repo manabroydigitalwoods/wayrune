@@ -8,7 +8,7 @@ import {
   SheetHeader,
   SheetTitle,
   cn,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import {
   BedDouble,
   ChevronLeft,

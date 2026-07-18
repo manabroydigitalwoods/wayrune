@@ -5,7 +5,7 @@ import {
   CreatePlaceSchema,
   CreatePlaceSubcategorySchema,
   UpdatePlaceSchema,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import {
   CurrentUser,
   RequireAgencyOrg,

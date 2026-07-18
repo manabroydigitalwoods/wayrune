@@ -3,7 +3,7 @@ import {
   AssistRewriteSchema,
   AssistSummarizeSchema,
   GenerateProposalStorySchema,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import {
   CurrentUser,
   RequireAgencyOrg,

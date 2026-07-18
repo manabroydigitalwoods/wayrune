@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Building2, Plus } from 'lucide-react';
-import { Button, Card, CardContent, Input, SimpleFormField as FormField, toastError, toastSuccess } from '@travel/ui';
+import { Button, Card, CardContent, Input, SimpleFormField as FormField, toastError, toastSuccess } from '@wayrune/ui';
 import { api } from '../../api';
 import { CAP } from '../../lib/capabilities';
 import { reportError } from '../../lib/errors';

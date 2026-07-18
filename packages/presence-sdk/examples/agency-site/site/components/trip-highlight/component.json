@@ -1,0 +1,30 @@
+{
+  "key": "trip-highlight",
+  "name": "Trip highlight",
+  "version": "1.0.0",
+  "description": "Featured trip callout for travel marketing pages.",
+  "category": "content",
+  "rendererKind": "package",
+  "entry": {
+    "html": "index.html",
+    "css": ["styles.css"],
+    "js": ["index.js"]
+  },
+  "preview": "preview.svg",
+  "schema": [
+    { "key": "eyebrow", "label": "Eyebrow", "type": "text", "required": false },
+    { "key": "title", "label": "Title", "type": "text", "required": true },
+    { "key": "body", "label": "Body", "type": "textarea", "required": false },
+    { "key": "price", "label": "Price", "type": "text", "required": false },
+    { "key": "ctaLabel", "label": "CTA label", "type": "text", "required": false },
+    { "key": "ctaHref", "label": "CTA link", "type": "text", "required": false }
+  ],
+  "defaultProps": {
+    "eyebrow": "Featured",
+    "title": "Coastal week",
+    "body": "Seven nights by the water — refined with you.",
+    "price": "From $1,290",
+    "ctaLabel": "Enquire",
+    "ctaHref": "/contact"
+  }
+}

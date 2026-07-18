@@ -1,0 +1,16 @@
+.promo {
+  padding: 1.5rem;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--primary, #0f766e) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary, #0f766e) 35%, transparent);
+  font-family: var(--font-body, system-ui, sans-serif);
+}
+.promo h2 {
+  margin: 0 0 0.5rem;
+  font-family: var(--font-display, Georgia, serif);
+  color: var(--fg, #0f172a);
+}
+.promo p {
+  margin: 0;
+  color: var(--muted, #64748b);
+}

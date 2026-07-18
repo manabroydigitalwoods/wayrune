@@ -11,7 +11,7 @@ import {
   UpdateLeadSourceSchema,
   UpdatePipelineSchema,
   UpdateWhatsAppTemplateSchema,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import {
   CurrentUser,
   RequireAgencyOrg,

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useOrgNavigate } from '../hooks/useOrgNavigate';
 import { Contact, Pencil, Plane } from 'lucide-react';
 import {
   Breadcrumbs,
@@ -15,7 +16,7 @@ import {
   formatDateTime,
   toastError,
   toastSuccess,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import { api } from '../api';
 import { CAP } from '../lib/capabilities';
 import { inquiryStatusLabel, tripStatusLabel } from '../lib/agencyStatusLabels';
@@ -83,7 +84,7 @@ function DetailRow({ label, children }: { label: string; children: React.ReactNo
 
 export function InquiryDetailPage() {
   const { id } = useParams();
-  const navigate = useNavigate();
+  const { navigate } = useOrgNavigate();
   const [inquiry, setInquiry] = useState<InquiryDetail | null>(null);
   const [leadActivities, setLeadActivities] = useState<LeadActivity[]>([]);
   const [error, setError] = useState('');

@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import type {
   CreateEngagementAutomationRuleInput,
   UpdateEngagementAutomationRuleInput,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthUser } from '../../common/helpers';

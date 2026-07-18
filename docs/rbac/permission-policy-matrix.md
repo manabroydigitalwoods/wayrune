@@ -12,7 +12,7 @@ Guard forms available (see `apps/api/src/common/helpers.ts`):
 | `@RequireAllPermissions(...perms)` | **ALL** — caller needs every one | `allPermissions` |
 | `@RequirePermissionPolicy({ anyOf, allOf })` | `(anyOf?hasAny:true) && (allOf?hasAll:true)` | `permissionPolicy` |
 
-All three are typed to `PermissionKey` (from `@travel/rbac`), so a phantom or
+All three are typed to `PermissionKey` (from `@wayrune/rbac`), so a phantom or
 misspelled permission fails the build. The guard (`auth.guard.ts`) evaluates all
 three keys via the shared `hasAnyPermission`/`hasAllPermissions` helpers.
 

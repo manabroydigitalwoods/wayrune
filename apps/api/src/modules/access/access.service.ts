@@ -12,9 +12,9 @@ import {
   permissionGroups,
   roleAllowedForOrgKind,
   type PermissionKey,
-} from '@travel/rbac';
-import { generateRefreshToken, hashPassword, hashToken } from '@travel/auth';
-import { loadEnv } from '@travel/config';
+} from '@wayrune/rbac';
+import { generateRefreshToken, hashPassword, hashToken } from '@wayrune/auth';
+import { loadEnv } from '@wayrune/config';
 import type {
   AcceptInviteInput,
   AssignRoleInput,
@@ -22,7 +22,7 @@ import type {
   InviteMemberInput,
   SetPropertyScopesInput,
   UpdateRoleInput,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { AuthService } from '../auth/auth.service';

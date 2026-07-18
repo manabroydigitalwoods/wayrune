@@ -9,7 +9,7 @@ import {
   CreateInventoryHoldSchema,
   CreatePaymentAllocationSchema,
   IntegrityExitChecklist,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 
 describe('policy evaluator', () => {
   it('applies percentage rule inside window', () => {

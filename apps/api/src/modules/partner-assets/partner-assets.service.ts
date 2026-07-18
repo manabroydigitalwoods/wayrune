@@ -3,7 +3,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { CreatePartnerAssetInput, UpdatePartnerAssetInput } from '@travel/contracts';
+import type { CreatePartnerAssetInput, UpdatePartnerAssetInput } from '@wayrune/contracts';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import type { AuthUser } from '../../common/helpers';

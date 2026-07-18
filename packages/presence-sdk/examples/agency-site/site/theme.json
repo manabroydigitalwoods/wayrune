@@ -1,0 +1,20 @@
+{
+  "key": "agency-site",
+  "name": "Agency Site",
+  "version": "1.0.0",
+  "description": "Full travel marketing site — destinations, trips, about, and enquiry. Local React/Vite/Tailwind preview; deploy with wr CLI.",
+  "author": "Wayrune",
+  "stylesheets": ["styles/theme.css"],
+  "preview": "preview.svg",
+  "chrome": {
+    "header": "chrome/header.html",
+    "footer": "chrome/footer.html"
+  },
+  "menuLocations": [
+    { "key": "primary", "label": "Primary", "description": "Header navigation" },
+    { "key": "footer", "label": "Footer", "description": "Footer links" }
+  ],
+  "components": [{ "path": "components/trip-highlight", "key": "trip-highlight" }],
+  "site": "site/structure.json",
+  "installSite": "create_site"
+}

@@ -1,6 +1,9 @@
 # Travel OS — Documentation Index
 
-**Start here.** This is the canonical entry point for CodePoetry Travel OS documentation.
+**Start here.** This is the canonical entry point for Wayrune (Travel OS) documentation.
+
+**Product:** Wayrune · wayrune.com · wayrune.ai · wayrune.in
+
 
 ## What this platform is
 
@@ -18,7 +21,7 @@ We are **not** a consumer OTA, public marketplace, or GDS.
 
 ### Vocabulary rule
 
-The **Domain Model** is the source of business language. Contracts (`@travel/contracts`), Prisma, APIs, UI copy, events, and future AI agents should use the same terms. If code and Domain Model disagree, **code wins until the Domain Model is updated** — then align the docs in the same change.
+The **Domain Model** is the source of business language. Contracts (`@wayrune/contracts`), Prisma, APIs, UI copy, events, and future AI agents should use the same terms. If code and Domain Model disagree, **code wins until the Domain Model is updated** — then align the docs in the same change.
 
 ### Architecture freeze
 
@@ -65,3 +68,5 @@ Until then, **link** to existing docs. Do not rehome Bible / Foundation / Integr
 ## Vision & staging (still authoritative)
 
 [Product Bible](../00_PRODUCT_BIBLE.md) remains the source of truth for **positioning, commercial boundary, and staged unlock** until an Agency OS chapter is migrated here.
+
+**Competitive / agency-depth sequencing (90 days):** [Sembark vs Travel OS](../strategy/sembark-vs-travel-os.md) — revised maturity vs Sembark, Priority 0 release order, already-built appendix, outcome messaging.

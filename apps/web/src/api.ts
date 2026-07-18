@@ -141,6 +141,68 @@ export async function apiUpload<T>(
   return res.json();
 }
 
+/** Multipart upload with upload progress (0–100). Uses XHR so progress events work. */
+export function apiUploadWithProgress<T>(
+  path: string,
+  formData: FormData,
+  opts?: {
+    onProgress?: (percent: number) => void;
+    skipAuthRefresh?: boolean;
+  },
+): Promise<T> {
+  inflightGets.clear();
+
+  const run = (retried: boolean): Promise<T> =>
+    new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${API_BASE}${path}`);
+      xhr.withCredentials = true;
+      xhr.upload.onprogress = (ev) => {
+        if (!ev.lengthComputable) return;
+        opts?.onProgress?.(Math.round((ev.loaded / ev.total) * 100));
+      };
+      xhr.onload = async () => {
+        if (
+          xhr.status === 401 &&
+          !opts?.skipAuthRefresh &&
+          !retried &&
+          path !== '/auth/refresh'
+        ) {
+          const refreshed = await tryRefreshSession();
+          if (refreshed) {
+            resolve(run(true));
+            return;
+          }
+        }
+        if (xhr.status >= 200 && xhr.status < 300) {
+          opts?.onProgress?.(100);
+          if (xhr.status === 204 || !xhr.responseText) {
+            resolve(undefined as T);
+            return;
+          }
+          try {
+            resolve(JSON.parse(xhr.responseText) as T);
+          } catch {
+            reject(new Error('Invalid JSON response'));
+          }
+          return;
+        }
+        let detail = xhr.statusText;
+        try {
+          const body = JSON.parse(xhr.responseText) as { detail?: string };
+          if (body.detail) detail = body.detail;
+        } catch {
+          /* ignore */
+        }
+        reject(Object.assign(new Error(detail), { status: xhr.status }));
+      };
+      xhr.onerror = () => reject(new Error('Network error during upload'));
+      xhr.send(formData);
+    });
+
+  return run(false);
+}
+
 /** Binary download (PDF / files) with cookie auth + refresh. */
 export async function apiBlob(path: string, init: ApiInit = {}): Promise<Blob> {
   const { dedupe: _d, skipAuthRefresh = false, ...requestInit } = init;

@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
-import { CreatePartnerAssetSchema, UpdatePartnerAssetSchema } from '@travel/contracts';
+import { CreatePartnerAssetSchema, UpdatePartnerAssetSchema } from '@wayrune/contracts';
 import {
   CurrentUser,
   RequirePermissions,

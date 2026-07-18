@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { usePersistentState } from '@travel/ui';
+import { usePersistentState } from '@wayrune/ui';
 import type { DisclosureLevel } from '../lib/progressiveComplexity';
 
 const ADVANCED_PREF_KEY = 'experience.showAdvancedByDefault';

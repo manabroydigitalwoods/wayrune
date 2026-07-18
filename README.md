@@ -1,6 +1,8 @@
-# CodePoetry Travel Agency ERP
+# Wayrune
 
 Multi-tenant travel-agency SaaS (Phases 1–3): foundation, CRM/inquiry, trip itinerary and quotation.
+
+**Brand:** Wayrune (WAY-roon) · **Domains:** [wayrune.com](https://wayrune.com) · [wayrune.ai](https://wayrune.ai) · [wayrune.in](https://wayrune.in) · **Studio:** CodePoetry
 
 ## Stack
 
@@ -11,6 +13,7 @@ Multi-tenant travel-agency SaaS (Phases 1–3): foundation, CRM/inquiry, trip it
 - **Cache/jobs:** Redis (native local)
 - **Package manager:** pnpm (required)
 - **Environments:** `local` | `dev` | `prod`
+- **CLI:** `wr` (aliases: `wayrune`, `presence`) — theme & component packages
 
 ## Environments
 
@@ -74,7 +77,7 @@ Guest QR (after seed): hotel `/o/gs-goa-room-101` (PIN `4821`), restaurant `/o/g
 
 ## Logging
 
-Pino-based structured logging via `@travel/observability` (API uses `nestjs-pino`).
+Pino-based structured logging via `@wayrune/observability` (API uses `nestjs-pino`).
 
 | Env | Default format | Default level |
 |-----|----------------|---------------|
@@ -111,13 +114,13 @@ envs/ | prisma/ | infrastructure/ | docs/
 ```bash
 ./scripts/with-env.sh prod ./scripts/pnpm.sh db:migrate:deploy
 ./scripts/with-env.sh prod ./scripts/pnpm.sh build:prod
-./scripts/with-env.sh prod ./scripts/pnpm.sh --filter @travel/api start
-./scripts/with-env.sh prod ./scripts/pnpm.sh --filter @travel/worker start
+./scripts/with-env.sh prod ./scripts/pnpm.sh --filter @wayrune/api start
+./scripts/with-env.sh prod ./scripts/pnpm.sh --filter @wayrune/worker start
 ```
 
 ## Tests
 
 ```bash
 ./scripts/with-env.sh local ./scripts/pnpm.sh test
-./scripts/with-env.sh local ./scripts/pnpm.sh --filter @travel/api test:integration
+./scripts/with-env.sh local ./scripts/pnpm.sh --filter @wayrune/api test:integration
 ```

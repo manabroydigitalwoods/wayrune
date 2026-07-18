@@ -24,7 +24,7 @@ import type {
   UpdateAssetRatePlanInput,
   UpdateAssetRoomUnitInput,
   UpdateStayReservationInput,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CommerceService } from '../commerce/commerce.service';

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { CheckCircle2, Plane } from 'lucide-react';
-import { Button, SoftIcon, formatCurrency, toastError, toastSuccess } from '@travel/ui';
+import { Button, SoftIcon, formatCurrency, toastError, toastSuccess } from '@wayrune/ui';
 import { api } from '../api';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import {

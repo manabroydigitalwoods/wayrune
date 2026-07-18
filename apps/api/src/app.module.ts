@@ -1,8 +1,8 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_FILTER } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
-import { nestPinoParams } from '@travel/observability';
-import { bootstrapEnv, loadEnv } from '@travel/config';
+import { nestPinoParams } from '@wayrune/observability';
+import { bootstrapEnv, loadEnv } from '@wayrune/config';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { OrganizationsModule } from './modules/organizations/organizations.module';
@@ -40,6 +40,8 @@ import { DriverModule } from './modules/driver/driver.module';
 import { GuestServicesModule } from './modules/guest-services/guest-services.module';
 import { AiModule } from './modules/ai/ai.module';
 import { ConnectorsModule } from './modules/connectors/connectors.module';
+import { GoogleModule } from './modules/google/google.module';
+import { PresenceModule } from './modules/presence/presence.module';
 import { HealthController } from './health.controller';
 import { CorrelationMiddleware } from './common/correlation.middleware';
 import { ZodExceptionFilter } from './common/zod-exception.filter';
@@ -92,6 +94,8 @@ const env = loadEnv(true);
     GuestServicesModule,
     AiModule,
     ConnectorsModule,
+    GoogleModule,
+    PresenceModule,
     DashboardModule,
     SearchModule,
   ],

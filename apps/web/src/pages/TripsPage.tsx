@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useNavigate, Navigate, useSearchParams } from 'react-router-dom';
+import { useOrgNavigate } from '../hooks/useOrgNavigate';
 import type { ColumnDef } from '@tanstack/react-table';
 import {
   ArrowUpRight,
@@ -31,7 +32,7 @@ import {
   formatDate,
   formatDateRange,
   type ComboboxOption,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import { api } from '../api';
 import { Can } from '../components/Can';
 import { CAP } from '../lib/capabilities';
@@ -91,7 +92,7 @@ function formatDestinations(value: unknown): string {
 }
 
 export function TripsPage() {
-  const navigate = useNavigate();
+  const { navigate, toOrgPath } = useOrgNavigate();
   const variant = useTripsPageVariant();
   const copy = TRIPS_PAGE_COPY[variant];
   const opsMode = variant.startsWith('operations');
@@ -151,6 +152,9 @@ export function TripsPage() {
     if (tab) return `/trips/${id}?tab=${tab}`;
     if (opsMode) return `/trips/${id}?tab=operations`;
     if (financeMode) return `/trips/${id}?tab=finance`;
+    if (variant === 'quotations' || variant === 'drafts') {
+      return `/trips/${id}?tab=quotations`;
+    }
     return `/trips/${id}`;
   }
 
@@ -404,6 +408,10 @@ export function TripsPage() {
                   <ArrowUpRight />
                   Open workspace
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => navigate(tripPath(trip.id, 'quotations'))}>
+                  <ArrowUpRight />
+                  Quotations
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => navigate(tripPath(trip.id, 'operations'))}>
                   <ClipboardList />
                   Operations
@@ -433,13 +441,13 @@ export function TripsPage() {
         },
       },
     ],
-    [navigate, opsMode, financeMode],
+    [navigate, opsMode, financeMode, variant],
   );
 
-  if (searchParams.get('ops') === '1') return <Navigate to={AGENCY_ROUTES.operations} replace />;
-  if (searchParams.get('finance') === '1') return <Navigate to={AGENCY_ROUTES.finance} replace />;
-  if (searchParams.get('status') === 'quoted') return <Navigate to={AGENCY_ROUTES.workQuotations} replace />;
-  if (searchParams.get('status') === 'draft') return <Navigate to={AGENCY_ROUTES.workQuotationDrafts} replace />;
+  if (searchParams.get('ops') === '1') return <Navigate to={toOrgPath(AGENCY_ROUTES.operations)} replace />;
+  if (searchParams.get('finance') === '1') return <Navigate to={toOrgPath(AGENCY_ROUTES.finance)} replace />;
+  if (searchParams.get('status') === 'quoted') return <Navigate to={toOrgPath(AGENCY_ROUTES.workQuotations)} replace />;
+  if (searchParams.get('status') === 'draft') return <Navigate to={toOrgPath(AGENCY_ROUTES.workQuotationDrafts)} replace />;
 
   return (
     <ListPageShell>

@@ -3,7 +3,7 @@ import {
   Input,
   SimpleFormField as FormField,
   toastSuccess,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import type { IntegrationsSettings } from '../types';
 import { absoluteApiUrl, ingestBaseUrl } from '../types';
 

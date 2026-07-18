@@ -1,0 +1,22 @@
+{
+  "key": "promo-banner-example",
+  "name": "Promo Banner (example)",
+  "version": "1.0.0",
+  "description": "Example promo banner — zip this folder and upload from Components.",
+  "category": "content",
+  "rendererKind": "package",
+  "entry": {
+    "html": "index.html",
+    "css": ["styles.css"],
+    "js": ["index.js"]
+  },
+  "preview": "preview.svg",
+  "schema": [
+    { "key": "title", "label": "Title", "type": "text", "required": true },
+    { "key": "body", "label": "Body", "type": "textarea", "required": false }
+  ],
+  "defaultProps": {
+    "title": "Your next trip starts here",
+    "body": "Tell us where you want to go."
+  }
+}

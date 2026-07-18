@@ -15,7 +15,7 @@ import {
   ImportPartyCsvSchema,
   PaginationQuerySchema,
   UpdatePartySchema,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import {
   CurrentUser,
   RequireAgencyOrg,

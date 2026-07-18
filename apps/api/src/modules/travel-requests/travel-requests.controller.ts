@@ -1,5 +1,5 @@
 import { Body, Controller, Post } from '@nestjs/common';
-import { CreateTravelRequestSchema } from '@travel/contracts';
+import { CreateTravelRequestSchema } from '@wayrune/contracts';
 import {
   CurrentUser,
   RequireAgencyOrg,

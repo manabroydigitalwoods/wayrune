@@ -11,7 +11,7 @@ import type {
   RecordRentalPaymentInput,
   RentalCheckoutInput,
   RentalReturnInput,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import type { AuthUser } from '../../common/helpers';
 import { PrismaService } from '../../prisma/prisma.service';
 import { OutboxService } from '../outbox/outbox.service';

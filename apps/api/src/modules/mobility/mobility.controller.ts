@@ -5,7 +5,7 @@ import {
   RecordRentalPaymentSchema,
   RentalCheckoutSchema,
   RentalReturnSchema,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import {
   CurrentUser,
   RequirePermissions,

@@ -1,7 +1,7 @@
 import { useAuth } from '../auth';
 // Single source of truth for the `.own`/implication logic. Browser-safe: the
-// `@travel/rbac` package has zero Node deps (unlike `@travel/config`/`@travel/auth`).
-import { hasPermission, hasAnyPermission, hasAllPermissions } from '@travel/rbac';
+// `@wayrune/rbac` package has zero Node deps (unlike `@wayrune/config`/`@wayrune/auth`).
+import { hasPermission, hasAnyPermission, hasAllPermissions } from '@wayrune/rbac';
 
 export { hasPermission, hasAnyPermission, hasAllPermissions };
 

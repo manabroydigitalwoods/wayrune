@@ -1,10 +1,10 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { PartiesController } from './parties.controller';
 import { PartiesService } from './parties.service';
 import { InteractionsModule } from '../interactions/interactions.module';
 
 @Module({
-  imports: [InteractionsModule],
+  imports: [forwardRef(() => InteractionsModule)],
   controllers: [PartiesController],
   providers: [PartiesService],
   exports: [PartiesService],

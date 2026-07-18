@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router-dom';
+import { useOrgNavigate } from '../hooks/useOrgNavigate';
 import type { ColumnDef } from '@tanstack/react-table';
 import { ArrowUpRight, Check, CheckSquare, MoreHorizontal, Plus } from 'lucide-react';
 import {
@@ -27,7 +28,7 @@ import {
   toastError,
   toastSuccess,
   type ComboboxOption,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import { api } from '../api';
 import { Can } from '../components/Can';
 import { CAP } from '../lib/capabilities';
@@ -71,6 +72,7 @@ function entityPath(type?: string | null, id?: string | null) {
 export function TasksPage() {
   const variant = useTasksPageVariant();
   const copy = TASKS_PAGE_COPY[variant];
+  const { toOrgPath } = useOrgNavigate();
   const [searchParams] = useSearchParams();
   useDocumentTitle(copy.documentTitle);
   const { hasAny } = usePermissions();
@@ -301,7 +303,7 @@ export function TasksPage() {
   );
 
   if (searchParams.get('due') === 'overdue' && variant === 'all') {
-    return <Navigate to={AGENCY_ROUTES.workFollowUps} replace />;
+    return <Navigate to={toOrgPath(AGENCY_ROUTES.workFollowUps)} replace />;
   }
 
   return (

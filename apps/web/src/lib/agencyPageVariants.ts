@@ -1,13 +1,14 @@
 import { useLocation } from 'react-router-dom';
-import { AGENCY_ROUTES } from './agencyRoutes';
+import { AGENCY_ROUTES, stripOrgPrefix } from './agencyRoutes';
 
 export type InquiriesPageVariant = 'all' | 'requests' | 'planning' | 'sales';
 
 export function useInquiriesPageVariant(): InquiriesPageVariant {
   const { pathname } = useLocation();
-  if (pathname === AGENCY_ROUTES.businessSales) return 'sales';
-  if (pathname === AGENCY_ROUTES.workPlanning) return 'planning';
-  if (pathname === AGENCY_ROUTES.workRequests) return 'requests';
+  const path = stripOrgPrefix(pathname);
+  if (path === AGENCY_ROUTES.businessSales) return 'sales';
+  if (path === AGENCY_ROUTES.workPlanning) return 'planning';
+  if (path === AGENCY_ROUTES.workRequests) return 'requests';
   return 'all';
 }
 
@@ -28,7 +29,7 @@ export type TripsPageVariant =
 
 export function useTripsPageVariant(): TripsPageVariant {
   const { pathname } = useLocation();
-  switch (pathname) {
+  switch (stripOrgPrefix(pathname)) {
     case AGENCY_ROUTES.workQuotations:
       return 'quotations';
     case AGENCY_ROUTES.workQuotationDrafts:
@@ -62,7 +63,7 @@ export type TasksPageVariant = 'all' | 'follow-ups';
 
 export function useTasksPageVariant(): TasksPageVariant {
   const { pathname } = useLocation();
-  if (pathname === AGENCY_ROUTES.workFollowUps) return 'follow-ups';
+  if (stripOrgPrefix(pathname) === AGENCY_ROUTES.workFollowUps) return 'follow-ups';
   return 'all';
 }
 
@@ -181,7 +182,7 @@ export type PartiesPageVariant = 'all' | 'customers';
 
 export function usePartiesPageVariant(): PartiesPageVariant {
   const { pathname } = useLocation();
-  if (pathname === AGENCY_ROUTES.businessCustomers) return 'customers';
+  if (stripOrgPrefix(pathname) === AGENCY_ROUTES.businessCustomers) return 'customers';
   return 'all';
 }
 

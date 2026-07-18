@@ -1,10 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional, forwardRef } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { CreateTaskSchema } from '@travel/contracts';
+import type { CreateTaskSchema } from '@wayrune/contracts';
 import { z } from 'zod';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { GoogleService } from '../google/google.service';
 
 type CreateTaskInput = z.infer<typeof CreateTaskSchema>;
 
@@ -14,6 +15,9 @@ export class TasksService {
     private prisma: PrismaService,
     private audit: AuditService,
     private notifications: NotificationsService,
+    @Optional()
+    @Inject(forwardRef(() => GoogleService))
+    private google?: GoogleService,
   ) {}
 
   async create(organizationId: string, userId: string, input: CreateTaskInput) {
@@ -49,10 +53,23 @@ export class TasksService {
           title: 'Task assigned',
           body: task.title,
           linkPath: '/tasks',
-          channel: flags.notifyOnTask ? 'both' : 'in_app',
+          channel: flags.notifyOnTask === false ? 'in_app' : 'both',
         });
       } catch {
         /* non-blocking */
+      }
+    }
+
+    if (this.google && task.dueAt) {
+      try {
+        await this.google.syncTaskToCalendar(organizationId, {
+          id: task.id,
+          title: task.title,
+          description: task.description,
+          dueAt: task.dueAt,
+        });
+      } catch {
+        /* Calendar sync is best-effort */
       }
     }
 

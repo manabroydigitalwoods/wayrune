@@ -1,0 +1,9 @@
+{
+  "key": "coastal-starter",
+  "name": "Coastal Starter",
+  "version": "1.0.0",
+  "description": "Vite-authored Presence theme — edit tokens + CSS, then pack and upload.",
+  "stylesheets": ["styles/theme.css"],
+  "scripts": ["scripts/theme.js"],
+  "preview": "preview.svg"
+}

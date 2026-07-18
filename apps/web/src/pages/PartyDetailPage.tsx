@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useOrgNavigate } from '../hooks/useOrgNavigate';
 import { Building2, Mail, Phone, Plus, Pencil, Route } from 'lucide-react';
 import {
   Breadcrumbs,
@@ -15,7 +16,7 @@ import {
   formatDateTime,
   toastError,
   toastSuccess,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import { api } from '../api';
 import { Can } from '../components/Can';
 import { CareHistoryPanel } from '../components/care/CareHistoryPanel';
@@ -67,7 +68,7 @@ function journeyOutcomeLabel(outcome: string) {
 
 export function PartyDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
+  const { navigate, toOrgPath } = useOrgNavigate();
   const { has, hasAny, all } = usePermissions();
   const canWrite = hasAny(CAP.partyWrite);
   const canCare = has('ops.read');
@@ -499,7 +500,7 @@ export function PartyDetailPage() {
       <p className="text-xs text-muted-foreground">
         Updated {formatDateTime(detail.updatedAt)}
         {' · '}
-        <Link to={AGENCY_ROUTES.businessCustomers} className="text-primary hover:underline">
+        <Link to={toOrgPath(AGENCY_ROUTES.businessCustomers)} className="text-primary hover:underline">
           Back to customers
         </Link>
       </p>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useOrgNavigate } from '../hooks/useOrgNavigate';
 import {
   AlertCircle,
   CheckCircle2,
@@ -12,7 +13,7 @@ import {
   Users,
   Wallet,
 } from 'lucide-react';
-import { PageHeader, StatCard, formatCurrency } from '@travel/ui';
+import { PageHeader, StatCard, formatCurrency } from '@wayrune/ui';
 import { api } from '../api';
 import { OpsCentreStats } from '../components/agency/OpsCentreStats';
 import { CommercialDocumentsPanel } from '../components/commerce/CommercialDocumentsPanel';
@@ -99,7 +100,7 @@ function outcomeFunnelLabel(outcome: string) {
 }
 
 export function DashboardPage() {
-  const navigate = useNavigate();
+  const { navigate } = useOrgNavigate();
   const { me } = useAuth();
   const { workspace, workspaceLabel } = useAgencyWorkspace();
   const widgets = workspace

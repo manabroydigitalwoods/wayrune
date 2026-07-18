@@ -7,7 +7,7 @@ import {
   CreateSupplierInviteSchema,
   UpdateOrgRelationshipSchema,
   UpdatePartnerProfileSchema,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import {
   CurrentUser,
   Public,

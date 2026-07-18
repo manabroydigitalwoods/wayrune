@@ -44,7 +44,7 @@ import type {
   UpdateServiceIncidentSchema,
   UpdateServiceRequestSchema,
   UpdateTripChangeCaseSchema,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';

@@ -11,7 +11,7 @@ import {
   SimpleFormField as FormField,
   toastError,
   toastSuccess,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import { api } from '../../api';
 import { inquiryStatusLabel } from '../../lib/agencyStatusLabels';
 

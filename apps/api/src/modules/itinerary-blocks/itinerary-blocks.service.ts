@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { CreateItineraryBlockInput } from '@travel/contracts';
+import type { CreateItineraryBlockInput } from '@wayrune/contracts';
 import { PrismaService } from '../../prisma/prisma.service';
 
 function asRecord(value: unknown): Record<string, unknown> {

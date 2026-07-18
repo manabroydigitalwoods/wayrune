@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { LeadsController } from './leads.controller';
 import { LeadSourcesController } from './lead-sources.controller';
 import { LeadsService } from './leads.service';
@@ -7,14 +7,16 @@ import { PartiesModule } from '../parties/parties.module';
 import { InteractionsModule } from '../interactions/interactions.module';
 import { OutboxModule } from '../outbox/outbox.module';
 import { MessagingModule } from '../messaging/messaging.module';
+import { OrganizationsModule } from '../organizations/organizations.module';
 
 @Module({
   imports: [
     NotificationsModule,
-    PartiesModule,
-    InteractionsModule,
+    forwardRef(() => PartiesModule),
+    forwardRef(() => InteractionsModule),
     OutboxModule,
     MessagingModule,
+    OrganizationsModule,
   ],
   controllers: [LeadsController, LeadSourcesController],
   providers: [LeadsService],

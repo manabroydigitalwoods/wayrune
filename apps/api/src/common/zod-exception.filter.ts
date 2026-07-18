@@ -6,13 +6,13 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import type { ZodError, ZodIssue } from 'zod';
-import { loadEnv } from '@travel/config';
-import { createLogger } from '@travel/observability';
+import { loadEnv } from '@wayrune/config';
+import { createLogger } from '@wayrune/observability';
 
 const log = createLogger('exceptions');
 
 /**
- * Duck-typed check instead of `instanceof ZodError`. `@travel/contracts`
+ * Duck-typed check instead of `instanceof ZodError`. `@wayrune/contracts`
  * (compiled CJS) and this file can resolve `zod`'s dual CJS/ESM builds to
  * distinct module instances under some bundler/test-runner setups, which
  * breaks `instanceof` across that boundary even though it's the same

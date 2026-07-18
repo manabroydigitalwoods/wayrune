@@ -1,5 +1,5 @@
 import { Shield, ShieldCheck, Users } from 'lucide-react';
-import { PageHeader } from '@travel/ui';
+import { PageHeader } from '@wayrune/ui';
 import {
   AccessManagementPanel,
   type TeamAccessTab,

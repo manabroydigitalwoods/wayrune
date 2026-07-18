@@ -1,6 +1,8 @@
-# CodePoetry Travel Platform — Product Bible
+# Wayrune — Product Bible
 
 > **Navigation:** Prefer the [Travel OS Index](./travel-os/README.md) as the docs entry point. The [Domain Model](./travel-os/03-domain-model-and-ubiquitous-language.md) freezes business vocabulary; [Phase A Backlog](./travel-os/05-phase-a-backlog.md) owns near-term execution order. **This Bible remains the source of truth for vision, positioning, staged unlock, and commercial boundary** until an Agency OS chapter is migrated into Travel OS.
+
+**Product:** Wayrune · **Domains:** wayrune.com (canonical), wayrune.ai, wayrune.in · **Company/studio:** CodePoetry
 
 **Single source of truth** for vision, positioning, staged unlock, and commercial boundary. Detailed requirements, architecture, UX inventory, and phase exit criteria live in the numbered docs below — this Bible owns *what we are building and in what order* for staging (A→D).
 
@@ -98,6 +100,12 @@ Architect for the platform. Ship agency SaaS. Unlock network depth after agencie
 
 **Sell first around:** Lead Management + Inquiry + Trip + Itinerary + Quotation (delivery Phase 3).
 
+**Outcome message (external):** *From Travel Enquiry to Successful Trip — All in One Place.* Capture leads, build professional itineraries, manage suppliers and bookings, collect payments, coordinate operations and grow your agency from one connected Travel OS. Outcome cards: reply faster · quote accurately · never miss follow-ups · control every booking · track every rupee · deliver better trips.
+
+Introduce differentiators **after** that wedge: WhatsApp/email inbox → agency website (Presence) → customer proposals → hotel/DMC collaboration → multi-organization network → AI assistance. Do not lead with platform/ecosystem language.
+
+Near-term agency depth vs Sembark (90-day sequence): [strategy/sembark-vs-travel-os.md](./strategy/sembark-vs-travel-os.md).
+
 Phase 4 ops/finance should be thin-but-real for pilots; do not wait for Exchange or portals before testing willingness to pay.
 
 Delivery phases 0–6 remain in [05_PHASES_DELIVERY_AND_ACCEPTANCE.md](./05_PHASES_DELIVERY_AND_ACCEPTANCE.md). Network unlock sits **after** those agency phases as a separate roadmap.
@@ -134,5 +142,6 @@ Delivery phases 0–6 remain in [05_PHASES_DELIVERY_AND_ACCEPTANCE.md](./05_PHAS
 | [03_TECHNICAL_ARCHITECTURE_NODEJS.md](./03_TECHNICAL_ARCHITECTURE_NODEJS.md) | NestJS / Prisma / monorepo architecture |
 | [04_UX_WORKFLOWS_AND_SCREENS.md](./04_UX_WORKFLOWS_AND_SCREENS.md) | Workflows and screens |
 | [05_PHASES_DELIVERY_AND_ACCEPTANCE.md](./05_PHASES_DELIVERY_AND_ACCEPTANCE.md) | Delivery phases + network unlock section |
+| [strategy/sembark-vs-travel-os.md](./strategy/sembark-vs-travel-os.md) | Competitive strategy, revised maturity, 90-day P0 backlog |
 
-When docs conflict, **this Bible wins** on vision and sequencing; amend numbered docs to match.
+When docs conflict, **this Bible wins** on vision and sequencing; amend numbered docs to match. For the next 90 days of agency-depth ordering vs Sembark, prefer the strategy memo.

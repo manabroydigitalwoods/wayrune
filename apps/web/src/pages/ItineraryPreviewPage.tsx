@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useOrgNavigate } from '../hooks/useOrgNavigate';
 import { ArrowLeft, Copy, Link2, Share2 } from 'lucide-react';
 import {
   Breadcrumbs,
@@ -14,7 +15,7 @@ import {
   Input,
   toastError,
   toastSuccess,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import { api } from '../api';
 import { reportError } from '../lib/errors';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
@@ -26,7 +27,7 @@ import { FamilySharingPanel } from '../components/trips/FamilySharingPanel';
 
 export function ItineraryPreviewPage() {
   const { id } = useParams();
-  const navigate = useNavigate();
+  const { navigate } = useOrgNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [data, setData] = useState<ItineraryPreviewPayload | null>(null);
   const [loading, setLoading] = useState(true);

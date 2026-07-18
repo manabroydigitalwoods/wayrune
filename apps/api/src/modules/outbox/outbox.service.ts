@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { Queue } from 'bullmq';
-import { loadEnv } from '@travel/config';
-import { createLogger, getLogContext, newCorrelationId } from '@travel/observability';
+import { loadEnv } from '@wayrune/config';
+import { createLogger, getLogContext, newCorrelationId } from '@wayrune/observability';
 import { PrismaService } from '../../prisma/prisma.service';
 
 const log = createLogger('outbox');

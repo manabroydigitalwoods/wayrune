@@ -1,0 +1,16 @@
+.promo {
+  padding: 1.25rem 1.5rem;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #0f766e, #134e4a);
+  color: #f8fafc;
+}
+.promo__title {
+  margin: 0 0 0.35rem;
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+.promo__body {
+  margin: 0;
+  opacity: 0.9;
+  font-size: 0.95rem;
+}

@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useOrgNavigate } from '../hooks/useOrgNavigate';
 import { ChevronDown, MoreHorizontal, UserPlus, Users } from 'lucide-react';
 import {
   Breadcrumbs,
@@ -21,7 +22,7 @@ import {
   StatusBadge,
   toastError,
   toastSuccess,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import { api } from '../api';
 import { Can } from '../components/Can';
 import { CAP } from '../lib/capabilities';
@@ -38,7 +39,7 @@ type PipelineStage = { key: string; name: string; isLost?: boolean; isWon?: bool
 
 export function LeadDetailPage() {
   const { id } = useParams();
-  const navigate = useNavigate();
+  const { navigate } = useOrgNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [lead, setLead] = useState<any>(null);
   const [tasks, setTasks] = useState<any[]>([]);

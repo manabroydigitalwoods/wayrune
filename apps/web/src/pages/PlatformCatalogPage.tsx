@@ -33,13 +33,13 @@ import {
   toastError,
   toastSuccess,
   type ComboboxOption,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import {
   CreatePlaceSchema,
   CreateVehicleTypeSchema,
   UpdatePlaceSchema,
   parseWithFieldErrors,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import { api } from '../api';
 import { CAP } from '../lib/capabilities';
 import { reportError } from '../lib/errors';

@@ -1,8 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Inbox, MessagesSquare, MoreHorizontal, Phone, Plus, Sparkles } from 'lucide-react';
+import { useOrgNavigate } from '../hooks/useOrgNavigate';
+import { Inbox, MessagesSquare, MoreHorizontal, Phone, Plus, Send, Sparkles } from 'lucide-react';
 import {
+  Avatar,
+  AvatarFallback,
   Button,
+  Combobox,
   DatePicker,
   DropdownMenu,
   DropdownMenuContent,
@@ -10,6 +14,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  EmptyState,
   EntityCombobox,
   Input,
   ListPageShell,
@@ -18,6 +23,7 @@ import {
   RecordSheet,
   SimpleFormField as FormField,
   StatusBadge,
+  Textarea,
   cn,
   formatDateTime,
   isPhoneFormatOk,
@@ -25,7 +31,7 @@ import {
   toastError,
   toastSuccess,
   type ComboboxOption,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import { api } from '../api';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useTravelRequestLauncher } from '../lib/travelRequestLauncher';
@@ -42,7 +48,20 @@ type InboxRow = {
   occurredAt: string;
   staffUserId?: string | null;
   inquiryId?: string | null;
-  rawPayloadJson?: { campaignId?: string; direction?: string } | null;
+  rawPayloadJson?: {
+    campaignId?: string;
+    direction?: string;
+    text?: string | null;
+    message?: string | null;
+    widgetMode?: string | null;
+    widgetId?: string | null;
+    widgetName?: string | null;
+    siteId?: string | null;
+    siteName?: string | null;
+    path?: string | null;
+    pageUrl?: string | null;
+    source?: string | null;
+  } | null;
   party?: { id: string; displayName: string; phone?: string | null } | null;
   lead?: {
     id: string;
@@ -51,6 +70,64 @@ type InboxRow = {
     source?: { key: string; name: string } | null;
   } | null;
 };
+
+function widgetAttributionLabel(
+  raw?: InboxRow['rawPayloadJson'] | null,
+): string | null {
+  if (!raw) return null;
+  const parts = [
+    typeof raw.widgetName === 'string' && raw.widgetName.trim()
+      ? raw.widgetName.trim()
+      : null,
+    typeof raw.siteName === 'string' && raw.siteName.trim() ? raw.siteName.trim() : null,
+    typeof raw.path === 'string' && raw.path.trim() ? raw.path.trim() : null,
+  ].filter(Boolean);
+  return parts.length ? parts.join(' · ') : null;
+}
+
+/** Prefer the visitor/agent message text over the noisy ingest summary line. */
+function messageBodyText(row: {
+  summary?: string | null;
+  rawPayloadJson?: InboxRow['rawPayloadJson'] | null;
+}): string {
+  const raw = row.rawPayloadJson;
+  const fromPayload =
+    (typeof raw?.text === 'string' && raw.text.trim()) ||
+    (typeof raw?.message === 'string' && raw.message.trim()) ||
+    '';
+  if (fromPayload) return fromPayload;
+
+  const summary = (row.summary || '').replace(/^Outbound:\s*/i, '').trim();
+  if (!summary) return '—';
+
+  // "Website chat · Default — Site: Demo — Path: / — hello"
+  const emDashParts = summary.split(/\s+[—–]\s+/);
+  if (emDashParts.length >= 2) {
+    const last = emDashParts[emDashParts.length - 1]?.trim();
+    if (last && !/^(site|path|form):/i.test(last)) return last;
+  }
+  // "… · hello" trailing segment when no em dash
+  const dotParts = summary.split(/\s+·\s+/);
+  if (dotParts.length >= 2) {
+    const last = dotParts[dotParts.length - 1]?.trim();
+    if (last && last.length < 280 && !/^site:/i.test(last) && !/^path:/i.test(last)) {
+      return last;
+    }
+  }
+  return summary;
+}
+
+function messagePreviewText(row: {
+  summary?: string | null;
+  rawPayloadJson?: InboxRow['rawPayloadJson'] | null;
+  direction?: string;
+}): string {
+  const body = messageBodyText(row);
+  if (row.direction === 'outbound' || /^Outbound:/i.test(row.summary || '')) {
+    return body.startsWith('You:') ? body : `You: ${body}`;
+  }
+  return body;
+}
 
 type ThreadRow = {
   key: string;
@@ -91,11 +168,48 @@ type ConversationDetail = {
 
 type ThreadMessage = InboxRow & { direction: 'inbound' | 'outbound' };
 
-const REPLYABLE_CHANNELS = new Set(['whatsapp', 'email', 'instagram']);
+const REPLYABLE_CHANNELS = new Set(['whatsapp', 'email', 'instagram', 'google_business', 'website']);
+const THREAD_MESSAGE_PAGE_SIZE = 40;
+const INBOX_LIST_WIDTH_KEY = 'inbox.listWidth';
+const INBOX_DETAIL_WIDTH_KEY = 'inbox.detailWidth';
+const INBOX_LIST_WIDTH_DEFAULT = 320;
+const INBOX_DETAIL_WIDTH_DEFAULT = 260;
+
+function readStoredWidth(key: string, fallback: number, min: number, max: number) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    const n = Number.parseInt(raw, 10);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.min(max, Math.max(min, n));
+  } catch {
+    return fallback;
+  }
+}
+
+type ThreadMessagesResponse = {
+  items: ThreadMessage[];
+  conversationId?: string | null;
+  hasMore?: boolean;
+};
+
+function threadMessagesUrl(
+  threadKey: string,
+  opts?: { before?: string; beforeId?: string; limit?: number },
+) {
+  const params = new URLSearchParams({
+    limit: String(opts?.limit ?? THREAD_MESSAGE_PAGE_SIZE),
+  });
+  if (opts?.before) params.set('before', opts.before);
+  if (opts?.beforeId) params.set('beforeId', opts.beforeId);
+  return `/interactions/threads/${encodeURIComponent(threadKey)}?${params}`;
+}
 
 function replyEndpoint(channel: string, interactionId: string) {
   if (channel === 'email') return `/leads/email/reply/${interactionId}`;
   if (channel === 'instagram') return `/leads/instagram/reply/${interactionId}`;
+  if (channel === 'google_business') return `/integrations/google/interactions/${interactionId}/reply`;
+  if (channel === 'website') return `/leads/website/reply/${interactionId}`;
   return `/leads/whatsapp/reply/${interactionId}`;
 }
 
@@ -109,11 +223,12 @@ const CHANNEL_FILTERS = [
   { value: 'email', label: 'Email' },
   { value: 'facebook', label: 'Facebook' },
   { value: 'instagram', label: 'Instagram' },
+  { value: 'google_business', label: 'Google Business' },
   { value: 'api', label: 'API' },
 ] as const;
 
 const QUEUE_FILTERS = [
-  { value: 'all', label: 'All' },
+  { value: 'all', label: 'All conversations' },
   { value: 'assigned', label: 'Assigned to me' },
   { value: 'waiting', label: 'Waiting reply' },
   { value: 'follow_up', label: 'Follow-up due' },
@@ -141,6 +256,27 @@ function channelLabel(channel: string) {
   return hit?.label || channel.replace(/_/g, ' ');
 }
 
+function personInitials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '?';
+  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
+  return `${parts[0]![0] ?? ''}${parts[1]![0] ?? ''}`.toUpperCase();
+}
+
+function chatTimeLabel(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const now = new Date();
+  const sameDay =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
+  if (sameDay) {
+    return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  }
+  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+}
+
 function outcomeLabel(outcome: string) {
   switch (outcome) {
     case 'created_travel_request':
@@ -162,7 +298,7 @@ type ResolveMode = 'attach' | 'follow_up' | null;
 
 export function InboxPage() {
   useDocumentTitle('Inbox');
-  const navigate = useNavigate();
+  const { navigate } = useOrgNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const openTravelRequest = useTravelRequestLauncher();
   const channelFromUrl = searchParams.get('channel') || '';
@@ -194,14 +330,19 @@ export function InboxPage() {
   const [activeThreadKey, setActiveThreadKey] = useState<string | null>(null);
   const [threadMessages, setThreadMessages] = useState<ThreadMessage[]>([]);
   const [threadMessagesLoading, setThreadMessagesLoading] = useState(false);
+  const [threadHasMore, setThreadHasMore] = useState(false);
+  const [threadLoadingMore, setThreadLoadingMore] = useState(false);
+  const [inboxListWidth, setInboxListWidth] = useState(() =>
+    readStoredWidth(INBOX_LIST_WIDTH_KEY, INBOX_LIST_WIDTH_DEFAULT, 220, 480),
+  );
+  const [inboxDetailWidth, setInboxDetailWidth] = useState(() =>
+    readStoredWidth(INBOX_DETAIL_WIDTH_KEY, INBOX_DETAIL_WIDTH_DEFAULT, 200, 420),
+  );
   const [conversationDetail, setConversationDetail] = useState<ConversationDetail | null>(null);
   const [queue, setQueue] = useState<'all' | 'assigned' | 'waiting' | 'follow_up'>('all');
   const [channelUnread, setChannelUnread] = useState<Array<{ channel: string; unread: number }>>(
     [],
   );
-  const [journeys, setJourneys] = useState<
-    Array<{ path: string; count: number; converted: number }>
-  >([]);
   const [connectorCaps, setConnectorCaps] = useState<
     Record<string, { reply?: boolean; templates?: boolean }>
   >({});
@@ -233,6 +374,50 @@ export function InboxPage() {
   const [attachInquiryLabel, setAttachInquiryLabel] = useState('');
   const [followUpAt, setFollowUpAt] = useState<Date | undefined>(undefined);
   const [followNote, setFollowNote] = useState('');
+  const [composerText, setComposerText] = useState('');
+  const messagesScrollRef = useRef<HTMLDivElement | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const activeThreadKeyRef = useRef<string | null>(null);
+  const stickToBottomRef = useRef(true);
+  const loadingMoreRef = useRef(false);
+  const threadMessagesRef = useRef(threadMessages);
+  const threadHasMoreRef = useRef(threadHasMore);
+  const knownMessageIdsRef = useRef<Set<string>>(new Set());
+  const inboxPollPrimedRef = useRef(false);
+  threadMessagesRef.current = threadMessages;
+  threadHasMoreRef.current = threadHasMore;
+
+  function playInboxNotifySound() {
+    try {
+      const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      const now = ctx.currentTime;
+      const gain = ctx.createGain();
+      gain.connect(ctx.destination);
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(0.1, now + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(740, now);
+      osc.frequency.exponentialRampToValueAtTime(520, now + 0.25);
+      osc.connect(gain);
+      osc.start(now);
+      osc.stop(now + 0.33);
+      window.setTimeout(() => {
+        void ctx.close();
+      }, 450);
+    } catch {
+      /* ignore */
+    }
+  }
+  activeThreadKeyRef.current = activeThreadKey;
+  const [threadMenu, setThreadMenu] = useState<{
+    x: number;
+    y: number;
+    thread: ThreadRow;
+  } | null>(null);
 
   useEffect(() => {
     const next = searchParams.get('channel') || '';
@@ -320,15 +505,10 @@ export function InboxPage() {
     )
       .then(setConnectorCaps)
       .catch(() => setConnectorCaps({}));
-    api<{ journeys: Array<{ path: string; count: number; converted: number }> }>(
-      '/interactions/analytics/journeys',
-    )
-      .then((res) => setJourneys(res.journeys.slice(0, 5)))
-      .catch(() => setJourneys([]));
   }, []);
 
-  const loadThreads = useCallback(async () => {
-    setThreadsLoading(true);
+  const loadThreads = useCallback(async (opts?: { quiet?: boolean }) => {
+    if (!opts?.quiet) setThreadsLoading(true);
     try {
       const params = new URLSearchParams({ pageSize: '50' });
       if (channel) params.set('channel', channel);
@@ -339,9 +519,9 @@ export function InboxPage() {
       setThreads(res.items);
     } catch (e) {
       reportError(e, 'Could not load conversations');
-      setThreads([]);
+      if (!opts?.quiet) setThreads([]);
     } finally {
-      setThreadsLoading(false);
+      if (!opts?.quiet) setThreadsLoading(false);
     }
   }, [channel, unreadOnly, ownership, queue]);
 
@@ -349,30 +529,154 @@ export function InboxPage() {
     if (view === 'threads') void loadThreads();
   }, [view, loadThreads]);
 
+  /** Live inbox: auto-refresh conversations + open thread; sound on new inbound. */
+  useEffect(() => {
+    if (view !== 'threads') return;
+    inboxPollPrimedRef.current = false;
+    knownMessageIdsRef.current = new Set();
+
+    const tick = async () => {
+      if (document.visibilityState === 'hidden') return;
+      try {
+        await loadThreads({ quiet: true });
+        const key = activeThreadKeyRef.current;
+        if (key) {
+          const prevIds = knownMessageIdsRef.current;
+          const res = await api<ThreadMessagesResponse>(threadMessagesUrl(key));
+          if (activeThreadKeyRef.current !== key) return;
+          const nextIds = new Set(res.items.map((m) => m.id));
+          const newInbound = res.items.filter(
+            (m) => m.direction !== 'outbound' && !prevIds.has(m.id),
+          );
+          setThreadMessages((prev) => {
+            const freshIds = new Set(res.items.map((m) => m.id));
+            const oldestFresh = res.items[0];
+            const keptOlder = prev.filter((m) => {
+              if (m.id.startsWith('local-')) return false;
+              if (freshIds.has(m.id)) return false;
+              if (!oldestFresh) return false;
+              if (m.occurredAt < oldestFresh.occurredAt) return true;
+              if (m.occurredAt === oldestFresh.occurredAt && m.id < oldestFresh.id) return true;
+              return false;
+            });
+            return [...keptOlder, ...res.items];
+          });
+          if (inboxPollPrimedRef.current && newInbound.length) {
+            playInboxNotifySound();
+          }
+          knownMessageIdsRef.current = new Set([...prevIds, ...nextIds]);
+          inboxPollPrimedRef.current = true;
+        } else {
+          inboxPollPrimedRef.current = true;
+        }
+      } catch {
+        /* keep current UI */
+      }
+    };
+
+    const id = window.setInterval(() => {
+      void tick();
+    }, 3000);
+    void tick();
+    return () => window.clearInterval(id);
+  }, [view, loadThreads, channel, unreadOnly, ownership, queue]);
+
+  useEffect(() => {
+    // Reset sound priming when switching conversations so we don't ding for history.
+    knownMessageIdsRef.current = new Set();
+    inboxPollPrimedRef.current = false;
+  }, [activeThreadKey]);
   async function openThread(thread: ThreadRow) {
     setActiveThreadKey(thread.key);
     setThreadMessagesLoading(true);
     setThreadSummary(null);
     setConversationDetail(null);
+    setThreadHasMore(false);
+    stickToBottomRef.current = true;
     try {
-      const res = await api<{ items: ThreadMessage[]; conversationId?: string | null }>(
-        `/interactions/threads/${encodeURIComponent(thread.key)}`,
-      );
+      const res = await api<ThreadMessagesResponse>(threadMessagesUrl(thread.key));
       setThreadMessages(res.items);
+      setThreadHasMore(Boolean(res.hasMore));
       const convId = thread.conversationId || res.conversationId;
       if (convId) {
         const detail = await api<ConversationDetail>(`/interactions/conversations/${convId}`);
         setConversationDetail(detail);
       }
-      void loadThreads();
+      void loadThreads({ quiet: true });
       api<{ channels: Array<{ channel: string; unread: number }> }>('/interactions/channel-unread')
         .then((r) => setChannelUnread(r.channels))
         .catch(() => undefined);
     } catch (e) {
       reportError(e, 'Could not load conversation');
       setThreadMessages([]);
+      setThreadHasMore(false);
     } finally {
       setThreadMessagesLoading(false);
+    }
+  }
+
+  async function loadOlderThreadMessages() {
+    const key = activeThreadKeyRef.current;
+    const oldest = threadMessagesRef.current[0];
+    if (!key || !oldest || !threadHasMoreRef.current || loadingMoreRef.current) return;
+
+    loadingMoreRef.current = true;
+    setThreadLoadingMore(true);
+    const el = messagesScrollRef.current;
+    const prevHeight = el?.scrollHeight ?? 0;
+    const prevTop = el?.scrollTop ?? 0;
+
+    try {
+      const res = await api<ThreadMessagesResponse>(
+        threadMessagesUrl(key, {
+          before: oldest.occurredAt,
+          beforeId: oldest.id,
+        }),
+      );
+      if (activeThreadKeyRef.current !== key) return;
+      setThreadHasMore(Boolean(res.hasMore));
+      if (!res.items.length) return;
+      setThreadMessages((prev) => {
+        const seen = new Set(prev.map((m) => m.id));
+        const older = res.items.filter((m) => !seen.has(m.id));
+        return [...older, ...prev];
+      });
+      requestAnimationFrame(() => {
+        const box = messagesScrollRef.current;
+        if (!box) return;
+        box.scrollTop = box.scrollHeight - prevHeight + prevTop;
+      });
+    } catch {
+      /* keep current page */
+    } finally {
+      loadingMoreRef.current = false;
+      setThreadLoadingMore(false);
+    }
+  }
+
+  /** Refresh open chat without blanking the pane (no loading flash). */
+  async function refreshActiveThreadQuietly(threadKey?: string) {
+    const key = threadKey || activeThreadKeyRef.current;
+    if (!key) return;
+    try {
+      const res = await api<ThreadMessagesResponse>(threadMessagesUrl(key));
+      if (activeThreadKeyRef.current !== key) return;
+      setThreadMessages((prev) => {
+        const freshIds = new Set(res.items.map((m) => m.id));
+        const oldestFresh = res.items[0];
+        const keptOlder = prev.filter((m) => {
+          if (m.id.startsWith('local-')) return false;
+          if (freshIds.has(m.id)) return false;
+          if (!oldestFresh) return false;
+          if (m.occurredAt < oldestFresh.occurredAt) return true;
+          if (m.occurredAt === oldestFresh.occurredAt && m.id < oldestFresh.id) return true;
+          return false;
+        });
+        return [...keptOlder, ...res.items];
+      });
+      void loadThreads({ quiet: true });
+    } catch {
+      /* keep optimistic UI */
     }
   }
 
@@ -408,11 +712,8 @@ export function InboxPage() {
         }),
       });
       toastSuccess('Phone call logged');
-      if (activeThreadKey) {
-        const thread = threads.find((t) => t.key === activeThreadKey);
-        if (thread) await openThread(thread);
-      }
-      await loadThreads();
+      if (activeThreadKey) await refreshActiveThreadQuietly();
+      else await loadThreads();
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Could not log call');
     }
@@ -447,9 +748,53 @@ export function InboxPage() {
   }, [logOpen, logForm.contactPhone, logForm.partyId]);
 
   const subtitle = useMemo(() => {
-    if (!analytics) return 'Inbound touches across phone, WhatsApp, web, and more.';
-    return `${analytics.unread} unread · ${analytics.total} in last 30 days`;
+    if (!analytics) return 'Customer chats and calls in one place.';
+    if (analytics.unread > 0) {
+      return `${analytics.unread} unread · ${analytics.total} in the last 30 days`;
+    }
+    return `${analytics.total} conversations in the last 30 days`;
   }, [analytics]);
+
+  const channelOptions = useMemo<ComboboxOption[]>(
+    () =>
+      CHANNEL_FILTERS.map((f) => {
+        const unread = channelUnread.find((c) => c.channel === f.value)?.unread;
+        return {
+          value: f.value || 'all',
+          label: unread ? `${f.label} (${unread})` : f.label,
+        };
+      }),
+    [channelUnread],
+  );
+
+  const queueOptions = useMemo<ComboboxOption[]>(
+    () => QUEUE_FILTERS.map((f) => ({ value: f.value, label: f.label })),
+    [],
+  );
+
+  const ownerOptions = useMemo<ComboboxOption[]>(
+    () => [
+      { value: 'all', label: 'Everyone' },
+      { value: 'unassigned', label: 'Unassigned' },
+      { value: 'mine', label: 'Assigned to me' },
+    ],
+    [],
+  );
+
+  const filtersActive =
+    Boolean(channel) ||
+    ownership !== 'all' ||
+    unreadOnly ||
+    (view === 'inbox' && !pendingOnly) ||
+    (view === 'threads' && queue !== 'all');
+
+  function clearFilters() {
+    selectChannel('');
+    setOwnership('all');
+    setUnreadOnly(false);
+    setPendingOnly(true);
+    setQueue('all');
+  }
 
   function startTravelRequest(row?: InboxRow) {
     const campaignId =
@@ -664,21 +1009,242 @@ export function InboxPage() {
     if (!replyRow || !replyText.trim()) return;
     setReplySaving(true);
     try {
-      await api(replyEndpoint(replyRow.channel, replyRow.id), {
+      const res = await api<{ demo?: boolean }>(replyEndpoint(replyRow.channel, replyRow.id), {
         method: 'POST',
         body: JSON.stringify({ text: replyText.trim() }),
       });
-      toastSuccess('Reply sent');
+      toastSuccess(
+        res.demo
+          ? 'Reply saved in Inbox (demo mode — not sent outside the app)'
+          : 'Reply sent',
+      );
       setReplyRow(null);
       setReplyText('');
-      await load();
-      if (view === 'threads') await loadThreads();
+      setComposerText('');
+      if (view === 'threads' && activeThreadKey) {
+        await refreshActiveThreadQuietly();
+      } else {
+        await load();
+      }
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Could not send reply');
     } finally {
       setReplySaving(false);
     }
   }
+
+  const activeThread = useMemo(
+    () => threads.find((t) => t.key === activeThreadKey) ?? null,
+    [threads, activeThreadKey],
+  );
+
+  const replyTarget = useMemo(() => {
+    const canReplyOn = (channel: string) => {
+      if (!REPLYABLE_CHANNELS.has(channel)) return false;
+      if (channel === 'whatsapp' && !whatsappEnabled) return false;
+      if (channel === 'instagram' && !instagramEnabled) return false;
+      const cap = connectorCaps[channel];
+      if (cap && cap.reply === false) return false;
+      return true;
+    };
+    const newestFirst = [...threadMessages].reverse();
+    return (
+      newestFirst.find((m) => m.direction !== 'outbound' && canReplyOn(m.channel)) ??
+      newestFirst.find((m) => canReplyOn(m.channel)) ??
+      null
+    );
+  }, [threadMessages, connectorCaps, whatsappEnabled, instagramEnabled]);
+
+  const chatTitle =
+    conversationDetail?.party?.displayName || activeThread?.label || 'Conversation';
+
+  const lastMessageId = threadMessages[threadMessages.length - 1]?.id;
+
+  function scrollMessagesToBottom() {
+    const el = messagesScrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }
+
+  useEffect(() => {
+    if (!stickToBottomRef.current) return;
+    scrollMessagesToBottom();
+    const a = requestAnimationFrame(() => {
+      scrollMessagesToBottom();
+      requestAnimationFrame(scrollMessagesToBottom);
+    });
+    return () => cancelAnimationFrame(a);
+  }, [lastMessageId, activeThreadKey, threadMessagesLoading]);
+
+  useEffect(() => {
+    setComposerText('');
+  }, [activeThreadKey]);
+
+  function onMessagesScroll() {
+    const el = messagesScrollRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    stickToBottomRef.current = distanceFromBottom < 80;
+    if (el.scrollTop < 80) {
+      void loadOlderThreadMessages();
+    }
+  }
+
+  function startInboxColumnResize(which: 'list' | 'detail', e: ReactMouseEvent) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startList = inboxListWidth;
+    const startDetail = inboxDetailWidth;
+    let nextList = startList;
+    let nextDetail = startDetail;
+    const prevCursor = document.body.style.cursor;
+    const prevUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMove = (ev: MouseEvent) => {
+      const dx = ev.clientX - startX;
+      if (which === 'list') {
+        nextList = Math.min(480, Math.max(220, startList + dx));
+        setInboxListWidth(nextList);
+      } else {
+        nextDetail = Math.min(420, Math.max(200, startDetail - dx));
+        setInboxDetailWidth(nextDetail);
+      }
+    };
+    const onUp = () => {
+      document.body.style.cursor = prevCursor;
+      document.body.style.userSelect = prevUserSelect;
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      try {
+        localStorage.setItem(INBOX_LIST_WIDTH_KEY, String(nextList));
+        localStorage.setItem(INBOX_DETAIL_WIDTH_KEY, String(nextDetail));
+      } catch {
+        /* ignore */
+      }
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }
+
+  function focusComposer() {
+    requestAnimationFrame(() => {
+      composerRef.current?.focus({ preventScroll: true });
+    });
+  }
+
+  async function sendComposerReply() {
+    const text = composerText.trim();
+    if (!text || !replyTarget) return;
+
+    const tempId = `local-${Date.now()}`;
+    const optimistic: ThreadMessage = {
+      id: tempId,
+      channel: replyTarget.channel,
+      outcome: 'pending',
+      unread: false,
+      summary: text,
+      occurredAt: new Date().toISOString(),
+      direction: 'outbound',
+      party: conversationDetail?.party
+        ? {
+            id: conversationDetail.party.id,
+            displayName: conversationDetail.party.displayName,
+            phone: conversationDetail.party.phone,
+          }
+        : null,
+    };
+
+    setComposerText('');
+    setThreadMessages((prev) => [...prev, optimistic]);
+    setReplySaving(true);
+    stickToBottomRef.current = true;
+    focusComposer();
+
+    try {
+      const res = await api<{ demo?: boolean }>(
+        replyEndpoint(replyTarget.channel, replyTarget.id),
+        {
+          method: 'POST',
+          body: JSON.stringify({ text }),
+        },
+      );
+      toastSuccess(
+        res.demo
+          ? 'Reply saved in Inbox (demo mode — not sent outside the app)'
+          : 'Reply sent',
+      );
+      await refreshActiveThreadQuietly();
+      focusComposer();
+    } catch (e) {
+      setThreadMessages((prev) => prev.filter((m) => m.id !== tempId));
+      setComposerText(text);
+      toastError(e instanceof Error ? e.message : 'Could not send reply');
+      focusComposer();
+    } finally {
+      setReplySaving(false);
+      focusComposer();
+    }
+  }
+
+  async function markThreadRead(thread: ThreadRow) {
+    const id = thread.conversationId;
+    if (!id) return;
+    try {
+      await api(`/interactions/conversations/${id}/read`, { method: 'POST' });
+      toastSuccess('Marked as read');
+      await loadThreads({ quiet: true });
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not mark as read');
+    }
+  }
+
+  async function markThreadUnread(thread: ThreadRow) {
+    const id = thread.conversationId;
+    if (!id) return;
+    try {
+      await api(`/interactions/conversations/${id}/unread`, { method: 'POST' });
+      toastSuccess('Marked as unread');
+      await loadThreads({ quiet: true });
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not mark as unread');
+    }
+  }
+
+  async function claimThread(thread: ThreadRow) {
+    const id = thread.conversationId;
+    if (!id) return;
+    try {
+      await api(`/interactions/conversations/${id}/claim`, { method: 'POST' });
+      toastSuccess('Conversation claimed');
+      await loadThreads({ quiet: true });
+      if (activeThreadKey === thread.key) {
+        const detail = await api<ConversationDetail>(`/interactions/conversations/${id}`);
+        setConversationDetail(detail);
+      }
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not claim');
+    }
+  }
+
+  useEffect(() => {
+    if (!threadMenu) return;
+    function close() {
+      setThreadMenu(null);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') close();
+    }
+    window.addEventListener('click', close);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [threadMenu]);
 
   async function rewriteReply() {
     if (!replyText.trim()) return;
@@ -697,7 +1263,8 @@ export function InboxPage() {
   }
 
   return (
-    <ListPageShell fill={false}>
+    <ListPageShell fill className="gap-0">
+      <div className="shrink-0 space-y-3 pb-3">
       <PageHeader
         icon={Inbox}
         title="Inbox"
@@ -709,7 +1276,7 @@ export function InboxPage() {
               Log call
             </Button>
             <Button type="button" variant="outline" onClick={openLogTouch}>
-              Log touch
+              Log message
             </Button>
             <Button type="button" onClick={() => startTravelRequest()}>
               <Plus className="size-4" />
@@ -719,239 +1286,299 @@ export function InboxPage() {
         }
       />
 
-      {channelUnread.length > 0 ? (
-        <div className="mb-3 flex flex-wrap gap-2">
-          {channelUnread.map((c) => (
+      <div className="space-y-3">
+        <div
+          className="inline-flex rounded-xl border border-border/70 bg-muted/20 p-1"
+          role="tablist"
+          aria-label="Inbox view"
+        >
+          {(
+            [
+              { value: 'threads', label: 'Conversations', icon: MessagesSquare },
+              { value: 'inbox', label: 'All messages', icon: Inbox },
+            ] as const
+          ).map((v) => (
             <button
-              key={c.channel}
+              key={v.value}
               type="button"
-              onClick={() => {
-                selectChannel(c.channel);
-                setView('threads');
-              }}
-              className="rounded-lg border border-border/70 bg-muted/30 px-3 py-1.5 text-sm font-medium"
-            >
-              {channelLabel(c.channel)} · {c.unread} unread
-            </button>
-          ))}
-        </div>
-      ) : null}
-
-      {journeys.length > 0 ? (
-        <div className="mb-3 rounded-xl border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-          <span className="font-medium text-foreground">Top journeys: </span>
-          {journeys.map((j) => (
-            <span key={j.path} className="mr-3">
-              {j.path} ({j.count}
-              {j.converted ? `, ${j.converted} won` : ''})
-            </span>
-          ))}
-        </div>
-      ) : null}
-
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        {(
-          [
-            { value: 'threads', label: 'Conversations', icon: MessagesSquare },
-            { value: 'inbox', label: 'All touches', icon: Inbox },
-          ] as const
-        ).map((v) => (
-          <button
-            key={v.value}
-            type="button"
-            onClick={() => setView(v.value)}
-            className={cn(
-              'inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors',
-              view === v.value
-                ? 'border-primary bg-primary text-primary-foreground'
-                : 'border-border/70 bg-muted/30 hover:border-primary/40',
-            )}
-          >
-            <v.icon className="size-3.5" />
-            {v.label}
-          </button>
-        ))}
-      </div>
-
-      {view === 'threads' ? (
-        <div className="mb-3 flex flex-wrap items-center gap-2">
-          {QUEUE_FILTERS.map((f) => (
-            <button
-              key={f.value}
-              type="button"
-              onClick={() => setQueue(f.value)}
+              role="tab"
+              aria-selected={view === v.value}
+              onClick={() => setView(v.value)}
               className={cn(
-                'rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors',
-                queue === f.value
-                  ? 'border-primary bg-primary text-primary-foreground'
-                  : 'border-border/70 bg-muted/30 hover:border-primary/40',
+                'inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium transition-colors',
+                view === v.value
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground',
               )}
             >
-              {f.label}
+              <v.icon className="size-3.5" />
+              {v.label}
             </button>
           ))}
         </div>
-      ) : null}
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        {CHANNEL_FILTERS.map((f) => (
-          <button
-            key={f.value || 'all'}
-            type="button"
-            onClick={() => selectChannel(f.value)}
-            className={cn(
-              'rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors',
-              channel === f.value
-                ? 'border-primary bg-primary text-primary-foreground'
-                : 'border-border/70 bg-muted/30 hover:border-primary/40',
-            )}
-          >
-            {f.label}
-          </button>
-        ))}
-        {view === 'inbox' ? (
-          <button
-            type="button"
-            onClick={() => setPendingOnly((v) => !v)}
-            className={cn(
-              'rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors',
-              pendingOnly
-                ? 'border-primary bg-primary text-primary-foreground'
-                : 'border-border/70 bg-muted/30 hover:border-primary/40',
-            )}
-          >
-            Pending only
-          </button>
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+          {view === 'threads' ? (
+            <Combobox
+              className="h-9 w-full sm:w-[11.5rem]"
+              value={queue}
+              onChange={(value) => setQueue((value || 'all') as typeof queue)}
+              placeholder="Needs attention"
+              searchPlaceholder="Filter queue…"
+              options={queueOptions}
+            />
+          ) : null}
+          <Combobox
+            className="h-9 w-full sm:w-[12rem]"
+            value={channel || 'all'}
+            onChange={(value) => selectChannel(value === 'all' ? '' : value)}
+            placeholder="Channel"
+            searchPlaceholder="Find channel…"
+            options={channelOptions}
+          />
+          <Combobox
+            className="h-9 w-full sm:w-[11.5rem]"
+            value={ownership}
+            onChange={(value) =>
+              setOwnership((value || 'all') as 'all' | 'mine' | 'unassigned')
+            }
+            placeholder="Owner"
+            searchPlaceholder="Filter owner…"
+            options={ownerOptions}
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setUnreadOnly((v) => !v)}
+              className={cn(
+                'rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors',
+                unreadOnly
+                  ? 'border-primary/40 bg-primary/10 text-primary'
+                  : 'border-border/70 bg-background text-muted-foreground hover:text-foreground',
+              )}
+            >
+              Unread only
+            </button>
+            {view === 'inbox' ? (
+              <button
+                type="button"
+                onClick={() => setPendingOnly((v) => !v)}
+                className={cn(
+                  'rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors',
+                  pendingOnly
+                    ? 'border-primary/40 bg-primary/10 text-primary'
+                    : 'border-border/70 bg-background text-muted-foreground hover:text-foreground',
+                )}
+              >
+                Needs reply
+              </button>
+            ) : null}
+            {filtersActive ? (
+              <Button type="button" variant="ghost" size="sm" onClick={clearFilters}>
+                Clear filters
+              </Button>
+            ) : null}
+          </div>
+        </div>
+
+        {channelUnread.length > 0 ? (
+          <p className="text-xs text-muted-foreground">
+            Unread:{' '}
+            {channelUnread.slice(0, 4).map((c, i) => (
+              <span key={c.channel}>
+                {i > 0 ? ' · ' : null}
+                <button
+                  type="button"
+                  className="font-medium text-foreground underline-offset-2 hover:underline"
+                  onClick={() => {
+                    selectChannel(c.channel);
+                    setView('threads');
+                  }}
+                >
+                  {channelLabel(c.channel)} ({c.unread})
+                </button>
+              </span>
+            ))}
+          </p>
         ) : null}
-        <button
-          type="button"
-          onClick={() => setUnreadOnly((v) => !v)}
-          className={cn(
-            'rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors',
-            unreadOnly
-              ? 'border-primary bg-primary text-primary-foreground'
-              : 'border-border/70 bg-muted/30 hover:border-primary/40',
-          )}
-        >
-          Unread
-        </button>
-        {(
-          [
-            { value: 'all', label: 'All owners' },
-            { value: 'unassigned', label: 'Unassigned' },
-            { value: 'mine', label: 'Mine' },
-          ] as const
-        ).map((f) => (
-          <button
-            key={f.value}
-            type="button"
-            onClick={() => setOwnership(f.value)}
-            className={cn(
-              'rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors',
-              ownership === f.value
-                ? 'border-primary bg-primary text-primary-foreground'
-                : 'border-border/70 bg-muted/30 hover:border-primary/40',
-            )}
-          >
-            {f.label}
-          </button>
-        ))}
+      </div>
       </div>
 
-      {analytics?.byChannel?.length ? (
-        <div className="mb-4 flex flex-wrap gap-2 text-xs text-muted-foreground">
-          {analytics.byChannel.map((c) => (
-            <span key={c.channel} className="rounded-md bg-muted/50 px-2 py-1">
-              {channelLabel(c.channel)} · {c.count}
-            </span>
-          ))}
-        </div>
-      ) : null}
-
       {view === 'threads' ? (
-        threadsLoading ? (
+        threadsLoading && threads.length === 0 ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
         ) : threads.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-border/70 px-4 py-10 text-center">
-            <MessagesSquare className="mx-auto mb-2 size-8 text-muted-foreground" />
-            <p className="text-sm font-medium">No conversations yet</p>
-          </div>
+          <EmptyState
+            icon={MessagesSquare}
+            title="No conversations yet"
+            description="When a customer messages you on WhatsApp, web, Google, or phone, it shows up here. Start by logging a call or a message."
+            action={
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button type="button" variant="outline" onClick={() => void logPhoneCall()}>
+                  Log call
+                </Button>
+                <Button type="button" onClick={openLogTouch}>
+                  Log message
+                </Button>
+              </div>
+            }
+          />
         ) : (
-          <div className="grid gap-3 lg:grid-cols-[minmax(0,280px)_minmax(0,1fr)_minmax(0,240px)]">
-            <ul className="divide-y divide-border/60 rounded-xl border border-border/60 max-h-[70vh] overflow-y-auto">
-              {threads.map((thread) => (
-                <li key={thread.key}>
-                  <button
-                    type="button"
-                    onClick={() => void openThread(thread)}
-                    className={cn(
-                      'flex w-full min-w-0 items-start justify-between gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted/40',
-                      activeThreadKey === thread.key && 'bg-primary/5',
-                    )}
-                  >
-                    <div className="min-w-0 space-y-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        {thread.unreadCount > 0 ? (
-                          <span className="size-1.5 rounded-full bg-primary" aria-label="Unread" />
-                        ) : null}
-                        <span className="truncate text-sm font-medium">{thread.label}</span>
+          <div
+            className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border/60 bg-background lg:flex-row"
+            style={
+              {
+                '--inbox-list-w': `${inboxListWidth}px`,
+                '--inbox-detail-w': `${inboxDetailWidth}px`,
+              } as CSSProperties
+            }
+          >
+            <ul
+              className="min-h-0 max-h-[40%] divide-y divide-border/50 overflow-y-auto border-b border-border/60 lg:max-h-none lg:w-[var(--inbox-list-w)] lg:shrink-0 lg:border-b-0"
+            >              {threads.map((thread) => {
+                const selected = activeThreadKey === thread.key;
+                return (
+                  <li key={thread.key}>
+                    <button
+                      type="button"
+                      onClick={() => void openThread(thread)}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setThreadMenu({ x: e.clientX, y: e.clientY, thread });
+                      }}
+                      className={cn(
+                        'flex w-full min-w-0 items-center gap-3 px-3 py-3 text-left transition-colors',
+                        selected ? 'bg-primary/10' : 'hover:bg-muted/40',
+                        thread.unreadCount > 0 && !selected && 'bg-primary/[0.04]',
+                      )}
+                    >
+                      <Avatar className="size-11 shrink-0">
+                        <AvatarFallback className="bg-primary/15 text-sm font-semibold text-primary">
+                          {personInitials(thread.label)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-baseline justify-between gap-2">
+                          <span
+                            className={cn(
+                              'truncate text-sm',
+                              thread.unreadCount > 0 ? 'font-semibold' : 'font-medium',
+                            )}
+                          >
+                            {thread.label}
+                          </span>
+                          <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
+                            {chatTimeLabel(thread.lastAt)}
+                          </span>
+                        </div>
+                        <div className="mt-0.5 flex items-center gap-2">
+                          <p className="truncate text-xs text-muted-foreground">
+                            {messageBodyText({ summary: thread.lastSummary }) ||
+                              channelLabel(thread.channel)}
+                          </p>
+                          {thread.unreadCount > 0 ? (
+                            <span className="ml-auto flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">
+                              {thread.unreadCount}
+                            </span>
+                          ) : null}
+                        </div>
                       </div>
-                      <p className="truncate text-xs text-muted-foreground">
-                        {channelLabel(thread.channel)}
-                        {thread.travelRequestCount
-                          ? ` · ${thread.travelRequestCount} request${thread.travelRequestCount === 1 ? '' : 's'}`
-                          : ''}
-                      </p>
-                    </div>
-                    <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
-                      {formatDateTime(thread.lastAt)}
-                    </span>
-                  </button>
-                </li>
-              ))}
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
 
-            <div className="rounded-xl border border-border/60 min-h-[320px] flex flex-col">
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize conversation list"
+              title="Drag to resize"
+              onMouseDown={(e) => startInboxColumnResize('list', e)}
+              className="relative z-10 hidden w-1 shrink-0 cursor-col-resize bg-border/60 transition-colors hover:bg-primary/50 lg:block before:absolute before:inset-y-0 before:-left-1.5 before:w-4 before:content-['']"
+            />
+
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col border-b border-border/60 lg:border-b-0">
               {!activeThreadKey ? (
-                <p className="m-auto text-sm text-muted-foreground">Select a conversation</p>
+                <div className="m-auto max-w-xs px-6 py-10 text-center">
+                  <MessagesSquare className="mx-auto mb-3 size-8 text-muted-foreground/70" />
+                  <p className="text-sm font-medium text-foreground">Pick a chat</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Select a customer on the left to open the conversation.
+                  </p>
+                </div>
               ) : threadMessagesLoading ? (
-                <p className="m-auto text-sm text-muted-foreground">Loading…</p>
+                <p className="m-auto text-sm text-muted-foreground">Loading messages…</p>
               ) : (
                 <>
-                  <div className="flex flex-wrap items-center gap-2 border-b border-border/60 px-3 py-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={summarizing || !conversationDetail?.id}
-                      onClick={() => void summarizeActiveConversation()}
-                    >
-                      <Sparkles className="size-3.5" />
-                      {summarizing ? 'Summarizing…' : 'Summarize'}
-                    </Button>
-                    {threadMessages.some((m) => REPLYABLE_CHANNELS.has(m.channel)) ? (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          const lastInbound = [...threadMessages]
-                            .reverse()
-                            .find(
-                              (m) =>
-                                m.direction === 'inbound' &&
-                                REPLYABLE_CHANNELS.has(m.channel) &&
-                                (connectorCaps[m.channel]?.reply !== false),
-                            );
-                          if (lastInbound) {
-                            setReplyRow(lastInbound);
-                            setReplyText('');
+                  <div className="flex shrink-0 items-center gap-3 border-b border-border/60 px-3 py-2.5">
+                    <Avatar className="size-10 shrink-0">
+                      <AvatarFallback className="bg-primary/15 text-sm font-semibold text-primary">
+                        {personInitials(chatTitle)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold">{chatTitle}</p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {channelLabel(activeThread?.channel || 'website')}
+                        {conversationDetail?.party?.phone
+                          ? ` · ${conversationDetail.party.phone}`
+                          : ''}
+                        {(() => {
+                          const attrMsg = threadMessages.find((m) =>
+                            widgetAttributionLabel(m.rawPayloadJson),
+                          );
+                          const attr = widgetAttributionLabel(attrMsg?.rawPayloadJson);
+                          return attr ? ` · ${attr}` : '';
+                        })()}
+                      </p>
+                    </div>
+                    {(() => {
+                      const widgetId = threadMessages.find((m) => m.rawPayloadJson?.widgetId)
+                        ?.rawPayloadJson?.widgetId;
+                      if (!widgetId) return null;
+                      return (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="hidden shrink-0 text-xs text-muted-foreground sm:inline-flex"
+                          onClick={() =>
+                            navigate(`${AGENCY_ROUTES.settingsInboxChatflows}/${widgetId}`)
                           }
-                        }}
-                      >
-                        Reply
-                      </Button>
-                    ) : null}
+                        >
+                          Chatflow
+                        </Button>
+                      );
+                    })()}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button type="button" size="sm" variant="ghost" aria-label="Chat actions">
+                          <MoreHorizontal className="size-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          disabled={summarizing || !conversationDetail?.id}
+                          onClick={() => void summarizeActiveConversation()}
+                        >
+                          <Sparkles className="mr-2 size-3.5" />
+                          {summarizing ? 'Summarizing…' : 'Summarize chat'}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => {
+                            const pending = threadMessages.find((m) => m.outcome === 'pending');
+                            startTravelRequest(
+                              pending ?? threadMessages[threadMessages.length - 1],
+                            );
+                          }}
+                        >
+                          <Plus className="mr-2 size-3.5" />
+                          New travel request
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                     <Button
                       type="button"
                       size="sm"
@@ -963,82 +1590,166 @@ export function InboxPage() {
                       Travel request
                     </Button>
                   </div>
+
                   {threadSummary ? (
-                    <div className="border-b border-border/60 bg-muted/20 px-3 py-2 text-xs">
+                    <div className="border-b border-border/60 bg-muted/20 px-4 py-2 text-xs leading-5 text-muted-foreground">
+                      <span className="font-medium text-foreground">Summary: </span>
                       {threadSummary}
                     </div>
                   ) : null}
-                  <ul className="flex-1 space-y-2 overflow-y-auto px-3 py-3 max-h-[55vh]">
-                    {threadMessages.map((msg) => (
-                      <li
-                        key={msg.id}
-                        className={cn(
-                          'rounded-lg px-3 py-2 text-sm',
-                          msg.direction === 'outbound'
-                            ? 'ml-8 bg-primary/10'
-                            : 'mr-8 bg-muted/40',
-                        )}
-                      >
-                        <div className="mb-1 flex items-center gap-2 text-[11px] text-muted-foreground">
-                          <span>{channelLabel(msg.channel)}</span>
-                          <span>·</span>
-                          <span>{msg.direction}</span>
-                          <span>·</span>
-                          <span>{formatDateTime(msg.occurredAt)}</span>
+
+                  <div
+                    ref={messagesScrollRef}
+                    onScroll={onMessagesScroll}
+                    className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-muted/15 px-4 py-5"
+                  >
+                    <div className="mt-auto flex flex-col gap-3">
+                      {threadHasMore || threadLoadingMore ? (
+                        <div className="py-2 text-center text-[11px] text-muted-foreground">
+                          {threadLoadingMore
+                            ? 'Loading earlier messages…'
+                            : 'Scroll up for earlier messages'}
                         </div>
-                        <p>{msg.summary || '—'}</p>
-                      </li>
-                    ))}
-                  </ul>
+                      ) : null}
+                      {threadMessages.map((msg) => {
+                        const fromCustomer = msg.direction !== 'outbound';
+                        const body = messageBodyText(msg);
+                        return (
+                          <div
+                            key={msg.id}
+                            className={cn(
+                              'flex w-full',
+                              fromCustomer ? 'justify-start' : 'justify-end',
+                            )}
+                          >
+                            <div
+                              className={cn(
+                                'max-w-[min(78%,26rem)] px-3.5 py-2.5 text-[13px] leading-relaxed',
+                                fromCustomer
+                                  ? 'rounded-2xl rounded-bl-md bg-background text-foreground shadow-sm ring-1 ring-border/60'
+                                  : 'rounded-2xl rounded-br-md bg-primary text-primary-foreground shadow-sm',
+                              )}
+                            >
+                              <p className="whitespace-pre-wrap break-words">{body}</p>
+                              <p
+                                className={cn(
+                                  'mt-1.5 text-[10px] tabular-nums',
+                                  fromCustomer
+                                    ? 'text-muted-foreground'
+                                    : 'text-right text-primary-foreground/75',
+                                )}
+                              >
+                                {chatTimeLabel(msg.occurredAt)}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="shrink-0 border-t border-border/60 bg-background px-3 py-2.5">
+                    {replyTarget ? (
+                      <form
+                        className="flex items-end gap-2"
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          void sendComposerReply();
+                        }}
+                      >
+                        <Textarea
+                          ref={composerRef}
+                          value={composerText}
+                          onChange={(e) => setComposerText(e.target.value)}
+                          placeholder={`Reply on ${channelLabel(replyTarget.channel)}…`}
+                          rows={1}
+                          className="min-h-11 max-h-28 flex-1 resize-none rounded-2xl"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              void sendComposerReply();
+                            }
+                          }}
+                        />
+                        <Button
+                          type="submit"
+                          size="icon"
+                          className="size-11 shrink-0 rounded-full"
+                          disabled={replySaving || !composerText.trim()}
+                          aria-label="Send"
+                        >
+                          <Send className="size-4" />
+                        </Button>
+                      </form>
+                    ) : (
+                      <p className="px-1 py-2 text-sm text-muted-foreground">
+                        Replies aren&apos;t available on{' '}
+                        {channelLabel(activeThread?.channel || 'website')}. Use Website chat,
+                        WhatsApp, Email, Instagram, or Google Business when the customer writes
+                        there.
+                      </p>
+                    )}
+                  </div>
                 </>
               )}
             </div>
 
-            <aside className="rounded-xl border border-border/60 p-3 space-y-3 text-sm">
-              <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Customer
-                </p>
-                <p className="font-medium">
-                  {conversationDetail?.party?.displayName ||
-                    threads.find((t) => t.key === activeThreadKey)?.label ||
-                    '—'}
-                </p>
-                {conversationDetail?.party?.phone ? (
-                  <p className="text-xs text-muted-foreground">{conversationDetail.party.phone}</p>
-                ) : null}
-                {conversationDetail?.party?.email ? (
-                  <p className="text-xs text-muted-foreground">{conversationDetail.party.email}</p>
-                ) : null}
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize details panel"
+              title="Drag to resize"
+              onMouseDown={(e) => startInboxColumnResize('detail', e)}
+              className="relative z-10 hidden w-1 shrink-0 cursor-col-resize bg-border/60 transition-colors hover:bg-primary/50 lg:block before:absolute before:inset-y-0 before:-left-1.5 before:w-4 before:content-['']"
+            />
+
+            <aside className="hidden min-h-0 space-y-4 overflow-y-auto p-4 text-sm lg:block lg:w-[var(--inbox-detail-w)] lg:shrink-0">
+              <div className="flex items-center gap-3">
+                <Avatar className="size-12 shrink-0">
+                  <AvatarFallback className="bg-primary/15 text-base font-semibold text-primary">
+                    {personInitials(chatTitle)}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="min-w-0">
+                  <p className="truncate text-base font-semibold tracking-tight">{chatTitle}</p>
+                  <p className="text-xs text-muted-foreground">Customer</p>
+                </div>
               </div>
+              {conversationDetail?.party?.phone ? (
+                <p className="text-sm text-muted-foreground">{conversationDetail.party.phone}</p>
+              ) : null}
+              {conversationDetail?.party?.email ? (
+                <p className="text-sm text-muted-foreground">{conversationDetail.party.email}</p>
+              ) : null}
               {conversationDetail?.journeyPath?.length ? (
                 <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    Journey
+                  <p className="text-xs font-medium text-muted-foreground">How they found you</p>
+                  <p className="mt-1 text-sm leading-6">
+                    {conversationDetail.journeyPath.map(channelLabel).join(' → ')}
                   </p>
-                  <p className="text-xs">{conversationDetail.journeyPath.join(' → ')}</p>
                 </div>
               ) : null}
               <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Travel requests
-                </p>
+                <p className="text-xs font-medium text-muted-foreground">Travel requests</p>
                 {conversationDetail?.inquiries?.length ? (
-                  <ul className="mt-1 space-y-1">
+                  <ul className="mt-2 space-y-2">
                     {conversationDetail.inquiries.map((inq) => (
                       <li key={inq.id}>
                         <button
                           type="button"
-                          className="text-left text-primary hover:underline"
+                          className="text-left font-medium text-primary hover:underline"
                           onClick={() => navigate(`/inquiries/${inq.id}`)}
                         >
-                          {inq.inquiryNumber} · {inq.status}
+                          {inq.inquiryNumber}
                         </button>
+                        <span className="ml-2 text-xs text-muted-foreground">{inq.status}</span>
                       </li>
                     ))}
                   </ul>
                 ) : (
-                  <p className="text-xs text-muted-foreground">None linked yet</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    None yet — tap Travel request when they are ready to book.
+                  </p>
                 )}
               </div>
               {conversationDetail?.id ? (
@@ -1066,23 +1777,28 @@ export function InboxPage() {
       ) : loading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
       ) : items.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-border/70 px-4 py-10 text-center">
-          <Phone className="mx-auto mb-2 size-8 text-muted-foreground" />
-          <p className="text-sm font-medium">No interactions yet</p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Log a WhatsApp or walk-in touch, or start a customer call.
-          </p>
-          <div className="mt-4 flex flex-wrap justify-center gap-2">
-            <Button type="button" variant="outline" onClick={openLogTouch}>
-              Log touch
-            </Button>
-            <Button type="button" onClick={() => startTravelRequest()}>
-              Start a call
-            </Button>
-          </div>
-        </div>
+          <EmptyState
+            icon={Phone}
+            title="Nothing here yet"
+            description="Log a WhatsApp message, website enquiry, or phone call — or clear filters if you narrowed the list too much."
+            action={
+              <div className="flex flex-wrap justify-center gap-2">
+                {filtersActive ? (
+                  <Button type="button" variant="outline" onClick={clearFilters}>
+                    Clear filters
+                  </Button>
+                ) : null}
+                <Button type="button" variant="outline" onClick={openLogTouch}>
+                  Log message
+                </Button>
+                <Button type="button" onClick={() => void logPhoneCall()}>
+                  Log call
+                </Button>
+              </div>
+            }
+          />
       ) : (
-        <ul className="divide-y divide-border/60 rounded-xl border border-border/60">
+        <ul className="divide-y divide-border/60 overflow-hidden rounded-2xl border border-border/60">
           {items.map((row) => {
             const pending = row.outcome === 'pending';
             return (
@@ -1098,9 +1814,9 @@ export function InboxPage() {
                   <div className="min-w-0 space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
                       {row.unread ? (
-                        <span className="size-1.5 rounded-full bg-primary" aria-label="Unread" />
+                        <span className="size-2 rounded-full bg-primary" aria-label="Unread" />
                       ) : null}
-                      <span className="font-medium">
+                      <span className="font-semibold tracking-tight">
                         {row.party?.displayName || row.lead?.title || row.summary || 'Inbound'}
                       </span>
                       <StatusBadge
@@ -1115,15 +1831,7 @@ export function InboxPage() {
                       />
                     </div>
                     <p className="truncate text-xs text-muted-foreground">
-                      {[
-                        row.acquisitionSourceKey
-                          ? `Found via ${row.acquisitionSourceKey.replace(/_/g, ' ')}`
-                          : null,
-                        row.summary,
-                        row.party?.phone,
-                      ]
-                        .filter(Boolean)
-                        .join(' · ') || 'Open to continue'}
+                      {messagePreviewText(row)}
                     </p>
                   </div>
                   <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
@@ -1152,6 +1860,17 @@ export function InboxPage() {
                         <DropdownMenuItem onClick={() => startTravelRequest(row)}>
                           Start travel request
                         </DropdownMenuItem>
+                        {row.rawPayloadJson?.widgetId ? (
+                          <DropdownMenuItem
+                            onClick={() => {
+                              navigate(
+                                `${AGENCY_ROUTES.settingsInboxChatflows}/${row.rawPayloadJson!.widgetId}`,
+                              );
+                            }}
+                          >
+                            Open chatflow
+                          </DropdownMenuItem>
+                        ) : null}
                         <DropdownMenuItem onClick={() => openAttach(row)}>
                           Attach to existing
                         </DropdownMenuItem>
@@ -1168,7 +1887,8 @@ export function InboxPage() {
                         </DropdownMenuItem>
                         {(row.channel === 'whatsapp' && whatsappEnabled) ||
                         row.channel === 'email' ||
-                        (row.channel === 'instagram' && instagramEnabled) ? (
+                        (row.channel === 'instagram' && instagramEnabled) ||
+                        row.channel === 'google_business' ? (
                           <DropdownMenuItem
                             onClick={() => {
                               setReplyRow(row);
@@ -1195,7 +1915,7 @@ export function InboxPage() {
         </ul>
       )}
 
-      <p className="mt-4 text-xs text-muted-foreground">
+      <p className="mt-4 shrink-0 text-xs text-muted-foreground">
         Pipeline owners still use{' '}
         <button
           type="button"
@@ -1204,13 +1924,95 @@ export function InboxPage() {
         >
           Leads
         </button>{' '}
-        for assignment and stages.
+        for assignment and stages. Right-click a chat for read / unread and more.
       </p>
+
+      {threadMenu ? (
+        <div
+          className="fixed z-[80] min-w-[12.5rem] overflow-hidden rounded-xl border border-border/70 bg-popover p-1 text-popover-foreground shadow-lg"
+          style={{
+            left: Math.min(threadMenu.x, window.innerWidth - 220),
+            top: Math.min(threadMenu.y, window.innerHeight - 260),
+          }}
+          onClick={(e) => e.stopPropagation()}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          <button
+            type="button"
+            className="flex w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-muted disabled:opacity-40"
+            onClick={() => {
+              const t = threadMenu.thread;
+              setThreadMenu(null);
+              void openThread(t);
+            }}
+          >
+            Open chat
+          </button>
+          <button
+            type="button"
+            className="flex w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-muted disabled:opacity-40"
+            disabled={!threadMenu.thread.conversationId || threadMenu.thread.unreadCount === 0}
+            onClick={() => {
+              const t = threadMenu.thread;
+              setThreadMenu(null);
+              void markThreadRead(t);
+            }}
+          >
+            Mark as read
+          </button>
+          <button
+            type="button"
+            className="flex w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-muted disabled:opacity-40"
+            disabled={!threadMenu.thread.conversationId}
+            onClick={() => {
+              const t = threadMenu.thread;
+              setThreadMenu(null);
+              void markThreadUnread(t);
+            }}
+          >
+            Mark as unread
+          </button>
+          <div className="my-1 h-px bg-border/70" />
+          <button
+            type="button"
+            className="flex w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-muted disabled:opacity-40"
+            disabled={!threadMenu.thread.conversationId}
+            onClick={() => {
+              const t = threadMenu.thread;
+              setThreadMenu(null);
+              void claimThread(t);
+            }}
+          >
+            Claim conversation
+          </button>
+          <button
+            type="button"
+            className="flex w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-muted"
+            onClick={() => {
+              const t = threadMenu.thread;
+              setThreadMenu(null);
+              void openThread(t).then(() => {
+                openTravelRequest(
+                  {
+                    channelKey: t.channel || 'website',
+                    conversationId: t.conversationId,
+                    partyId: t.partyId ?? undefined,
+                    partyLabel: t.label,
+                  },
+                  { onCreated: () => void load() },
+                );
+              });
+            }}
+          >
+            New travel request
+          </button>
+        </div>
+      ) : null}
 
       <RecordSheet
         open={logOpen}
         onOpenChange={setLogOpen}
-        title="Log touch"
+        title="Log message"
         description="Capture an inbound channel without creating a travel request yet."
         footer={
           <>
@@ -1218,7 +2020,7 @@ export function InboxPage() {
               Cancel
             </Button>
             <Button type="button" disabled={logSaving} onClick={() => void saveLogTouch()}>
-              {logSaving ? 'Saving…' : 'Log touch'}
+              {logSaving ? 'Saving…' : 'Save message'}
             </Button>
           </>
         }

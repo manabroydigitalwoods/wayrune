@@ -1,5 +1,5 @@
 import { CheckCircle2, Circle } from 'lucide-react';
-import { humanizeFieldKeys } from '@travel/ui';
+import { humanizeFieldKeys } from '@wayrune/ui';
 
 type RequirementSummaryProps = {
   captured: string[];

@@ -7,7 +7,7 @@ import type {
   CreatePartySchema,
   ImportPartyCsvSchema,
   UpdatePartySchema,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import { z } from 'zod';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';

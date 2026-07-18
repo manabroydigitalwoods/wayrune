@@ -9,7 +9,7 @@ import {
   Switch,
   toastError,
   toastSuccess,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import { api } from '../api';
 import { Can } from '../components/Can';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';

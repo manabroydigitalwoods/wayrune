@@ -6,7 +6,7 @@ import {
   ProposalFamilyMessageSchema,
   ProposalFamilyReactSchema,
   SaveItineraryVersionSchema,
-} from '@travel/contracts';
+} from '@wayrune/contracts';
 import {
   CurrentUser,
   Public,

@@ -12,7 +12,7 @@ function CalendarDayButton({ className, modifiers, day: _day, ...props }: DayBut
       type="button"
       {...props}
       className={cn(
-        'inline-flex size-8 items-center justify-center rounded-lg text-sm transition-colors',
+        'inline-flex size-8 cursor-pointer items-center justify-center rounded-lg text-sm transition-colors',
         'hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         modifiers.selected &&
           'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground',
@@ -55,16 +55,17 @@ function Calendar({
         root: 'rdp-root',
         months: 'relative flex flex-col',
         month: 'space-y-3',
-        month_caption: 'relative flex h-9 items-center justify-center px-9',
+        // Caption sits under nav visually; ignore pointer events so month arrows receive clicks.
+        month_caption: 'relative flex h-9 items-center justify-center px-9 pointer-events-none',
         caption_label: 'text-sm font-semibold tracking-tight',
-        nav: 'absolute inset-x-0 top-0 flex items-center justify-between px-1',
+        nav: 'absolute inset-x-0 top-0 z-10 flex items-center justify-between px-1',
         button_previous: cn(
           buttonVariants({ variant: 'ghost', size: 'icon' }),
-          'size-8 text-foreground hover:bg-primary/15 hover:text-foreground',
+          'size-8 pointer-events-auto text-foreground hover:bg-primary/15 hover:text-foreground',
         ),
         button_next: cn(
           buttonVariants({ variant: 'ghost', size: 'icon' }),
-          'size-8 text-foreground hover:bg-primary/15 hover:text-foreground',
+          'size-8 pointer-events-auto text-foreground hover:bg-primary/15 hover:text-foreground',
         ),
         month_grid: 'w-full border-collapse',
         weekdays: 'flex',
@@ -81,11 +82,11 @@ function Calendar({
         ...classNames,
       }}
       components={{
-        Chevron: ({ orientation }) =>
+        Chevron: ({ orientation, className: chevronClassName, ...chevronProps }) =>
           orientation === 'left' ? (
-            <ChevronLeft className="size-4" />
+            <ChevronLeft className={cn('size-4', chevronClassName)} {...chevronProps} />
           ) : (
-            <ChevronRight className="size-4" />
+            <ChevronRight className={cn('size-4', chevronClassName)} {...chevronProps} />
           ),
         DayButton: CalendarDayButton,
         ...components,
