@@ -36,7 +36,7 @@ Maturity labels: **early** | **partial** | **mature** | **structural** (architec
 | Communication | WhatsApp notifications, calling add-on, email parsing | Unified inbox (WhatsApp / email / Instagram / website / Google Business), AI rewrite/summarize; Microsoft = SSO only; HubSpot = light contact sync; quote WA share = `wa.me` deep link | **Stronger foundation; uneven channel depth** — do not claim Microsoft messaging or full HubSpot CRM |
 | Itinerary creation | Productised ~60s workflow with costing | Flexible itinerary builder + public proposal | **Sembark for speed and costing** |
 | Quotation pricing | Multi-currency, tax, component markup, reusable supplier data | Versioned quotes, hotel/transfer rate resolve, cost/sell/tax/margin, branded PDF/email, public accept — FX stub, no margin gates, activity rates thin | **Sembark** — workflow exists; costing engine depth lags |
-| Supplier contracts | Mature rates, seasons, stop/blackout dates, bulk upload | Hotel rates + transfer fares + allotments/stop-sell + negotiated CSV; `blackoutJson` not enforced in resolve; activities early | **Sembark today** — partial hotel/transfer; early activities & contracting controls |
+| Supplier contracts | Mature rates, seasons, stop/blackout dates, bulk upload | Supplier Rate chart + contracts/blackouts + place defaults/transfers catalog + CSV import; activities early | **Sembark today** — partial hotel/transfer; early activities & contracting controls |
 | Booking operations | Reservations, assignment, vouchers, movement charts | Booking components + readiness checklist; vouchers = internal notes (not customer PDFs); no movement chart | **Sembark deeper** — vouchers/movement **early** |
 | Payments and accounting | Receivables, payables, instalments, payment links, ledgers | Per-trip AR/AP + margin; trip payment links missing; org-wide ledgers thin | **Sembark** — trip P&L is our foothold |
 | Multi-brand / multi-org | Multiple brands under one login | Org kinds (agency, hotel, DMC, driver, …), multi-membership, org switcher; partner OS / Travel Exchange unfinished | **Structural advantage; productized partner network still early** |
@@ -78,10 +78,10 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 
 | Work item | Build on | Notes |
 |-----------|----------|-------|
-| Seasonal / weekend / occupancy-meal depth for hotels | `SupplierHotelRate`, Rates UI | Date windows exist; deepen grid UX |
+| Seasonal / weekend / occupancy-meal depth for hotels | `SupplierHotelRate`, supplier Rate chart | Date windows exist; deepen grid UX on supplier sheet |
 | Blackout / stop-sale **enforced** in `rates/resolve` | `SupplierContract.blackoutJson`, inventory stop-sell | Active contract blackouts + linked-asset stop-sell allotments block hotel/transfer matches (`rateMeta.blockReason`); contract panel edits blackouts; quote UI shows Blackout / Stop-sell |
 | Transfer capacity / closing dates / point-to-point polish | `TransferFare`, transfer matrix | Align with Sembark-like transport depth |
-| CSV/XLSX bulk import + draft preview | Negotiated-rate CSV pattern | Hotel + transfer rate sheets; validation + version history |
+| CSV/XLSX bulk import + draft preview | Negotiated-rate CSV pattern | Hotel CSV on supplier Rate chart (+ catalog bulk); transfer CSV on Catalog & transfers; XLSX / version history still open |
 | Rate-change detection + effective dates | Rate date windows | Surface “last updated” / approval where missing |
 
 **Defer to P0.5:** activity/attraction rate cards, gala supplements catalogs, full cancellation-policy engines.

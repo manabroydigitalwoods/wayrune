@@ -164,7 +164,7 @@ function agencyNavForKind(kind?: string): AppNavItem[] {
     }),
     withNavId({
       to: '/rates',
-      label: dmc ? 'Net rates' : 'Rates',
+      label: dmc ? 'Net rates' : 'Catalog & transfers',
       icon: IndianRupee,
       section: 'Partners',
       permission: 'quote.read',

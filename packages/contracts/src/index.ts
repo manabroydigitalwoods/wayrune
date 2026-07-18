@@ -2722,6 +2722,42 @@ export const UpdateTransferFareSchema = z.object({
   isActive: z.boolean().optional(),
 });
 
+/** One hotel rate sheet row (names/keys resolved server-side). */
+export const ImportHotelRateCsvRowSchema = z.object({
+  supplierName: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  placeName: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  placeKey: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  roomType: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  unitCost: z.number().nonnegative(),
+  currency: z.string().length(3).optional(),
+  startDate: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  endDate: z.preprocess(blankToNull, z.string().nullable()).optional(),
+});
+
+export const ImportHotelRateCsvSchema = z.object({
+  rows: z.array(ImportHotelRateCsvRowSchema).min(1).max(500),
+  /** false = validation preview only; true = create rates. */
+  commit: z.boolean().optional().default(false),
+});
+
+/** One transfer fare sheet row. */
+export const ImportTransferFareCsvRowSchema = z.object({
+  fromPlace: RequiredText('From place'),
+  toPlace: RequiredText('To place'),
+  vehicleType: RequiredText('Vehicle type'),
+  unitCost: z.number().nonnegative(),
+  childUnitCost: z.number().nonnegative().nullable().optional(),
+  pricingMode: TransferFarePricingModeSchema.optional(),
+  currency: z.string().length(3).optional(),
+  startDate: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  endDate: z.preprocess(blankToNull, z.string().nullable()).optional(),
+});
+
+export const ImportTransferFareCsvSchema = z.object({
+  rows: z.array(ImportTransferFareCsvRowSchema).min(1).max(500),
+  commit: z.boolean().optional().default(false),
+});
+
 export const SuggestTransferFareSchema = z.object({
   fromPlaceId: RequiredText('From place'),
   toPlaceId: RequiredText('To place'),
@@ -3124,6 +3160,10 @@ export type CreateSupplierHotelRateInput = z.infer<typeof CreateSupplierHotelRat
 export type UpdateSupplierHotelRateInput = z.infer<typeof UpdateSupplierHotelRateSchema>;
 export type CreateTransferFareInput = z.infer<typeof CreateTransferFareSchema>;
 export type UpdateTransferFareInput = z.infer<typeof UpdateTransferFareSchema>;
+export type ImportHotelRateCsvInput = z.infer<typeof ImportHotelRateCsvSchema>;
+export type ImportHotelRateCsvRowInput = z.infer<typeof ImportHotelRateCsvRowSchema>;
+export type ImportTransferFareCsvInput = z.infer<typeof ImportTransferFareCsvSchema>;
+export type ImportTransferFareCsvRowInput = z.infer<typeof ImportTransferFareCsvRowSchema>;
 export type SuggestTransferFareInput = z.infer<typeof SuggestTransferFareSchema>;
 export type GenerateTransferFareMatrixInput = z.infer<
   typeof GenerateTransferFareMatrixSchema

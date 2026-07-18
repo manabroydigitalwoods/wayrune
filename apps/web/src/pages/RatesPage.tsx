@@ -10,6 +10,7 @@ import {
   Pencil,
   Plus,
   Trash2,
+  Upload,
 } from 'lucide-react';
 import {
   Button,
@@ -44,6 +45,7 @@ import { reportError } from '../lib/errors';
 import { usePermissions } from '../lib/permissions';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { PlaceSinglePicker } from '../components/places/PlacePicker';
+import { RatesCsvImportDialog } from '../components/rates/RatesCsvImportDialog';
 import { type PlaceRef } from '../lib/placeRefs';
 import { formatDateInput, parseDateInput } from '../lib/dateInput';
 
@@ -148,7 +150,17 @@ async function searchVehicleTypes(q: string) {
 }
 
 function hotelLabel(r: HotelRate) {
-  return r.supplier?.name || r.place?.name || 'Hotel rate';
+  if (r.supplier?.name) {
+    return r.place?.name
+      ? `${r.supplier.name} · ${r.place.name}`
+      : r.supplier.name;
+  }
+  if (r.place?.name) return `Place default · ${r.place.name}`;
+  return 'Hotel rate';
+}
+
+function hotelKind(r: HotelRate): 'supplier' | 'place' {
+  return r.supplierId || r.supplier ? 'supplier' : 'place';
 }
 
 function transferRouteLabel(f: TransferFare) {
@@ -156,7 +168,7 @@ function transferRouteLabel(f: TransferFare) {
 }
 
 export function RatesPage() {
-  useDocumentTitle('Rates');
+  useDocumentTitle('Catalog & transfers');
   const { hasAny } = usePermissions();
   const canWrite = hasAny(CAP.ratesWrite);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -175,6 +187,7 @@ export function RatesPage() {
   const [loading, setLoading] = useState(true);
   const [hotelOpen, setHotelOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [editingHotelId, setEditingHotelId] = useState<string | null>(null);
   const [editingTransferId, setEditingTransferId] = useState<string | null>(null);
   const [hotelForm, setHotelForm] = useState(emptyHotelForm);
@@ -472,11 +485,11 @@ export function RatesPage() {
     () => [
       {
         id: 'name',
-        header: 'Supplier / place',
-        meta: { label: 'Supplier / place' },
+        header: 'Name',
+        meta: { label: 'Name' },
         enableHiding: false,
-        size: 200,
-        minSize: 140,
+        size: 220,
+        minSize: 160,
         accessorFn: (r) => hotelLabel(r),
         cell: ({ row }) => {
           const rate = row.original;
@@ -493,6 +506,24 @@ export function RatesPage() {
             >
               {hotelLabel(rate)}
             </button>
+          );
+        },
+      },
+      {
+        id: 'kind',
+        accessorFn: (r) => hotelKind(r),
+        header: 'Kind',
+        meta: { label: 'Kind' },
+        size: 130,
+        minSize: 110,
+        cell: ({ row }) => {
+          const kind = hotelKind(row.original);
+          return (
+            <StatusBadge
+              value={kind}
+              label={kind === 'supplier' ? 'Supplier rate' : 'Place default'}
+              showIcon={false}
+            />
           );
         },
       },
@@ -761,8 +792,8 @@ export function RatesPage() {
     <ListPageShell>
       <PageHeader
         icon={IndianRupee}
-        title="Rate directory"
-        subtitle="System catalog plus agency overrides. Overridden system rows are hidden. Click a name to edit."
+        title="Catalog & transfers"
+        subtitle="Place-level hotel defaults and the transfer fare matrix. Negotiated hotel sheets live on each supplier’s Rate chart."
         className="mb-4 shrink-0"
         actions={
           <div className="flex flex-wrap items-center gap-2">
@@ -785,6 +816,10 @@ export function RatesPage() {
               </Button>
             </div>
             <Can anyOf={CAP.ratesWrite}>
+              <Button variant="outline" onClick={() => setImportOpen(true)}>
+                <Upload className="size-4" />
+                Import CSV
+              </Button>
               <Button
                 onClick={tab === 'hotel' ? openCreateHotel : openCreateTransfer}
               >
@@ -796,6 +831,12 @@ export function RatesPage() {
         }
       />
 
+      <RatesCsvImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        kind={tab}
+        onImported={() => void load()}
+      />
       {tab === 'hotel' ? (
         <DataTable
           key="hotel-rates"
@@ -808,6 +849,15 @@ export function RatesPage() {
           columnVisibilityKey={StorageKeys.rates.hotelColumns}
           facets={[
             {
+              id: 'kind',
+              columnId: 'kind',
+              label: 'Kind',
+              options: [
+                { value: 'place', label: 'Place defaults' },
+                { value: 'supplier', label: 'Supplier rates' },
+              ],
+            },
+            {
               id: 'source',
               columnId: 'source',
               label: 'Source',
@@ -819,12 +869,12 @@ export function RatesPage() {
           ]}
           emptyIcon={IndianRupee}
           emptyTitle="No hotel rates yet"
-          emptyDescription="System place defaults appear here when seeded; override or add agency supplier rates."
+          emptyDescription="Place defaults appear when seeded. Add negotiated rates from a supplier’s Rate chart (Suppliers → ⋯ → Rate chart)."
           emptyAction={
             <Can anyOf={CAP.ratesWrite}>
               <Button onClick={openCreateHotel}>
                 <Plus className="size-4" />
-                Add hotel rate
+                Add place / hotel rate
               </Button>
             </Can>
           }
@@ -874,12 +924,12 @@ export function RatesPage() {
           }
         }}
         title={editingHotelId ? 'Edit hotel rate' : 'Add hotel rate'}
-        description="Cost per room-night. Sell uses org markup % on the quote."
+        description="Prefer Suppliers → Rate chart for negotiated hotel costs. Use this form for place defaults or cross-supplier browse edits."
         onSubmit={saveHotel}
         submitLabel={editingHotelId ? 'Save changes' : 'Save rate'}
         submitting={saving}
       >
-        <FormSection title="Property" description="Supplier stay or a place-level override.">
+        <FormSection title="Property" description="Stay supplier (preferred) or a place-level default.">
           <FormField label="Supplier">
             <EntityCombobox
               value={hotelForm.supplierId}

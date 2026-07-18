@@ -11,6 +11,8 @@ import {
 import {
   CreateSupplierHotelRateSchema,
   CreateTransferFareSchema,
+  ImportHotelRateCsvSchema,
+  ImportTransferFareCsvSchema,
   ResolveRatesSchema,
   SuggestTransferFareSchema,
   UpdateSupplierHotelRateSchema,
@@ -149,6 +151,26 @@ export class RatesController {
   @RequirePermissions('quote.write')
   deleteTransfer(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.rates.deleteTransferFare(user.organizationId, id);
+  }
+
+  @Post('hotel-rates/import/csv')
+  @RequirePermissions('quote.write')
+  importHotelCsv(@CurrentUser() user: AuthUser, @Body() body: unknown) {
+    return this.rates.importHotelRatesCsv(
+      user.organizationId,
+      user.sub,
+      ImportHotelRateCsvSchema.parse(body),
+    );
+  }
+
+  @Post('transfer-fares/import/csv')
+  @RequirePermissions('quote.write')
+  importTransferCsv(@CurrentUser() user: AuthUser, @Body() body: unknown) {
+    return this.rates.importTransferFaresCsv(
+      user.organizationId,
+      user.sub,
+      ImportTransferFareCsvSchema.parse(body),
+    );
   }
 
   @Post('rates/resolve')

@@ -8,6 +8,8 @@ import type {
   CreateSupplierHotelRateInput,
   CreateTransferFareInput,
   GenerateTransferFareMatrixInput,
+  ImportHotelRateCsvInput,
+  ImportTransferFareCsvInput,
   ResolveRatesInput,
   ResolveRatesItemInput,
   SuggestTransferFareInput,
@@ -788,6 +790,248 @@ export class RatesService {
       upserted += 1;
     }
     return { dryRun: false, count: upserted, items: preview.slice(0, 50) };
+  }
+
+  async importHotelRatesCsv(
+    organizationId: string,
+    userId: string,
+    input: ImportHotelRateCsvInput,
+  ) {
+    const results: Array<{
+      row: number;
+      status: 'ok' | 'skip';
+      reason?: string;
+      summary?: string;
+      rateId?: string;
+    }> = [];
+    let okCount = 0;
+    let skipCount = 0;
+
+    for (let i = 0; i < input.rows.length; i += 1) {
+      const row = input.rows[i]!;
+      const rowNum = i + 1;
+      try {
+        if (!row.supplierName?.trim() && !row.placeKey?.trim() && !row.placeName?.trim()) {
+          skipCount += 1;
+          results.push({
+            row: rowNum,
+            status: 'skip',
+            reason: 'Provide supplierName and/or placeKey/placeName',
+          });
+          continue;
+        }
+        let supplierId: string | undefined;
+        if (row.supplierName?.trim()) {
+          const supplier = await this.prisma.supplier.findFirst({
+            where: {
+              organizationId,
+              deletedAt: null,
+              name: row.supplierName.trim(),
+            },
+          });
+          if (!supplier) {
+            skipCount += 1;
+            results.push({
+              row: rowNum,
+              status: 'skip',
+              reason: `Supplier not found: ${row.supplierName.trim()}`,
+            });
+            continue;
+          }
+          supplierId = supplier.id;
+        }
+        let placeId: string | undefined;
+        if (row.placeKey?.trim() || row.placeName?.trim()) {
+          const place = await this.resolvePlaceRef(
+            organizationId,
+            row.placeKey?.trim() || row.placeName!.trim(),
+          );
+          if (!place) {
+            skipCount += 1;
+            results.push({
+              row: rowNum,
+              status: 'skip',
+              reason: `Place not found: ${row.placeKey || row.placeName}`,
+            });
+            continue;
+          }
+          placeId = place.id;
+        }
+
+        const summary = [
+          row.supplierName?.trim(),
+          row.placeKey?.trim() || row.placeName?.trim(),
+          row.roomType?.trim(),
+          `₹${row.unitCost}`,
+        ]
+          .filter(Boolean)
+          .join(' · ');
+
+        if (!input.commit) {
+          okCount += 1;
+          results.push({ row: rowNum, status: 'ok', summary });
+          continue;
+        }
+
+        const created = await this.createHotelRate(organizationId, userId, {
+          supplierId: supplierId ?? null,
+          placeId: placeId ?? null,
+          roomType: row.roomType,
+          unitCost: row.unitCost,
+          currency: row.currency,
+          startDate: row.startDate,
+          endDate: row.endDate,
+        });
+        okCount += 1;
+        results.push({ row: rowNum, status: 'ok', summary, rateId: created.id });
+      } catch (e) {
+        skipCount += 1;
+        results.push({
+          row: rowNum,
+          status: 'skip',
+          reason: e instanceof Error ? e.message : 'Could not import row',
+        });
+      }
+    }
+
+    return {
+      commit: Boolean(input.commit),
+      okCount,
+      skipCount,
+      results,
+    };
+  }
+
+  async importTransferFaresCsv(
+    organizationId: string,
+    userId: string,
+    input: ImportTransferFareCsvInput,
+  ) {
+    const results: Array<{
+      row: number;
+      status: 'ok' | 'skip';
+      reason?: string;
+      summary?: string;
+      fareId?: string;
+    }> = [];
+    let okCount = 0;
+    let skipCount = 0;
+
+    for (let i = 0; i < input.rows.length; i += 1) {
+      const row = input.rows[i]!;
+      const rowNum = i + 1;
+      try {
+        const from = await this.resolvePlaceRef(organizationId, row.fromPlace);
+        if (!from) {
+          skipCount += 1;
+          results.push({
+            row: rowNum,
+            status: 'skip',
+            reason: `From place not found: ${row.fromPlace}`,
+          });
+          continue;
+        }
+        const to = await this.resolvePlaceRef(organizationId, row.toPlace);
+        if (!to) {
+          skipCount += 1;
+          results.push({
+            row: rowNum,
+            status: 'skip',
+            reason: `To place not found: ${row.toPlace}`,
+          });
+          continue;
+        }
+        const vehicle = await this.resolveVehicleTypeRef(organizationId, row.vehicleType);
+        if (!vehicle) {
+          skipCount += 1;
+          results.push({
+            row: rowNum,
+            status: 'skip',
+            reason: `Vehicle type not found: ${row.vehicleType}`,
+          });
+          continue;
+        }
+
+        const summary = `${from.name} → ${to.name} · ${vehicle.name} · ₹${row.unitCost}`;
+        if (!input.commit) {
+          okCount += 1;
+          results.push({ row: rowNum, status: 'ok', summary });
+          continue;
+        }
+
+        const created = await this.createTransferFare(organizationId, userId, {
+          fromPlaceId: from.id,
+          toPlaceId: to.id,
+          vehicleTypeId: vehicle.id,
+          unitCost: row.unitCost,
+          childUnitCost: row.childUnitCost,
+          pricingMode: row.pricingMode,
+          currency: row.currency,
+          startDate: row.startDate,
+          endDate: row.endDate,
+        });
+        okCount += 1;
+        results.push({ row: rowNum, status: 'ok', summary, fareId: created.id });
+      } catch (e) {
+        skipCount += 1;
+        results.push({
+          row: rowNum,
+          status: 'skip',
+          reason: e instanceof Error ? e.message : 'Could not import row',
+        });
+      }
+    }
+
+    return {
+      commit: Boolean(input.commit),
+      okCount,
+      skipCount,
+      results,
+    };
+  }
+
+  private async resolvePlaceRef(organizationId: string, nameOrKey: string) {
+    const q = nameOrKey.trim();
+    if (!q) return null;
+    const byKey = await this.prisma.place.findFirst({
+      where: {
+        deletedAt: null,
+        isActive: true,
+        key: q,
+        OR: [{ organizationId: null }, { organizationId }],
+      },
+    });
+    if (byKey) return byKey;
+    return this.prisma.place.findFirst({
+      where: {
+        deletedAt: null,
+        isActive: true,
+        name: q,
+        OR: [{ organizationId: null }, { organizationId }],
+      },
+    });
+  }
+
+  private async resolveVehicleTypeRef(organizationId: string, nameOrKey: string) {
+    const q = nameOrKey.trim();
+    if (!q) return null;
+    const byKey = await this.prisma.vehicleType.findFirst({
+      where: {
+        deletedAt: null,
+        isActive: true,
+        key: q,
+        OR: [{ isSystem: true }, { organizationId }],
+      },
+    });
+    if (byKey) return byKey;
+    return this.prisma.vehicleType.findFirst({
+      where: {
+        deletedAt: null,
+        isActive: true,
+        name: q,
+        OR: [{ isSystem: true }, { organizationId }],
+      },
+    });
   }
 
   private async assertPlace(placeId: string) {

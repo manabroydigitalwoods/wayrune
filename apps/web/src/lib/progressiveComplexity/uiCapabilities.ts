@@ -616,7 +616,7 @@ export const AGENCY_UI_CAPABILITIES: readonly UiCapability[] = [
   },
   {
     key: 'agency.rates',
-    label: 'Rates',
+    label: 'Catalog & transfers',
     route: '/rates',
     icon: 'IndianRupee',
     allowedOrgKinds: ['travel_agency', 'dmc'],

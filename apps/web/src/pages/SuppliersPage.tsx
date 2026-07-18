@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Building2, ClipboardList, MoreHorizontal, Plus, UserPlus } from 'lucide-react';
+import { Building2, ClipboardList, IndianRupee, MoreHorizontal, Plus, UserPlus } from 'lucide-react';
 import {
   Button,
   DataTable,
@@ -31,6 +31,7 @@ import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { PlaceSinglePicker } from '../components/places/PlacePicker';
 import { PartnerInventoryPanel } from '../components/partner/PartnerInventoryPanel';
 import { SupplierContractsPanel } from '../components/agency/SupplierContractsPanel';
+import { SupplierHotelRatesPanel } from '../components/agency/SupplierHotelRatesPanel';
 import { toPlaceRef, type PlaceRef } from '../lib/placeRefs';
 
 type Supplier = {
@@ -61,6 +62,7 @@ export function SuppliersPage() {
   const canContracts = has('ops.read');
   const canNetworkWrite = hasAny(CAP.networkWrite);
   const canOpenInventory = hasAny(CAP.supplierInventory);
+  const canRates = hasAny(CAP.ratesWrite) || has('quote.read');
   const [items, setItems] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -73,6 +75,11 @@ export function SuppliersPage() {
   } | null>(null);
   const [contractOpen, setContractOpen] = useState(false);
   const [contractTarget, setContractTarget] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+  const [ratesOpen, setRatesOpen] = useState(false);
+  const [ratesTarget, setRatesTarget] = useState<{
     id: string;
     name: string;
   } | null>(null);
@@ -342,6 +349,17 @@ export function SuppliersPage() {
                   {s.name}
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
+                {stay && canRates ? (
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setRatesTarget({ id: s.id, name: s.name });
+                      setRatesOpen(true);
+                    }}
+                  >
+                    <IndianRupee />
+                    Rate chart
+                  </DropdownMenuItem>
+                ) : null}
                 {canContracts ? (
                   <DropdownMenuItem
                     onClick={() => {
@@ -432,7 +450,7 @@ export function SuppliersPage() {
       <PageHeader
         icon={Building2}
         title="Suppliers"
-        subtitle="Hotels, homestays, farmstays, cars, drivers, restaurants and DMCs. Open Inventory for rooms & calendars; invite partners to claim their own workspace."
+        subtitle="Hotels, homestays, farmstays, cars, drivers, restaurants and DMCs. Open Rate chart for negotiated room costs; Inventory for rooms & calendars; invite partners to claim their own workspace."
         className="mb-4 shrink-0"
         actions={
           <Can anyOf={CAP.supplierWrite}>
@@ -631,6 +649,24 @@ export function SuppliersPage() {
           <PartnerInventoryPanel
             assetId={inventoryTarget.assetId}
             assetKind={inventoryTarget.assetKind}
+          />
+        ) : null}
+      </RecordSheet>
+      <RecordSheet
+        open={ratesOpen}
+        onOpenChange={(next) => {
+          setRatesOpen(next);
+          if (!next) setRatesTarget(null);
+        }}
+        title={ratesTarget ? `Rate chart · ${ratesTarget.name}` : 'Rate chart'}
+        description="Negotiated room-night costs used when quoting this supplier."
+        submitLabel="Done"
+        onSubmit={() => setRatesOpen(false)}
+      >
+        {ratesTarget ? (
+          <SupplierHotelRatesPanel
+            supplierId={ratesTarget.id}
+            supplierName={ratesTarget.name}
           />
         ) : null}
       </RecordSheet>
