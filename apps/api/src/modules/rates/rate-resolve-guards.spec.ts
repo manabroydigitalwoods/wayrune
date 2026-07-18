@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   anyNightInBlackout,
   anyNightInStopSell,
+  averageHotelUnitCost,
   eachStayNight,
+  filterHotelByRoomAndMeal,
+  hotelNightUnitCost,
+  isWeekendUtc,
   parseBlackoutRanges,
   supplierBlockedReason,
 } from './rate-resolve-guards';
@@ -85,5 +89,40 @@ describe('rate-resolve-guards', () => {
         ],
       ),
     ).toBe('stop_sell');
+  });
+
+  it('applies weekend unit cost on Sat/Sun nights', () => {
+    const rate = { unitCost: 4000, weekendUnitCost: 5000 };
+    const fri = new Date('2026-07-17T00:00:00.000Z'); // Friday
+    const sat = new Date('2026-07-18T00:00:00.000Z'); // Saturday
+    expect(isWeekendUtc(fri)).toBe(false);
+    expect(isWeekendUtc(sat)).toBe(true);
+    expect(hotelNightUnitCost(rate, fri)).toBe(4000);
+    expect(hotelNightUnitCost(rate, sat)).toBe(5000);
+    expect(
+      averageHotelUnitCost(rate, [
+        fri,
+        sat,
+        new Date('2026-07-19T00:00:00.000Z'),
+      ]),
+    ).toBeCloseTo((4000 + 5000 + 5000) / 3);
+  });
+
+  it('filters hotel rows by room and meal preferring exact matches', () => {
+    const pool = [
+      { id: '1', roomType: 'Deluxe', mealPlan: 'MAP' },
+      { id: '2', roomType: 'Deluxe', mealPlan: null },
+      { id: '3', roomType: null, mealPlan: 'MAP' },
+      { id: '4', roomType: 'Suite', mealPlan: 'CP' },
+    ];
+    expect(filterHotelByRoomAndMeal(pool, 'Deluxe', 'MAP').map((r) => r.id)).toEqual([
+      '1',
+    ]);
+    expect(filterHotelByRoomAndMeal(pool, 'Deluxe', 'CP').map((r) => r.id)).toEqual([
+      '2',
+    ]);
+    expect(filterHotelByRoomAndMeal(pool, 'Suite', '').map((r) => r.id)).toEqual([
+      '4',
+    ]);
   });
 });

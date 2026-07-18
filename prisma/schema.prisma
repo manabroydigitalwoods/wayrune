@@ -1887,7 +1887,11 @@ model SupplierHotelRate {
   isSystem       Boolean   @default(false) @map("is_system")
   /** Empty/null = default rate for supplier; else matches itinerary details.roomType. */
   roomType       String?   @map("room_type")
+  /** Empty/null = any/default meal; else matches itinerary details.mealPlan (EP/CP/MAP/AP…). */
+  mealPlan       String?   @map("meal_plan")
   unitCost       Decimal   @map("unit_cost") @db.Decimal(14, 2)
+  /** Optional Sat/Sun night cost; weekday nights use unitCost. */
+  weekendUnitCost Decimal? @map("weekend_unit_cost") @db.Decimal(14, 2)
   currency       String    @default("INR") @db.Char(3)
   startDate      DateTime? @map("start_date") @db.Date
   endDate        DateTime? @map("end_date") @db.Date
@@ -1904,7 +1908,7 @@ model SupplierHotelRate {
   @@index([organizationId, supplierId, isActive])
   @@index([organizationId, isActive])
   @@index([isSystem, isActive])
-  @@index([placeId, roomType, isActive])
+  @@index([placeId, roomType, mealPlan, isActive])
   @@map("supplier_hotel_rates")
 }
 

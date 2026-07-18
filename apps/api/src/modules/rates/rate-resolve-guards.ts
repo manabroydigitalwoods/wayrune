@@ -89,3 +89,74 @@ export function supplierBlockedReason(
   if (anyNightInStopSell(nights, stopSellWindows)) return 'stop_sell';
   return null;
 }
+
+/** UTC calendar weekend (Sat/Sun) — hotel nights are stored as date-only UTC. */
+export function isWeekendUtc(day: Date): boolean {
+  const dow = day.getUTCDay();
+  return dow === 0 || dow === 6;
+}
+
+export type HotelCostRow = {
+  unitCost: number | { toString(): string };
+  weekendUnitCost?: number | { toString(): string } | null;
+};
+
+export function hotelNightUnitCost(rate: HotelCostRow, night: Date): number {
+  const weekday = Number(rate.unitCost);
+  if (!Number.isFinite(weekday)) return 0;
+  if (rate.weekendUnitCost == null) return weekday;
+  const weekend = Number(rate.weekendUnitCost);
+  if (!Number.isFinite(weekend)) return weekday;
+  return isWeekendUtc(night) ? weekend : weekday;
+}
+
+/** Average per-night cost across stay nights (weekend nights use weekendUnitCost when set). */
+export function averageHotelUnitCost(
+  rate: HotelCostRow,
+  nights: Date[],
+): number {
+  if (!nights.length) return Number(rate.unitCost) || 0;
+  const total = nights.reduce((sum, n) => sum + hotelNightUnitCost(rate, n), 0);
+  return total / nights.length;
+}
+
+function normDim(raw?: string | null): string {
+  return (raw || '').trim().toLowerCase();
+}
+
+/**
+ * Prefer exact room+meal, then blank defaults, excluding conflicting non-empty dims.
+ */
+export function filterHotelByRoomAndMeal<
+  T extends { roomType: string | null; mealPlan: string | null },
+>(pool: T[], roomWanted: string, mealWanted: string): T[] {
+  const room = normDim(roomWanted);
+  const meal = normDim(mealWanted);
+
+  let candidates = pool.filter((r) => {
+    const haveRoom = normDim(r.roomType);
+    const haveMeal = normDim(r.mealPlan);
+    if (room && haveRoom && haveRoom !== room) return false;
+    if (meal && haveMeal && haveMeal !== meal) return false;
+    return true;
+  });
+  if (!candidates.length) return [];
+
+  if (room) {
+    const exact = candidates.filter((r) => normDim(r.roomType) === room);
+    if (exact.length) candidates = exact;
+    else {
+      const defaults = candidates.filter((r) => !normDim(r.roomType));
+      if (defaults.length) candidates = defaults;
+    }
+  }
+  if (meal) {
+    const exact = candidates.filter((r) => normDim(r.mealPlan) === meal);
+    if (exact.length) candidates = exact;
+    else {
+      const defaults = candidates.filter((r) => !normDim(r.mealPlan));
+      if (defaults.length) candidates = defaults;
+    }
+  }
+  return candidates;
+}

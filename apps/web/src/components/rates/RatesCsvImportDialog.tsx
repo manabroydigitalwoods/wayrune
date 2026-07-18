@@ -26,8 +26,8 @@ type ImportResponse = {
 };
 
 const HOTEL_TEMPLATE =
-  'supplierName,placeName,placeKey,roomType,unitCost,currency,startDate,endDate\n' +
-  'Heritage Darjeeling,Darjeeling,,Deluxe,4500,INR,2026-04-01,2026-10-31\n';
+  'supplierName,placeName,placeKey,roomType,mealPlan,unitCost,weekendUnitCost,currency,startDate,endDate\n' +
+  'Heritage Darjeeling,Darjeeling,,Deluxe,MAP,4500,5200,INR,2026-04-01,2026-10-31\n';
 
 const TRANSFER_TEMPLATE =
   'fromPlace,toPlace,vehicleType,unitCost,childUnitCost,pricingMode,currency,startDate,endDate\n' +
@@ -67,8 +67,8 @@ function hotelTemplateForSupplier(supplierName?: string) {
   if (!supplierName?.trim()) return HOTEL_TEMPLATE;
   const safe = supplierName.trim().replace(/,/g, ' ');
   return (
-    'supplierName,placeName,placeKey,roomType,unitCost,currency,startDate,endDate\n' +
-    `${safe},,,,4500,INR,2026-04-01,2026-10-31\n`
+    'supplierName,placeName,placeKey,roomType,mealPlan,unitCost,weekendUnitCost,currency,startDate,endDate\n' +
+    `${safe},,,Deluxe,MAP,4500,5200,INR,2026-04-01,2026-10-31\n`
   );
 }
 
@@ -125,7 +125,9 @@ export function RatesCsvImportDialog({
       const placeNameIdx = headerIndex(headers, 'placename', 'place');
       const placeKeyIdx = headerIndex(headers, 'placekey');
       const roomIdx = headerIndex(headers, 'roomtype', 'room');
+      const mealIdx = headerIndex(headers, 'mealplan', 'meal');
       const costIdx = headerIndex(headers, 'unitcost', 'cost');
+      const weekendIdx = headerIndex(headers, 'weekendunitcost', 'weekendcost');
       const currencyIdx = headerIndex(headers, 'currency');
       const startIdx = headerIndex(headers, 'startdate', 'from');
       const endIdx = headerIndex(headers, 'enddate', 'to');
@@ -133,12 +135,15 @@ export function RatesCsvImportDialog({
       const locked = lockedSupplierName?.trim() || '';
       const rows = data.map((cols) => {
         const unitCost = Number(cell(cols, costIdx));
+        const weekendRaw = cell(cols, weekendIdx);
         return {
           supplierName: locked || cell(cols, supplierIdx) || null,
           placeName: cell(cols, placeNameIdx) || null,
           placeKey: cell(cols, placeKeyIdx) || null,
           roomType: cell(cols, roomIdx) || null,
+          mealPlan: cell(cols, mealIdx) || null,
           unitCost,
+          weekendUnitCost: parseOptionalNumber(weekendRaw),
           currency: cell(cols, currencyIdx) || undefined,
           startDate: cell(cols, startIdx) || null,
           endDate: cell(cols, endIdx) || null,

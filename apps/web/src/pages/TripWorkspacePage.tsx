@@ -1977,6 +1977,7 @@ export function TripWorkspacePage() {
               toPlaceRef(dayItem.day.destination)?.placeId ||
               undefined,
             roomType: dayItem.item.details?.roomType,
+            mealPlan: dayItem.item.details?.mealPlan,
             nights: dayItem.item.details?.nights,
             vehicleTypeId: dayItem.item.details?.vehicleTypeId,
             fromPlaceId: dayItem.item.details?.fromPlaceId,

@@ -78,7 +78,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 
 | Work item | Build on | Notes |
 |-----------|----------|-------|
-| Seasonal / weekend / occupancy-meal depth for hotels | `SupplierHotelRate`, supplier Rate chart | Date windows exist; deepen grid UX on supplier sheet |
+| Seasonal / weekend / occupancy-meal depth for hotels | `SupplierHotelRate`, supplier Rate chart | Season date windows + meal plan match + optional weekend night cost on Rate chart / resolve; occupancy matrix still open |
 | Blackout / stop-sale **enforced** in `rates/resolve` | `SupplierContract.blackoutJson`, inventory stop-sell | Active contract blackouts + linked-asset stop-sell allotments block hotel/transfer matches (`rateMeta.blockReason`); contract panel edits blackouts; quote UI shows Blackout / Stop-sell |
 | Transfer capacity / closing dates / point-to-point polish | `TransferFare`, transfer matrix | Align with Sembark-like transport depth |
 | CSV/XLSX bulk import + draft preview | Negotiated-rate CSV pattern | Hotel CSV on supplier Rate chart (+ catalog bulk); transfer CSV on Catalog & transfers; XLSX / version history still open |

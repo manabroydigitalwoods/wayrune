@@ -62,7 +62,9 @@ type HotelRate = {
   placeId?: string | null;
   isSystem?: boolean;
   roomType?: string | null;
+  mealPlan?: string | null;
   unitCost: number | string;
+  weekendUnitCost?: number | string | null;
   currency: string;
   startDate?: string | null;
   endDate?: string | null;
@@ -102,7 +104,9 @@ function emptyHotelForm() {
     supplierLabel: '',
     place: null as PlaceRef | null,
     roomType: '',
+    mealPlan: '',
     unitCost: '',
+    weekendUnitCost: '',
     startDate: '',
     endDate: '',
   };
@@ -239,7 +243,10 @@ export function RatesPage() {
         ? { placeId: rate.place.id, name: rate.place.name, kind: rate.place.kind }
         : null,
       roomType: rate.roomType || '',
+      mealPlan: rate.mealPlan || '',
       unitCost: String(Number(rate.unitCost)),
+      weekendUnitCost:
+        rate.weekendUnitCost != null ? String(Number(rate.weekendUnitCost)) : '',
       startDate: isoDate(rate.startDate),
       endDate: isoDate(rate.endDate),
     });
@@ -391,13 +398,24 @@ export function RatesPage() {
       toastError('Enter a valid cost');
       return;
     }
+    const weekendRaw = hotelForm.weekendUnitCost.trim();
+    let weekendUnitCost: number | null = null;
+    if (weekendRaw) {
+      weekendUnitCost = Number(weekendRaw);
+      if (!Number.isFinite(weekendUnitCost) || weekendUnitCost < 0) {
+        toastError('Weekend cost must be a valid number');
+        return;
+      }
+    }
     setSaving(true);
     try {
       const body = {
         supplierId: hotelForm.supplierId || null,
         placeId: hotelForm.place?.placeId || null,
         roomType: hotelForm.roomType.trim() || null,
+        mealPlan: hotelForm.mealPlan.trim() || null,
         unitCost,
+        weekendUnitCost,
         startDate: hotelForm.startDate || null,
         endDate: hotelForm.endDate || null,
       };
@@ -545,11 +563,24 @@ export function RatesPage() {
         accessorKey: 'roomType',
         header: 'Room',
         meta: { label: 'Room' },
-        size: 140,
-        minSize: 110,
+        size: 120,
+        minSize: 90,
         cell: ({ row }) => (
           <span className="text-muted-foreground">
             {row.original.roomType?.trim() || 'Default'}
+          </span>
+        ),
+      },
+      {
+        id: 'mealPlan',
+        accessorFn: (r) => r.mealPlan || '',
+        header: 'Meal',
+        meta: { label: 'Meal' },
+        size: 90,
+        minSize: 70,
+        cell: ({ row }) => (
+          <span className="text-muted-foreground">
+            {row.original.mealPlan?.trim() || '—'}
           </span>
         ),
       },
@@ -565,6 +596,12 @@ export function RatesPage() {
               currency: row.original.currency,
               maximumFractionDigits: 0,
             })}
+            {row.original.weekendUnitCost != null
+              ? ` · we ${formatCurrency(row.original.weekendUnitCost, {
+                  currency: row.original.currency,
+                  maximumFractionDigits: 0,
+                })}`
+              : ''}
           </span>
         ),
       },
@@ -957,15 +994,31 @@ export function RatesPage() {
               placeholder="Deluxe / Suite / …"
             />
           </FormField>
+          <FormField label="Meal plan" description="EP / CP / MAP / AP — blank matches any.">
+            <Input
+              value={hotelForm.mealPlan}
+              onChange={(e) => setHotelForm({ ...hotelForm, mealPlan: e.target.value })}
+              placeholder="MAP"
+            />
+          </FormField>
         </FormSection>
 
         <FormSection title="Pricing">
-          <FormField label="Cost per night" required htmlFor="hotel-unit-cost">
+          <FormField label="Weekday cost per night" required htmlFor="hotel-unit-cost">
             <PriceField
               id="hotel-unit-cost"
               value={hotelForm.unitCost}
               onChange={(unitCost) => setHotelForm({ ...hotelForm, unitCost })}
               placeholder="4500"
+            />
+          </FormField>
+          <FormField label="Weekend cost per night" description="Optional Sat/Sun.">
+            <PriceField
+              value={hotelForm.weekendUnitCost}
+              onChange={(weekendUnitCost) =>
+                setHotelForm({ ...hotelForm, weekendUnitCost })
+              }
+              placeholder="5200"
             />
           </FormField>
         </FormSection>

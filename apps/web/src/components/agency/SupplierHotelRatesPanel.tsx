@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
-import { IndianRupee, Pencil, Plus, Trash2, Upload } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Copy, IndianRupee, Pencil, Plus, Trash2, Upload } from 'lucide-react';
 import {
   Button,
   Card,
@@ -9,6 +9,7 @@ import {
   Input,
   PriceField,
   SimpleFormField as FormField,
+  SuggestionChips,
   formatCurrency,
   toastError,
   toastSuccess,
@@ -28,13 +29,22 @@ type HotelRate = {
   placeId?: string | null;
   isSystem?: boolean;
   roomType?: string | null;
+  mealPlan?: string | null;
   unitCost: number | string;
+  weekendUnitCost?: number | string | null;
   currency: string;
   startDate?: string | null;
   endDate?: string | null;
   isActive: boolean;
   place?: { id: string; name: string; kind?: string } | null;
 };
+
+const MEAL_OPTIONS = [
+  { value: 'EP', label: 'EP' },
+  { value: 'CP', label: 'CP' },
+  { value: 'MAP', label: 'MAP' },
+  { value: 'AP', label: 'AP' },
+];
 
 function isoDate(raw?: string | Date | null): string {
   if (!raw) return '';
@@ -45,11 +55,22 @@ function isoDate(raw?: string | Date | null): string {
 function emptyForm() {
   return {
     roomType: '',
+    mealPlan: '',
     unitCost: '',
+    weekendUnitCost: '',
     place: null as PlaceRef | null,
     startDate: '',
     endDate: '',
   };
+}
+
+function seasonLabel(r: HotelRate): string {
+  const from = isoDate(r.startDate);
+  const to = isoDate(r.endDate);
+  if (from && to) return `${from} → ${to}`;
+  if (from) return `From ${from}`;
+  if (to) return `Until ${to}`;
+  return 'Open dates';
 }
 
 export function SupplierHotelRatesPanel({
@@ -84,6 +105,16 @@ export function SupplierHotelRatesPanel({
     void load();
   }, [load]);
 
+  const sorted = useMemo(() => {
+    return [...rates].sort((a, b) => {
+      const room = (a.roomType || '').localeCompare(b.roomType || '');
+      if (room) return room;
+      const meal = (a.mealPlan || '').localeCompare(b.mealPlan || '');
+      if (meal) return meal;
+      return isoDate(a.startDate).localeCompare(isoDate(b.startDate));
+    });
+  }, [rates]);
+
   function startCreate() {
     setEditingId(null);
     setForm(emptyForm());
@@ -93,12 +124,31 @@ export function SupplierHotelRatesPanel({
     setEditingId(rate.id);
     setForm({
       roomType: rate.roomType || '',
+      mealPlan: rate.mealPlan || '',
       unitCost: String(Number(rate.unitCost)),
+      weekendUnitCost:
+        rate.weekendUnitCost != null ? String(Number(rate.weekendUnitCost)) : '',
       place: rate.place
         ? { placeId: rate.place.id, name: rate.place.name, kind: rate.place.kind }
         : null,
       startDate: isoDate(rate.startDate),
       endDate: isoDate(rate.endDate),
+    });
+  }
+
+  function duplicateAsSeason(rate: HotelRate) {
+    setEditingId(null);
+    setForm({
+      roomType: rate.roomType || '',
+      mealPlan: rate.mealPlan || '',
+      unitCost: String(Number(rate.unitCost)),
+      weekendUnitCost:
+        rate.weekendUnitCost != null ? String(Number(rate.weekendUnitCost)) : '',
+      place: rate.place
+        ? { placeId: rate.place.id, name: rate.place.name, kind: rate.place.kind }
+        : null,
+      startDate: '',
+      endDate: '',
     });
   }
 
@@ -108,13 +158,24 @@ export function SupplierHotelRatesPanel({
       toastError('Enter a valid cost per night');
       return;
     }
+    const weekendRaw = form.weekendUnitCost.trim();
+    let weekendUnitCost: number | null = null;
+    if (weekendRaw) {
+      weekendUnitCost = Number(weekendRaw);
+      if (!Number.isFinite(weekendUnitCost) || weekendUnitCost < 0) {
+        toastError('Weekend cost must be a valid number');
+        return;
+      }
+    }
     setSaving(true);
     try {
       const body = {
         supplierId,
         placeId: form.place?.placeId || null,
         roomType: form.roomType.trim() || null,
+        mealPlan: form.mealPlan.trim() || null,
         unitCost,
+        weekendUnitCost,
         startDate: form.startDate || null,
         endDate: form.endDate || null,
       };
@@ -163,8 +224,8 @@ export function SupplierHotelRatesPanel({
           <div>
             <h2 className="text-sm font-semibold">Rate chart</h2>
             <p className="text-xs text-muted-foreground">
-              Negotiated room-night costs for {supplierName}. Used when quoting this
-              supplier.
+              Seasonal room + meal rows for {supplierName}. Quote resolve picks the
+              best window; weekend nights use weekend cost when set.
             </p>
           </div>
         </div>
@@ -184,27 +245,52 @@ export function SupplierHotelRatesPanel({
       <Can anyOf={CAP.ratesWrite}>
         <Card>
           <CardContent className="space-y-3 pt-4">
-            <FormField label="Room type" description="Leave blank for a default rate.">
-              <Input
-                value={form.roomType}
-                onChange={(e) => setForm({ ...form, roomType: e.target.value })}
-                placeholder="Deluxe / Suite / …"
-              />
-            </FormField>
-            <FormField label="Cost per night" required>
-              <PriceField
-                value={form.unitCost}
-                onChange={(unitCost) => setForm({ ...form, unitCost })}
-                placeholder="4500"
-              />
-            </FormField>
+            <FormGrid>
+              <FormField label="Room type" description="Blank = default for all rooms.">
+                <Input
+                  value={form.roomType}
+                  onChange={(e) => setForm({ ...form, roomType: e.target.value })}
+                  placeholder="Deluxe / Suite / …"
+                />
+              </FormField>
+              <FormField label="Meal plan">
+                <SuggestionChips
+                  aria-label="Meal plan"
+                  allowDeselect
+                  options={MEAL_OPTIONS}
+                  value={form.mealPlan}
+                  onChange={(mealPlan) => setForm({ ...form, mealPlan })}
+                />
+              </FormField>
+            </FormGrid>
+            <FormGrid>
+              <FormField label="Weekday cost / night" required>
+                <PriceField
+                  value={form.unitCost}
+                  onChange={(unitCost) => setForm({ ...form, unitCost })}
+                  placeholder="4500"
+                />
+              </FormField>
+              <FormField
+                label="Weekend cost / night"
+                description="Optional Sat/Sun. Blank = same as weekday."
+              >
+                <PriceField
+                  value={form.weekendUnitCost}
+                  onChange={(weekendUnitCost) =>
+                    setForm({ ...form, weekendUnitCost })
+                  }
+                  placeholder="5200"
+                />
+              </FormField>
+            </FormGrid>
             <PlaceSinglePicker
               label="Place (optional)"
               value={form.place}
               onChange={(place) => setForm({ ...form, place })}
             />
             <FormGrid>
-              <FormField label="From">
+              <FormField label="Season from">
                 <DatePicker
                   value={parseDateInput(form.startDate)}
                   onChange={(d) =>
@@ -212,7 +298,7 @@ export function SupplierHotelRatesPanel({
                   }
                 />
               </FormField>
-              <FormField label="To">
+              <FormField label="Season to">
                 <DatePicker
                   value={parseDateInput(form.endDate)}
                   onChange={(d) =>
@@ -228,7 +314,7 @@ export function SupplierHotelRatesPanel({
                   ? 'Saving…'
                   : editingId
                     ? 'Save changes'
-                    : 'Add rate'}
+                    : 'Add season row'}
               </Button>
               {editingId ? (
                 <Button type="button" size="sm" variant="ghost" onClick={startCreate}>
@@ -244,14 +330,18 @@ export function SupplierHotelRatesPanel({
         <p className="text-sm text-muted-foreground">Loading…</p>
       ) : (
         <ul className="space-y-2">
-          {rates.map((r) => (
+          {sorted.map((r) => (
             <li
               key={r.id}
               className="flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2.5 text-sm glass-row"
             >
               <div>
                 <div className="font-medium">
-                  {r.roomType?.trim() || 'Default'}
+                  {r.roomType?.trim() || 'Default room'}
+                  <span className="font-normal text-muted-foreground">
+                    {' '}
+                    · {r.mealPlan?.trim() || 'Any meal'}
+                  </span>
                   {r.place?.name ? (
                     <span className="font-normal text-muted-foreground">
                       {' '}
@@ -260,18 +350,33 @@ export function SupplierHotelRatesPanel({
                   ) : null}
                 </div>
                 <div className="text-xs text-muted-foreground">
+                  {seasonLabel(r)} ·{' '}
                   {formatCurrency(Number(r.unitCost), {
                     currency: r.currency,
                     maximumFractionDigits: 0,
                   })}
                   /night
-                  {r.startDate || r.endDate
-                    ? ` · ${isoDate(r.startDate) || '…'} → ${isoDate(r.endDate) || '…'}`
+                  {r.weekendUnitCost != null
+                    ? ` · weekend ${formatCurrency(Number(r.weekendUnitCost), {
+                        currency: r.currency,
+                        maximumFractionDigits: 0,
+                      })}`
                     : ''}
                 </div>
               </div>
               <Can anyOf={CAP.ratesWrite}>
                 <div className="flex items-center gap-1">
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="size-7"
+                    aria-label="Duplicate as new season"
+                    title="Duplicate as new season"
+                    onClick={() => duplicateAsSeason(r)}
+                  >
+                    <Copy className="size-3.5" />
+                  </Button>
                   <Button
                     type="button"
                     size="icon"
@@ -296,9 +401,10 @@ export function SupplierHotelRatesPanel({
               </Can>
             </li>
           ))}
-          {!rates.length ? (
+          {!sorted.length ? (
             <li className="text-sm text-muted-foreground">
-              No rates yet. Add a room cost or import a CSV for this supplier.
+              No rates yet. Add seasonal rows (room + meal + date window) or import
+              CSV.
             </li>
           ) : null}
         </ul>

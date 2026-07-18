@@ -24,7 +24,9 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PlacesService } from '../places/places.service';
 import {
   anyNightInBlackout,
+  averageHotelUnitCost,
   eachStayNight,
+  filterHotelByRoomAndMeal,
   parseBlackoutRanges,
   supplierBlockedReason,
   type BlackoutRange,
@@ -79,7 +81,9 @@ type HotelRow = {
   supplierId: string | null;
   placeId: string | null;
   roomType: string | null;
+  mealPlan: string | null;
   unitCost: Prisma.Decimal;
+  weekendUnitCost: Prisma.Decimal | null;
   startDate: Date | null;
   endDate: Date | null;
 };
@@ -251,7 +255,12 @@ export class RatesService {
         supplierId: asSystem ? null : input.supplierId || null,
         placeId: input.placeId || null,
         roomType: input.roomType?.trim() || null,
+        mealPlan: input.mealPlan?.trim() || null,
         unitCost: new Prisma.Decimal(input.unitCost),
+        weekendUnitCost:
+          input.weekendUnitCost != null
+            ? new Prisma.Decimal(input.weekendUnitCost)
+            : null,
         currency: input.currency || pricing.currency,
         startDate: parseDateOnly(input.startDate),
         endDate: parseDateOnly(input.endDate),
@@ -301,8 +310,19 @@ export class RatesService {
         ...(input.roomType !== undefined
           ? { roomType: input.roomType?.trim() || null }
           : {}),
+        ...(input.mealPlan !== undefined
+          ? { mealPlan: input.mealPlan?.trim() || null }
+          : {}),
         ...(input.unitCost != null
           ? { unitCost: new Prisma.Decimal(input.unitCost) }
+          : {}),
+        ...(input.weekendUnitCost !== undefined
+          ? {
+              weekendUnitCost:
+                input.weekendUnitCost != null
+                  ? new Prisma.Decimal(input.weekendUnitCost)
+                  : null,
+            }
           : {}),
         ...(input.currency ? { currency: input.currency } : {}),
         ...(input.startDate !== undefined
@@ -862,6 +882,7 @@ export class RatesService {
           row.supplierName?.trim(),
           row.placeKey?.trim() || row.placeName?.trim(),
           row.roomType?.trim(),
+          row.mealPlan?.trim(),
           `₹${row.unitCost}`,
         ]
           .filter(Boolean)
@@ -877,7 +898,9 @@ export class RatesService {
           supplierId: supplierId ?? null,
           placeId: placeId ?? null,
           roomType: row.roomType,
+          mealPlan: row.mealPlan,
           unitCost: row.unitCost,
+          weekendUnitCost: row.weekendUnitCost,
           currency: row.currency,
           startDate: row.startDate,
           endDate: row.endDate,
@@ -1254,6 +1277,7 @@ export class RatesService {
       const supplierId = item.details?.supplierId;
       const placeId = item.details?.placeId;
       const roomWanted = (item.details?.roomType || '').trim().toLowerCase();
+      const mealWanted = (item.details?.mealPlan || '').trim().toLowerCase();
       const nightsCount = Math.max(1, Number(item.details?.nights) || 1);
       const stayNights = eachStayNight(asOf, nightsCount);
 
@@ -1297,6 +1321,9 @@ export class RatesService {
 
       const notBlocked = (r: HotelRow) => !supplierBlocked(r.supplierId);
 
+      const matchDims = (pool: HotelRow[]) =>
+        pickBest(filterHotelByRoomAndMeal(pool, roomWanted, mealWanted));
+
       let best: HotelRow | undefined;
 
       if (supplierId) {
@@ -1307,13 +1334,7 @@ export class RatesService {
             inWindow(r) &&
             notBlocked(r),
         );
-        const exact = roomWanted
-          ? agency.filter(
-              (r) => (r.roomType || '').trim().toLowerCase() === roomWanted,
-            )
-          : [];
-        const defaults = agency.filter((r) => !(r.roomType || '').trim());
-        best = pickBest(exact) || pickBest(defaults) || pickBest(agency);
+        best = matchDims(agency);
       }
 
       if (!best && placeId) {
@@ -1327,16 +1348,7 @@ export class RatesService {
         const systemPlace = ctx.hotelRates.filter(
           (r) => r.isSystem && r.placeId === placeId && inWindow(r),
         );
-        const matchRoom = (pool: HotelRow[]) => {
-          const exact = roomWanted
-            ? pool.filter(
-                (r) => (r.roomType || '').trim().toLowerCase() === roomWanted,
-              )
-            : [];
-          const defaults = pool.filter((r) => !(r.roomType || '').trim());
-          return pickBest(exact) || pickBest(defaults) || pickBest(pool);
-        };
-        best = matchRoom(agencyPlace) || matchRoom(systemPlace);
+        best = matchDims(agencyPlace) || matchDims(systemPlace);
       }
 
       if (!best) {
@@ -1356,7 +1368,15 @@ export class RatesService {
           blockedHint,
         );
       }
-      const unitCost = Number(best.unitCost);
+      const unitCost = round2(
+        averageHotelUnitCost(
+          {
+            unitCost: best.unitCost,
+            weekendUnitCost: best.weekendUnitCost,
+          },
+          stayNights.length ? stayNights : asOf ? [asOf] : [],
+        ),
+      );
       return matched({
         itemId: item.itemId,
         rateKind: 'hotel',
@@ -1371,6 +1391,9 @@ export class RatesService {
           placeId: best.placeId,
           supplierId: best.supplierId,
           roomType: best.roomType,
+          mealPlan: best.mealPlan,
+          weekendUnitCost:
+            best.weekendUnitCost != null ? Number(best.weekendUnitCost) : null,
           startDate: best.startDate ? best.startDate.toISOString().slice(0, 10) : null,
           endDate: best.endDate ? best.endDate.toISOString().slice(0, 10) : null,
         },

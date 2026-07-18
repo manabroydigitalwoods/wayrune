@@ -388,6 +388,7 @@ export function resolvePayloadFromQuoteDetails(
         supplierId: details.supplierId,
         placeId: details.placeId,
         roomType: details.roomType,
+        mealPlan: details.mealPlan,
         nights,
         vehicleTypeId: details.vehicleTypeId,
         fromPlaceId: details.fromPlaceId,
