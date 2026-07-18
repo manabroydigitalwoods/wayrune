@@ -1,5 +1,12 @@
-import { Body, Controller, Param, Post } from '@nestjs/common';
-import { SaveQuotationVersionSchema } from '@travel/contracts';
+import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
+import {
+  ApplyQuoteTemplateSchema,
+  CloneQuotationSchema,
+  CreateQuoteTemplateSchema,
+  RecordQuoteMarginOverridesSchema,
+  SaveQuotationVersionSchema,
+  UpdateQuoteTemplateSchema,
+} from '@wayrune/contracts';
 import {
   CurrentUser,
   RequireAgencyOrg,
@@ -13,6 +20,34 @@ import { QuotationsService } from './quotations.service';
 export class QuotationsController {
   constructor(private quotations: QuotationsService) {}
 
+  @Get('quote-templates')
+  @RequirePermissions('quote.read')
+  listTemplates(@CurrentUser() user: AuthUser) {
+    return this.quotations.listTemplates(user);
+  }
+
+  @Post('quote-templates')
+  @RequirePermissions('quote.write')
+  createTemplate(@CurrentUser() user: AuthUser, @Body() body: unknown) {
+    return this.quotations.createTemplate(user, CreateQuoteTemplateSchema.parse(body));
+  }
+
+  @Patch('quote-templates/:id')
+  @RequirePermissions('quote.write')
+  updateTemplate(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    return this.quotations.updateTemplate(user, id, UpdateQuoteTemplateSchema.parse(body));
+  }
+
+  @Delete('quote-templates/:id')
+  @RequirePermissions('quote.write')
+  deleteTemplate(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.quotations.deleteTemplate(user, id);
+  }
+
   @Post('trips/:tripId/quotations')
   @RequirePermissions('quote.write')
   create(@CurrentUser() user: AuthUser, @Param('tripId') tripId: string) {
@@ -23,6 +58,36 @@ export class QuotationsController {
   @RequirePermissions('quote.write')
   createFromAccepted(@CurrentUser() user: AuthUser, @Param('tripId') tripId: string) {
     return this.quotations.createFromAccepted(user, tripId);
+  }
+
+  @Post('trips/:tripId/quotations/from-template')
+  @RequirePermissions('quote.write')
+  createFromTemplate(
+    @CurrentUser() user: AuthUser,
+    @Param('tripId') tripId: string,
+    @Body() body: unknown,
+  ) {
+    return this.quotations.createFromTemplate(
+      user,
+      tripId,
+      ApplyQuoteTemplateSchema.parse(body),
+    );
+  }
+
+  @Post('trips/:tripId/quotations/:quotationId/clone')
+  @RequirePermissions('quote.write')
+  clone(
+    @CurrentUser() user: AuthUser,
+    @Param('tripId') tripId: string,
+    @Param('quotationId') quotationId: string,
+    @Body() body: unknown,
+  ) {
+    return this.quotations.cloneQuotation(
+      user,
+      tripId,
+      quotationId,
+      CloneQuotationSchema.parse(body ?? {}),
+    );
   }
 
   @Post('trips/:tripId/quotations/:quotationId/versions')
@@ -58,6 +123,20 @@ export class QuotationsController {
       ...parsed,
       versionId,
     });
+  }
+
+  @Post('quotations/:versionId/margin-overrides')
+  @RequirePermissions('below_margin.approve')
+  recordMarginOverrides(
+    @CurrentUser() user: AuthUser,
+    @Param('versionId') versionId: string,
+    @Body() body: unknown,
+  ) {
+    return this.quotations.recordMarginOverrides(
+      user,
+      versionId,
+      RecordQuoteMarginOverridesSchema.parse(body),
+    );
   }
 
   @Post('quotations/:versionId/request-approval')
@@ -98,5 +177,11 @@ export class QuotationsController {
     @Body() body: { toEmail: string },
   ) {
     return this.quotations.sendEmail(user, versionId, body.toEmail);
+  }
+
+  @Post('quotations/:versionId/save-to-drive')
+  @RequirePermissions('quote.write')
+  saveToDrive(@CurrentUser() user: AuthUser, @Param('versionId') versionId: string) {
+    return this.quotations.savePdfToDrive(user, versionId);
   }
 }

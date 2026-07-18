@@ -1,10 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useOrgNavigate } from '../hooks/useOrgNavigate';
 import type { ColumnDef } from '@tanstack/react-table';
 import {
   MoreHorizontal,
   Plane,
-  Trash2,
+  Plus,
+  Send,
   UserPlus,
 } from 'lucide-react';
 import {
@@ -15,12 +24,14 @@ import {
   Combobox,
   ConfirmDialog,
   DataTable,
+  DatePicker,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   EmailInput,
+  EmptyState,
   Input,
   PageHeader,
   PriceField,
@@ -33,15 +44,18 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
+  Textarea,
   toastError,
   toastSuccess,
+  BrandTooltip,
+  cn,
   formatCurrency,
   formatPercent,
   formatDate,
   formatDateRange,
   formatDateTime,
   formatTime,
-} from '@travel/ui';
+} from '@wayrune/ui';
 import { api, apiBlob } from '../api';
 import { useAuth } from '../auth';
 import { usePermissions } from '../lib/permissions';
@@ -62,6 +76,40 @@ import { OperationsPanel } from '../components/trips/OperationsPanel';
 import { FinancePanel } from '../components/trips/FinancePanel';
 import { TripClosurePanel } from '../components/trips/TripClosurePanel';
 import { TripTimeline } from '../components/trips/TripTimeline';
+import { QuoteImportReviewDialog } from '../components/trips/QuoteImportReviewDialog';
+import {
+  QuoteServiceDetailSheet,
+  seedDetailsFromItineraryItem,
+} from '../components/trips/QuoteServiceDetailSheet';
+import { ProposalNotesEditor } from '../components/trips/ProposalNotesEditor';
+import {
+  detailsFromImportCandidate,
+  serviceTypeLabel,
+  type QuoteImportCandidate,
+} from '../lib/quoteImportFromItinerary';
+import {
+  detailsFromResolveRecord,
+  parseQuoteServiceDetails,
+  quoteServiceDetailsSummary,
+  resolvePayloadFromQuoteDetails,
+  applyRateResolveHit,
+  type QuoteServiceDetails,
+} from '../lib/quoteServiceDetails';
+import {
+  clearQuoteLocalDraft,
+  readQuoteLocalDraft,
+  writeQuoteLocalDraft,
+} from '../lib/quoteLocalDraft';
+import {
+  countMarginPolicyViolations,
+  lineMarginPolicyViolation,
+  parseMinMarginPercent,
+} from '../lib/quoteMargin';
+import {
+  defaultValidUntilIso,
+  quoteValidityDaysFromSettings,
+  syncTermsWithValidUntil,
+} from '../lib/quoteValidity';
 import {
   emptyItineraryStory,
   ensureItineraryDays,
@@ -102,6 +150,10 @@ function quoteActionsForStatus(status: string | null | undefined): Set<QuoteActi
     case 'rejected':
     case 'expired':
       return new Set(['revise']);
+    case null:
+    case undefined:
+      // No version yet — allow building the first draft.
+      return new Set(['edit', 'addLines', 'revise']);
     default:
       return new Set();
   }
@@ -139,27 +191,54 @@ function QuoteNumberInput({
   onChange,
   className,
   disabled,
+  placeholder,
+  showCurrency = false,
+  currency = 'INR',
+  invalid,
 }: {
-  value: number;
-  onChange: (n: number) => void;
+  value: number | null;
+  onChange: (n: number | null) => void;
   className?: string;
   disabled?: boolean;
+  placeholder?: string;
+  showCurrency?: boolean;
+  currency?: string;
+  invalid?: boolean;
 }) {
   return (
     <PriceField
-      showCurrency={false}
+      showCurrency={showCurrency}
+      currency={currency}
       className={className}
       disabled={disabled}
-      value={Number.isFinite(value) ? String(value) : ''}
+      placeholder={placeholder}
+      aria-invalid={invalid || undefined}
+      value={value == null || !Number.isFinite(value) ? '' : String(value)}
       onChange={(raw) => {
         if (raw === '' || raw === '-') {
-          onChange(0);
+          onChange(null);
           return;
         }
         const n = Number(raw);
-        onChange(Number.isFinite(n) ? n : 0);
+        onChange(Number.isFinite(n) ? n : null);
       }}
     />
+  );
+}
+
+/** Keeps qty/cost/sell/tax aligned with the description input (below the badge row). */
+function QuoteLineFieldShell({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cn('flex min-w-0 flex-col gap-1 py-0.5', className)}>
+      <div className="h-5 shrink-0" aria-hidden />
+      <div className="min-w-0">{children}</div>
+    </div>
   );
 }
 
@@ -167,14 +246,32 @@ type QuoteLine = {
   id: string;
   description: string;
   quantity: number;
-  unitCost: number;
-  unitSell: number;
+  /** null = missing; 0 = intentionally free. */
+  unitCost: number | null;
+  /** null = missing; 0 = intentionally free. */
+  unitSell: number | null;
   taxPercent: number;
   pricingUnit: string;
+  serviceType?: import('@wayrune/contracts').QuoteServiceType;
   rateKind?: 'hotel' | 'transfer';
   rateId?: string;
   /** True when hotel/transfer had no matching rate card. */
   rateUnmatched?: boolean;
+  details?: QuoteServiceDetails;
+  includedMeta?: {
+    at: string;
+    reason: string;
+    previousUnitCost?: number | null;
+    previousUnitSell?: number | null;
+    byUserId?: string;
+  };
+  marginOverride?: {
+    at: string;
+    reason: string;
+    byUserId?: string;
+    unitCost?: number;
+    unitSell?: number;
+  };
 };
 
 const QUOTE_PRICING_UNITS = new Set(['per_person', 'per_room', 'per_service', 'package']);
@@ -186,26 +283,99 @@ function sanitizeQuoteDescription(raw: unknown): string {
     .trim() || 'Line';
 }
 
+function parseQuoteMoney(raw: unknown, unmatched: boolean): number | null {
+  if (raw === null || raw === undefined || raw === '') return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return null;
+  // Legacy unmatched zeros mean "not priced", not free.
+  if (n === 0 && unmatched) return null;
+  return n;
+}
+
 function quoteLinesFromVersion(version: {
   id?: string;
   itemsJson?: unknown;
 } | null): QuoteLine[] {
   const raw = Array.isArray(version?.itemsJson) ? version.itemsJson : [];
-  return raw.map((item: any, i: number) => ({
-    id: String(item.id || `line-${version?.id || 'x'}-${i}`),
-    description: sanitizeQuoteDescription(item.description),
-    quantity: Number(item.quantity) || 0,
-    unitCost: Number(item.unitCost) || 0,
-    unitSell: Number(item.unitSell) || 0,
-    taxPercent: Number(item.taxPercent) || 0,
+  return raw.map((item: any, i: number) => {
+    const unmatched = Boolean(item.rateUnmatched);
+    return {
+      id: String(item.id || `line-${version?.id || 'x'}-${i}`),
+      description: sanitizeQuoteDescription(item.description),
+      quantity: Number(item.quantity) || 0,
+      unitCost: parseQuoteMoney(item.unitCost, unmatched),
+      unitSell: parseQuoteMoney(item.unitSell, unmatched),
+      taxPercent: Number(item.taxPercent) || 0,
+      pricingUnit: QUOTE_PRICING_UNITS.has(item.pricingUnit) ? item.pricingUnit : 'per_service',
+      serviceType: item.serviceType,
+      rateKind:
+        item.rateKind === 'hotel' || item.rateKind === 'transfer'
+          ? item.rateKind
+          : undefined,
+      rateId: typeof item.rateId === 'string' ? item.rateId : undefined,
+      rateUnmatched: unmatched,
+      details: parseQuoteServiceDetails(item.details),
+      includedMeta:
+        item.includedMeta && typeof item.includedMeta === 'object'
+          ? {
+              at: String(item.includedMeta.at || ''),
+              reason: String(item.includedMeta.reason || ''),
+              previousUnitCost:
+                item.includedMeta.previousUnitCost == null
+                  ? item.includedMeta.previousUnitCost
+                  : Number(item.includedMeta.previousUnitCost),
+              previousUnitSell:
+                item.includedMeta.previousUnitSell == null
+                  ? item.includedMeta.previousUnitSell
+                  : Number(item.includedMeta.previousUnitSell),
+              byUserId:
+                typeof item.includedMeta.byUserId === 'string'
+                  ? item.includedMeta.byUserId
+                  : undefined,
+            }
+          : undefined,
+      marginOverride:
+        item.marginOverride && typeof item.marginOverride === 'object'
+          ? {
+              at: String(item.marginOverride.at || ''),
+              reason: String(item.marginOverride.reason || ''),
+              byUserId:
+                typeof item.marginOverride.byUserId === 'string'
+                  ? item.marginOverride.byUserId
+                  : undefined,
+              unitCost:
+                item.marginOverride.unitCost == null
+                  ? undefined
+                  : Number(item.marginOverride.unitCost),
+              unitSell:
+                item.marginOverride.unitSell == null
+                  ? undefined
+                  : Number(item.marginOverride.unitSell),
+            }
+          : undefined,
+    };
+  });
+}
+
+function serializeQuoteLine(item: QuoteLine) {
+  return {
+    id: item.id,
+    description: item.description.trim() || 'Service',
+    quantity: Number.isFinite(item.quantity) ? item.quantity : 0,
+    unitCost: item.unitCost,
+    unitSell: item.unitSell,
+    taxPercent: Number.isFinite(item.taxPercent) ? item.taxPercent : 0,
     pricingUnit: QUOTE_PRICING_UNITS.has(item.pricingUnit) ? item.pricingUnit : 'per_service',
-    rateKind:
-      item.rateKind === 'hotel' || item.rateKind === 'transfer'
-        ? item.rateKind
-        : undefined,
-    rateId: typeof item.rateId === 'string' ? item.rateId : undefined,
-    rateUnmatched: Boolean(item.rateUnmatched),
-  }));
+    ...(item.serviceType ? { serviceType: item.serviceType } : {}),
+    ...(item.rateKind ? { rateKind: item.rateKind } : {}),
+    ...(item.rateId ? { rateId: item.rateId } : {}),
+    ...(item.rateUnmatched ? { rateUnmatched: true } : {}),
+    ...(item.details ? { details: item.details } : {}),
+    ...(item.includedMeta ? { includedMeta: item.includedMeta } : {}),
+    ...(item.marginOverride?.reason?.trim()
+      ? { marginOverride: item.marginOverride }
+      : {}),
+  };
 }
 
 type RateResolveRow = {
@@ -222,6 +392,144 @@ type RateResolveRow = {
 };
 
 const EMPTY_QUOTE_LINES: QuoteLine[] = [];
+
+function quoteProposalNotesSummary(meta: {
+  inclusions: string;
+  exclusions: string;
+  terms: string;
+}): string {
+  const set: string[] = [];
+  if (meta.inclusions.trim()) set.push('Inclusions');
+  if (meta.exclusions.trim()) set.push('Exclusions');
+  if (meta.terms.trim()) set.push('Terms');
+  if (!set.length) return 'Optional — appears on the proposal PDF';
+  return `${set.join(' · ')} filled`;
+}
+
+function quoteLinesMissingCost(
+  items: Array<{ unitCost: number | null; quantity: number }>,
+): { missingCount: number; knownCost: number; incomplete: boolean } {
+  let missingCount = 0;
+  let knownCost = 0;
+  for (const i of items) {
+    const qty = Number(i.quantity) || 0;
+    if (i.unitCost == null) missingCount += 1;
+    else knownCost += i.unitCost * qty;
+  }
+  return {
+    missingCount,
+    knownCost,
+    incomplete: items.length > 0 && missingCount > 0,
+  };
+}
+
+function quoteLinesMissingSell(
+  items: Array<{ unitSell: number | null }>,
+): number {
+  return items.filter((i) => i.unitSell == null).length;
+}
+
+/** Human-readable reason Send must stay disabled (empty = ready). */
+function quoteSendBlockedReason(input: {
+  itemCount: number;
+  missingSellCount: number;
+  missingCostCount: number;
+  marginGateCount: number;
+  minMarginPercent: number;
+  canViewCost: boolean;
+  hasValidUntil: boolean;
+  travellerCount: number;
+  statusAllowsSend: boolean;
+}): string {
+  if (!input.statusAllowsSend) {
+    return 'This version cannot be sent yet';
+  }
+  if (input.itemCount === 0) {
+    return 'Add at least one commercial service before sending';
+  }
+  const parts: string[] = [];
+  if (input.missingSellCount > 0) {
+    parts.push(
+      `${input.missingSellCount} service price${input.missingSellCount === 1 ? '' : 's'}`,
+    );
+  }
+  if (input.canViewCost && input.missingCostCount > 0) {
+    parts.push(
+      `${input.missingCostCount} buy rate${input.missingCostCount === 1 ? '' : 's'}`,
+    );
+  }
+  if (input.canViewCost && input.marginGateCount > 0) {
+    parts.push(
+      input.minMarginPercent > 0
+        ? `${input.marginGateCount} below-margin service${input.marginGateCount === 1 ? '' : 's'}`
+        : `${input.marginGateCount} negative-margin service${input.marginGateCount === 1 ? '' : 's'}`,
+    );
+  }
+  if (!input.hasValidUntil) parts.push('a validity date');
+  if (input.travellerCount <= 0) parts.push('at least one traveller');
+  if (!parts.length) return '';
+  if (parts.length === 1) return `Complete ${parts[0]} before sending`;
+  if (parts.length === 2) return `Complete ${parts[0]} and ${parts[1]} before sending`;
+  return `Complete ${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]} before sending`;
+}
+
+function quoteReadinessLabel(input: {
+  itemCount: number;
+  missingSellCount: number;
+  missingCostCount: number;
+  marginGateCount: number;
+  minMarginPercent: number;
+  costIncomplete: boolean;
+  canViewCost: boolean;
+  hasValidUntil: boolean;
+  canSend: boolean;
+}): { tone: 'neutral' | 'warn' | 'ok'; label: string; hint: string } {
+  if (input.itemCount === 0) {
+    return {
+      tone: 'neutral',
+      label: 'Setup required',
+      hint: 'Add at least one service to begin.',
+    };
+  }
+  const parts: string[] = [];
+  if (input.missingSellCount > 0) {
+    parts.push(
+      `${input.missingSellCount} sell price${input.missingSellCount === 1 ? '' : 's'} missing`,
+    );
+  }
+  if (input.canViewCost && input.missingCostCount > 0) {
+    parts.push(
+      `${input.missingCostCount} buy rate${input.missingCostCount === 1 ? '' : 's'} missing`,
+    );
+  }
+  if (input.canViewCost && input.marginGateCount > 0) {
+    parts.push(
+      input.minMarginPercent > 0
+        ? `${input.marginGateCount} service${input.marginGateCount === 1 ? '' : 's'} below margin policy`
+        : `${input.marginGateCount} service${input.marginGateCount === 1 ? '' : 's'} with negative margin`,
+    );
+  }
+  if (!input.hasValidUntil) parts.push('Validity date not selected');
+  if (parts.length) {
+    return {
+      tone: 'warn',
+      label: 'Pricing incomplete',
+      hint: parts.join(' · '),
+    };
+  }
+  if (input.canSend) {
+    return {
+      tone: 'ok',
+      label: 'Ready to send',
+      hint: 'Preview looks good — send when the client is ready.',
+    };
+  }
+  return {
+    tone: 'ok',
+    label: 'Ready for preview',
+    hint: 'Quotation is priced; send when status allows.',
+  };
+}
 
 const TRIP_STATUSES = [...TRIP_STATUS_OPTIONS];
 
@@ -250,7 +558,7 @@ const STATUS_GUIDANCE: Record<string, string> = {
 
 export function TripWorkspacePage() {
   const { id } = useParams();
-  const navigate = useNavigate();
+  const { navigate } = useOrgNavigate();
   const { me } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [trip, setTrip] = useState<any>(null);
@@ -281,12 +589,32 @@ export function TripWorkspacePage() {
   const [cancelReason, setCancelReason] = useState('');
   const [sendEmail, setSendEmail] = useState('');
   const [sendOpen, setSendOpen] = useState(false);
+  const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
+  const [templateName, setTemplateName] = useState('');
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [useTemplateOpen, setUseTemplateOpen] = useState(false);
+  const [quoteTemplates, setQuoteTemplates] = useState<
+    Array<{
+      id: string;
+      name: string;
+      content?: {
+        items?: unknown[];
+        inclusions?: unknown;
+        exclusions?: unknown;
+        destinationHint?: string | null;
+      };
+    }>
+  >([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [applyingTemplateId, setApplyingTemplateId] = useState<string | null>(null);
+  const [cloningQuote, setCloningQuote] = useState(false);
   const [savingItinerary, setSavingItinerary] = useState(false);
   const [quoteItems, setQuoteItems] = useState<QuoteLine[]>(EMPTY_QUOTE_LINES);
   const [quoteMeta, setQuoteMeta] = useState({
     inclusions: '',
     exclusions: '',
     terms: '',
+    validUntil: '',
   });
   const quoteMetaRef = useRef(quoteMeta);
   quoteMetaRef.current = quoteMeta;
@@ -301,15 +629,35 @@ export function TripWorkspacePage() {
   >('idle');
   const [quoteSavedAt, setQuoteSavedAt] = useState<Date | null>(null);
   const [savingQuoteCheckpoint, setSavingQuoteCheckpoint] = useState(false);
+  const [quoteSaveError, setQuoteSaveError] = useState<string | null>(null);
+  const [markupConfirmOpen, setMarkupConfirmOpen] = useState(false);
+  const [includedConfirmOpen, setIncludedConfirmOpen] = useState(false);
+  const [attentionOpen, setAttentionOpen] = useState(false);
+  const [marginOverrideOpen, setMarginOverrideOpen] = useState(false);
+  const [marginOverrideReason, setMarginOverrideReason] = useState('');
+  const [marginOverrideLineIds, setMarginOverrideLineIds] = useState<string[]>([]);
+  const [marginOverridePending, setMarginOverridePending] = useState<
+    'send' | 'requestApproval' | null
+  >(null);
+  const [marginOverrideSaving, setMarginOverrideSaving] = useState(false);
   const quoteHydrated = useRef(false);
   const quoteItemsRef = useRef(quoteItems);
   quoteItemsRef.current = quoteItems;
+  const quoteLockRef = useRef<number | null>(null);
+  const quoteSavingRef = useRef(false);
+  const quoteNeedsResaveRef = useRef(false);
+  const quoteRetryAttemptRef = useRef(0);
+  const quoteRetryTimerRef = useRef<number | null>(null);
+  const quoteNeedsServerSyncRef = useRef(false);
   const tripRef = useRef(trip);
   tripRef.current = trip;
   const canViewCost = me?.permissions.includes('quote.view_cost');
-  const quoteCostDisclosure = useProgressiveDisclosure('advanced');
-  const [quoteCostOpen, setQuoteCostOpen] = useState(quoteCostDisclosure.defaultOpen);
+  const quoteNotesDisclosure = useProgressiveDisclosure('secondary');
+  const [quoteNotesOpen, setQuoteNotesOpen] = useState(quoteNotesDisclosure.defaultOpen);
+  const [importReviewOpen, setImportReviewOpen] = useState(false);
+  const [quoteDetailLineId, setQuoteDetailLineId] = useState<string | null>(null);
   const canApproveQuote = me?.permissions.includes('quote.approve');
+  const canOverrideBelowMargin = me?.permissions.includes('below_margin.approve');
   const { has } = usePermissions();
   const canTripWrite = has('trip.write');
   const canItinerary = has('itinerary.edit');
@@ -319,16 +667,31 @@ export function TripWorkspacePage() {
   useDocumentTitle(trip ? `${trip.tripNumber} · ${trip.title}` : dmcWorkspace ? 'Package' : 'Trip');
 
   function changeTab(next: string) {
-    setTab(next);
+    const safe = next in TAB_LABELS ? next : 'overview';
+    setTab(safe);
     const params = new URLSearchParams(searchParams);
-    if (next === 'overview') params.delete('tab');
-    else params.set('tab', next);
+    if (safe === 'overview') params.delete('tab');
+    else params.set('tab', safe);
+    setSearchParams(params, { replace: true });
+  }
+
+  /** Keep quotation + version in the URL so reload / share restores the same quote view. */
+  function writeQuoteQuery(quotationId: string | null, versionId: string | null) {
+    const params = new URLSearchParams(window.location.search);
+    const prevQ = params.get('quotation');
+    const prevV = params.get('version');
+    if (quotationId) params.set('quotation', quotationId);
+    else params.delete('quotation');
+    if (versionId) params.set('version', versionId);
+    else params.delete('version');
+    if (params.get('quotation') === prevQ && params.get('version') === prevV) return;
     setSearchParams(params, { replace: true });
   }
 
   useEffect(() => {
-    const t = searchParams.get('tab');
-    if (t && t !== tab) setTab(t);
+    const raw = searchParams.get('tab');
+    const next = raw && raw in TAB_LABELS ? raw : 'overview';
+    setTab((prev) => (prev === next ? prev : next));
   }, [searchParams]);
 
   async function load() {
@@ -364,28 +727,110 @@ export function TripWorkspacePage() {
       setItinerarySaveState('idle');
       setItinerarySavedAt(latest ? new Date(latest.createdAt) : null);
 
-      const activeQ = pickActiveQuotation(
-        data.quotations,
-        selectedQuotationIdRef.current,
-      );
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlQuotation = urlParams.get('quotation');
+      const urlVersion = urlParams.get('version');
+      const preferredQuotation =
+        (selectedQuotationIdRef.current &&
+        data.quotations?.some((q: any) => q.id === selectedQuotationIdRef.current)
+          ? selectedQuotationIdRef.current
+          : null) ||
+        (urlQuotation && data.quotations?.some((q: any) => q.id === urlQuotation)
+          ? urlQuotation
+          : null) ||
+        null;
+      const activeQ = pickActiveQuotation(data.quotations, preferredQuotation);
       setSelectedQuotationId(activeQ?.id ?? null);
+      selectedQuotationIdRef.current = activeQ?.id ?? null;
       const quoteVersions = activeQ?.versions || [];
       const prevId = selectedQuoteVersionIdRef.current;
-      const keep = prevId && quoteVersions.some((v: any) => v.id === prevId) ? prevId : null;
+      const preferredVersion =
+        (prevId && quoteVersions.some((v: any) => v.id === prevId) ? prevId : null) ||
+        (urlVersion && quoteVersions.some((v: any) => v.id === urlVersion)
+          ? urlVersion
+          : null) ||
+        null;
       const target =
-        (keep ? quoteVersions.find((v: any) => v.id === keep) : null) ||
+        (preferredVersion
+          ? quoteVersions.find((v: any) => v.id === preferredVersion)
+          : null) ||
         quoteVersions.find((v: any) => EDITABLE_QUOTE_STATUSES.has(v.status)) ||
         quoteVersions[0] ||
         null;
       quoteHydrated.current = false;
       setSelectedQuoteVersionId(target?.id ?? null);
-      setQuoteItems(target ? quoteLinesFromVersion(target as any) : EMPTY_QUOTE_LINES);
-      setQuoteMeta({
+      selectedQuoteVersionIdRef.current = target?.id ?? null;
+      writeQuoteQuery(activeQ?.id ?? null, target?.id ?? null);
+      {
+        const lockRaw =
+          target && typeof target === 'object'
+            ? (target as Record<string, unknown>).versionLock
+            : undefined;
+        quoteLockRef.current = typeof lockRaw === 'number' ? lockRaw : null;
+      }
+
+      const validityDays = quoteValidityDaysFromSettings(
+        data.organization?.settingsJson,
+      );
+      let nextItems = target ? quoteLinesFromVersion(target as any) : EMPTY_QUOTE_LINES;
+      let nextMeta = {
         inclusions: String(target?.inclusions || ''),
         exclusions: String(target?.exclusions || ''),
         terms: String(target?.terms || ''),
-      });
-      setQuoteSaveState('idle');
+        validUntil: target?.validUntil
+          ? String(target.validUntil).slice(0, 10)
+          : '',
+      };
+
+      // Prefer a newer unsaved local draft over the last server snapshot.
+      if (id) {
+        const local = readQuoteLocalDraft(id);
+        const serverUpdated = target?.updatedAt
+          ? new Date(String(target.updatedAt)).getTime()
+          : 0;
+        if (
+          local &&
+          local.updatedAt > serverUpdated &&
+          (local.versionId === (target?.id ?? null) ||
+            (!target && local.items.length > 0))
+        ) {
+          nextItems = quoteLinesFromVersion({
+            id: local.versionId || 'local',
+            itemsJson: local.items,
+          });
+          nextMeta = { ...local.meta };
+          // Keep the server lock so the first sync does not 409 on a stale local lock.
+          const lockVal = target
+            ? (target as Record<string, unknown>).versionLock
+            : undefined;
+          quoteLockRef.current =
+            (typeof lockVal === 'number' ? lockVal : null) ?? local.versionLock ?? null;
+          setQuoteSaveState('pending');
+          setQuoteSaveError(null);
+          quoteNeedsServerSyncRef.current = true;
+        } else {
+          setQuoteSaveState('idle');
+          setQuoteSaveError(null);
+          quoteNeedsServerSyncRef.current = false;
+          if (local && local.updatedAt <= serverUpdated) clearQuoteLocalDraft(id);
+        }
+      } else {
+        setQuoteSaveState('idle');
+        setQuoteSaveError(null);
+        quoteNeedsServerSyncRef.current = false;
+      }
+
+      if (!nextMeta.validUntil.trim() && (nextItems.length > 0 || target)) {
+        const vu = defaultValidUntilIso(validityDays);
+        nextMeta = {
+          ...nextMeta,
+          validUntil: vu,
+          terms: syncTermsWithValidUntil(nextMeta.terms, vu),
+        };
+      }
+
+      setQuoteItems(nextItems);
+      setQuoteMeta(nextMeta);
       setQuoteSavedAt(
         target && typeof target.updatedAt === 'string'
           ? new Date(target.updatedAt)
@@ -397,6 +842,13 @@ export function TripWorkspacePage() {
       requestAnimationFrame(() => {
         itineraryHydrated.current = true;
         quoteHydrated.current = true;
+        if (quoteNeedsServerSyncRef.current) {
+          quoteNeedsServerSyncRef.current = false;
+          setQuoteSaveState('pending');
+          window.setTimeout(() => {
+            void autosaveQuote({ attempt: 0 });
+          }, 350);
+        }
         if (needsPersistEmptyDraft && canItinerary) {
           setItinerarySaveState('pending');
           window.setTimeout(() => {
@@ -529,115 +981,214 @@ export function TripWorkspacePage() {
     return () => window.clearTimeout(t);
   }, [days, story, autosaveItinerary, canItinerary]);
 
-  const autosaveQuote = useCallback(async () => {
+  const persistQuoteLocalDraft = useCallback(() => {
     if (!id) return;
-    if (!canQuoteWrite) return;
-    const currentTrip = tripRef.current;
-    const activeQ = pickActiveQuotation(
-      currentTrip?.quotations,
-      selectedQuotationIdRef.current,
-    );
-    const versions = (activeQ?.versions || []) as Array<{
-      id: string;
-      status: string;
-    }>;
-    const selected =
-      versions.find((v) => v.id === selectedQuoteVersionIdRef.current) || versions[0];
-    if (selected?.status === 'accepted' || selected?.status === 'superseded') return;
-    // Do not invent a quotation from an empty form.
-    if (!activeQ && quoteItemsRef.current.length === 0) return;
-    if (selected && !EDITABLE_QUOTE_STATUSES.has(selected.status)) return;
-
-    setQuoteSaveState('saving');
-    const snapshot = JSON.stringify({
-      items: quoteItemsRef.current,
+    writeQuoteLocalDraft({
+      tripId: id,
+      quotationId: selectedQuotationIdRef.current,
+      versionId: selectedQuoteVersionIdRef.current,
+      versionLock: quoteLockRef.current,
+      items: quoteItemsRef.current.map((item) => serializeQuoteLine(item)),
       meta: quoteMetaRef.current,
+      updatedAt: Date.now(),
     });
-    const allowedUnits = new Set(['per_person', 'per_room', 'per_service', 'package']);
-    const items = quoteItemsRef.current.map((item) => ({
-      id: item.id,
-      description: item.description,
-      quantity: item.quantity,
-      unitCost: item.unitCost,
-      unitSell: item.unitSell,
-      taxPercent: item.taxPercent,
-      pricingUnit: allowedUnits.has(item.pricingUnit) ? item.pricingUnit : 'per_service',
-      ...(item.rateKind ? { rateKind: item.rateKind } : {}),
-      ...(item.rateId ? { rateId: item.rateId } : {}),
-    }));
-    const orgCurrency = (currentTrip?.organization?.currency ||
-      me?.organization?.currency ||
-      'INR') as string;
+  }, [id]);
 
-    try {
+  const autosaveQuote = useCallback(
+    async (opts?: { manual?: boolean; attempt?: number }) => {
+      if (!id) return;
+      if (!canQuoteWrite) return;
+      if (quoteRetryTimerRef.current != null) {
+        window.clearTimeout(quoteRetryTimerRef.current);
+        quoteRetryTimerRef.current = null;
+      }
+
+      const currentTrip = tripRef.current;
+      const activeQ = pickActiveQuotation(
+        currentTrip?.quotations,
+        selectedQuotationIdRef.current,
+      );
+      const versions = (activeQ?.versions || []) as Array<{
+        id: string;
+        status: string;
+        versionLock?: number;
+      }>;
+      const selected =
+        versions.find((v) => v.id === selectedQuoteVersionIdRef.current) || versions[0];
+      if (selected?.status === 'accepted' || selected?.status === 'superseded') return;
+      // Do not invent a quotation from an empty form.
+      if (!activeQ && quoteItemsRef.current.length === 0) return;
+      if (selected && !EDITABLE_QUOTE_STATUSES.has(selected.status)) return;
+
+      if (quoteSavingRef.current) {
+        quoteNeedsResaveRef.current = true;
+        return;
+      }
+      quoteSavingRef.current = true;
+      setQuoteSaveState('saving');
+      persistQuoteLocalDraft();
+
+      const snapshot = JSON.stringify({
+        items: quoteItemsRef.current,
+        meta: quoteMetaRef.current,
+      });
+      const items = quoteItemsRef.current.map((item) => serializeQuoteLine(item));
+      const orgCurrency = (currentTrip?.organization?.currency ||
+        me?.organization?.currency ||
+        'INR') as string;
+      const attempt = opts?.attempt ?? 0;
       let quotationId = activeQ?.id as string | undefined;
       let quotationRecord: { id: string; versions?: unknown[] } | null = activeQ
         ? { id: activeQ.id, versions: activeQ.versions }
         : null;
-      if (!quotationId) {
-        const created = await api<{ id: string; versions?: unknown[] }>(
-          `/trips/${id}/quotations`,
-          { method: 'POST' },
-        );
-        quotationRecord = created;
-        quotationId = created.id;
-        setSelectedQuotationId(quotationId);
-      }
-      const version = await api<{
-        id: string;
-        versionNumber: number;
-        status: string;
-        sellTotal?: number | string;
-        marginPercent?: number | string;
-        itemsJson?: unknown;
-        costHidden?: boolean;
-        updatedAt?: string;
-        inclusions?: string | null;
-        exclusions?: string | null;
-        terms?: string | null;
-      }>(`/trips/${id}/quotations/${quotationId}/versions/autosave`, {
-        method: 'POST',
-        body: JSON.stringify({
-          currency: orgCurrency,
-          items,
-          discountTotal: 0,
-          versionId: selectedQuoteVersionIdRef.current,
-          inclusions: quoteMetaRef.current.inclusions || null,
-          exclusions: quoteMetaRef.current.exclusions || null,
-          terms: quoteMetaRef.current.terms || null,
-        }),
-      });
-      setSelectedQuoteVersionId(version.id);
-      setQuoteSavedAt(new Date());
-      setTrip((prev: any) => {
-        if (!prev) return prev;
-        let quotations = [...(prev.quotations || [])];
-        const qi = quotations.findIndex((q: any) => q.id === quotationId);
-        if (qi < 0) {
-          quotations = [{ ...(quotationRecord || { id: quotationId }), versions: [version] }, ...quotations];
-        } else {
-          const q = quotations[qi];
-          const nextVersions = [...(q.versions || [])];
-          const idx = nextVersions.findIndex((v: any) => v.id === version.id);
-          if (idx >= 0) nextVersions[idx] = { ...nextVersions[idx], ...version };
-          else nextVersions.unshift(version);
-          quotations[qi] = { ...q, versions: nextVersions };
+
+      try {
+        if (!quotationId) {
+          const created = await api<{ id: string; versions?: unknown[] }>(
+            `/trips/${id}/quotations`,
+            { method: 'POST' },
+          );
+          quotationRecord = created;
+          quotationId = created.id;
+          setSelectedQuotationId(quotationId);
+          selectedQuotationIdRef.current = quotationId;
         }
-        return { ...prev, quotations };
-      });
-      if (
-        JSON.stringify({ items: quoteItemsRef.current, meta: quoteMetaRef.current }) !== snapshot
-      ) {
-        setQuoteSaveState('pending');
-        void autosaveQuote();
-        return;
+        const version = await api<{
+          id: string;
+          versionNumber: number;
+          status: string;
+          versionLock?: number;
+          sellTotal?: number | string;
+          marginPercent?: number | string;
+          itemsJson?: unknown;
+          costHidden?: boolean;
+          updatedAt?: string;
+          inclusions?: string | null;
+          exclusions?: string | null;
+          terms?: string | null;
+          validUntil?: string | null;
+        }>(`/trips/${id}/quotations/${quotationId}/versions/autosave`, {
+          method: 'POST',
+          body: JSON.stringify({
+            currency: orgCurrency,
+            items,
+            discountTotal: 0,
+            versionId: selectedQuoteVersionIdRef.current,
+            expectedLock: quoteLockRef.current ?? undefined,
+            inclusions: quoteMetaRef.current.inclusions || null,
+            exclusions: quoteMetaRef.current.exclusions || null,
+            terms: quoteMetaRef.current.terms || null,
+            validUntil: quoteMetaRef.current.validUntil || null,
+          }),
+        });
+        setSelectedQuoteVersionId(version.id);
+        selectedQuoteVersionIdRef.current = version.id;
+        writeQuoteQuery(quotationId ?? null, version.id);
+        if (typeof version.versionLock === 'number') {
+          quoteLockRef.current = version.versionLock;
+        } else if (quoteLockRef.current != null) {
+          quoteLockRef.current += 1;
+        } else {
+          quoteLockRef.current = 1;
+        }
+        setQuoteSavedAt(new Date());
+        setQuoteSaveError(null);
+        clearQuoteLocalDraft(id);
+        setTrip((prev: any) => {
+          if (!prev) return prev;
+          let quotations = [...(prev.quotations || [])];
+          const qi = quotations.findIndex((q: any) => q.id === quotationId);
+          if (qi < 0) {
+            quotations = [
+              { ...(quotationRecord || { id: quotationId }), versions: [version] },
+              ...quotations,
+            ];
+          } else {
+            const q = quotations[qi];
+            const nextVersions = [...(q.versions || [])];
+            const idx = nextVersions.findIndex((v: any) => v.id === version.id);
+            if (idx >= 0) nextVersions[idx] = { ...nextVersions[idx], ...version };
+            else nextVersions.unshift(version);
+            quotations[qi] = { ...q, versions: nextVersions };
+          }
+          return { ...prev, quotations };
+        });
+        if (
+          JSON.stringify({ items: quoteItemsRef.current, meta: quoteMetaRef.current }) !==
+          snapshot
+        ) {
+          setQuoteSaveState('pending');
+          quoteNeedsResaveRef.current = true;
+        } else {
+          setQuoteSaveState('saved');
+        }
+        if (opts?.manual) toastSuccess('Quotation saved');
+      } catch (e) {
+        const status = (e as { status?: number })?.status;
+        const msg = e instanceof Error ? e.message : 'Could not auto-save quote';
+        persistQuoteLocalDraft();
+
+        // Version-lock races are common during rematch / override bursts — refresh lock and retry quietly.
+        if (status === 409 && attempt < 3 && quotationId) {
+          try {
+            const fresh = await api<{
+              quotations?: Array<{
+                id: string;
+                versions?: Array<{ id: string; versionLock?: number }>;
+              }>;
+            }>(`/trips/${id}`);
+            const q =
+              fresh.quotations?.find((row) => row.id === quotationId) ||
+              fresh.quotations?.[0];
+            const v =
+              q?.versions?.find((row) => row.id === selectedQuoteVersionIdRef.current) ||
+              q?.versions?.[0];
+            if (typeof v?.versionLock === 'number') {
+              quoteLockRef.current = v.versionLock;
+            }
+            setQuoteSaveState('pending');
+            setQuoteSaveError(null);
+            quoteRetryAttemptRef.current = attempt + 1;
+            quoteNeedsResaveRef.current = true;
+            return;
+          } catch {
+            /* fall through to normal error handling */
+          }
+        }
+
+        if (status === 409) {
+          setQuoteSaveState('error');
+          setQuoteSaveError(
+            'This quotation was changed elsewhere. Retry save to keep your latest edits, or reload to take the other version.',
+          );
+          if (opts?.manual) toastError(msg);
+        } else if (!opts?.manual && attempt < 3) {
+          const delay = Math.min(8000, 1000 * 2 ** attempt);
+          setQuoteSaveState('pending');
+          setQuoteSaveError(`Save interrupted — retrying in ${Math.round(delay / 1000)}s…`);
+          quoteRetryTimerRef.current = window.setTimeout(() => {
+            quoteRetryTimerRef.current = null;
+            void autosaveQuote({ attempt: attempt + 1 });
+          }, delay);
+        } else {
+          setQuoteSaveState('error');
+          setQuoteSaveError(msg);
+          if (opts?.manual || attempt >= 3) {
+            toastError(msg);
+          }
+        }
+      } finally {
+        quoteSavingRef.current = false;
+        if (quoteNeedsResaveRef.current) {
+          quoteNeedsResaveRef.current = false;
+          const nextAttempt = quoteRetryAttemptRef.current;
+          quoteRetryAttemptRef.current = 0;
+          void autosaveQuote({ attempt: nextAttempt, manual: opts?.manual });
+        }
       }
-      setQuoteSaveState('saved');
-    } catch (e) {
-      setQuoteSaveState('error');
-      toastError(e instanceof Error ? e.message : 'Could not auto-save quote');
-    }
-  }, [id, me?.organization?.currency, canQuoteWrite]);
+    },
+    [id, me?.organization?.currency, canQuoteWrite, persistQuoteLocalDraft],
+  );
 
   useEffect(() => {
     if (!quoteHydrated.current) return;
@@ -656,12 +1207,37 @@ export function TripWorkspacePage() {
     if (!activeQ && quoteItems.length === 0) return;
     if (selected && !EDITABLE_QUOTE_STATUSES.has(selected.status)) return;
 
-    setQuoteSaveState('pending');
+    // Keep retrying quietly while error — don't trap the user in a red state.
+    setQuoteSaveState((prev) => (prev === 'saving' ? prev : 'pending'));
+    persistQuoteLocalDraft();
     const t = window.setTimeout(() => {
       void autosaveQuote();
-    }, 1200);
+    }, 1400);
     return () => window.clearTimeout(t);
-  }, [quoteItems, quoteMeta, autosaveQuote, canQuoteWrite]);
+  }, [quoteItems, quoteMeta, autosaveQuote, canQuoteWrite, persistQuoteLocalDraft]);
+
+  const quoteDirty =
+    quoteSaveState === 'pending' ||
+    quoteSaveState === 'saving' ||
+    quoteSaveState === 'error';
+
+  useEffect(() => {
+    if (!quoteDirty) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [quoteDirty]);
+
+  useEffect(() => {
+    return () => {
+      if (quoteRetryTimerRef.current != null) {
+        window.clearTimeout(quoteRetryTimerRef.current);
+      }
+    };
+  }, []);
 
   async function saveItineraryCheckpoint() {
     setSavingItinerary(true);
@@ -693,16 +1269,74 @@ export function TripWorkspacePage() {
   }
 
   const sellTotal = useMemo(
-    () => quoteItems.reduce((s, i) => s + i.quantity * i.unitSell * (1 + i.taxPercent / 100), 0),
+    () =>
+      quoteItems.reduce((s, i) => {
+        if (i.unitSell == null) return s;
+        return s + i.quantity * i.unitSell * (1 + i.taxPercent / 100);
+      }, 0),
     [quoteItems],
   );
-  const costTotal = quoteItems.reduce((s, i) => s + i.quantity * i.unitCost, 0);
-  const taxTotal = quoteItems.reduce(
-    (s, i) => s + i.quantity * i.unitSell * (i.taxPercent / 100),
-    0,
+  const costTotal = quoteItems.reduce((s, i) => {
+    if (i.unitCost == null) return s;
+    return s + i.quantity * i.unitCost;
+  }, 0);
+  const taxTotal = quoteItems.reduce((s, i) => {
+    if (i.unitSell == null) return s;
+    return s + i.quantity * i.unitSell * (i.taxPercent / 100);
+  }, 0);
+  const sellExTax = sellTotal - taxTotal;
+  const marginAmount = sellExTax - costTotal;
+  const marginPercent = sellExTax > 0 ? (marginAmount / sellExTax) * 100 : 0;
+  const costGaps = useMemo(() => quoteLinesMissingCost(quoteItems), [quoteItems]);
+  const missingSellCount = useMemo(() => quoteLinesMissingSell(quoteItems), [quoteItems]);
+  const sellComplete = quoteItems.length > 0 && missingSellCount === 0;
+  const marginReady = quoteItems.length > 0 && !costGaps.incomplete && sellComplete;
+  const quoteHasServices = quoteItems.length > 0;
+  const pricedServiceCount = quoteItems.length - missingSellCount;
+  const partialSellOnly = quoteHasServices && missingSellCount > 0;
+  const quoteMinMarginPercent = parseMinMarginPercent(trip?.organization?.settingsJson);
+  const marginGateCount = useMemo(
+    () =>
+      canViewCost
+        ? countMarginPolicyViolations(quoteItems, quoteMinMarginPercent, {
+            ignoreOverridden: true,
+          })
+        : 0,
+    [quoteItems, canViewCost, quoteMinMarginPercent],
   );
-  const marginAmount = sellTotal - costTotal;
-  const marginPercent = sellTotal > 0 ? (marginAmount / sellTotal) * 100 : 0;
+  const missingPricingCount = useMemo(
+    () =>
+      quoteItems.filter(
+        (line) =>
+          line.unitSell == null || (canViewCost && line.unitCost == null),
+      ).length,
+    [quoteItems, canViewCost],
+  );
+  const needsAttentionCount = useMemo(
+    () =>
+      quoteItems.filter((line) => {
+        const missing =
+          line.rateUnmatched ||
+          line.unitSell == null ||
+          (canViewCost && line.unitCost == null);
+        const loss =
+          Boolean(canViewCost) &&
+          Boolean(
+            lineMarginPolicyViolation(
+              line.unitCost,
+              line.unitSell,
+              quoteMinMarginPercent,
+            ),
+          ) &&
+          !line.marginOverride?.reason?.trim();
+        return missing || loss;
+      }).length,
+    [quoteItems, canViewCost, quoteMinMarginPercent],
+  );
+  const existingQuoteLineIds = useMemo(
+    () => new Set(quoteItems.map((l) => l.id)),
+    [quoteItems],
+  );
 
   const destinations = placeRefsFromJson(trip?.destinationsJson);
   const destinationsLabel = destinations.map((d) => d.name).join(', ');
@@ -713,19 +1347,83 @@ export function TripWorkspacePage() {
     id: string;
     versionNumber: number;
     status: string;
+    versionLock?: number;
     sellTotal?: number | string;
     marginPercent?: number | string;
     costHidden?: boolean;
     itemsJson?: unknown;
     currency?: string;
+    validUntil?: string | null;
     inclusions?: string | null;
     exclusions?: string | null;
     terms?: string | null;
+    updatedAt?: string;
   }>;
   const selectedQuoteVersion =
     quoteVersions.find((v) => v.id === selectedQuoteVersionId) || quoteVersions[0] || null;
+  const quoteCurrency =
+    selectedQuoteVersion?.currency ||
+    trip?.organization?.currency ||
+    me?.organization?.currency ||
+    'INR';
   const quoteStatus = selectedQuoteVersion?.status || null;
   const quoteCan = quoteActionsForStatus(quoteStatus);
+  const canPreviewQuote = quoteHasServices && Boolean(selectedQuoteVersion);
+  const hasValidUntil = Boolean(quoteMeta.validUntil?.trim());
+  const pricingBlockedReason = quoteSendBlockedReason({
+    itemCount: quoteItems.length,
+    missingSellCount,
+    missingCostCount: costGaps.missingCount,
+    marginGateCount,
+    minMarginPercent: quoteMinMarginPercent,
+    canViewCost: Boolean(canViewCost),
+    hasValidUntil,
+    travellerCount,
+    statusAllowsSend: true,
+  });
+  const pricingBlockedIgnoringMargin = quoteSendBlockedReason({
+    itemCount: quoteItems.length,
+    missingSellCount,
+    missingCostCount: costGaps.missingCount,
+    marginGateCount: 0,
+    minMarginPercent: quoteMinMarginPercent,
+    canViewCost: Boolean(canViewCost),
+    hasValidUntil,
+    travellerCount,
+    statusAllowsSend: true,
+  });
+  const sendBlockedReason =
+    !selectedQuoteVersion || !quoteCan.has('send')
+      ? selectedQuoteVersion
+        ? 'This version cannot be sent yet'
+        : 'Save a draft before sending'
+      : pricingBlockedReason;
+  const canSendQuote = !sendBlockedReason;
+  /** Pricing complete except margin policy — Send should open override, not stay dead. */
+  const canSendViaMarginOverride =
+    Boolean(selectedQuoteVersion) &&
+    quoteCan.has('send') &&
+    !pricingBlockedIgnoringMargin &&
+    marginGateCount > 0;
+  const canClickSend = canSendQuote || canSendViaMarginOverride;
+  const canRequestApproval =
+    quoteCan.has('requestApproval') && !pricingBlockedReason;
+  const canClickRequestApproval =
+    (quoteCan.has('requestApproval') && canRequestApproval) ||
+    (quoteCan.has('requestApproval') &&
+      !pricingBlockedIgnoringMargin &&
+      marginGateCount > 0);
+  const quoteReady = quoteReadinessLabel({
+    itemCount: quoteItems.length,
+    missingSellCount,
+    missingCostCount: costGaps.missingCount,
+    marginGateCount,
+    minMarginPercent: quoteMinMarginPercent,
+    costIncomplete: costGaps.incomplete,
+    canViewCost: Boolean(canViewCost),
+    hasValidUntil,
+    canSend: canSendQuote,
+  });
   const quoteReadOnly = Boolean(
     !canQuoteWrite ||
       (selectedQuoteVersion &&
@@ -752,8 +1450,26 @@ export function TripWorkspacePage() {
   function selectQuoteVersion(version: (typeof quoteVersions)[0]) {
     quoteHydrated.current = false;
     setSelectedQuoteVersionId(version.id);
+    selectedQuoteVersionIdRef.current = version.id;
+    writeQuoteQuery(selectedQuotationIdRef.current, version.id);
+    quoteLockRef.current =
+      typeof version.versionLock === 'number' ? version.versionLock : null;
+    const validityDays = quoteValidityDaysFromSettings(trip?.organization?.settingsJson);
+    let validUntil = version.validUntil ? String(version.validUntil).slice(0, 10) : '';
+    let terms = String(version.terms || '');
+    if (!validUntil) {
+      validUntil = defaultValidUntilIso(validityDays);
+      terms = syncTermsWithValidUntil(terms, validUntil);
+    }
     setQuoteItems(quoteLinesFromVersion(version));
+    setQuoteMeta({
+      inclusions: String(version.inclusions || ''),
+      exclusions: String(version.exclusions || ''),
+      terms,
+      validUntil,
+    });
     setQuoteSaveState('idle');
+    setQuoteSaveError(null);
     setQuoteSavedAt(null);
     requestAnimationFrame(() => {
       quoteHydrated.current = true;
@@ -788,18 +1504,7 @@ export function TripWorkspacePage() {
       toastError('Add at least one quote line first');
       return;
     }
-    const allowedUnits = new Set(['per_person', 'per_room', 'per_service', 'package']);
-    const items = quoteItems.map((item) => ({
-      id: item.id,
-      description: item.description,
-      quantity: item.quantity,
-      unitCost: item.unitCost,
-      unitSell: item.unitSell,
-      taxPercent: item.taxPercent,
-      pricingUnit: allowedUnits.has(item.pricingUnit) ? item.pricingUnit : 'per_service',
-      ...(item.rateKind ? { rateKind: item.rateKind } : {}),
-      ...(item.rateId ? { rateId: item.rateId } : {}),
-    }));
+    const items = quoteItems.map((item) => serializeQuoteLine(item));
     const latest = selectedQuoteVersion;
     const orgCurrency = (trip?.organization?.currency ||
       me?.organization?.currency ||
@@ -815,6 +1520,7 @@ export function TripWorkspacePage() {
         quotationId = created.id;
       }
       setSelectedQuotationId(quotationId);
+      selectedQuotationIdRef.current = quotationId;
       const version = await api<{ id: string; versionNumber: number }>(
         `/trips/${id}/quotations/${quotationId}/versions`,
         {
@@ -825,6 +1531,7 @@ export function TripWorkspacePage() {
             inclusions: quoteMeta.inclusions || latest?.inclusions || null,
             exclusions: quoteMeta.exclusions || latest?.exclusions || null,
             terms: quoteMeta.terms || latest?.terms || null,
+            validUntil: quoteMeta.validUntil || latest?.validUntil || null,
             discountTotal: 0,
           }),
         },
@@ -836,6 +1543,7 @@ export function TripWorkspacePage() {
       );
       selectedQuoteVersionIdRef.current = version.id;
       setSelectedQuoteVersionId(version.id);
+      writeQuoteQuery(quotationId, version.id);
       await load();
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Could not save quote');
@@ -852,8 +1560,10 @@ export function TripWorkspacePage() {
         resumed?: boolean;
       }>(`/trips/${id}/quotations/from-accepted`, { method: 'POST' });
       setSelectedQuotationId(quotation.id);
+      selectedQuotationIdRef.current = quotation.id;
       selectedQuoteVersionIdRef.current = quotation.versions?.[0]?.id ?? null;
       setSelectedQuoteVersionId(quotation.versions?.[0]?.id ?? null);
+      writeQuoteQuery(quotation.id, quotation.versions?.[0]?.id ?? null);
       toastSuccess(
         quotation.resumed
           ? 'Resumed existing revision draft'
@@ -865,26 +1575,158 @@ export function TripWorkspacePage() {
     }
   }
 
+  async function cloneActiveQuotation() {
+    const quotationId = activeQuotation?.id;
+    if (!id || !quotationId) {
+      toastError('Save or select a quotation first');
+      return;
+    }
+    setCloningQuote(true);
+    try {
+      const quotation = await api<{
+        id: string;
+        quoteNumber?: string;
+        versions?: Array<{ id: string }>;
+      }>(`/trips/${id}/quotations/${quotationId}/clone`, {
+        method: 'POST',
+        body: JSON.stringify({
+          versionId: selectedQuoteVersion?.id || undefined,
+        }),
+      });
+      setSelectedQuotationId(quotation.id);
+      selectedQuotationIdRef.current = quotation.id;
+      selectedQuoteVersionIdRef.current = quotation.versions?.[0]?.id ?? null;
+      setSelectedQuoteVersionId(quotation.versions?.[0]?.id ?? null);
+      writeQuoteQuery(quotation.id, quotation.versions?.[0]?.id ?? null);
+      toastSuccess(
+        quotation.quoteNumber
+          ? `Cloned as ${quotation.quoteNumber}`
+          : 'Quotation cloned as new draft',
+      );
+      await load();
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not clone quotation');
+    } finally {
+      setCloningQuote(false);
+    }
+  }
+
+  async function openUseTemplateDialog() {
+    setUseTemplateOpen(true);
+    setLoadingTemplates(true);
+    try {
+      const res = await api<{ items: typeof quoteTemplates }>('/quote-templates');
+      setQuoteTemplates(res.items || []);
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not load templates');
+      setQuoteTemplates([]);
+    } finally {
+      setLoadingTemplates(false);
+    }
+  }
+
+  async function saveCurrentAsTemplate() {
+    const name = templateName.trim();
+    if (!name) {
+      toastError('Enter a template name');
+      return;
+    }
+    setSavingTemplate(true);
+    try {
+      const items = quoteItems.map((item) => serializeQuoteLine(item));
+      if (selectedQuoteVersion?.id && items.length === 0 && !quoteMeta.inclusions) {
+        await api('/quote-templates', {
+          method: 'POST',
+          body: JSON.stringify({ name, versionId: selectedQuoteVersion.id }),
+        });
+      } else {
+        await api('/quote-templates', {
+          method: 'POST',
+          body: JSON.stringify({
+            name,
+            contentJson: {
+              currency:
+                (selectedQuoteVersion as { currency?: string } | null)?.currency ||
+                trip?.organization?.currency ||
+                'INR',
+              items,
+              inclusions: quoteMeta.inclusions || undefined,
+              exclusions: quoteMeta.exclusions || undefined,
+              terms: quoteMeta.terms || null,
+              destinationHint: destinations[0]?.name || undefined,
+            },
+            ...(selectedQuoteVersion?.id && items.length === 0
+              ? { versionId: selectedQuoteVersion.id }
+              : {}),
+          }),
+        });
+      }
+      toastSuccess(`Template “${name}” saved`);
+      setSaveTemplateOpen(false);
+      setTemplateName('');
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not save template');
+    } finally {
+      setSavingTemplate(false);
+    }
+  }
+
+  async function applyQuoteTemplate(templateId: string) {
+    if (!id) return;
+    setApplyingTemplateId(templateId);
+    try {
+      const quotation = await api<{
+        id: string;
+        quoteNumber?: string;
+        versions?: Array<{ id: string }>;
+      }>(`/trips/${id}/quotations/from-template`, {
+        method: 'POST',
+        body: JSON.stringify({ templateId }),
+      });
+      setSelectedQuotationId(quotation.id);
+      selectedQuotationIdRef.current = quotation.id;
+      selectedQuoteVersionIdRef.current = quotation.versions?.[0]?.id ?? null;
+      setSelectedQuoteVersionId(quotation.versions?.[0]?.id ?? null);
+      writeQuoteQuery(quotation.id, quotation.versions?.[0]?.id ?? null);
+      setUseTemplateOpen(false);
+      toastSuccess(
+        quotation.quoteNumber
+          ? `Started ${quotation.quoteNumber} from template`
+          : 'Quotation created from template',
+      );
+      await load();
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not apply template');
+    } finally {
+      setApplyingTemplateId(null);
+    }
+  }
+
   function selectQuotation(quotationId: string) {
     const q = (trip?.quotations || []).find((x: any) => x.id === quotationId);
     if (!q) return;
     setSelectedQuotationId(quotationId);
+    selectedQuotationIdRef.current = quotationId;
     const versions = (q.versions || []) as Array<{
       id: string;
       status: string;
       inclusions?: string | null;
       exclusions?: string | null;
       terms?: string | null;
+      validUntil?: string | null;
     }>;
     const target =
       versions.find((v) => EDITABLE_QUOTE_STATUSES.has(v.status)) || versions[0] || null;
     quoteHydrated.current = false;
     setSelectedQuoteVersionId(target?.id ?? null);
+    selectedQuoteVersionIdRef.current = target?.id ?? null;
+    writeQuoteQuery(quotationId, target?.id ?? null);
     setQuoteItems(target ? quoteLinesFromVersion(target) : EMPTY_QUOTE_LINES);
     setQuoteMeta({
       inclusions: String(target?.inclusions || ''),
       exclusions: String(target?.exclusions || ''),
       terms: String(target?.terms || ''),
+      validUntil: target?.validUntil ? String(target.validUntil).slice(0, 10) : '',
     });
     setQuoteSaveState('idle');
     setQuoteSavedAt(null);
@@ -954,173 +1796,148 @@ export function TripWorkspacePage() {
     }
   }
 
-  async function addQuoteLinesFromItinerary() {
-    const pending: Array<{
-      line: QuoteLine;
-      resolveItem?: {
-        itemId: string;
-        type: string;
-        date?: string | null;
-        details?: Record<string, unknown>;
-      };
-    }> = [];
-    for (const day of days) {
-      for (const item of day.items || []) {
-        if (item.customerVisible === false) continue;
-        if (item.type === 'note' || item.type === 'free_time') continue;
-        const type = item.type === 'activity' ? 'sightseeing' : item.type;
-        const pricingUnit =
-          type === 'hotel'
-            ? 'per_room'
-            : type === 'meal' || type === 'sightseeing'
-              ? 'per_person'
-              : 'per_service';
-        const lineId = `itin-${item.id}`;
-        const line: QuoteLine = {
-          id: lineId,
-          description: quoteLineDescription(day.dayNumber, item),
-          quantity: 1,
-          unitCost: 0,
-          unitSell: 0,
-          taxPercent: 0,
-          pricingUnit,
-        };
-        if (type === 'hotel' || type === 'transfer') {
-          pending.push({
-            line,
-            resolveItem: {
-              itemId: lineId,
-              type,
-              date: day.date || trip?.startDate || null,
-              details: {
-                supplierId: item.details?.supplierId,
-                placeId:
-                  item.details?.catalogPlaceId ||
-                  toPlaceRef(item.location)?.placeId ||
-                  toPlaceRef(day.destination)?.placeId ||
-                  undefined,
-                roomType: item.details?.roomType,
-                nights: item.details?.nights,
-                vehicleTypeId: item.details?.vehicleTypeId,
-                fromPlaceId: item.details?.fromPlaceId,
-                toPlaceId: item.details?.toPlaceId,
-              },
-            },
-          });
-        } else {
-          pending.push({ line });
-        }
-      }
-    }
-    if (!pending.length) {
-      toastError('Add itinerary items first');
-      return;
-    }
-    const existing = new Set(quoteItems.map((p) => p.id));
-    const freshPending = pending.filter((p) => !existing.has(p.line.id));
-    if (!freshPending.length) {
-      toastError('Those itinerary items are already on the quote');
-      changeTab('quotations');
+  function openImportItineraryReview() {
+    setImportReviewOpen(true);
+  }
+
+  async function confirmImportFromItinerary(selected: QuoteImportCandidate[]) {
+    if (!selected.length) {
+      toastError('Select at least one commercial service');
       return;
     }
 
-    const toResolve = freshPending
-      .map((p) => p.resolveItem)
-      .filter((x): x is NonNullable<typeof x> => Boolean(x));
-    let resolveMap = new Map<string, RateResolveRow>();
     const partyAdults = Number(trip?.inquiry?.adults) || 0;
     const partyChildren = Number(trip?.inquiry?.children) || 0;
-    const partyInfants = Number(trip?.inquiry?.infants) || 0;
-    if (toResolve.length) {
-      try {
-        const res = await api<{
-          items: RateResolveRow[];
-          matchedCount: number;
-          unmatchedCount: number;
-        }>('/rates/resolve', {
-          method: 'POST',
-          body: JSON.stringify({
-            startDate: trip?.startDate || undefined,
-            adults: partyAdults || undefined,
-            children: partyChildren || undefined,
-            infants: partyInfants || undefined,
-            items: toResolve,
-          }),
-        });
-        resolveMap = new Map(res.items.map((r) => [r.itemId, r]));
-      } catch (e) {
-        toastError(
-          e instanceof Error ? e.message : 'Could not price from rate directory',
-        );
-      }
-    }
-
     let matched = 0;
     let unmatched = 0;
-    let partyPriced = 0;
-    const fresh = freshPending.map(({ line, resolveItem }) => {
-      if (!resolveItem) return line;
-      const hit = resolveMap.get(line.id);
-      if (!hit) {
-        unmatched += 1;
-        return { ...line, rateKind: resolveItem.type as 'hotel' | 'transfer', rateUnmatched: true };
-      }
-      if (hit.matched) {
-        matched += 1;
-        if (
-          hit.rateMeta &&
-          typeof hit.rateMeta === 'object' &&
-          (hit.rateMeta as { pricingMode?: string }).pricingMode === 'per_adult'
-        ) {
-          partyPriced += 1;
+    let rateLookups = 0;
+
+    const fresh = selected.map((c) => {
+      const pricingUnit =
+        c.serviceType === 'hotel'
+          ? 'per_room'
+          : c.serviceType === 'meal' || c.serviceType === 'activity'
+            ? 'per_person'
+            : 'per_service';
+      const detailsRaw = detailsFromImportCandidate(c);
+      if (c.serviceType === 'hotel' || c.serviceType === 'activity') {
+        if (partyAdults > 0 && detailsRaw.adults == null) detailsRaw.adults = partyAdults;
+        if (partyChildren > 0 && detailsRaw.children == null) {
+          detailsRaw.children = partyChildren;
         }
-      } else unmatched += 1;
+      }
+      const details = detailsFromResolveRecord(detailsRaw);
+      const preview = c.ratePreview;
+      const line: QuoteLine = {
+        id: c.lineId,
+        description: `Day ${c.dayNumber}: ${c.title}`,
+        quantity: 1,
+        unitCost: null,
+        unitSell: null,
+        taxPercent: 0,
+        pricingUnit,
+        serviceType: c.serviceType,
+        details,
+      };
+
+      if (!c.resolveItem) return line;
+      rateLookups += 1;
+
+      if (preview?.status === 'matched') {
+        matched += 1;
+        const qty = preview.quantity || line.quantity;
+        const cost = preview.unitCost ?? null;
+        const sell = preview.unitSell ?? null;
+        let markupPercent: number | undefined;
+        if (cost != null && cost > 0 && sell != null) {
+          markupPercent = Math.round(((sell - cost) / cost) * 1000) / 10;
+        }
+        return {
+          ...line,
+          quantity: qty,
+          unitCost: cost,
+          unitSell: sell,
+          taxPercent: preview.taxPercent ?? 0,
+          pricingUnit: QUOTE_PRICING_UNITS.has(preview.pricingUnit || '')
+            ? (preview.pricingUnit as QuoteLine['pricingUnit'])
+            : line.pricingUnit,
+          rateKind: preview.rateKind || (c.resolveItem.type as 'hotel' | 'transfer'),
+          rateId: preview.rateId || undefined,
+          rateUnmatched: false,
+          details: details
+            ? {
+                ...details,
+                priceSource: 'matched' as const,
+                ...(markupPercent != null
+                  ? { markupMode: 'percent' as const, markupValue: markupPercent }
+                  : {}),
+              }
+            : details,
+        };
+      }
+
+      unmatched += 1;
       return {
         ...line,
-        quantity: hit.quantity || line.quantity,
-        unitCost: hit.unitCost,
-        unitSell: hit.unitSell,
-        taxPercent: hit.taxPercent,
-        pricingUnit: QUOTE_PRICING_UNITS.has(hit.pricingUnit)
-          ? hit.pricingUnit
-          : line.pricingUnit,
-        rateKind: hit.rateKind || undefined,
-        rateId: hit.rateId || undefined,
-        rateUnmatched: !hit.matched,
+        rateKind: c.resolveItem.type as 'hotel' | 'transfer',
+        rateUnmatched: true,
+        unitCost: null,
+        unitSell: null,
+        details: details
+          ? {
+              ...details,
+              priceSource:
+                preview?.status === 'unmatched' || preview?.status === 'error'
+                  ? ('none' as const)
+                  : details.priceSource,
+            }
+          : details,
       };
     });
 
     setQuoteItems((prev) => [...prev, ...fresh]);
-    const pricedNote =
-      toResolve.length > 0
-        ? ` · ${matched} priced from rates${unmatched ? ` · ${unmatched} unmatched` : ''}${
-            partyPriced
-              ? ` · ${partyPriced} party-based`
-              : ''
-          }`
-        : '';
-    toastSuccess(`Added ${fresh.length} line(s) from itinerary${pricedNote}`);
+    toastSuccess(
+      `Imported ${fresh.length} commercial service${fresh.length === 1 ? '' : 's'}` +
+        (rateLookups
+          ? ` · ${matched} rate-matched${unmatched ? ` · ${unmatched} need rates` : ''}`
+          : ''),
+    );
     changeTab('quotations');
   }
 
-  async function refreshPricesFromRates() {
+  async function refreshPricesFromRates(lineIds?: string[]) {
     if (quoteReadOnly) {
       toastError('Switch to a draft version to refresh prices');
       return;
     }
-    const pricedCandidates = quoteItems.filter(
-      (line) =>
+    const targetIds = lineIds ? new Set(lineIds) : null;
+    const pricedCandidates = quoteItems.filter((line) => {
+      if (targetIds && !targetIds.has(line.id)) return false;
+      return (
         line.rateKind === 'hotel' ||
         line.rateKind === 'transfer' ||
-        line.id.startsWith('itin-'),
-    );
+        line.id.startsWith('itin-')
+      );
+    });
     if (!pricedCandidates.length) {
-      toastError('No hotel/transfer lines to refresh — add from itinerary first');
+      toastError(
+        targetIds
+          ? 'Could not match this line back to an itinerary hotel/transfer'
+          : 'No hotel/transfer lines to refresh — add from itinerary first',
+      );
       return;
     }
 
     const resolveItems = pricedCandidates
       .map((line) => {
+        const fromDetails = resolvePayloadFromQuoteDetails(
+          line.id,
+          line.serviceType || line.rateKind,
+          line.details,
+          trip?.startDate,
+        );
+        if (fromDetails) return fromDetails;
+
         const itinId = line.id.startsWith('itin-') ? line.id.slice(5) : null;
         let dayItem: { item: ItineraryDay['items'][0]; day: ItineraryDay } | null =
           null;
@@ -1179,30 +1996,44 @@ export function TripWorkspacePage() {
         }),
       });
       const map = new Map(res.items.map((r) => [r.itemId, r]));
+      const markupDefault = quoteDefaultMarkupPercent();
       setQuoteItems((prev) =>
         prev.map((line) => {
           const hit = map.get(line.id);
           if (!hit) return line;
-          if (!hit.matched) {
-            return {
-              ...line,
-              rateKind: hit.rateKind || line.rateKind,
-              rateId: undefined,
-              rateUnmatched: true,
-            };
-          }
+          const resolveRow = resolveItems.find((r) => r.itemId === line.id);
+          const baseDetails =
+            line.details ||
+            detailsFromResolveRecord(
+              resolveRow?.details as Record<string, unknown> | undefined,
+            );
+          const serviceType =
+            line.serviceType ||
+            line.rateKind ||
+            (hit.rateKind === 'hotel' || hit.rateKind === 'transfer'
+              ? hit.rateKind
+              : undefined);
+          const applied = applyRateResolveHit({
+            serviceType,
+            details: baseDetails,
+            hit,
+            defaultMarkupPercent: markupDefault,
+            previousUnitSell: line.unitSell,
+            forceSell: !line.details?.sellManual,
+          });
           return {
             ...line,
-            quantity: hit.quantity || line.quantity,
-            unitCost: hit.unitCost,
-            unitSell: hit.unitSell,
-            taxPercent: hit.taxPercent,
-            pricingUnit: QUOTE_PRICING_UNITS.has(hit.pricingUnit)
-              ? hit.pricingUnit
+            details: applied.details,
+            quantity: applied.quantity,
+            unitCost: applied.unitCost,
+            unitSell: applied.unitSell,
+            taxPercent: applied.taxPercent,
+            pricingUnit: QUOTE_PRICING_UNITS.has(applied.pricingUnit || '')
+              ? (applied.pricingUnit as QuoteLine['pricingUnit'])
               : line.pricingUnit,
-            rateKind: hit.rateKind || undefined,
-            rateId: hit.rateId || undefined,
-            rateUnmatched: false,
+            rateKind: applied.rateKind || line.rateKind,
+            rateId: applied.rateId,
+            rateUnmatched: applied.rateUnmatched,
           };
         }),
       );
@@ -1223,6 +2054,10 @@ export function TripWorkspacePage() {
       toastError('Enter a recipient email');
       return;
     }
+    if (!canSendQuote) {
+      toastError(sendBlockedReason || 'Complete pricing before sending');
+      return;
+    }
     try {
       await api(`/quotations/${version.id}/send`, {
         method: 'POST',
@@ -1236,9 +2071,61 @@ export function TripWorkspacePage() {
     }
   }
 
+  function marginGateLineIds() {
+    return quoteItems
+      .filter((line) => {
+        const v = lineMarginPolicyViolation(
+          line.unitCost,
+          line.unitSell,
+          quoteMinMarginPercent,
+        );
+        return Boolean(v) && !line.marginOverride?.reason?.trim();
+      })
+      .map((line) => line.id);
+  }
+
+  function openMarginOverrideDialog(pending: 'send' | 'requestApproval' | null) {
+    if (!canOverrideBelowMargin) {
+      toastError(
+        quoteMinMarginPercent > 0
+          ? `Services below the ${quoteMinMarginPercent}% margin floor need a manager with below-margin approval. Adjust sell prices or ask them to override selected services.`
+          : 'Selling below cost requires a manager with below-margin approval. Adjust sell prices or ask them to override selected services.',
+      );
+      return;
+    }
+    const ids = marginGateLineIds();
+    if (!ids.length) {
+      toastError('No services breach margin policy');
+      return;
+    }
+    setMarginOverridePending(pending);
+    setMarginOverrideReason('');
+    setMarginOverrideLineIds(ids);
+    setMarginOverrideOpen(true);
+  }
+
   async function requestApproval() {
     const version = requireSelectedQuoteVersion();
     if (!version) return;
+    if (!canRequestApproval) {
+      const withoutLoss = quoteSendBlockedReason({
+        itemCount: quoteItems.length,
+        missingSellCount,
+        missingCostCount: costGaps.missingCount,
+        marginGateCount: 0,
+        minMarginPercent: quoteMinMarginPercent,
+        canViewCost: Boolean(canViewCost),
+        hasValidUntil,
+        travellerCount,
+        statusAllowsSend: true,
+      });
+      if (!withoutLoss && marginGateCount > 0) {
+        openMarginOverrideDialog('requestApproval');
+        return;
+      }
+      toastError(pricingBlockedReason || 'Complete pricing before requesting approval');
+      return;
+    }
     try {
       await api(`/quotations/${version.id}/request-approval`, { method: 'POST' });
       toastSuccess('Approval requested');
@@ -1246,6 +2133,223 @@ export function TripWorkspacePage() {
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Could not request approval');
     }
+  }
+
+  function openSendFlow() {
+    if (!selectedQuoteVersion || !quoteCan.has('send')) {
+      toastError(sendBlockedReason || 'Complete pricing before sending');
+      return;
+    }
+    if (canSendQuote) {
+      setSendEmail(trip?.party?.email || sendEmail);
+      setSendOpen(true);
+      return;
+    }
+    const withoutLoss = quoteSendBlockedReason({
+      itemCount: quoteItems.length,
+      missingSellCount,
+      missingCostCount: costGaps.missingCount,
+      marginGateCount: 0,
+      minMarginPercent: quoteMinMarginPercent,
+      canViewCost: Boolean(canViewCost),
+      hasValidUntil,
+      travellerCount,
+      statusAllowsSend: true,
+    });
+    if (!withoutLoss && marginGateCount > 0) {
+      openMarginOverrideDialog('send');
+      return;
+    }
+    toastError(sendBlockedReason || 'Complete pricing before sending');
+  }
+
+  async function applyNegativeMarginOverride() {
+    const reason = marginOverrideReason.trim();
+    if (!reason) {
+      toastError('Enter a reason for selling below cost');
+      return;
+    }
+    if (!canOverrideBelowMargin) {
+      toastError('You need below-margin approval permission');
+      return;
+    }
+    if (!marginOverrideLineIds.length) {
+      toastError('Select at least one loss-making service');
+      return;
+    }
+    const version = requireSelectedQuoteVersion();
+    if (!version) return;
+    const pending = marginOverridePending;
+    setMarginOverrideSaving(true);
+    try {
+      const updated = await api<{
+        id: string;
+        versionLock?: number;
+        itemsJson?: unknown;
+      }>(`/quotations/${version.id}/margin-overrides`, {
+        method: 'POST',
+        body: JSON.stringify({
+          reason,
+          lineIds: marginOverrideLineIds,
+        }),
+      });
+      if (typeof updated.versionLock === 'number') {
+        quoteLockRef.current = updated.versionLock;
+      }
+      setQuoteItems(quoteLinesFromVersion(updated));
+      setTrip((prev: any) => {
+        if (!prev) return prev;
+        const quotations = (prev.quotations || []).map((q: any) => {
+          const versions = (q.versions || []).map((v: any) =>
+            v.id === updated.id ? { ...v, ...updated } : v,
+          );
+          return { ...q, versions };
+        });
+        return { ...prev, quotations };
+      });
+      setMarginOverrideOpen(false);
+      setMarginOverrideReason('');
+      const overriddenCount = marginOverrideLineIds.length;
+      setMarginOverrideLineIds([]);
+      setMarginOverridePending(null);
+      toastSuccess(
+        `Override recorded for ${overriddenCount} service${overriddenCount === 1 ? '' : 's'}`,
+      );
+      if (pending === 'send') {
+        setSendEmail(trip?.party?.email || sendEmail);
+        setSendOpen(true);
+        return;
+      }
+      if (pending === 'requestApproval') {
+        try {
+          await api(`/quotations/${version.id}/request-approval`, { method: 'POST' });
+          toastSuccess('Approval requested');
+          await load();
+        } catch (e) {
+          toastError(e instanceof Error ? e.message : 'Could not request approval');
+        }
+      }
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not record margin override');
+    } finally {
+      setMarginOverrideSaving(false);
+    }
+  }
+
+  function addBlankQuoteLine() {
+    if (!quoteCan.has('addLines') || quoteReadOnly) return;
+    setQuoteItems((prev) => [
+      ...prev,
+      {
+        id: `line-${Date.now()}`,
+        description: 'New service',
+        quantity: 1,
+        unitCost: null,
+        unitSell: null,
+        taxPercent: 5,
+        pricingUnit: 'per_service',
+        serviceType: 'custom',
+      },
+    ]);
+  }
+
+  function markLineIncluded(id: string) {
+    setQuoteItems((prev) =>
+      prev.map((line) =>
+        line.id === id
+          ? {
+              ...line,
+              unitCost: 0,
+              unitSell: 0,
+              rateUnmatched: false,
+              rateId: undefined,
+              includedMeta: {
+                at: new Date().toISOString(),
+                reason: 'Marked as included (no customer charge)',
+                previousUnitCost: line.unitCost,
+                previousUnitSell: line.unitSell,
+                byUserId: me?.id,
+              },
+            }
+          : line,
+      ),
+    );
+    toastSuccess('Marked as included (₹0)');
+  }
+
+  function confirmMarkUnpricedAsIncluded() {
+    const targets = quoteItems.filter(
+      (line) => line.unitSell == null || (canViewCost && line.unitCost == null),
+    );
+    if (!targets.length) {
+      toastError('No unpriced services to mark');
+      setIncludedConfirmOpen(false);
+      return;
+    }
+    const ids = new Set(targets.map((t) => t.id));
+    const at = new Date().toISOString();
+    setQuoteItems((prev) =>
+      prev.map((line) =>
+        ids.has(line.id)
+          ? {
+              ...line,
+              unitCost: line.unitCost == null ? 0 : line.unitCost,
+              unitSell: line.unitSell == null ? 0 : line.unitSell,
+              rateUnmatched: false,
+              includedMeta: {
+                at,
+                reason: 'Bulk marked as included — appears on proposal without increasing total',
+                previousUnitCost: line.unitCost,
+                previousUnitSell: line.unitSell,
+                byUserId: me?.id,
+              },
+            }
+          : line,
+      ),
+    );
+    setIncludedConfirmOpen(false);
+    toastSuccess(
+      `${targets.length} service${targets.length === 1 ? '' : 's'} marked as included (₹0)`,
+    );
+  }
+
+  function confirmApplyDefaultMarkup(markupPercent = 20) {
+    const targets = quoteItems.filter(
+      (line) => line.unitCost != null && line.unitSell == null,
+    );
+    if (!targets.length) {
+      toastError('No lines with cost and missing sell price');
+      setMarkupConfirmOpen(false);
+      return;
+    }
+    const ids = new Set(targets.map((t) => t.id));
+    setQuoteItems((prev) =>
+      prev.map((line) => {
+        if (!ids.has(line.id) || line.unitCost == null) return line;
+        const sell =
+          Math.round(line.unitCost * (1 + markupPercent / 100) * 100) / 100;
+        return { ...line, unitSell: sell, rateUnmatched: false };
+      }),
+    );
+    setMarkupConfirmOpen(false);
+    toastSuccess(
+      `Applied ${markupPercent}% markup to ${targets.length} service${targets.length === 1 ? '' : 's'}`,
+    );
+  }
+
+  function markUnpricedAsIncluded() {
+    setIncludedConfirmOpen(true);
+  }
+
+  function applyDefaultMarkup() {
+    const targets = quoteItems.filter(
+      (line) => line.unitCost != null && line.unitSell == null,
+    );
+    if (!targets.length) {
+      toastError('No lines with cost and missing sell price');
+      return;
+    }
+    setMarkupConfirmOpen(true);
   }
 
   async function pdfLatest() {
@@ -1275,8 +2379,99 @@ export function TripWorkspacePage() {
     }
   }
 
+  async function savePdfToDrive() {
+    const version = requireSelectedQuoteVersion();
+    if (!version) return;
+    try {
+      const res = await api<{ drive?: { webViewLink?: string; name?: string } }>(
+        `/quotations/${version.id}/save-to-drive`,
+        { method: 'POST' },
+      );
+      toastSuccess(
+        res.drive?.name ? `Saved to Drive: ${res.drive.name}` : 'Proposal saved to Google Drive',
+      );
+      if (res.drive?.webViewLink) {
+        window.open(res.drive.webViewLink, '_blank', 'noopener,noreferrer');
+      }
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not save to Drive');
+    }
+  }
+
+  function quoteDefaultMarkupPercent(): number {
+    const settings = trip?.organization?.settingsJson as
+      | { defaultMarkupPercent?: number }
+      | null
+      | undefined;
+    const n = Number(settings?.defaultMarkupPercent);
+    return Number.isFinite(n) ? n : 20;
+  }
+
   function updateQuoteLine(id: string, patch: Partial<(typeof quoteItems)[0]>) {
-    setQuoteItems((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+    setQuoteItems((prev) =>
+      prev.map((item) => {
+        if (item.id !== id) return item;
+        let next = { ...item, ...patch };
+
+        // Typing sell in the table marks it manual so cost edits do not overwrite it.
+        // Clearing sell re-enables auto markup from cost.
+        if ('unitSell' in patch && !('unitCost' in patch)) {
+          next.details = {
+            ...(next.details || {}),
+            sellManual: patch.unitSell != null,
+          };
+        }
+
+        // Entering / changing cost auto-fills sell from markup unless sell was typed manually.
+        if ('unitCost' in patch && !('unitSell' in patch)) {
+          const cost = next.unitCost;
+          const sellManual = Boolean(next.details?.sellManual);
+          const markupPercent =
+            next.details?.markupMode === 'fixed'
+              ? quoteDefaultMarkupPercent()
+              : next.details?.markupValue ?? quoteDefaultMarkupPercent();
+          if (cost != null && Number.isFinite(cost) && !sellManual) {
+            const sell =
+              next.details?.markupMode === 'fixed'
+                ? Math.round((cost + (next.details?.markupValue ?? 0)) * 100) / 100
+                : Math.round(cost * (1 + markupPercent / 100) * 100) / 100;
+            next = {
+              ...next,
+              unitSell: sell,
+              rateUnmatched: false,
+              details: {
+                ...(next.details || {}),
+                markupMode: next.details?.markupMode || 'percent',
+                markupValue:
+                  next.details?.markupMode === 'fixed'
+                    ? next.details?.markupValue
+                    : markupPercent,
+                sellManual: false,
+              },
+            };
+          }
+        }
+
+        if ('unitCost' in patch || 'unitSell' in patch) {
+          const violation = lineMarginPolicyViolation(
+            next.unitCost,
+            next.unitSell,
+            quoteMinMarginPercent,
+          );
+          if (!violation) {
+            next.marginOverride = undefined;
+          } else if (
+            next.marginOverride &&
+            (next.marginOverride.unitCost !== next.unitCost ||
+              next.marginOverride.unitSell !== next.unitSell)
+          ) {
+            // Prices changed after override — require a fresh authorisation.
+            next.marginOverride = undefined;
+          }
+        }
+        return next;
+      }),
+    );
   }
 
   function removeQuoteLine(id: string) {
@@ -1330,103 +2525,310 @@ export function TripWorkspacePage() {
       {
         accessorKey: 'description',
         header: 'Description',
-        size: 220,
-        cell: ({ row }) => (
-          <div className="space-y-0.5">
-            <Input
-              value={row.original.description}
-              disabled={quoteReadOnly}
-              onChange={(e) =>
-                updateQuoteLine(row.original.id, { description: e.target.value })
-              }
-            />
-            {row.original.rateUnmatched ? (
-              <p className="text-[10px] text-amber-700 dark:text-amber-400">
-                No rate card match
-              </p>
-            ) : row.original.rateId ? (
-              <p className="text-[10px] text-muted-foreground">From rate directory</p>
-            ) : null}
-          </div>
-        ),
+        size: 200,
+        minSize: 120,
+        meta: { fill: true },
+        cell: ({ row }) => {
+          const violation = canViewCost
+            ? lineMarginPolicyViolation(
+                row.original.unitCost,
+                row.original.unitSell,
+                quoteMinMarginPercent,
+              )
+            : null;
+          const badgeTitle = violation
+            ? violation.kind === 'loss'
+              ? `Sell is ${formatCurrency(violation.belowBy)} below cost · Profit ${formatCurrency(violation.profit)} · Margin ${formatPercent(violation.marginPercent)}`
+              : `Margin ${formatPercent(violation.marginPercent)} is below the ${violation.floorPercent}% floor · Profit ${formatCurrency(violation.profit)}`
+            : undefined;
+          const summary = quoteServiceDetailsSummary(
+            row.original.serviceType || row.original.rateKind,
+            row.original.details,
+          );
+          const statusBits = (
+            <>
+              {violation?.kind === 'loss' ? (
+                <BrandTooltip
+                  label={badgeTitle}
+                  side="top"
+                  align="start"
+                  className="max-w-xs whitespace-normal break-words text-left font-normal leading-snug"
+                >
+                  <span className="rounded bg-destructive/15 px-1.5 py-px text-[10px] font-medium text-destructive">
+                    Loss
+                  </span>
+                </BrandTooltip>
+              ) : violation?.kind === 'below_floor' ? (
+                <BrandTooltip
+                  label={badgeTitle}
+                  side="top"
+                  align="start"
+                  className="max-w-xs whitespace-normal break-words text-left font-normal leading-snug"
+                >
+                  <span className="rounded bg-amber-500/15 px-1.5 py-px text-[10px] font-medium text-amber-800 dark:text-amber-300">
+                    Below floor
+                  </span>
+                </BrandTooltip>
+              ) : null}
+              {row.original.marginOverride?.reason?.trim() ? (
+                <BrandTooltip
+                  label={row.original.marginOverride.reason}
+                  side="top"
+                  align="start"
+                  className="max-w-xs whitespace-normal break-words text-left font-normal leading-snug"
+                >
+                  <span className="text-[10px] text-muted-foreground">Override</span>
+                </BrandTooltip>
+              ) : null}
+              {row.original.details?.priceSource === 'expired' ? (
+                <span className="text-[10px] text-amber-700 dark:text-amber-400">Rematch</span>
+              ) : row.original.details?.priceSource === 'manual' ||
+                row.original.details?.priceSource === 'overridden' ? (
+                <span className="text-[10px] text-muted-foreground">Manual</span>
+              ) : row.original.rateUnmatched ? (
+                <span className="text-[10px] text-amber-700 dark:text-amber-400">No rate</span>
+              ) : null}
+            </>
+          );
+          return (
+            <div className="min-w-0 space-y-1 py-0.5">
+              <div className="flex h-5 min-w-0 items-center gap-1.5">
+                <span className="shrink-0 rounded bg-muted px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  {serviceTypeLabel(row.original.serviceType || row.original.rateKind || 'custom')}
+                </span>
+                {statusBits}
+                {summary ? (
+                  <div className="ml-auto min-w-0 max-w-[55%]">
+                    <BrandTooltip
+                      label={summary}
+                      side="top"
+                      align="end"
+                      className="max-w-sm whitespace-normal break-words text-left font-normal leading-snug"
+                    >
+                      <button
+                        type="button"
+                        className="block w-full cursor-pointer truncate text-right text-[10px] leading-[14px] text-muted-foreground hover:text-foreground hover:underline"
+                        onClick={() => setQuoteDetailLineId(row.original.id)}
+                      >
+                        {summary}
+                      </button>
+                    </BrandTooltip>
+                  </div>
+                ) : null}
+              </div>
+              <BrandTooltip
+                label={row.original.description}
+                side="top"
+                align="start"
+                disabled={!row.original.description?.trim()}
+                className="max-w-sm whitespace-normal break-words text-left font-normal leading-snug"
+              >
+                <div className="min-w-0">
+                  <Input
+                    className="h-9"
+                    value={row.original.description}
+                    disabled={quoteReadOnly}
+                    onChange={(e) =>
+                      updateQuoteLine(row.original.id, { description: e.target.value })
+                    }
+                  />
+                </div>
+              </BrandTooltip>
+            </div>
+          );
+        },
       },
       {
         accessorKey: 'quantity',
         header: 'Qty',
-        size: 80,
+        size: 52,
+        minSize: 52,
+        maxSize: 52,
         cell: ({ row }) => (
-          <QuoteNumberInput
-            className="w-full"
-            disabled={quoteReadOnly}
-            value={row.original.quantity}
-            onChange={(quantity) => updateQuoteLine(row.original.id, { quantity })}
-          />
+          <QuoteLineFieldShell>
+            <QuoteNumberInput
+              className="w-full"
+              disabled={quoteReadOnly}
+              value={row.original.quantity}
+              onChange={(quantity) =>
+                updateQuoteLine(row.original.id, { quantity: quantity ?? 0 })
+              }
+            />
+          </QuoteLineFieldShell>
         ),
       },
-      {
-        accessorKey: 'unitSell',
-        header: dmcWorkspace ? 'Sell (to buyer)' : 'Sell',
-        size: 110,
-        cell: ({ row }) => (
-          <QuoteNumberInput
-            className="w-full"
-            disabled={quoteReadOnly}
-            value={row.original.unitSell}
-            onChange={(unitSell) => updateQuoteLine(row.original.id, { unitSell })}
-          />
-        ),
-      },
-      ...(canViewCost && quoteCostOpen
+      ...(canViewCost
         ? [
             {
               accessorKey: 'unitCost',
-              header: dmcWorkspace ? 'Net' : 'Cost',
-              size: 110,
+              header: dmcWorkspace ? 'Net / cost' : 'Cost',
+              size: 108,
+              minSize: 108,
+              maxSize: 108,
               cell: ({ row }: { row: { original: QuoteLine } }) => (
-                <QuoteNumberInput
-                  className="w-full"
-                  disabled={quoteReadOnly}
-                  value={row.original.unitCost}
-                  onChange={(unitCost) => updateQuoteLine(row.original.id, { unitCost })}
-                />
+                <QuoteLineFieldShell>
+                  <BrandTooltip
+                    label="Buy rate missing — enter cost"
+                    side="top"
+                    align="start"
+                    disabled={row.original.unitCost != null}
+                    className="max-w-xs whitespace-normal break-words text-left font-normal leading-snug"
+                  >
+                    <div className="min-w-0">
+                      <QuoteNumberInput
+                        className="w-full"
+                        disabled={quoteReadOnly}
+                        showCurrency
+                        currency={quoteCurrency}
+                        placeholder="Enter cost"
+                        value={row.original.unitCost}
+                        onChange={(unitCost) => updateQuoteLine(row.original.id, { unitCost })}
+                      />
+                    </div>
+                  </BrandTooltip>
+                </QuoteLineFieldShell>
               ),
             } as ColumnDef<QuoteLine>,
           ]
         : []),
       {
+        accessorKey: 'unitSell',
+        header: dmcWorkspace ? 'Sell (to buyer)' : 'Sell',
+        size: 108,
+        minSize: 108,
+        maxSize: 108,
+        cell: ({ row }) => {
+          const violation = canViewCost
+            ? lineMarginPolicyViolation(
+                row.original.unitCost,
+                row.original.unitSell,
+                quoteMinMarginPercent,
+              )
+            : null;
+          const tip =
+            row.original.unitSell == null
+              ? 'Sell price missing'
+              : violation?.kind === 'loss'
+                ? `Sell is ${formatCurrency(violation.belowBy)} below cost · Profit ${formatCurrency(violation.profit)} · Margin ${formatPercent(violation.marginPercent)}`
+                : violation?.kind === 'below_floor'
+                  ? `Margin ${formatPercent(violation.marginPercent)} is below the ${violation.floorPercent}% floor`
+                  : undefined;
+          return (
+            <QuoteLineFieldShell>
+              <BrandTooltip
+                label={tip}
+                side="top"
+                align="start"
+                disabled={!tip}
+                className="max-w-xs whitespace-normal break-words text-left font-normal leading-snug"
+              >
+                <div className="min-w-0">
+                  <QuoteNumberInput
+                    className="w-full"
+                    disabled={quoteReadOnly}
+                    showCurrency
+                    currency={quoteCurrency}
+                    invalid={Boolean(violation)}
+                    placeholder="Enter sell"
+                    value={row.original.unitSell}
+                    onChange={(unitSell) => updateQuoteLine(row.original.id, { unitSell })}
+                  />
+                </div>
+              </BrandTooltip>
+            </QuoteLineFieldShell>
+          );
+        },
+      },
+      {
         accessorKey: 'taxPercent',
         header: 'Tax %',
-        size: 90,
+        size: 56,
+        minSize: 56,
+        maxSize: 56,
         cell: ({ row }) => (
-          <QuoteNumberInput
-            className="w-full"
-            disabled={quoteReadOnly}
-            value={row.original.taxPercent}
-            onChange={(taxPercent) => updateQuoteLine(row.original.id, { taxPercent })}
-          />
+          <QuoteLineFieldShell>
+            <QuoteNumberInput
+              className="w-full"
+              disabled={quoteReadOnly}
+              value={row.original.taxPercent}
+              onChange={(taxPercent) =>
+                updateQuoteLine(row.original.id, { taxPercent: taxPercent ?? 0 })
+              }
+            />
+          </QuoteLineFieldShell>
         ),
       },
       {
         id: 'actions',
         header: '',
-        size: 44,
+        size: 36,
+        minSize: 36,
+        maxSize: 36,
         enableSorting: false,
         enableHiding: false,
         cell: ({ row }) => (
-          <Button
-            size="icon"
-            variant="ghost"
-            className="size-7 text-muted-foreground"
-            aria-label="Remove line"
-            disabled={quoteReadOnly}
-            onClick={() => removeQuoteLine(row.original.id)}
-          >
-            <Trash2 className="size-3.5" />
-          </Button>
+          <QuoteLineFieldShell className="items-end">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="size-7 text-muted-foreground"
+                  aria-label="Service actions"
+                >
+                  <MoreHorizontal className="size-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52">
+                <DropdownMenuItem onClick={() => setQuoteDetailLineId(row.original.id)}>
+                  Edit details
+                </DropdownMenuItem>
+                {!quoteReadOnly &&
+                (row.original.rateUnmatched ||
+                  row.original.rateKind === 'hotel' ||
+                  row.original.rateKind === 'transfer' ||
+                  row.original.serviceType === 'hotel' ||
+                  row.original.serviceType === 'transfer' ||
+                  row.original.id.startsWith('itin-')) ? (
+                  <DropdownMenuItem
+                    onClick={() => void refreshPricesFromRates([row.original.id])}
+                  >
+                    Match rate
+                  </DropdownMenuItem>
+                ) : null}
+                {!quoteReadOnly ? (
+                  <DropdownMenuItem onClick={() => markLineIncluded(row.original.id)}>
+                    Mark as included (₹0)
+                  </DropdownMenuItem>
+                ) : null}
+                {!quoteReadOnly ? (
+                  <DropdownMenuItem
+                    onClick={() => {
+                      removeQuoteLine(row.original.id);
+                      toastSuccess('Removed from quote');
+                    }}
+                  >
+                    Mark non-billable / remove
+                  </DropdownMenuItem>
+                ) : null}
+                {!quoteReadOnly ? (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onClick={() => removeQuoteLine(row.original.id)}
+                    >
+                      Remove
+                    </DropdownMenuItem>
+                  </>
+                ) : null}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </QuoteLineFieldShell>
         ),
       },
     ],
-    [canViewCost, quoteCostOpen, dmcWorkspace, quoteReadOnly],
+    [canViewCost, dmcWorkspace, quoteReadOnly, quoteCurrency, quoteMinMarginPercent],
   );
 
   if (tripLoadError) {
@@ -1445,6 +2847,46 @@ export function TripWorkspacePage() {
     );
   }
   if (!trip) return <p className="text-sm text-muted-foreground">Loading…</p>;
+
+  const quoteTableLeading =
+    (trip.quotations?.length ?? 0) > 1 || quoteVersions.length > 1 ? (
+      <>
+        {(trip.quotations?.length ?? 0) > 1 ? (
+          <Combobox
+            className="w-[9.5rem] shrink-0"
+            size="sm"
+            value={activeQuotation?.id || ''}
+            onChange={(qid) => selectQuotation(qid)}
+            options={(trip.quotations || []).map(
+              (q: { id: string; quoteNumber?: string }) => ({
+                value: q.id,
+                label: q.quoteNumber || q.id,
+              }),
+            )}
+            placeholder="Quotation"
+            searchable={(trip.quotations?.length ?? 0) > 6}
+          />
+        ) : null}
+        {quoteVersions.length > 1 ? (
+          <Combobox
+            className="w-[11rem] shrink-0"
+            size="sm"
+            value={selectedQuoteVersion?.id || ''}
+            onChange={(vid) => {
+              const v = quoteVersions.find((x) => x.id === vid);
+              if (v) selectQuoteVersion(v);
+            }}
+            options={quoteVersions.map((v) => ({
+              value: v.id,
+              label: `Version ${v.versionNumber}`,
+              description: `${String(v.status).replace(/_/g, ' ')} · ${formatCurrency(v.sellTotal)}`,
+            }))}
+            placeholder="Version"
+            searchable={quoteVersions.length > 6}
+          />
+        ) : null}
+      </>
+    ) : null;
 
   return (
     <div>
@@ -1483,20 +2925,30 @@ export function TripWorkspacePage() {
         }
         actions={
           canTripWrite ? (
-            <Combobox
-              className="w-56"
-              value={trip.status}
-              onChange={(status) => void updateTripStatus(status)}
-              options={TRIP_STATUSES}
-              placeholder="Trip status"
-            />
+            <div className="flex min-w-[14rem] flex-col gap-1">
+              <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                Trip stage
+              </span>
+              <Combobox
+                className="w-56"
+                value={trip.status}
+                onChange={(status) => void updateTripStatus(status)}
+                options={TRIP_STATUSES}
+                placeholder="Trip stage"
+              />
+            </div>
           ) : (
-            <StatusBadge
-              value={trip.status}
-              label={tripStatusLabel(trip.status)}
-              showIcon
-              size="md"
-            />
+            <div className="flex flex-col items-end gap-1">
+              <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                Trip stage
+              </span>
+              <StatusBadge
+                value={trip.status}
+                label={tripStatusLabel(trip.status)}
+                showIcon
+                size="md"
+              />
+            </div>
           )
         }
       />
@@ -1648,275 +3100,754 @@ export function TripWorkspacePage() {
         </TabsContent>
 
         <TabsContent value="quotations">
-          <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-            <div className="rounded-xl border px-4 py-3 text-sm glass">
-              <div className="font-medium tabular-nums">
-                Sell {formatCurrency(sellTotal)}
-                {taxTotal ? ` · tax ${formatCurrency(taxTotal)}` : ''}
-              </div>
-            </div>
-            {canViewCost ? (
-              <DisclosureSection
-                title="Cost & margin"
-                description="Line costs, markup, and margin — permissioned commercial detail."
-                level="advanced"
-                defaultOpen={quoteCostDisclosure.defaultOpen}
-                open={quoteCostOpen}
-                onOpenChange={(open) => {
-                  setQuoteCostOpen(open);
-                  if (open) trackExperienceEvent('advanced_section_opened', { surface: 'quotation' });
-                }}
-                className="min-w-[220px] flex-1"
-              >
-                <div className="text-sm tabular-nums">
-                  Cost {formatCurrency(costTotal)} · margin {formatCurrency(marginAmount)} (
-                  {formatPercent(marginPercent)})
-                </div>
-              </DisclosureSection>
-            ) : null}
-            <div className="flex flex-wrap items-center gap-2">
-              {canQuoteWrite ? (
-                <span
-                  className={
-                    quoteSaveState === 'error'
-                      ? 'text-xs text-destructive'
-                      : 'text-xs text-muted-foreground'
-                  }
-                >
-                  {quoteReadOnly
-                    ? 'Locked'
-                    : quoteSaveState === 'pending'
-                      ? 'Unsaved…'
-                      : quoteSaveState === 'saving'
-                        ? 'Saving…'
-                        : quoteSaveState === 'saved'
-                          ? `Saved${quoteSavedAt ? ` · ${formatTime(quoteSavedAt)}` : ''}`
-                          : quoteSaveState === 'error'
-                            ? 'Auto-save failed'
-                            : 'Auto-saves drafts'}
-                </span>
-              ) : null}
-              {canQuoteRead ? (
-                <Button
-                  variant="secondary"
-                  onClick={() => void pdfLatest()}
-                  disabled={!selectedQuoteVersion}
-                >
-                  Download proposal
-                </Button>
-              ) : null}
-              {canQuoteWrite ? (
-                <>
-                  <Button
-                    variant="secondary"
-                    onClick={() => void addQuoteLinesFromItinerary()}
-                    disabled={!quoteCan.has('addLines')}
-                  >
-                    Add from itinerary
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={() => void refreshPricesFromRates()}
-                    disabled={!quoteCan.has('addLines') || quoteItems.length === 0}
-                  >
-                    Refresh prices from rates
-                  </Button>
-                  <Button
-                    onClick={() => void createAndSaveQuote()}
-                    disabled={
-                      savingQuoteCheckpoint ||
-                      quoteItems.length === 0 ||
-                      (!quoteCan.has('revise') && quoteReadOnly)
+          <div className="space-y-4">
+            <div className="min-w-0 space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-base font-semibold tracking-tight">
+                    {(activeQuotation as { quoteNumber?: string } | null)?.quoteNumber ||
+                      'New quotation'}
+                    {selectedQuoteVersion ? (
+                      <span className="font-normal text-muted-foreground">
+                        {' '}
+                        · Version {selectedQuoteVersion.versionNumber}
+                      </span>
+                    ) : null}
+                  </h2>
+                  {selectedQuoteVersion ? (
+                    <StatusBadge value={selectedQuoteVersion.status} showIcon />
+                  ) : (
+                    <StatusBadge value="draft" label="Draft" showIcon />
+                  )}
+                  <span
+                    className={
+                      quoteReady.tone === 'warn'
+                        ? 'rounded-md bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-800 dark:text-amber-200'
+                        : quoteReady.tone === 'ok'
+                          ? 'rounded-md bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-800 dark:text-emerald-200'
+                          : 'rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground'
                     }
+                    title={quoteReady.hint}
                   >
-                    {savingQuoteCheckpoint
-                      ? 'Saving…'
-                      : quoteReadOnly && canReviseLockedVersion
-                        ? 'Revise as new draft'
-                        : 'Save as new version'}
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={() => setAcceptOpen(true)}
-                    disabled={!selectedQuoteVersion || !quoteCan.has('accept')}
-                  >
-                    Accept quote
-                  </Button>
-                  {quoteStatus === 'accepted' && hasAcceptedQuote ? (
-                    <Button variant="secondary" onClick={() => void reviseFromAccepted()}>
-                      Revise from accepted
-                    </Button>
-                  ) : null}
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button size="icon" variant="outline" aria-label="More quote actions">
-                        <MoreHorizontal className="size-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-56">
-                      <DropdownMenuItem
-                        disabled={!quoteCan.has('send')}
-                        onClick={() => setSendOpen(true)}
-                      >
-                        Send email
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        disabled={!quoteCan.has('requestApproval')}
-                        onClick={() => void requestApproval()}
-                      >
-                        Request approval
-                      </DropdownMenuItem>
-                      {canApproveQuote ? (
-                        <>
-                          <DropdownMenuItem
-                            disabled={!quoteCan.has('approve')}
-                            onClick={() => void approveQuote()}
-                          >
-                            Approve quote
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            disabled={!quoteCan.has('reject')}
-                            onClick={() => void rejectQuote()}
-                          >
-                            Reject quote
-                          </DropdownMenuItem>
-                        </>
-                      ) : null}
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        disabled={!quoteCan.has('addLines')}
-                        onClick={() =>
-                          setQuoteItems([
-                            ...quoteItems,
-                            {
-                              id: `line-${Date.now()}`,
-                              description: 'New line',
-                              quantity: 1,
-                              unitCost: 0,
-                              unitSell: 0,
-                              taxPercent: 5,
-                              pricingUnit: 'per_service',
-                            },
-                          ])
+                    {quoteReady.label}
+                  </span>
+                  {canQuoteWrite && quoteSaveState !== 'idle' ? (
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <span
+                        className={
+                          quoteSaveState === 'error'
+                            ? 'text-destructive'
+                            : 'text-muted-foreground'
                         }
                       >
-                        Add blank line
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </>
-              ) : null}
-            </div>
-          </div>
-          {(trip?.quotations?.length ?? 0) > 1 ? (
-            <div className="mb-2 flex flex-wrap items-center gap-2">
-              <span className="text-xs text-muted-foreground">Quotation</span>
-              {(trip?.quotations || []).map((q: any) => {
-                const active = activeQuotation?.id === q.id;
-                return (
+                        {quoteReadOnly
+                          ? 'Locked'
+                          : quoteSaveState === 'pending'
+                            ? quoteSaveError?.startsWith('Save interrupted')
+                              ? 'Syncing…'
+                              : 'Saving soon…'
+                            : quoteSaveState === 'saving'
+                              ? 'Saving…'
+                              : quoteSaveState === 'saved'
+                                ? `Saved${quoteSavedAt ? ` · ${formatTime(quoteSavedAt)}` : ''}`
+                                : quoteSaveState === 'error'
+                                  ? 'Couldn’t sync — retry'
+                                  : null}
+                      </span>
+                      {quoteSaveState === 'error' ? (
+                        <>
+                          <span className="text-muted-foreground">
+                            Your edits are kept on this device.
+                          </span>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            className="h-7"
+                            onClick={() => void autosaveQuote({ manual: true, attempt: 0 })}
+                          >
+                            Retry now
+                          </Button>
+                        </>
+                      ) : quoteSaveState === 'pending' || quoteSaveState === 'saving' ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-7"
+                          disabled={quoteSaveState === 'saving'}
+                          onClick={() => void autosaveQuote({ manual: true, attempt: 0 })}
+                        >
+                          Save now
+                        </Button>
+                      ) : null}
+                    </div>
+                  ) : canQuoteWrite && quoteSavedAt ? (
+                    <span className="text-xs text-muted-foreground">
+                      Saved · {formatTime(quoteSavedAt)}
+                    </span>
+                  ) : null}
+                  {quoteStatus === 'accepted' || quoteStatus === 'superseded' ? (
+                    <span className="text-xs text-muted-foreground">
+                      This version is locked
+                      {quoteStatus === 'accepted'
+                        ? '. Revise from accepted (⋯) to open a new draft.'
+                        : '. Pick another quotation or version to continue.'}
+                    </span>
+                  ) : quoteReadOnly && canReviseLockedVersion ? (
+                    <span className="text-xs text-muted-foreground">
+                      Locked ({selectedQuoteVersion?.status.replace(/_/g, ' ')}). Use ⋯ → Revise
+                      as new draft to edit.
+                    </span>
+                  ) : null}
+                </div>
+                {quoteSaveError && quoteSaveState === 'error' ? (
+                  <p className="text-xs text-destructive">{quoteSaveError}</p>
+                ) : quoteSaveError && quoteSaveState === 'pending' ? (
+                  <p className="text-xs text-muted-foreground">{quoteSaveError}</p>
+                ) : null}
+              </div>
+
+            {canQuoteWrite && !quoteReadOnly && needsAttentionCount > 0 ? (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
                   <button
-                    key={q.id}
                     type="button"
-                    onClick={() => selectQuotation(q.id)}
-                    className={
-                      active
-                        ? 'rounded-lg border border-primary bg-primary/10 px-2.5 py-1 text-xs'
-                        : 'rounded-xl border px-2.5 py-1 text-xs glass-row'
-                    }
+                    className="font-medium text-amber-900 dark:text-amber-100"
+                    onClick={() => setAttentionOpen((v) => !v)}
+                    aria-expanded={attentionOpen}
                   >
-                    {q.quoteNumber}
-                  </button>
-                );
-              })}
-            </div>
-          ) : null}
-          {quoteVersions.length ? (
-            <div className="mb-3 flex flex-wrap gap-2">
-              {quoteVersions.map((v) => {
-                const active = selectedQuoteVersion?.id === v.id;
-                return (
-                  <button
-                    key={v.id}
-                    type="button"
-                    onClick={() => selectQuoteVersion(v)}
-                    className={
-                      active
-                        ? 'inline-flex items-center gap-2 rounded-lg border border-primary bg-primary/10 px-2.5 py-1.5 text-xs shadow-sm'
-                        : 'inline-flex items-center gap-2 rounded-xl border px-2.5 py-1.5 text-xs glass-row hover:border-primary/25'
-                    }
-                  >
-                    <StatusBadge value={v.status} showIcon />
-                    <span>
-                      v{v.versionNumber} · sell {formatCurrency(v.sellTotal)}
-                      {v.costHidden
-                        ? ' · cost hidden'
-                        : canViewCost
-                          ? ` · margin ${formatPercent(v.marginPercent)}`
-                          : ''}
+                    {needsAttentionCount} service{needsAttentionCount === 1 ? '' : 's'} need
+                    attention
+                    <span className="ml-1 text-xs font-normal text-amber-800/80 dark:text-amber-200/80">
+                      {attentionOpen ? '▾' : '▸'}
                     </span>
                   </button>
-                );
-              })}
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="h-7"
+                    onClick={() => void refreshPricesFromRates()}
+                  >
+                    Resolve missing rates
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="h-7"
+                    onClick={() => applyDefaultMarkup()}
+                  >
+                    Apply default markup
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7"
+                    onClick={() => markUnpricedAsIncluded()}
+                  >
+                    Mark unpriced as included
+                  </Button>
+                  {marginGateCount > 0 && canOverrideBelowMargin ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7"
+                      onClick={() => openMarginOverrideDialog(null)}
+                    >
+                      Override margin policy…
+                    </Button>
+                  ) : null}
+                  {marginGateCount > 0 && !canOverrideBelowMargin ? (
+                    <span className="text-xs text-amber-900/90 dark:text-amber-100/90">
+                      Below-margin services need a manager override
+                    </span>
+                  ) : null}
+                </div>
+                {attentionOpen ? (
+                  <ul className="mt-2 space-y-0.5 text-xs text-amber-900/90 dark:text-amber-100/90">
+                    {missingPricingCount > 0 ? (
+                      <li>
+                        {missingPricingCount} service{missingPricingCount === 1 ? '' : 's'} missing
+                        buy/sell rates
+                      </li>
+                    ) : null}
+                    {marginGateCount > 0 ? (
+                      <li>
+                        {marginGateCount} service{marginGateCount === 1 ? '' : 's'} below margin
+                        policy
+                        {quoteMinMarginPercent > 0
+                          ? ` (min ${quoteMinMarginPercent}%)`
+                          : ' (sell below cost)'}
+                      </li>
+                    ) : null}
+                    {quoteItems.some((l) => l.rateUnmatched) ? (
+                      <li>
+                        {quoteItems.filter((l) => l.rateUnmatched).length} service
+                        {quoteItems.filter((l) => l.rateUnmatched).length === 1 ? '' : 's'} with no
+                        rate-card match
+                      </li>
+                    ) : null}
+                  </ul>
+                ) : null}
+              </div>
+            ) : null}
+
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_17rem] lg:items-start">
+              <div className="min-w-0 space-y-3">
+                {quoteItems.length === 0 ? (
+                  <>
+                    {quoteTableLeading ? (
+                      <div className="flex flex-wrap items-center gap-1.5">{quoteTableLeading}</div>
+                    ) : null}
+                    <EmptyState
+                      className="py-8"
+                      title="Build this quotation"
+                      description="Import priced lines from the itinerary, start from a template, or add a service manually."
+                      action={
+                        canQuoteWrite ? (
+                          <div className="flex flex-wrap justify-center gap-2">
+                            <Button onClick={() => openImportItineraryReview()}>
+                              Import itinerary
+                            </Button>
+                            <Button variant="secondary" onClick={() => void openUseTemplateDialog()}>
+                              Use template
+                            </Button>
+                            <Button variant="secondary" onClick={() => addBlankQuoteLine()}>
+                              Add service
+                            </Button>
+                          </div>
+                        ) : undefined
+                      }
+                    />
+                  </>
+                ) : (
+                  <DataTable
+                    columns={quoteColumns}
+                    data={quoteItems}
+                    fillHeight={false}
+                    alignTop
+                    wrapCells
+                    pageSize={25}
+                    searchPlaceholder="Filter lines…"
+                    showColumnsMenu={false}
+                    leading={quoteTableLeading}
+                    toolbar={
+                      <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+                        {canQuoteWrite ? (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="h-8"
+                            disabled={!quoteCan.has('addLines') || quoteReadOnly}
+                            onClick={() => addBlankQuoteLine()}
+                          >
+                            <Plus className="size-3.5" />
+                            Add
+                          </Button>
+                        ) : null}
+                        {canQuoteWrite ? (
+                          <Button
+                            size="sm"
+                            variant={canSendQuote ? 'default' : 'secondary'}
+                            className={
+                              canClickSend
+                                ? 'h-8'
+                                : 'h-8 disabled:pointer-events-none disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100'
+                            }
+                            disabled={!canClickSend}
+                            title={
+                              canSendViaMarginOverride && !canSendQuote
+                                ? 'Margin policy blocks send — override or adjust sell'
+                                : sendBlockedReason || 'Send proposal by email'
+                            }
+                            aria-disabled={!canClickSend}
+                            onClick={() => openSendFlow()}
+                          >
+                            <Send className="size-3.5" />
+                            Send
+                          </Button>
+                        ) : null}
+                        {(canQuoteRead || canQuoteWrite) && (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                size="icon"
+                                variant="outline"
+                                className="h-8 w-8"
+                                aria-label="More quote actions"
+                              >
+                                <MoreHorizontal className="size-3.5" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-56">
+                              {canQuoteWrite ? (
+                                <DropdownMenuItem
+                                  disabled={!quoteCan.has('addLines') || quoteReadOnly}
+                                  onClick={() => openImportItineraryReview()}
+                                >
+                                  Import itinerary
+                                </DropdownMenuItem>
+                              ) : null}
+                              {canQuoteRead ? (
+                                <DropdownMenuItem
+                                  disabled={!canPreviewQuote}
+                                  onClick={() => void pdfLatest()}
+                                >
+                                  {canSendQuote ? 'Preview PDF' : 'Preview draft PDF'}
+                                </DropdownMenuItem>
+                              ) : null}
+                              {canQuoteWrite || canQuoteRead ? <DropdownMenuSeparator /> : null}
+                              {canQuoteWrite ? (
+                                <>
+                                  <DropdownMenuItem
+                                    onClick={() => void createAndSaveQuote()}
+                                    disabled={
+                                      savingQuoteCheckpoint ||
+                                      quoteItems.length === 0 ||
+                                      (!quoteCan.has('revise') && quoteReadOnly)
+                                    }
+                                  >
+                                    {quoteReadOnly && canReviseLockedVersion
+                                      ? 'Revise as new draft'
+                                      : 'Save as new version'}
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    disabled={!canClickRequestApproval}
+                                    onClick={() => void requestApproval()}
+                                  >
+                                    Request approval
+                                  </DropdownMenuItem>
+                                  {canApproveQuote ? (
+                                    <>
+                                      <DropdownMenuItem
+                                        disabled={!quoteCan.has('approve')}
+                                        onClick={() => void approveQuote()}
+                                      >
+                                        Approve quote
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem
+                                        disabled={!quoteCan.has('reject')}
+                                        onClick={() => void rejectQuote()}
+                                      >
+                                        Reject quote
+                                      </DropdownMenuItem>
+                                    </>
+                                  ) : null}
+                                  {quoteCan.has('accept') ? (
+                                    <DropdownMenuItem onClick={() => setAcceptOpen(true)}>
+                                      Accept quote
+                                    </DropdownMenuItem>
+                                  ) : null}
+                                  {quoteStatus === 'accepted' && hasAcceptedQuote ? (
+                                    <DropdownMenuItem onClick={() => void reviseFromAccepted()}>
+                                      Revise from accepted
+                                    </DropdownMenuItem>
+                                  ) : null}
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem onClick={() => void openUseTemplateDialog()}>
+                                    Start from template…
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    disabled={quoteItems.length === 0}
+                                    onClick={() => {
+                                      const hint =
+                                        trip?.title || destinationsLabel || 'Quote template';
+                                      setTemplateName(String(hint).slice(0, 80));
+                                      setSaveTemplateOpen(true);
+                                    }}
+                                  >
+                                    Save as template…
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    disabled={
+                                      cloningQuote || !activeQuotation || quoteItems.length === 0
+                                    }
+                                    onClick={() => void cloneActiveQuotation()}
+                                  >
+                                    {cloningQuote ? 'Cloning…' : 'Clone quotation'}
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    disabled={
+                                      !quoteCan.has('addLines') || quoteItems.length === 0
+                                    }
+                                    onClick={() => void refreshPricesFromRates()}
+                                  >
+                                    Refresh prices from rates
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                </>
+                              ) : null}
+                              {canQuoteWrite ? (
+                                <DropdownMenuItem
+                                  disabled={!canPreviewQuote}
+                                  onClick={() => void savePdfToDrive()}
+                                >
+                                  Save to Drive
+                                </DropdownMenuItem>
+                              ) : null}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        )}
+                      </div>
+                    }
+                  />
+                )}
+              </div>
+
+              <div className="space-y-3 lg:sticky lg:top-4">
+                <aside className="rounded-xl border border-border/70 bg-card/40 p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Pricing summary
+                </p>
+                <dl className="mt-3 space-y-2 text-sm">
+                  {partialSellOnly ? (
+                    <>
+                      <div className="flex justify-between gap-3 tabular-nums">
+                        <dt className="text-muted-foreground">Priced subtotal</dt>
+                        <dd>{formatCurrency(sellExTax)}</dd>
+                      </div>
+                      <div className="flex justify-between gap-3 tabular-nums">
+                        <dt className="text-muted-foreground">Tax on priced</dt>
+                        <dd>{formatCurrency(taxTotal)}</dd>
+                      </div>
+                      <div className="flex justify-between gap-3 border-t border-border/60 pt-2 font-semibold tabular-nums">
+                        <dt>Partial total</dt>
+                        <dd>{formatCurrency(sellTotal)}</dd>
+                      </div>
+                      <p className="text-xs text-amber-800 dark:text-amber-200">
+                        Excludes {missingSellCount} unpriced service
+                        {missingSellCount === 1 ? '' : 's'} ({pricedServiceCount} of{' '}
+                        {quoteItems.length} priced)
+                      </p>
+                      <div className="flex justify-between gap-3 tabular-nums">
+                        <dt className="text-muted-foreground">Final customer total</dt>
+                        <dd className="text-amber-700 dark:text-amber-400">Not available</dd>
+                      </div>
+                      <div className="flex justify-between gap-3 tabular-nums">
+                        <dt className="text-muted-foreground">Per traveller</dt>
+                        <dd className="text-amber-700 dark:text-amber-400">Not available</dd>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex justify-between gap-3 tabular-nums">
+                        <dt className="text-muted-foreground">Sell before tax</dt>
+                        <dd>{formatCurrency(sellExTax)}</dd>
+                      </div>
+                      <div className="flex justify-between gap-3 tabular-nums">
+                        <dt className="text-muted-foreground">Tax</dt>
+                        <dd>{formatCurrency(taxTotal)}</dd>
+                      </div>
+                      <div className="flex justify-between gap-3 border-t border-border/60 pt-2 text-base font-semibold tabular-nums">
+                        <dt>Customer total</dt>
+                        <dd>{formatCurrency(sellTotal)}</dd>
+                      </div>
+                    </>
+                  )}
+                  {canViewCost ? (
+                    <>
+                      <div className="flex justify-between gap-3 border-t border-border/60 pt-2 tabular-nums">
+                        <dt className="text-muted-foreground">Cost status</dt>
+                        <dd>
+                          {!quoteHasServices ? (
+                            <span className="text-muted-foreground">—</span>
+                          ) : costGaps.incomplete ? (
+                            <span className="text-amber-700 dark:text-amber-400">Incomplete</span>
+                          ) : (
+                            <span className="text-emerald-700 dark:text-emerald-400">Complete</span>
+                          )}
+                        </dd>
+                      </div>
+                      <div className="flex justify-between gap-3 tabular-nums">
+                        <dt className="text-muted-foreground">Known cost</dt>
+                        <dd>{formatCurrency(costGaps.knownCost)}</dd>
+                      </div>
+                      {costGaps.incomplete ? (
+                        <div className="flex justify-between gap-3 tabular-nums">
+                          <dt className="text-muted-foreground">Missing cost</dt>
+                          <dd className="text-amber-700 dark:text-amber-400">
+                            {costGaps.missingCount} service
+                            {costGaps.missingCount === 1 ? '' : 's'}
+                          </dd>
+                        </div>
+                      ) : null}
+                      {missingSellCount > 0 ? (
+                        <div className="flex justify-between gap-3 tabular-nums">
+                          <dt className="text-muted-foreground">Missing sell</dt>
+                          <dd className="text-amber-700 dark:text-amber-400">
+                            {missingSellCount} service{missingSellCount === 1 ? '' : 's'}
+                          </dd>
+                        </div>
+                      ) : null}
+                      <div className="flex justify-between gap-3 tabular-nums">
+                        <dt className="text-muted-foreground">Profit</dt>
+                        <dd>
+                          {marginReady ? (
+                            formatCurrency(marginAmount)
+                          ) : (
+                            <span className="text-amber-700 dark:text-amber-400">Not calculated</span>
+                          )}
+                        </dd>
+                      </div>
+                      <div className="flex justify-between gap-3 tabular-nums">
+                        <dt className="text-muted-foreground">Margin</dt>
+                        <dd>
+                          {marginReady ? (
+                            formatPercent(marginPercent)
+                          ) : (
+                            <span className="text-amber-700 dark:text-amber-400">Not calculated</span>
+                          )}
+                        </dd>
+                      </div>
+                      {!marginReady && quoteHasServices ? (
+                        <p className="text-xs text-amber-800 dark:text-amber-200">
+                          Add sell prices and buy rates on every service to calculate margin.
+                        </p>
+                      ) : null}
+                    </>
+                  ) : null}
+                  <div className="border-t border-border/60 pt-2 space-y-2">
+                    <div className="space-y-1">
+                      <dt className="text-muted-foreground">Valid until</dt>
+                      <dd>
+                        <DatePicker
+                          className="h-8"
+                          disabled={quoteReadOnly}
+                          placeholder="Set validity date"
+                          value={
+                            quoteMeta.validUntil?.trim()
+                              ? new Date(`${quoteMeta.validUntil}T12:00:00`)
+                              : undefined
+                          }
+                          onChange={(date) => {
+                            const validUntil = date
+                              ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+                              : '';
+                            setQuoteMeta((m) => ({
+                              ...m,
+                              validUntil,
+                              terms: syncTermsWithValidUntil(m.terms, validUntil),
+                            }));
+                          }}
+                        />
+                      </dd>
+                    </div>
+                    {travellerCount > 0 ? (
+                      <div className="flex justify-between gap-3 tabular-nums">
+                        <dt className="text-muted-foreground">Pricing basis</dt>
+                        <dd>
+                          {travellerCount} traveller{travellerCount === 1 ? '' : 's'}
+                        </dd>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">Add travellers for per-person pricing.</p>
+                    )}
+                    {travellerCount > 0 && sellTotal > 0 && sellComplete ? (
+                      <div className="flex justify-between gap-3 tabular-nums">
+                        <dt className="text-muted-foreground">Per traveller</dt>
+                        <dd>{formatCurrency(sellTotal / travellerCount)}</dd>
+                      </div>
+                    ) : null}
+                  </div>
+                </dl>
+                </aside>
+
+                {canSendQuote || quoteHasServices || quoteReady.tone !== 'ok' ? (
+                  <aside className="rounded-xl border border-border/70 bg-card/40 p-4">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Send readiness
+                    </p>
+                    <p className="mt-2 text-xs text-muted-foreground">{quoteReady.hint}</p>
+                    {canSendQuote ? (
+                      <ul className="mt-3 space-y-1.5 text-sm text-muted-foreground">
+                        <li className="flex items-start gap-2">
+                          <span className="mt-0.5 text-emerald-600 dark:text-emerald-400" aria-hidden>
+                            ✓
+                          </span>
+                          <span>
+                            {quoteItems.length} service{quoteItems.length === 1 ? '' : 's'} priced
+                          </span>
+                        </li>
+                        {canViewCost ? (
+                          <li className="flex items-start gap-2">
+                            <span
+                              className="mt-0.5 text-emerald-600 dark:text-emerald-400"
+                              aria-hidden
+                            >
+                              ✓
+                            </span>
+                            <span>Costs complete</span>
+                          </li>
+                        ) : null}
+                        <li className="flex items-start gap-2">
+                          <span className="mt-0.5 text-emerald-600 dark:text-emerald-400" aria-hidden>
+                            ✓
+                          </span>
+                          <span>
+                            Valid until{' '}
+                            {quoteMeta.validUntil
+                              ? new Date(`${quoteMeta.validUntil}T12:00:00`).toLocaleDateString(
+                                  undefined,
+                                  { day: 'numeric', month: 'short', year: 'numeric' },
+                                )
+                              : '—'}
+                          </span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="mt-0.5 text-emerald-600 dark:text-emerald-400" aria-hidden>
+                            ✓
+                          </span>
+                          <span>{travellerCount}-traveller pricing basis</span>
+                        </li>
+                      </ul>
+                    ) : (
+                      <ul className="mt-3 space-y-1.5 text-sm text-muted-foreground">
+                        {quoteHasServices ? (
+                          <li className="flex items-start gap-2">
+                            <span
+                              className={
+                                missingSellCount === 0
+                                  ? 'mt-0.5 text-emerald-600 dark:text-emerald-400'
+                                  : 'mt-0.5 text-amber-700 dark:text-amber-400'
+                              }
+                              aria-hidden
+                            >
+                              {missingSellCount === 0 ? '✓' : '✕'}
+                            </span>
+                            <span>
+                              {pricedServiceCount} of {quoteItems.length} services have sell prices
+                              {missingSellCount > 0
+                                ? ` · ${missingSellCount} sell price${missingSellCount === 1 ? '' : 's'} missing`
+                                : ''}
+                            </span>
+                          </li>
+                        ) : (
+                          <li className="flex items-start gap-2">
+                            <span className="mt-0.5 text-amber-700 dark:text-amber-400" aria-hidden>
+                              ✕
+                            </span>
+                            <span>Add at least one service</span>
+                          </li>
+                        )}
+                        {canViewCost && quoteHasServices ? (
+                          <li className="flex items-start gap-2">
+                            <span
+                              className={
+                                costGaps.incomplete
+                                  ? 'mt-0.5 text-amber-700 dark:text-amber-400'
+                                  : 'mt-0.5 text-emerald-600 dark:text-emerald-400'
+                              }
+                              aria-hidden
+                            >
+                              {costGaps.incomplete ? '✕' : '✓'}
+                            </span>
+                            <span>
+                              {quoteItems.length - costGaps.missingCount} of {quoteItems.length}{' '}
+                              services have costs
+                              {costGaps.incomplete
+                                ? ` · ${costGaps.missingCount} buy rate${costGaps.missingCount === 1 ? '' : 's'} missing`
+                                : ''}
+                            </span>
+                          </li>
+                        ) : null}
+                        {canViewCost && marginGateCount > 0 ? (
+                          <li className="flex items-start gap-2">
+                            <span className="mt-0.5 text-amber-700 dark:text-amber-400" aria-hidden>
+                              ✕
+                            </span>
+                            <span>
+                              {marginGateCount} service{marginGateCount === 1 ? '' : 's'}{' '}
+                              {marginGateCount === 1 ? 'breaches' : 'breach'} margin policy
+                              {quoteMinMarginPercent > 0
+                                ? ` (floor ${quoteMinMarginPercent}%)`
+                                : ' (negative margin)'}
+                            </span>
+                          </li>
+                        ) : canViewCost &&
+                          quoteHasServices &&
+                          !costGaps.incomplete &&
+                          sellComplete ? (
+                          <li className="flex items-start gap-2">
+                            <span
+                              className="mt-0.5 text-emerald-600 dark:text-emerald-400"
+                              aria-hidden
+                            >
+                              ✓
+                            </span>
+                            <span>
+                              Margin policy met
+                              {quoteMinMarginPercent > 0
+                                ? ` (≥ ${quoteMinMarginPercent}%)`
+                                : ''}
+                            </span>
+                          </li>
+                        ) : null}
+                        <li className="flex items-start gap-2">
+                          <span
+                            className={
+                              quoteMeta.validUntil?.trim()
+                                ? 'mt-0.5 text-emerald-600 dark:text-emerald-400'
+                                : 'mt-0.5 text-amber-700 dark:text-amber-400'
+                            }
+                            aria-hidden
+                          >
+                            {quoteMeta.validUntil?.trim() ? '✓' : '✕'}
+                          </span>
+                          <span>
+                            Validity date
+                            {quoteMeta.validUntil?.trim() ? '' : ' missing'}
+                          </span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span
+                            className={
+                              travellerCount > 0
+                                ? 'mt-0.5 text-emerald-600 dark:text-emerald-400'
+                                : 'mt-0.5 text-amber-700 dark:text-amber-400'
+                            }
+                            aria-hidden
+                          >
+                            {travellerCount > 0 ? '✓' : '✕'}
+                          </span>
+                          <span>
+                            Traveller pricing basis
+                            {travellerCount > 0
+                              ? ` · ${travellerCount} traveller${travellerCount === 1 ? '' : 's'}`
+                              : ' missing'}
+                          </span>
+                        </li>
+                      </ul>
+                    )}
+                  </aside>
+                ) : null}
+              </div>
             </div>
-          ) : null}
-          {quoteStatus === 'accepted' || quoteStatus === 'superseded' ? (
-            <p className="mb-2 text-xs text-muted-foreground">
-              This version is locked
-              {quoteStatus === 'accepted'
-                ? '. Use “Revise from accepted” to open a new draft quotation.'
-                : '. Select another quotation or version to continue.'}
-            </p>
-          ) : quoteReadOnly && canReviseLockedVersion ? (
-            <p className="mb-2 text-xs text-muted-foreground">
-              This version is locked (
-              {selectedQuoteVersion?.status.replace(/_/g, ' ')}). Use “Revise as new draft” to copy
-              lines into a new editable draft on this quotation.
-            </p>
-          ) : selectedQuoteVersion ? (
-            <p className="mb-2 text-xs text-muted-foreground">
-              Viewing v{selectedQuoteVersion.versionNumber} (
-              {selectedQuoteVersion.status.replace(/_/g, ' ')}). Edits auto-save to this version;
-              use “Save as new version” for a checkpoint.
-              {quoteStatus === 'draft'
-                ? ' Next: Request approval, or Send email / Accept after approval.'
-                : quoteStatus === 'pending_approval'
-                  ? ' Waiting on Approve or Reject.'
-                  : ''}
-            </p>
-          ) : null}
-          <div className="mb-3 grid gap-3 sm:grid-cols-3">
-            <FormField label="Inclusions">
-              <Input
-                value={quoteMeta.inclusions}
-                disabled={quoteReadOnly}
-                onChange={(e) => setQuoteMeta((m) => ({ ...m, inclusions: e.target.value }))}
-                placeholder="Accommodation, breakfast…"
+
+            <DisclosureSection
+              title="Proposal notes"
+              description={quoteProposalNotesSummary(quoteMeta)}
+              level="secondary"
+              open={quoteNotesOpen}
+              onOpenChange={setQuoteNotesOpen}
+            >
+              <ProposalNotesEditor
+                inclusions={quoteMeta.inclusions}
+                exclusions={quoteMeta.exclusions}
+                terms={quoteMeta.terms}
+                serviceLines={quoteItems}
+                readOnly={quoteReadOnly}
+                onChange={(patch) =>
+                  setQuoteMeta((m) => ({
+                    ...m,
+                    ...patch,
+                    ...(patch.terms != null && m.validUntil.trim()
+                      ? { terms: syncTermsWithValidUntil(patch.terms, m.validUntil) }
+                      : {}),
+                  }))
+                }
               />
-            </FormField>
-            <FormField label="Exclusions">
-              <Input
-                value={quoteMeta.exclusions}
-                disabled={quoteReadOnly}
-                onChange={(e) => setQuoteMeta((m) => ({ ...m, exclusions: e.target.value }))}
-                placeholder="Flights, visas…"
-              />
-            </FormField>
-            <FormField label="Terms">
-              <Input
-                value={quoteMeta.terms}
-                disabled={quoteReadOnly}
-                onChange={(e) => setQuoteMeta((m) => ({ ...m, terms: e.target.value }))}
-                placeholder="Valid for 7 days…"
-              />
-            </FormField>
+            </DisclosureSection>
           </div>
-          <DataTable
-            columns={quoteColumns}
-            data={quoteItems}
-            fillHeight={false}
-            pageSize={25}
-            searchPlaceholder="Filter lines…"
-          />
         </TabsContent>
 
         <TabsContent value="operations">
@@ -1975,6 +3906,172 @@ export function TripWorkspacePage() {
         </FormField>
       </RecordSheet>
 
+      <QuoteImportReviewDialog
+        open={importReviewOpen}
+        onOpenChange={setImportReviewOpen}
+        days={days}
+        tripStartDate={trip?.startDate}
+        existingLineIds={existingQuoteLineIds}
+        partyAdults={Number(trip?.inquiry?.adults) || undefined}
+        partyChildren={Number(trip?.inquiry?.children) || undefined}
+        partyInfants={Number(trip?.inquiry?.infants) || undefined}
+        onConfirm={confirmImportFromItinerary}
+      />
+
+      <QuoteServiceDetailSheet
+        open={Boolean(quoteDetailLineId)}
+        onOpenChange={(open) => {
+          if (!open) setQuoteDetailLineId(null);
+        }}
+        line={
+          quoteDetailLineId
+            ? quoteItems.find((l) => l.id === quoteDetailLineId) || null
+            : null
+        }
+        readOnly={quoteReadOnly}
+        currency={quoteCurrency}
+        tripStartDate={trip?.startDate}
+        tripEndDate={trip?.endDate}
+        partyAdults={Number(trip?.inquiry?.adults) || undefined}
+        partyChildren={Number(trip?.inquiry?.children) || undefined}
+        defaultMarkupPercent={(() => {
+          const settings = trip?.organization?.settingsJson as
+            | { defaultMarkupPercent?: number }
+            | null
+            | undefined;
+          const n = Number(settings?.defaultMarkupPercent);
+          return Number.isFinite(n) ? n : 20;
+        })()}
+        seedDetails={(() => {
+          if (!quoteDetailLineId?.startsWith('itin-')) return null;
+          const itinId = quoteDetailLineId.slice(5);
+          for (const day of days) {
+            const item = (day.items || []).find((i) => i.id === itinId);
+            if (item) return seedDetailsFromItineraryItem(item);
+          }
+          return null;
+        })()}
+        onSave={(patch) => {
+          const { id, ...rest } = patch;
+          updateQuoteLine(id, rest);
+        }}
+      />
+
+      <ConfirmDialog
+        open={markupConfirmOpen}
+        onOpenChange={setMarkupConfirmOpen}
+        title="Apply default markup?"
+        description={`Apply 20% markup to ${
+          quoteItems.filter((l) => l.unitCost != null && l.unitSell == null).length
+        } service(s) that already have a cost? Manually entered sell prices will not be changed.`}
+        confirmLabel="Apply markup"
+        onConfirm={() => confirmApplyDefaultMarkup(20)}
+      />
+
+      <ConfirmDialog
+        open={includedConfirmOpen}
+        onOpenChange={setIncludedConfirmOpen}
+        title="Mark unpriced as included?"
+        description={`These ${
+          quoteItems.filter(
+            (l) => l.unitSell == null || (canViewCost && l.unitCost == null),
+          ).length
+        } service(s) will appear on the proposal but will not increase the customer total (sell set to ₹0). This cannot silently hide real costs later — review the list before confirming.`}
+        confirmLabel="Mark as included"
+        onConfirm={() => confirmMarkUnpricedAsIncluded()}
+      />
+
+      <RecordDialog
+        open={marginOverrideOpen}
+        onOpenChange={(open) => {
+          setMarginOverrideOpen(open);
+          if (!open) {
+            setMarginOverridePending(null);
+            setMarginOverrideReason('');
+            setMarginOverrideLineIds([]);
+          }
+        }}
+        title="Override margin policy?"
+        description={
+          quoteMinMarginPercent > 0
+            ? `Select services below the ${quoteMinMarginPercent}% margin floor (or selling below cost). This writes an audit entry with your user, timestamp, reason, and original cost/sell.`
+            : 'Select the loss-making services to authorise. This writes an audit entry with your user, timestamp, reason, and original cost/sell.'
+        }
+        submitLabel={marginOverrideSaving ? 'Recording…' : 'Record override'}
+        submitting={marginOverrideSaving}
+        submitDisabled={
+          !marginOverrideReason.trim() ||
+          !canOverrideBelowMargin ||
+          marginOverrideLineIds.length === 0 ||
+          marginOverrideSaving
+        }
+        onSubmit={() => void applyNegativeMarginOverride()}
+      >
+        <div className="space-y-3">
+          <FormField label="Services to override" required>
+            <ul className="max-h-48 space-y-2 overflow-y-auto rounded-md border border-border/60 p-2">
+              {quoteItems
+                .filter((line) => {
+                  const v = lineMarginPolicyViolation(
+                    line.unitCost,
+                    line.unitSell,
+                    quoteMinMarginPercent,
+                  );
+                  return Boolean(v) && !line.marginOverride?.reason?.trim();
+                })
+                .map((line) => {
+                  const v = lineMarginPolicyViolation(
+                    line.unitCost,
+                    line.unitSell,
+                    quoteMinMarginPercent,
+                  )!;
+                  const checked = marginOverrideLineIds.includes(line.id);
+                  return (
+                    <li key={line.id}>
+                      <label className="flex cursor-pointer items-start gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          className="mt-1 size-4 accent-primary"
+                          checked={checked}
+                          onChange={(e) => {
+                            setMarginOverrideLineIds((prev) =>
+                              e.target.checked
+                                ? [...prev, line.id]
+                                : prev.filter((id) => id !== line.id),
+                            );
+                          }}
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="font-medium">{line.description}</span>
+                          <span className="mt-0.5 block text-xs text-muted-foreground tabular-nums">
+                            Cost {formatCurrency(line.unitCost)} · Sell{' '}
+                            {formatCurrency(line.unitSell)} · Margin{' '}
+                            {formatPercent(v.marginPercent)}
+                            {v.kind === 'below_floor'
+                              ? ` · below ${v.floorPercent}% floor`
+                              : ' · sell below cost'}
+                          </span>
+                        </span>
+                      </label>
+                    </li>
+                  );
+                })}
+            </ul>
+          </FormField>
+          <FormField label="Reason" required>
+            <Textarea
+              value={marginOverrideReason}
+              onChange={(e) => setMarginOverrideReason(e.target.value)}
+              rows={3}
+              placeholder="e.g. Competitive match for repeat client — approved by sales lead"
+            />
+          </FormField>
+          <p className="text-xs text-muted-foreground">
+            Approver: {me?.fullName || me?.email || me?.id} · Permission: below_margin.approve
+          </p>
+        </div>
+      </RecordDialog>
+
       <ConfirmDialog
         open={acceptOpen}
         onOpenChange={setAcceptOpen}
@@ -2000,6 +4097,92 @@ export function TripWorkspacePage() {
             placeholder={trip.party?.email || 'client@example.com'}
           />
         </FormField>
+      </RecordDialog>
+
+      <RecordDialog
+        open={saveTemplateOpen}
+        onOpenChange={setSaveTemplateOpen}
+        title="Save as quote template"
+        description="Reuse inclusions, exclusions, terms, and line items on future trips."
+        submitLabel={savingTemplate ? 'Saving…' : 'Save template'}
+        onSubmit={() => void saveCurrentAsTemplate()}
+      >
+        <FormField label="Template name" required>
+          <Input
+            value={templateName}
+            onChange={(e) => setTemplateName(e.target.value)}
+            placeholder="e.g. Classic Goa FIT"
+            autoFocus
+          />
+        </FormField>
+      </RecordDialog>
+
+      <RecordDialog
+        open={useTemplateOpen}
+        onOpenChange={setUseTemplateOpen}
+        title="Start from template"
+        description="Creates a new draft quotation on this trip from a saved template."
+        hideFooter
+      >
+        {loadingTemplates ? (
+          <p className="text-sm text-muted-foreground">Loading templates…</p>
+        ) : quoteTemplates.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No templates yet. Save the current quote as a template first, or re-seed the
+            demo org for Darjeeling / Goa packages.
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {[...quoteTemplates]
+              .map((t) => {
+                const lineCount = Array.isArray(t.content?.items) ? t.content.items.length : 0;
+                const hint = String(t.content?.destinationHint || '').trim();
+                const destNames = destinations.map((d) => d.name.toLowerCase());
+                const hintLower = hint.toLowerCase();
+                const matchesTrip =
+                  Boolean(hintLower) &&
+                  destNames.some(
+                    (name) => name.includes(hintLower) || hintLower.includes(name),
+                  );
+                return { t, lineCount, hint, matchesTrip };
+              })
+              .sort((a, b) => {
+                if (a.matchesTrip !== b.matchesTrip) return a.matchesTrip ? -1 : 1;
+                if (a.lineCount !== b.lineCount) return b.lineCount - a.lineCount;
+                return a.t.name.localeCompare(b.t.name);
+              })
+              .map(({ t, lineCount, hint, matchesTrip }) => (
+                <li
+                  key={t.id}
+                  className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <div className="truncate text-sm font-medium">{t.name}</div>
+                      {matchesTrip ? (
+                        <span className="shrink-0 rounded bg-primary/15 px-1.5 py-px text-[10px] font-medium text-primary">
+                          Matches trip
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {hint ? `${hint} · ` : ''}
+                      {lineCount > 0
+                        ? `${lineCount} line${lineCount === 1 ? '' : 's'}`
+                        : 'Meta only'}
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    disabled={applyingTemplateId === t.id}
+                    onClick={() => void applyQuoteTemplate(t.id)}
+                  >
+                    {applyingTemplateId === t.id ? 'Applying…' : 'Use'}
+                  </Button>
+                </li>
+              ))}
+          </ul>
+        )}
       </RecordDialog>
 
       <RecordDialog

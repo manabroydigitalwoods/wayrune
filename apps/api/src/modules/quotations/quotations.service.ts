@@ -2,19 +2,35 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  Inject,
   Injectable,
   NotFoundException,
+  Optional,
+  forwardRef,
 } from '@nestjs/common';
-import { buildAbility, hasPermission, redactFields } from '@travel/auth';
+import { buildAbility, hasPermission, redactFields } from '@wayrune/auth';
 import { Prisma } from '@prisma/client';
-import type { SaveQuotationVersionInput } from '@travel/contracts';
-import { resolveTripWindowDisplay } from '@travel/contracts';
+import type {
+  ApplyQuoteTemplateInput,
+  CloneQuotationInput,
+  CreateQuoteTemplateInput,
+  QuotationItem,
+  RecordQuoteMarginOverridesInput,
+  SaveQuotationVersionInput,
+  UpdateQuoteTemplateInput,
+} from '@wayrune/contracts';
+import {
+  lineMarginPolicyViolation,
+  parseMinMarginPercent,
+  resolveTripWindowDisplay,
+} from '@wayrune/contracts';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { FilesService } from '../files/files.service';
 import { LeadsService } from '../leads/leads.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { GoogleService } from '../google/google.service';
 import {
   computePackageSummary,
   customerItineraryDays,
@@ -31,6 +47,12 @@ import {
 } from '../../common/customer-proposal';
 import { calcQuoteTotals, escapeHtml, formatCurrency, type AuthUser } from '../../common/helpers';
 import { buildBrandedProposalPdf } from './branded-proposal-pdf';
+import {
+  checklistToText,
+  contentFromVersionFields,
+  parseQuoteTemplateContent,
+  remintQuoteItems,
+} from './quote-template-content';
 
 const IMMUTABLE = new Set(['accepted']);
 const AUTOSAVEABLE = new Set(['draft', 'pending_approval']);
@@ -57,6 +79,9 @@ export class QuotationsService {
     private files: FilesService,
     private leads: LeadsService,
     private notifications: NotificationsService,
+    @Optional()
+    @Inject(forwardRef(() => GoogleService))
+    private google?: GoogleService,
   ) {}
 
   private async ensureTrip(organizationId: string, tripId: string) {
@@ -65,6 +90,81 @@ export class QuotationsService {
     });
     if (!trip) throw new NotFoundException('Trip not found');
     return trip;
+  }
+
+  /** Hard-block send / approval request until sell prices and validity are complete. */
+  private async assertQuoteReadyForCustomer(
+    user: AuthUser,
+    version: {
+      itemsJson: unknown;
+      validUntil: Date | null;
+      quotation: { tripId: string };
+    },
+  ) {
+    const items = Array.isArray(version.itemsJson)
+      ? (version.itemsJson as Array<{ unitSell?: number | null; unitCost?: number | null }>)
+      : [];
+    if (!items.length) {
+      throw new BadRequestException('Add at least one service before sending');
+    }
+    const missingSell = items.filter((i) => i.unitSell == null).length;
+    if (missingSell > 0) {
+      throw new BadRequestException(
+        `${missingSell} service${missingSell === 1 ? '' : 's'} missing sell price`,
+      );
+    }
+    if (!version.validUntil) {
+      throw new BadRequestException('Set a validity date before sending');
+    }
+    if (hasPermission(user.permissions, 'quote.view_cost')) {
+      const missingCost = items.filter((i) => i.unitCost == null).length;
+      if (missingCost > 0) {
+        throw new BadRequestException(
+          `${missingCost} service${missingCost === 1 ? '' : 's'} missing buy rate`,
+        );
+      }
+      const org = await this.prisma.organization.findFirst({
+        where: { id: user.organizationId },
+        select: { settingsJson: true },
+      });
+      const minMarginPercent = parseMinMarginPercent(org?.settingsJson);
+      const unauthorised = items.filter((i) => {
+        const violation = lineMarginPolicyViolation(
+          i.unitCost,
+          i.unitSell,
+          minMarginPercent,
+        );
+        if (!violation) return false;
+        const override = (i as { marginOverride?: { reason?: string } }).marginOverride;
+        return !override?.reason?.trim();
+      });
+      if (unauthorised.length > 0) {
+        const lossCount = unauthorised.filter((i) =>
+          lineMarginPolicyViolation(i.unitCost, i.unitSell, minMarginPercent)?.kind === 'loss',
+        ).length;
+        const floorCount = unauthorised.length - lossCount;
+        const parts: string[] = [];
+        if (lossCount > 0) {
+          parts.push(
+            `${lossCount} sell below cost`,
+          );
+        }
+        if (floorCount > 0) {
+          parts.push(
+            `${floorCount} below ${minMarginPercent}% margin floor`,
+          );
+        }
+        throw new BadRequestException(
+          `${unauthorised.length} service${unauthorised.length === 1 ? '' : 's'} need a below-margin override (${parts.join('; ')}) — a manager with below_margin.approve must authorise selected lines`,
+        );
+      }
+    }
+    const travellers = await this.prisma.tripTraveller.count({
+      where: { tripId: version.quotation.tripId },
+    });
+    if (travellers <= 0) {
+      throw new BadRequestException('Add at least one traveller before sending');
+    }
   }
 
   async createQuotation(user: AuthUser, tripId: string) {
@@ -180,6 +280,229 @@ export class QuotationsService {
     return { ...quotation, resumed: false as const };
   }
 
+  async listTemplates(user: AuthUser) {
+    const items = await this.prisma.quoteTemplate.findMany({
+      where: { organizationId: user.organizationId },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+    return {
+      items: items.map((t) => ({
+        id: t.id,
+        name: t.name,
+        createdAt: t.createdAt,
+        content: parseQuoteTemplateContent(t.contentJson),
+      })),
+    };
+  }
+
+  async createTemplate(user: AuthUser, input: CreateQuoteTemplateInput) {
+    let content = input.contentJson ? parseQuoteTemplateContent(input.contentJson) : null;
+
+    if (input.versionId) {
+      const version = await this.prisma.quotationVersion.findFirst({
+        where: {
+          id: input.versionId,
+          quotation: { organizationId: user.organizationId },
+        },
+      });
+      if (!version) throw new NotFoundException('Quotation version not found');
+      content = contentFromVersionFields({
+        currency: version.currency,
+        itemsJson: version.itemsJson,
+        inclusions: version.inclusions,
+        exclusions: version.exclusions,
+        terms: version.terms,
+        destinationHint: content?.destinationHint,
+      });
+    }
+
+    if (!content) {
+      throw new BadRequestException('Provide contentJson or versionId');
+    }
+
+    const template = await this.prisma.quoteTemplate.create({
+      data: {
+        organizationId: user.organizationId,
+        name: input.name.trim(),
+        contentJson: content as unknown as Prisma.InputJsonValue,
+      },
+    });
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorUserId: user.sub,
+      action: 'quote.template_create',
+      entityType: 'quote_template',
+      entityId: template.id,
+    });
+
+    return {
+      id: template.id,
+      name: template.name,
+      createdAt: template.createdAt,
+      content: parseQuoteTemplateContent(template.contentJson),
+    };
+  }
+
+  async updateTemplate(user: AuthUser, templateId: string, input: UpdateQuoteTemplateInput) {
+    const existing = await this.prisma.quoteTemplate.findFirst({
+      where: { id: templateId, organizationId: user.organizationId },
+    });
+    if (!existing) throw new NotFoundException('Quote template not found');
+
+    const template = await this.prisma.quoteTemplate.update({
+      where: { id: existing.id },
+      data: {
+        ...(input.name != null ? { name: input.name.trim() } : {}),
+        ...(input.contentJson != null
+          ? { contentJson: parseQuoteTemplateContent(input.contentJson) as unknown as Prisma.InputJsonValue }
+          : {}),
+      },
+    });
+
+    return {
+      id: template.id,
+      name: template.name,
+      createdAt: template.createdAt,
+      content: parseQuoteTemplateContent(template.contentJson),
+    };
+  }
+
+  async deleteTemplate(user: AuthUser, templateId: string) {
+    const existing = await this.prisma.quoteTemplate.findFirst({
+      where: { id: templateId, organizationId: user.organizationId },
+    });
+    if (!existing) throw new NotFoundException('Quote template not found');
+    await this.prisma.quoteTemplate.delete({ where: { id: existing.id } });
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorUserId: user.sub,
+      action: 'quote.template_delete',
+      entityType: 'quote_template',
+      entityId: existing.id,
+    });
+    return { ok: true as const };
+  }
+
+  async createFromTemplate(user: AuthUser, tripId: string, input: ApplyQuoteTemplateInput) {
+    await this.ensureTrip(user.organizationId, tripId);
+    const template = await this.prisma.quoteTemplate.findFirst({
+      where: { id: input.templateId, organizationId: user.organizationId },
+    });
+    if (!template) throw new NotFoundException('Quote template not found');
+
+    const content = parseQuoteTemplateContent(template.contentJson);
+    const items = remintQuoteItems((content.items ?? []) as QuotationItem[]);
+    const totals = calcQuoteTotals(items, 0);
+    const count = await this.prisma.quotation.count({
+      where: { organizationId: user.organizationId },
+    });
+
+    const quotation = await this.prisma.quotation.create({
+      data: {
+        organizationId: user.organizationId,
+        tripId,
+        quoteNumber: `QT-${String(count + 1).padStart(5, '0')}`,
+        versions: {
+          create: {
+            versionNumber: 1,
+            label: `v1 (from ${template.name})`,
+            status: 'draft',
+            currency: content.currency || 'INR',
+            itemsJson: items as unknown as Prisma.InputJsonValue,
+            inclusions: checklistToText(content.inclusions),
+            exclusions: checklistToText(content.exclusions),
+            terms: content.terms ?? null,
+            exchangeRatesJson: { INR: 1, USD: 0.012 },
+            ...totals,
+            createdBy: user.sub,
+          },
+        },
+      },
+      include: { versions: { orderBy: { versionNumber: 'desc' } } },
+    });
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorUserId: user.sub,
+      action: 'quote.create_from_template',
+      entityType: 'quotation',
+      entityId: quotation.id,
+      metadata: { templateId: template.id, templateName: template.name },
+    });
+
+    return quotation;
+  }
+
+  async cloneQuotation(user: AuthUser, tripId: string, quotationId: string, input: CloneQuotationInput) {
+    await this.ensureTrip(user.organizationId, tripId);
+    const source = await this.prisma.quotation.findFirst({
+      where: { id: quotationId, tripId, organizationId: user.organizationId },
+      include: { versions: { orderBy: { versionNumber: 'desc' } } },
+    });
+    if (!source) throw new NotFoundException('Quotation not found');
+
+    const version =
+      (input.versionId
+        ? source.versions.find((v) => v.id === input.versionId)
+        : source.versions[0]) ?? null;
+    if (!version) throw new NotFoundException('Quotation version not found');
+
+    const content = contentFromVersionFields({
+      currency: version.currency,
+      itemsJson: version.itemsJson,
+      inclusions: version.inclusions,
+      exclusions: version.exclusions,
+      terms: version.terms,
+    });
+    const items = remintQuoteItems((content.items ?? []) as QuotationItem[], 'clone');
+    const totals = calcQuoteTotals(items, Number(version.discountTotal) || 0);
+    const count = await this.prisma.quotation.count({
+      where: { organizationId: user.organizationId },
+    });
+
+    const quotation = await this.prisma.quotation.create({
+      data: {
+        organizationId: user.organizationId,
+        tripId,
+        quoteNumber: `QT-${String(count + 1).padStart(5, '0')}`,
+        versions: {
+          create: {
+            versionNumber: 1,
+            label: `v1 (clone of ${source.quoteNumber})`,
+            status: 'draft',
+            currency: content.currency || version.currency || 'INR',
+            validUntil: version.validUntil,
+            itemsJson: items as unknown as Prisma.InputJsonValue,
+            inclusions: checklistToText(content.inclusions),
+            exclusions: checklistToText(content.exclusions),
+            terms: content.terms ?? null,
+            exchangeRatesJson: version.exchangeRatesJson ?? { INR: 1, USD: 0.012 },
+            ...totals,
+            createdBy: user.sub,
+          },
+        },
+      },
+      include: { versions: { orderBy: { versionNumber: 'desc' } } },
+    });
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorUserId: user.sub,
+      action: 'quote.clone',
+      entityType: 'quotation',
+      entityId: quotation.id,
+      metadata: {
+        sourceQuotationId: source.id,
+        sourceVersionId: version.id,
+        sourceQuoteNumber: source.quoteNumber,
+      },
+    });
+
+    return quotation;
+  }
+
   async saveVersion(user: AuthUser, tripId: string, quotationId: string, input: SaveQuotationVersionInput) {
     await this.ensureTrip(user.organizationId, tripId);
     const quotation = await this.prisma.quotation.findFirst({
@@ -261,15 +584,23 @@ export class QuotationsService {
       if (input.expectedLock != null && target.versionLock !== input.expectedLock) {
         throw new ConflictException('Quotation was modified by another user');
       }
-      const totals = calcQuoteTotals(input.items, input.discountTotal ?? Number(target.discountTotal));
+      // Margin overrides may only be created via recordMarginOverrides (audited).
+      const items = this.preserveExistingMarginOverrides(
+        input.items as QuotationItem[],
+        target.itemsJson,
+      );
+      const totals = calcQuoteTotals(items, input.discountTotal ?? Number(target.discountTotal));
       const updated = await this.prisma.quotationVersion.update({
         where: { id: target.id },
         data: {
-          itemsJson: input.items as unknown as Prisma.InputJsonValue,
+          itemsJson: items as unknown as Prisma.InputJsonValue,
           inclusions: input.inclusions ?? target.inclusions,
           exclusions: input.exclusions ?? target.exclusions,
           terms: input.terms ?? target.terms,
           currency: input.currency || target.currency,
+          ...(input.validUntil !== undefined
+            ? { validUntil: input.validUntil ? new Date(input.validUntil) : null }
+            : {}),
           versionLock: target.versionLock + 1,
           ...totals,
         },
@@ -283,6 +614,156 @@ export class QuotationsService {
     }
 
     return this.saveVersion(user, tripId, quotationId, input);
+  }
+
+  /**
+   * Autosave must not invent margin overrides — only {@link recordMarginOverrides} may.
+   * Existing audited overrides are preserved; clearing an override (removing the field) is allowed.
+   */
+  private preserveExistingMarginOverrides(
+    incoming: QuotationItem[],
+    existingJson: unknown,
+  ): QuotationItem[] {
+    const existing = Array.isArray(existingJson)
+      ? (existingJson as QuotationItem[])
+      : [];
+    const byId = new Map(existing.map((row) => [row.id, row]));
+    return incoming.map((item) => {
+      const prev = byId.get(item.id);
+      const prevOverride = prev?.marginOverride;
+      const nextOverride = item.marginOverride;
+      if (!nextOverride?.reason?.trim()) {
+        return { ...item, marginOverride: undefined };
+      }
+      if (
+        prevOverride?.reason?.trim() &&
+        prevOverride.reason === nextOverride.reason &&
+        prevOverride.unitCost === nextOverride.unitCost &&
+        prevOverride.unitSell === nextOverride.unitSell &&
+        prevOverride.byUserId === nextOverride.byUserId
+      ) {
+        return { ...item, marginOverride: prevOverride };
+      }
+      // Reject client-forged or mutated overrides; keep prior audited value if any.
+      return { ...item, marginOverride: prevOverride };
+    });
+  }
+
+  /** Permission-gated, audited sell-below-cost / below-floor override on selected lines only. */
+  async recordMarginOverrides(
+    user: AuthUser,
+    versionId: string,
+    input: RecordQuoteMarginOverridesInput,
+  ) {
+    if (!hasPermission(user.permissions, 'below_margin.approve')) {
+      throw new ForbiddenException('Missing below_margin.approve');
+    }
+    const version = await this.prisma.quotationVersion.findFirst({
+      where: { id: versionId },
+      include: { quotation: true },
+    });
+    if (!version || version.quotation.organizationId !== user.organizationId) {
+      throw new NotFoundException('Version not found');
+    }
+    if (!AUTOSAVEABLE.has(version.status)) {
+      throw new BadRequestException('Only draft quotations can record margin overrides');
+    }
+    const org = await this.prisma.organization.findFirst({
+      where: { id: user.organizationId },
+      select: { settingsJson: true },
+    });
+    const minMarginPercent = parseMinMarginPercent(org?.settingsJson);
+    const items = Array.isArray(version.itemsJson)
+      ? ([...(version.itemsJson as QuotationItem[])] as QuotationItem[])
+      : [];
+    const selected = new Set(input.lineIds);
+    const at = new Date().toISOString();
+    const applied: Array<{
+      id: string;
+      description: string;
+      unitCost: number;
+      unitSell: number;
+      profit: number;
+      kind: string;
+      marginPercent: number;
+      floorPercent: number;
+    }> = [];
+
+    const nextItems = items.map((item) => {
+      if (!selected.has(item.id)) return item;
+      if (item.unitCost == null || item.unitSell == null) {
+        throw new BadRequestException(
+          `Line “${item.description}” needs both cost and sell before override`,
+        );
+      }
+      const violation = lineMarginPolicyViolation(
+        item.unitCost,
+        item.unitSell,
+        minMarginPercent,
+      );
+      if (!violation) {
+        throw new BadRequestException(
+          minMarginPercent > 0
+            ? `Line “${item.description}” meets the ${minMarginPercent}% margin floor`
+            : `Line “${item.description}” is not loss-making`,
+        );
+      }
+      applied.push({
+        id: item.id,
+        description: item.description,
+        unitCost: item.unitCost,
+        unitSell: item.unitSell,
+        profit: violation.profit,
+        kind: violation.kind,
+        marginPercent: violation.marginPercent,
+        floorPercent: violation.floorPercent,
+      });
+      return {
+        ...item,
+        marginOverride: {
+          at,
+          reason: input.reason.trim(),
+          byUserId: user.sub,
+          unitCost: item.unitCost,
+          unitSell: item.unitSell,
+        },
+      };
+    });
+
+    if (!applied.length) {
+      throw new BadRequestException('Select at least one service that breaches margin policy');
+    }
+    const missing = input.lineIds.filter((id) => !items.some((i) => i.id === id));
+    if (missing.length) {
+      throw new BadRequestException('One or more selected services were not found on this quotation');
+    }
+
+    const totals = calcQuoteTotals(nextItems, Number(version.discountTotal) || 0);
+    const updated = await this.prisma.quotationVersion.update({
+      where: { id: versionId },
+      data: {
+        itemsJson: nextItems as unknown as Prisma.InputJsonValue,
+        versionLock: version.versionLock + 1,
+        ...totals,
+      },
+    });
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorUserId: user.sub,
+      action: 'quote.margin_override',
+      entityType: 'quotation_version',
+      entityId: versionId,
+      metadata: {
+        reason: input.reason.trim(),
+        approvedByUserId: user.sub,
+        at,
+        minMarginPercent,
+        lines: applied,
+      },
+    });
+
+    return this.presentVersion(user, updated);
   }
 
   presentVersion(user: AuthUser, version: {
@@ -343,6 +824,10 @@ export class QuotationsService {
       !hasPermission(user.permissions, 'quote.approve')
     ) {
       throw new ForbiddenException('Missing quote.approve');
+    }
+
+    if (action === 'send' || action === 'request_approval') {
+      await this.assertQuoteReadyForCustomer(user, version);
     }
 
     if (action === 'accept') {
@@ -626,6 +1111,13 @@ export class QuotationsService {
       ...version,
       quotation: { quoteNumber: version.quotation.quoteNumber },
     });
+    const rawQuoteItems = Array.isArray(version.itemsJson)
+      ? (version.itemsJson as Array<{ unitSell?: number | null }>)
+      : [];
+    const draftIncomplete =
+      rawQuoteItems.length === 0 ||
+      rawQuoteItems.some((i) => i.unitSell == null) ||
+      !version.validUntil;
 
     const itinerary = await this.prisma.itinerary.findFirst({
       where: {
@@ -1041,8 +1533,14 @@ export class QuotationsService {
         .footer{margin-top:36px;padding-top:16px;border-top:1px solid #d7e3de;color:#4a635c;font-size:0.8rem}
         .note{margin-top:10px;font-size:0.75rem;color:#7a9089}
         .section{page-break-inside:avoid}
+        .draft-banner{background:#fff7ed;color:#9a3412;border:1px solid #fed7aa;border-radius:10px;padding:10px 14px;margin:0 0 16px;font-weight:600;font-size:.9rem;text-align:center}
       </style></head>
       <body>
+      ${
+        draftIncomplete
+          ? '<div class="draft-banner">Draft proposal — pricing incomplete</div>'
+          : ''
+      }
       <div class="hero"><div class="hero-inner">
         <div>${logoBlock}<span class="price">${escapeHtml(priceLabel)}</span></div>
         <h1>${escapeHtml(heroHeadline)}</h1>
@@ -1141,6 +1639,7 @@ export class QuotationsService {
       daysDetail,
       items: pdfItems,
       formatMoney: formatCurrency,
+      draftIncomplete,
     });
 
     const doc = await this.files.upload({
@@ -1224,5 +1723,12 @@ export class QuotationsService {
     });
     await this.transition(user, versionId, 'send');
     return { queued: true, ...pdf };
+  }
+
+  async savePdfToDrive(user: AuthUser, versionId: string) {
+    if (!this.google) throw new BadRequestException('Google Drive is not available');
+    const pdf = await this.generatePdf(user, versionId);
+    const drive = await this.google.saveDocumentToDrive(user, pdf.documentId);
+    return { ...pdf, drive };
   }
 }

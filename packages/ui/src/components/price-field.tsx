@@ -54,15 +54,16 @@ export function PriceField({
     <div className={cn('flex items-center gap-2', className)}>
       <div
         className={cn(
-          'flex min-w-0 flex-1 items-stretch overflow-hidden rounded-md border border-input bg-card/85 shadow-sm transition-colors',
-          'focus-within:ring-2 focus-within:ring-ring',
-          ariaInvalid && 'border-destructive focus-within:ring-destructive/40',
+          'flex h-9 min-w-0 flex-1 items-stretch overflow-hidden rounded-md border border-input bg-card/85 shadow-sm transition-[color,box-shadow,border-color]',
+          'focus-within:border-ring focus-within:outline-none focus-within:ring-2 focus-within:ring-ring',
+          ariaInvalid &&
+            'border-destructive focus-within:border-destructive focus-within:ring-destructive/40',
           disabled && 'opacity-50',
         )}
       >
         {showCurrency ? (
           <span
-            className="flex shrink-0 items-center border-r border-border/80 bg-muted/50 px-2.5 text-sm font-semibold tabular-nums text-muted-foreground"
+            className="flex h-full shrink-0 items-center border-r border-border/80 bg-muted/50 px-1.5 text-xs font-semibold leading-none tabular-nums text-muted-foreground"
             aria-hidden
           >
             {symbol}
@@ -88,8 +89,7 @@ export function PriceField({
             if (next != null) onChange(next);
           }}
           className={cn(
-            'min-w-0 flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0',
-            showCurrency ? 'rounded-none' : undefined,
+            'h-full min-h-0 min-w-0 flex-1 rounded-none border-0 bg-transparent px-2 py-0 shadow-none focus-visible:ring-0',
           )}
         />
       </div>

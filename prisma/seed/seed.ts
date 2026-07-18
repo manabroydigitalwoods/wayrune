@@ -20,7 +20,7 @@ import {
   SYSTEM_TRANSFER_FARE_CORRIDORS,
   buildClusterFareSeeds,
   SYSTEM_HOTEL_RATES,
-} from '@travel/config';
+} from '@wayrune/config';
 import {
   backfillPartnerDefaultAssets,
   backfillStayStarterInventory,
@@ -28,8 +28,32 @@ import {
   ensureDefaultPartnerAsset,
 } from '../../apps/api/src/modules/partner-assets/partner-assets.helpers';
 import { seedPartnerOperationalData } from './partner-ops-seed';
+import {
+  ensureOrgPresenceFormPresets,
+  ensureSystemPresenceThemes,
+} from '../../apps/api/src/modules/presence/presence-seed';
 
 const DEMO_PASSWORD = 'Password123!';
+
+async function allocateSeedOrgIdentity(
+  prisma: PrismaClient,
+  name: string,
+  preferredSubdomain?: string,
+) {
+  const max = await prisma.organization.aggregate({ _max: { publicCode: true } });
+  const publicCode = Math.max((max._max.publicCode ?? 10000) + 1, 10001);
+  const raw =
+    (preferredSubdomain || name)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '')
+      .slice(0, 48) || 'org';
+  let subdomain = raw;
+  let i = 1;
+  while (await prisma.organization.findFirst({ where: { subdomain } })) {
+    subdomain = `${raw.slice(0, 40)}${i++}`;
+  }
+  return { publicCode, subdomain };
+}
 
 async function seedSystemPlaceCategories(prisma: PrismaClient) {
   const subByKey = new Map<string, string>();
@@ -853,6 +877,7 @@ async function ensurePlatformAdmin(prisma: PrismaClient, password: string) {
         name: 'Travel OS Platform',
         slug: 'travel-os',
         kind: 'platform',
+        ...(await allocateSeedOrgIdentity(prisma, 'Travel OS Platform', 'travelos')),
         timezone: 'Asia/Kolkata',
         currency: 'INR',
         brandingJson: { primaryColor: '#0f6e56', companyName: 'Travel OS' },
@@ -986,10 +1011,13 @@ async function seedNetworkPartners(prisma: PrismaClient) {
     });
 
     if (!org) {
+      const identity = await allocateSeedOrgIdentity(prisma, partner.name, partner.slug);
       org = await prisma.organization.create({
         data: {
           name: partner.name,
           slug: partner.slug,
+          publicCode: identity.publicCode,
+          subdomain: identity.subdomain,
           kind: partner.kind,
           timezone: 'Asia/Kolkata',
           currency: 'INR',
@@ -1252,21 +1280,262 @@ async function ensureAgencyBootstrap(
     });
   }
 
-  const templateName = 'Classic FIT quote';
-  const existingTemplate = await prisma.quoteTemplate.findFirst({
-    where: { organizationId, name: templateName },
-  });
-  if (!existingTemplate) {
-    await prisma.quoteTemplate.create({
-      data: {
-        organizationId,
-        name: templateName,
-        contentJson: {
-          inclusions: ['Stay', 'Breakfast', 'Airport transfer'],
-          exclusions: ['Flights', 'Personal expenses'],
-        },
+  const templateSpecs: Array<{
+    name: string;
+    contentJson: Record<string, unknown>;
+  }> = [
+    {
+      name: 'Darjeeling classic FIT',
+      contentJson: {
+        currency: 'INR',
+        destinationHint: 'Darjeeling',
+        inclusions: [
+          'Private transfers (IXB–Darjeeling–Kalimpong–IXB)',
+          '2N Darjeeling + 1N Kalimpong on twin sharing',
+          'Breakfast daily',
+          'Toy train / local sightseeing as listed',
+        ],
+        exclusions: ['Flights', 'Lunch & dinner', 'Personal expenses', 'Monument fees'],
+        terms: 'Pay 40% to confirm. Balance 7 days before travel. Rates subject to hotel availability.',
+        items: [
+          {
+            id: 'seed-dj-t1',
+            description: 'Day 1: Bagdogra Airport → Darjeeling',
+            quantity: 1,
+            unitCost: 3200,
+            unitSell: 4000,
+            taxPercent: 5,
+            pricingUnit: 'per_service',
+            serviceType: 'transfer',
+            rateKind: 'transfer',
+            details: {
+              fromPlaceName: 'Bagdogra (IXB)',
+              toPlaceName: 'Darjeeling',
+              vehicleLabel: 'Sedan',
+              vehicles: 1,
+              priceSource: 'manual',
+            },
+          },
+          {
+            id: 'seed-dj-h1',
+            description: 'Day 1–3: Darjeeling boutique stay',
+            quantity: 2,
+            unitCost: 4500,
+            unitSell: 5400,
+            taxPercent: 5,
+            pricingUnit: 'per_room',
+            serviceType: 'hotel',
+            rateKind: 'hotel',
+            details: {
+              placeName: 'Darjeeling',
+              propertyName: 'Heritage boutique hotel',
+              roomType: 'Deluxe mountain view',
+              mealPlan: 'CP',
+              nights: 2,
+              rooms: 1,
+              priceSource: 'manual',
+            },
+          },
+          {
+            id: 'seed-dj-a1',
+            description: 'Day 2: Tiger Hill sunrise + local sightseeing',
+            quantity: 2,
+            unitCost: 800,
+            unitSell: 1200,
+            taxPercent: 5,
+            pricingUnit: 'per_person',
+            serviceType: 'activity',
+            details: {
+              placeName: 'Darjeeling',
+              privateOrSic: 'private',
+              priceSource: 'manual',
+            },
+          },
+          {
+            id: 'seed-dj-t2',
+            description: 'Day 3: Darjeeling → Kalimpong',
+            quantity: 1,
+            unitCost: 2800,
+            unitSell: 3500,
+            taxPercent: 5,
+            pricingUnit: 'per_service',
+            serviceType: 'transfer',
+            rateKind: 'transfer',
+            details: {
+              fromPlaceName: 'Darjeeling',
+              toPlaceName: 'Kalimpong',
+              vehicleLabel: 'Sedan',
+              vehicles: 1,
+              priceSource: 'manual',
+            },
+          },
+          {
+            id: 'seed-dj-h2',
+            description: 'Day 3–4: Kalimpong boutique stay',
+            quantity: 1,
+            unitCost: 4200,
+            unitSell: 5200,
+            taxPercent: 5,
+            pricingUnit: 'per_room',
+            serviceType: 'hotel',
+            rateKind: 'hotel',
+            details: {
+              placeName: 'Kalimpong',
+              propertyName: 'Hillside boutique hotel',
+              roomType: 'Deluxe',
+              mealPlan: 'CP',
+              nights: 1,
+              rooms: 1,
+              priceSource: 'manual',
+            },
+          },
+          {
+            id: 'seed-dj-t3',
+            description: 'Day 4: Kalimpong → Bagdogra Airport',
+            quantity: 1,
+            unitCost: 3000,
+            unitSell: 3800,
+            taxPercent: 5,
+            pricingUnit: 'per_service',
+            serviceType: 'transfer',
+            rateKind: 'transfer',
+            details: {
+              fromPlaceName: 'Kalimpong',
+              toPlaceName: 'Bagdogra (IXB)',
+              vehicleLabel: 'Sedan',
+              vehicles: 1,
+              priceSource: 'manual',
+            },
+          },
+        ],
       },
+    },
+    {
+      name: 'Goa beach FIT',
+      contentJson: {
+        currency: 'INR',
+        destinationHint: 'Goa',
+        inclusions: [
+          'Airport transfers (GOI)',
+          '3N North Goa hotel on twin sharing',
+          'Breakfast daily',
+          'Half-day North Goa sightseeing',
+        ],
+        exclusions: ['Flights', 'Water sports', 'Lunch & dinner', 'Personal expenses'],
+        terms: 'Pay 50% to confirm. Balance before check-in. Peak-season supplements may apply.',
+        items: [
+          {
+            id: 'seed-goa-t1',
+            description: 'Arrival: Goa Airport → North Goa hotel',
+            quantity: 1,
+            unitCost: 1800,
+            unitSell: 2400,
+            taxPercent: 5,
+            pricingUnit: 'per_service',
+            serviceType: 'transfer',
+            rateKind: 'transfer',
+            details: {
+              fromPlaceName: 'Goa Airport (GOI)',
+              toPlaceName: 'Calangute',
+              vehicleLabel: 'Sedan',
+              vehicles: 1,
+              priceSource: 'manual',
+            },
+          },
+          {
+            id: 'seed-goa-h1',
+            description: '3N North Goa beach hotel',
+            quantity: 3,
+            unitCost: 5500,
+            unitSell: 7200,
+            taxPercent: 5,
+            pricingUnit: 'per_room',
+            serviceType: 'hotel',
+            rateKind: 'hotel',
+            details: {
+              placeName: 'Calangute',
+              propertyName: 'Beach resort',
+              roomType: 'Superior sea view',
+              mealPlan: 'CP',
+              nights: 3,
+              rooms: 1,
+              priceSource: 'manual',
+            },
+          },
+          {
+            id: 'seed-goa-a1',
+            description: 'North Goa half-day sightseeing',
+            quantity: 2,
+            unitCost: 900,
+            unitSell: 1400,
+            taxPercent: 5,
+            pricingUnit: 'per_person',
+            serviceType: 'activity',
+            details: {
+              placeName: 'North Goa',
+              privateOrSic: 'private',
+              priceSource: 'manual',
+            },
+          },
+          {
+            id: 'seed-goa-t2',
+            description: 'Departure: North Goa hotel → Goa Airport',
+            quantity: 1,
+            unitCost: 1800,
+            unitSell: 2400,
+            taxPercent: 5,
+            pricingUnit: 'per_service',
+            serviceType: 'transfer',
+            rateKind: 'transfer',
+            details: {
+              fromPlaceName: 'Calangute',
+              toPlaceName: 'Goa Airport (GOI)',
+              vehicleLabel: 'Sedan',
+              vehicles: 1,
+              priceSource: 'manual',
+            },
+          },
+        ],
+      },
+    },
+    {
+      name: 'Classic FIT quote',
+      contentJson: {
+        currency: 'INR',
+        destinationHint: null,
+        inclusions: ['Stay', 'Breakfast', 'Airport transfer'],
+        exclusions: ['Flights', 'Personal expenses'],
+        terms: 'Pay 50% to confirm. Balance before travel.',
+        items: [],
+      },
+    },
+  ];
+
+  for (const spec of templateSpecs) {
+    const existing = await prisma.quoteTemplate.findFirst({
+      where: { organizationId, name: spec.name },
     });
+    if (!existing) {
+      await prisma.quoteTemplate.create({
+        data: {
+          organizationId,
+          name: spec.name,
+          contentJson: spec.contentJson,
+        },
+      });
+      continue;
+    }
+    // Upgrade empty meta-only seeds to priced packages when we add lines.
+    const raw = existing.contentJson as { items?: unknown } | null;
+    const hasItems = Array.isArray(raw?.items) && raw.items.length > 0;
+    const wantsItems =
+      Array.isArray(spec.contentJson.items) && (spec.contentJson.items as unknown[]).length > 0;
+    if (!hasItems && wantsItems) {
+      await prisma.quoteTemplate.update({
+        where: { id: existing.id },
+        data: { contentJson: spec.contentJson },
+      });
+    }
   }
 
   const blockName = 'Goa beach day template';
@@ -3102,6 +3371,291 @@ async function seedRichAgencyData(
   }
 
   console.log('Seeded rich agency demo data (parties, inquiries, trips, finance, tasks)');
+  await seedInboxReplyDemo(prisma, organizationId, ownerId, parties);
+}
+
+/** Inbox threads the agency can practice replying on (WhatsApp / Email / Google / Instagram). */
+async function seedInboxReplyDemo(
+  prisma: PrismaClient,
+  organizationId: string,
+  ownerId: string,
+  parties: Record<string, string>,
+) {
+  const org = await prisma.organization.findUnique({
+    where: { id: organizationId },
+    select: { settingsJson: true },
+  });
+  const existingSettings =
+    org?.settingsJson && typeof org.settingsJson === 'object' && !Array.isArray(org.settingsJson)
+      ? (org.settingsJson as Record<string, unknown>)
+      : {};
+  const existingIntegrations =
+    existingSettings.integrations &&
+    typeof existingSettings.integrations === 'object' &&
+    !Array.isArray(existingSettings.integrations)
+      ? (existingSettings.integrations as Record<string, unknown>)
+      : {};
+
+  await prisma.organization.update({
+    where: { id: organizationId },
+    data: {
+      settingsJson: {
+        ...existingSettings,
+        integrations: {
+          ...existingIntegrations,
+          whatsapp: {
+            enabled: true,
+            phoneNumberId: 'seed-demo-phone-id',
+            accessToken: 'seed-demo-whatsapp-token',
+            verifyToken: 'seed-demo-verify',
+            appSecret: 'seed-demo-secret',
+          },
+          facebook: {
+            enabled: true,
+            pageId: 'seed-demo-page',
+            accessToken: 'seed-demo-facebook-token',
+            verifyToken: 'seed-demo-verify',
+            appSecret: 'seed-demo-secret',
+            instagramBusinessAccountId: 'seed-demo-ig',
+          },
+          emailIngest: {
+            enabled: true,
+            sharedSecret: 'seed-demo-email-secret',
+          },
+        },
+      },
+    },
+  });
+
+  let kavya = await prisma.party.findFirst({
+    where: {
+      organizationId,
+      deletedAt: null,
+      email: 'kavya.mehta@example.com',
+    },
+  });
+  if (!kavya) {
+    kavya = await prisma.party.create({
+      data: {
+        organizationId,
+        type: 'individual',
+        displayName: 'Kavya Mehta',
+        email: 'kavya.mehta@example.com',
+        phone: '+919900112233',
+        notes: 'Seeded — Google Business / Instagram reply demo',
+        metadataJson: { seedKey: 'seed-party-kavya' },
+        createdBy: ownerId,
+        contacts: {
+          create: {
+            fullName: 'Kavya Mehta',
+            email: 'kavya.mehta@example.com',
+            phone: '+919900112233',
+            title: 'Primary',
+            isPrimary: true,
+          },
+        },
+      },
+    });
+  }
+
+  const threads: Array<{
+    seedKey: string;
+    partyId: string;
+    channel: string;
+    subject: string;
+    journey: string[];
+    messages: Array<{
+      idempotencyKey: string;
+      direction: 'inbound' | 'outbound';
+      summary: string;
+      minutesAgo: number;
+      unread?: boolean;
+      raw: Record<string, unknown>;
+    }>;
+  }> = [
+    {
+      seedKey: 'seed-inbox-wa-sneha',
+      partyId: parties['seed-party-sneha']!,
+      channel: 'whatsapp',
+      subject: 'WhatsApp — Kerala dates',
+      journey: ['whatsapp'],
+      messages: [
+        {
+          idempotencyKey: 'seed-inbox-wa-sneha-1',
+          direction: 'inbound',
+          summary: 'Hi, do you have a 5N Kerala package for mid-August?',
+          minutesAgo: 95,
+          unread: false,
+          raw: {
+            direction: 'inbound',
+            from: '919811122233',
+            text: 'Hi, do you have a 5N Kerala package for mid-August?',
+            demo: true,
+          },
+        },
+        {
+          idempotencyKey: 'seed-inbox-wa-sneha-2',
+          direction: 'outbound',
+          summary: 'Outbound: Yes — we can do Kochi + Munnar + Alleppey. Sharing options shortly.',
+          minutesAgo: 80,
+          unread: false,
+          raw: {
+            direction: 'outbound',
+            to: '919811122233',
+            text: 'Yes — we can do Kochi + Munnar + Alleppey. Sharing options shortly.',
+            demo: true,
+          },
+        },
+        {
+          idempotencyKey: 'seed-inbox-wa-sneha-3',
+          direction: 'inbound',
+          summary: 'Great. Prefer houseboat one night. Budget around 80k for 2 adults.',
+          minutesAgo: 12,
+          unread: true,
+          raw: {
+            direction: 'inbound',
+            from: '919811122233',
+            text: 'Great. Prefer houseboat one night. Budget around 80k for 2 adults.',
+            demo: true,
+          },
+        },
+      ],
+    },
+    {
+      seedKey: 'seed-inbox-email-aarav',
+      partyId: parties['seed-party-aarav']!,
+      channel: 'email',
+      subject: 'Email — Bali honeymoon',
+      journey: ['email'],
+      messages: [
+        {
+          idempotencyKey: 'seed-inbox-email-aarav-1',
+          direction: 'inbound',
+          summary: 'Looking for a Bali honeymoon in October — 6 nights, beach + Ubud.',
+          minutesAgo: 40,
+          unread: true,
+          raw: {
+            direction: 'inbound',
+            from: 'aarav.sharma@example.com',
+            subject: 'Bali honeymoon enquiry',
+            messageId: '<seed-aarav-bali@example.com>',
+            text: 'Looking for a Bali honeymoon in October — 6 nights, beach + Ubud.',
+            demo: true,
+          },
+        },
+      ],
+    },
+    {
+      seedKey: 'seed-inbox-gbp-kavya',
+      partyId: kavya.id,
+      channel: 'google_business',
+      subject: 'Google review — Manali trip',
+      journey: ['google_business'],
+      messages: [
+        {
+          idempotencyKey: 'seed-inbox-gbp-kavya-1',
+          direction: 'inbound',
+          summary: '★5 Wonderful Manali trip — hotel and driver were excellent. Thank you!',
+          minutesAgo: 25,
+          unread: true,
+          raw: {
+            direction: 'inbound',
+            source: 'google_business',
+            kind: 'review',
+            rating: 5,
+            externalId: 'seed-gbp-review-kavya-1',
+            locationName: 'accounts/seed/locations/seed-demo-location',
+            text: 'Wonderful Manali trip — hotel and driver were excellent. Thank you!',
+            demo: true,
+          },
+        },
+      ],
+    },
+    {
+      seedKey: 'seed-inbox-ig-kavya',
+      partyId: kavya.id,
+      channel: 'instagram',
+      subject: 'Instagram DM — weekend Goa',
+      journey: ['instagram'],
+      messages: [
+        {
+          idempotencyKey: 'seed-inbox-ig-kavya-1',
+          direction: 'inbound',
+          summary: 'Do you arrange weekend Goa getaways from Mumbai?',
+          minutesAgo: 8,
+          unread: true,
+          raw: {
+            direction: 'inbound',
+            senderId: 'seed-ig-sender-kavya',
+            text: 'Do you arrange weekend Goa getaways from Mumbai?',
+            demo: true,
+          },
+        },
+      ],
+    },
+  ];
+
+  for (const thread of threads) {
+    let conv = await prisma.engagementConversation.findFirst({
+      where: {
+        organizationId,
+        partyId: thread.partyId,
+        subject: thread.subject,
+      },
+    });
+    const lastAt = new Date(Date.now() - Math.min(...thread.messages.map((m) => m.minutesAgo)) * 60_000);
+    const unreadCount = thread.messages.filter((m) => m.unread).length;
+    if (!conv) {
+      conv = await prisma.engagementConversation.create({
+        data: {
+          organizationId,
+          partyId: thread.partyId,
+          status: 'open',
+          subject: thread.subject,
+          assignedUserId: null,
+          lastInteractionAt: lastAt,
+          unreadCount,
+          journeyPathJson: thread.journey,
+        },
+      });
+    } else {
+      await prisma.engagementConversation.update({
+        where: { id: conv.id },
+        data: {
+          lastInteractionAt: lastAt,
+          unreadCount,
+          journeyPathJson: thread.journey,
+          status: 'open',
+        },
+      });
+    }
+
+    for (const msg of thread.messages) {
+      const existing = await prisma.interaction.findFirst({
+        where: { organizationId, idempotencyKey: msg.idempotencyKey },
+      });
+      if (existing) continue;
+      const occurredAt = new Date(Date.now() - msg.minutesAgo * 60_000);
+      await prisma.interaction.create({
+        data: {
+          organizationId,
+          conversationId: conv.id,
+          partyId: thread.partyId,
+          channel: thread.channel,
+          acquisitionSourceKey: thread.channel,
+          outcome: 'pending',
+          unread: msg.unread ?? msg.direction === 'inbound',
+          summary: msg.summary,
+          staffUserId: msg.direction === 'outbound' ? ownerId : null,
+          occurredAt,
+          idempotencyKey: msg.idempotencyKey,
+          rawPayloadJson: msg.raw,
+        },
+      });
+    }
+  }
+
+  console.log('Seeded Inbox reply demo (WhatsApp, Email, Google Business, Instagram)');
 }
 
 async function ensureDemoAgency(
@@ -3140,10 +3694,13 @@ async function ensureDemoAgency(
   }
 
   if (!org) {
+    const identity = await allocateSeedOrgIdentity(prisma, 'Demo Travel Agency', 'demotravel');
     org = await prisma.organization.create({
       data: {
         name: 'Demo Travel Agency',
         slug: 'demo-travel',
+        publicCode: identity.publicCode,
+        subdomain: identity.subdomain,
         kind: 'travel_agency',
         timezone: 'Asia/Kolkata',
         currency: 'INR',
@@ -3244,6 +3801,94 @@ async function ensureDemoAgency(
   return { user, org, passwordHash };
 }
 
+/** Extra agency owner (e.g. personal Google SSO email) on the demo org. */
+async function ensureAgencyOwnerAlias(
+  prisma: PrismaClient,
+  organizationId: string,
+  email: string,
+  passwordHash: string,
+  fullName: string,
+) {
+  let user = await prisma.user.findUnique({ where: { email } });
+  if (!user) {
+    user = await prisma.user.create({
+      data: { email, fullName, passwordHash },
+    });
+  } else {
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash, fullName: user.fullName || fullName },
+    });
+  }
+
+  await ensureOrgRoles(prisma, organizationId);
+  const ownerRole = await prisma.role.findUniqueOrThrow({
+    where: { organizationId_key: { organizationId, key: 'owner' } },
+  });
+  const membership = await prisma.organizationMembership.upsert({
+    where: {
+      organizationId_userId: { organizationId, userId: user.id },
+    },
+    create: { organizationId, userId: user.id, isOwner: true },
+    update: { isOwner: true, isActive: true },
+  });
+  await prisma.membershipRole.upsert({
+    where: {
+      membershipId_roleId: { membershipId: membership.id, roleId: ownerRole.id },
+    },
+    create: { membershipId: membership.id, roleId: ownerRole.id },
+    update: {},
+  });
+  return user;
+}
+
+/** Copy every active workspace membership (+ roles) from primary demo owner → alias. */
+async function mirrorOwnerMemberships(
+  prisma: PrismaClient,
+  primaryUserId: string,
+  aliasUserId: string,
+) {
+  if (primaryUserId === aliasUserId) return 0;
+  const source = await prisma.organizationMembership.findMany({
+    where: { userId: primaryUserId, isActive: true, deletedAt: null },
+    include: {
+      roles: { select: { roleId: true } },
+    },
+  });
+  let linked = 0;
+  for (const m of source) {
+    const membership = await prisma.organizationMembership.upsert({
+      where: {
+        organizationId_userId: {
+          organizationId: m.organizationId,
+          userId: aliasUserId,
+        },
+      },
+      create: {
+        organizationId: m.organizationId,
+        userId: aliasUserId,
+        isOwner: m.isOwner,
+        isActive: true,
+      },
+      update: { isOwner: m.isOwner, isActive: true, deletedAt: null },
+    });
+    for (const r of m.roles) {
+      await prisma.membershipRole.upsert({
+        where: {
+          membershipId_roleId: {
+            membershipId: membership.id,
+            roleId: r.roleId,
+          },
+        },
+        create: { membershipId: membership.id, roleId: r.roleId },
+        update: {},
+      });
+    }
+    linked += 1;
+  }
+  return linked;
+}
+
 async function main() {
   bootstrapEnv();
   const prisma = new PrismaClient();
@@ -3270,6 +3915,15 @@ async function main() {
   await ensurePlatformAdmin(prisma, password);
 
   const { user, org, passwordHash } = await ensureDemoAgency(prisma, email, password);
+  const aliasEmail =
+    process.env.SEED_OWNER_ALIAS_EMAIL ?? 'manab@digitalwoods.io';
+  const aliasUser = await ensureAgencyOwnerAlias(
+    prisma,
+    org.id,
+    aliasEmail,
+    passwordHash,
+    process.env.SEED_OWNER_ALIAS_NAME ?? 'Manab Roy',
+  );
   await seedAgencyStaff(prisma, org.id, passwordHash);
   await ensureAgencyBootstrap(prisma, org.id);
   await seedDemoLeads(prisma, org.id, user.id);
@@ -3277,9 +3931,25 @@ async function main() {
   await seedAgencyPackageTemplate(prisma, org.id);
   await seedPartnerOperationalData(prisma);
 
+  await ensureSystemPresenceThemes(prisma);
+  const orgsForPresence = await prisma.organization.findMany({
+    where: { deletedAt: null, kind: { not: 'platform' } },
+    select: { id: true, kind: true },
+  });
+  for (const o of orgsForPresence) {
+    await ensureOrgPresenceFormPresets(prisma, o.id, o.kind);
+  }
+  console.log(`Presence themes + form presets ready for ${orgsForPresence.length} org(s)`);
+
+  const mirrored = await mirrorOwnerMemberships(prisma, user.id, aliasUser.id);
+  if (mirrored) {
+    console.log(`Mirrored ${mirrored} workspace(s) onto ${aliasUser.email}`);
+  }
+
   console.log('\nDemo accounts (password:', password + ')');
   console.log('  Platform admin:   ', process.env.PLATFORM_ADMIN_EMAIL ?? 'admin@travelos.platform');
   console.log('  Agency owner:     ', email);
+  console.log('  Agency owner (SSO alias):', aliasUser.email);
   for (const s of AGENCY_STAFF) console.log('  ', s.roleKey.padEnd(18), s.email);
   for (const p of DEMO_PARTNERS) console.log('  ', p.kind.padEnd(18), p.email, '(+ per-role logins)');
   console.log(

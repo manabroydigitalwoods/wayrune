@@ -2,7 +2,7 @@ import { existsSync } from 'fs';
 import { readFile } from 'fs/promises';
 import { isAbsolute, join, resolve } from 'path';
 import PDFDocument from 'pdfkit';
-import { findMonorepoRoot, loadEnv } from '@travel/config';
+import { findMonorepoRoot, loadEnv } from '@wayrune/config';
 import type { OrgBrandingPayload } from '../../common/customer-proposal';
 
 export type ProposalPdfLine = {
@@ -42,6 +42,8 @@ export type ProposalPdfInput = {
   daysDetail?: ProposalPdfDayDetail[];
   items: ProposalPdfLine[];
   formatMoney: (amount: number, currency: string) => string;
+  /** Incomplete draft — watermark so it is not mistaken for a send-ready proposal. */
+  draftIncomplete?: boolean;
 };
 
 async function loadLogoBuffer(logoUrl: string | null | undefined): Promise<Buffer | null> {
@@ -115,6 +117,30 @@ export async function buildBrandedProposalPdf(input: ProposalPdfInput): Promise<
     const contentWidth = right - left;
     const headerHeight = 72;
 
+    const stampDraftWatermark = () => {
+      if (!input.draftIncomplete) return;
+      const cx = pageWidth / 2;
+      const cy = doc.page.height / 2;
+      doc.save();
+      doc
+        .fillColor('#b45309')
+        .opacity(0.12)
+        .font('Helvetica-Bold')
+        .fontSize(36)
+        .rotate(-32, { origin: [cx, cy] })
+        .text('DRAFT — PRICING INCOMPLETE', cx - 220, cy - 18, {
+          width: 440,
+          align: 'center',
+          lineBreak: false,
+        });
+      doc.restore();
+      doc.opacity(1);
+    };
+
+    doc.on('pageAdded', () => {
+      stampDraftWatermark();
+    });
+
     doc.rect(0, 0, pageWidth, headerHeight).fill(primary);
 
     let textLeft = left;
@@ -141,8 +167,25 @@ export async function buildBrandedProposalPdf(input: ProposalPdfInput): Promise<
       .fontSize(10)
       .text('Travel proposal', textLeft, 46, { width: right - textLeft });
 
+    stampDraftWatermark();
+
     doc.fillColor('#111111');
     let y = 96;
+    if (input.draftIncomplete) {
+      doc
+        .roundedRect(left, y, contentWidth, 28, 4)
+        .fill('#fff7ed');
+      doc
+        .fillColor('#9a3412')
+        .font('Helvetica-Bold')
+        .fontSize(10)
+        .text('Draft proposal — pricing incomplete', left + 10, y + 9, {
+          width: contentWidth - 20,
+        });
+      y += 40;
+    }
+
+    doc.fillColor('#111111');
     doc.font('Helvetica-Bold').fontSize(16).text(input.tripTitle, left, y, { width: contentWidth });
     y = doc.y + 8;
 

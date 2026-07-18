@@ -97,7 +97,7 @@ export { Popover, PopoverTrigger, PopoverContent, PopoverAnchor } from './compon
 export { Checkbox } from './components/ui/checkbox';
 export { Switch } from './components/ui/switch';
 export { ScrollArea, ScrollBar } from './components/ui/scroll-area';
-export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from './components/ui/tooltip';
+export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider, TooltipArrow, BrandTooltip } from './components/ui/tooltip';
 export { Avatar, AvatarImage, AvatarFallback } from './components/ui/avatar';
 export {
   Command,

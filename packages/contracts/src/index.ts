@@ -8,6 +8,7 @@ import {
   blankToUndefined,
   isValidPhone,
 } from './fields';
+import { InboxChatSettingsSchema } from './inbox-chat-settings';
 
 export {
   OptionalEmail,
@@ -137,6 +138,11 @@ export const OrgSettingsPayloadSchema = z
     defaultTaxPercent: z.number().min(0).max(100).optional(),
     /** Applied as sell = cost × (1 + markup/100) when resolving rate cards. */
     defaultMarkupPercent: z.number().min(0).max(500).optional(),
+    /**
+     * Minimum acceptable margin % on sell for each priced line (0 = only block sell-below-cost).
+     * Lines below this floor need `below_margin.approve` before send / approval request.
+     */
+    minMarginPercent: z.number().min(0).max(100).optional(),
     business: z
       .object({
         legalName: z.string().optional(),
@@ -163,8 +169,6 @@ export const OrgSettingsPayloadSchema = z
       .optional(),
     integrations: z
       .object({
-        googleSsoEnabled: z.boolean().optional(),
-        microsoftSsoEnabled: z.boolean().optional(),
         hubspotEnabled: z.boolean().optional(),
         webhookUrl: z.string().optional(),
         whatsapp: z
@@ -310,8 +314,17 @@ export const OrgSettingsPayloadSchema = z
       })
       .partial()
       .optional(),
+    /** Inbox → Chat channel defaults (accent, placement, availability). */
+    inbox: z
+      .object({
+        chat: InboxChatSettingsSchema.optional(),
+      })
+      .partial()
+      .optional(),
   })
-  .partial();
+  .partial()
+  /** Keep forward-compatible keys (e.g. new inbox/chat fields) instead of silently stripping them. */
+  .passthrough();
 
 export const UpdateOrganizationSettingsSchema = z.object({
   name: z.string().min(1).optional(),
@@ -1155,7 +1168,76 @@ export const CONNECTOR_CAPABILITIES: Record<string, ConnectorCapabilities> = {
     buttons: false,
     automation: false,
   },
+  google_business: {
+    receive: true,
+    reply: true,
+    templates: false,
+    media: false,
+    readStatus: false,
+    buttons: false,
+    automation: true,
+  },
 };
+
+export const GOOGLE_CONNECT_SCOPES = {
+  /** Phase 1 — Business Profile (locations, reviews; messaging when API allows). */
+  business: [
+    'https://www.googleapis.com/auth/business.manage',
+    'openid',
+    'email',
+    'profile',
+  ],
+  /** Phase 2 */
+  calendar: ['https://www.googleapis.com/auth/calendar.events'],
+  /** Phase 3 */
+  drive: ['https://www.googleapis.com/auth/drive.file'],
+  sheets: ['https://www.googleapis.com/auth/spreadsheets'],
+} as const;
+
+export const BindGoogleLocationsSchema = z.object({
+  locations: z
+    .array(
+      z.object({
+        name: RequiredText('Location resource name'),
+        title: z.preprocess(blankToNull, z.string().nullable()).optional(),
+        storeCode: z.preprocess(blankToNull, z.string().nullable()).optional(),
+      }),
+    )
+    .min(1),
+});
+
+export const UpdateGoogleConnectionSettingsSchema = z.object({
+  calendarId: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  syncFollowUpsToCalendar: z.boolean().optional(),
+  driveRootFolderId: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  useDriveAsFileStorage: z.boolean().optional(),
+});
+
+export const GoogleBusinessIngestSchema = z.object({
+  kind: z.enum(['message', 'review']),
+  locationName: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  summary: RequiredText('Summary'),
+  contactName: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  email: OptionalEmail.optional(),
+  phone: OptionalPhone.optional(),
+  rating: z.number().min(1).max(5).optional(),
+  externalId: RequiredText('External id'),
+  replyText: z.preprocess(blankToNull, z.string().nullable()).optional(),
+});
+
+export const ReplyGoogleBusinessSchema = z.object({
+  text: RequiredText('Reply'),
+});
+
+export const GoogleSheetsExportSchema = z.object({
+  title: RequiredText('Sheet title').optional(),
+  windowDays: z.number().int().min(1).max(365).default(30),
+});
+
+export const GoogleSheetsImportSchema = z.object({
+  spreadsheetId: RequiredText('Spreadsheet id'),
+  range: z.string().default('Sheet1!A2:G'),
+});
 
 export const ENGAGEMENT_CONVERSATION_STATUSES = ['open', 'waiting', 'closed'] as const;
 
@@ -1197,7 +1279,866 @@ export const WidgetIngestSchema = z.object({
   phone: OptionalPhone,
   destinations: z.preprocess(blankToNull, z.string().nullable()).optional(),
   idempotencyKey: RequiredText('Idempotency key'),
+  /** Presence form module key (e.g. travel_request) — lands on Interaction payload. */
+  formKey: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  /** PresenceChatWidget.id when known (Presence inject / embed data-widget). */
+  widgetId: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  siteId: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  path: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  pageUrl: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  referrer: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  /** presence = auto-injected on Presence site; embed = external snippet. */
+  source: z.enum(['presence', 'embed']).optional(),
 });
+
+export const PRESENCE_SITE_KINDS = ['marketing', 'landing'] as const;
+export const PRESENCE_RECORD_STATUSES = ['draft', 'published', 'archived'] as const;
+
+/** Catalog v2 design-token groups and component recipes (Sprint 1 foundation). */
+export const PRESENCE_DESIGN_TOKEN_GROUPS = {
+  brand: ['primary', 'secondary', 'accent', 'neutral', 'success', 'warning'],
+  surfaces: ['background', 'foreground', 'muted', 'surface', 'surfaceMuted', 'border'],
+  shape: ['radius'],
+  hero: ['heroFrom', 'heroTo'],
+  type: ['fontDisplay', 'fontHeading', 'fontBody', 'fontLabel'],
+} as const;
+
+export const PRESENCE_DESIGN_RECIPES = [
+  'button.primary',
+  'card.package',
+  'header',
+  'hero',
+  'form',
+  'sectionHeading',
+] as const;
+
+export const PRESENCE_CATALOG_THEME_FAMILIES = [
+  'horizon',
+  'atelier',
+  'altitude',
+  'wildlands',
+  'marigold',
+  'coastline',
+  'meridian',
+  'localist',
+] as const;
+
+export const PRESENCE_RENDERER_KEYS = [
+  'hero',
+  'rich_text',
+  'gallery',
+  'faq',
+  'form',
+  'widget_cta',
+  'testimonials',
+  'cta',
+  'container',
+  'two_column',
+  'columns',
+  'liquid',
+  'js_module',
+  /** Built ZIP package (HTML/CSS/JS) mounted in a sandbox iframe */
+  'package',
+  // Phase 1 — landing essentials
+  'logo_cloud',
+  'stats',
+  'feature_grid',
+  'feature_split',
+  'pricing',
+  'team',
+  'logo_header_strip',
+  'blog_cards',
+  'contact_block',
+  'newsletter',
+  'divider',
+  'embed',
+  // Phase 2 — full-site
+  'page_header',
+  'tabs_content',
+  'accordion',
+  'timeline',
+  'comparison_table',
+  'image_text_list',
+  'video_feature',
+  'map_block',
+  'footer_columns',
+  'legal_text',
+  'cards_carousel',
+  'banner_slim',
+  // Phase 3 — travel
+  'destination_grid',
+  'package_cards',
+  'itinerary',
+  'hotel_highlight',
+  'trip_search_cta',
+  'season_promo',
+  'trust_badges',
+  'enquiry_split',
+  'gallery_masonry',
+  'route_map',
+  // Sprint 1 catalog keys (section.type / module.key — may alias to renderers above)
+  'newsletter_form',
+  'package_grid',
+  'itinerary_timeline',
+  'team_profiles',
+  'whatsapp_cta',
+  'split_content',
+  'hero_search',
+  'offer_banner',
+  'trip_inquiry',
+  'destination_showcase',
+  'featured_package',
+  'section_heading',
+  'inclusions',
+  'trip_facts',
+] as const;
+export const PRESENCE_MODULE_CATEGORIES = [
+  'navigation',
+  'hero',
+  'layout',
+  'content',
+  'media',
+  'travel',
+  'social_proof',
+  'conversion',
+  'custom',
+] as const;
+
+const JsonRecord = z.record(z.unknown());
+const JsonArray = z.array(z.unknown());
+const PresenceStatusSchema = z.enum(PRESENCE_RECORD_STATUSES);
+const PresenceSiteKindSchema = z.enum(PRESENCE_SITE_KINDS);
+const PresenceRendererKeySchema = z.enum(PRESENCE_RENDERER_KEYS);
+const PresenceModuleCategorySchema = z.enum(PRESENCE_MODULE_CATEGORIES);
+
+/** Shared AI ranking hints for themes, components, and component variations. */
+export const PresenceSuggestMetaSchema = z.object({
+  orgKinds: z.array(z.string().min(1).max(64)).max(20).optional(),
+  pageRoles: z.array(z.string().min(1).max(64)).max(20).optional(),
+  siteKinds: z.array(z.string().min(1).max(64)).max(10).optional(),
+  useCases: z.array(z.string().min(1).max(64)).max(20).optional(),
+  moods: z.array(z.string().min(1).max(64)).max(20).optional(),
+  keywords: z.array(z.string().min(1).max(64)).max(40).optional(),
+  priority: z.number().int().min(0).max(1000).optional(),
+  bestFor: z.array(z.string().min(1).max(64)).max(20).optional(),
+});
+
+export type PresenceSuggestMeta = z.infer<typeof PresenceSuggestMetaSchema>;
+
+export const PresenceModuleVariationSchema = z.object({
+  key: z
+    .string()
+    .min(1)
+    .max(64)
+    .regex(/^[a-z0-9]+(?:[_-][a-z0-9]+)*$/, 'Variation key must be a lowercase slug'),
+  name: RequiredText('Variation name'),
+  description: z.string().max(1000).optional(),
+  isDefault: z.boolean().optional(),
+  defaultPropsJson: JsonRecord.optional(),
+  previewJson: JsonRecord.nullable().optional(),
+  suggestJson: PresenceSuggestMetaSchema.optional(),
+});
+
+export type PresenceModuleVariation = z.infer<typeof PresenceModuleVariationSchema>;
+
+export const PresenceModuleSchemaFieldSchema = z.object({
+  key: RequiredText('Field key'),
+  label: RequiredText('Field label'),
+  type: z.enum(['text', 'textarea', 'color', 'url', 'number', 'boolean', 'select', 'list']),
+  required: z.boolean().optional(),
+  helpText: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  options: z.array(z.object({ value: RequiredText('Option value'), label: RequiredText('Option label') })).optional(),
+  defaultValue: z.unknown().optional(),
+});
+
+/** One-level menu item (dropdown children only; no deeper nesting in v1). */
+const PresenceMenuItemLeafSchema = z.object({
+  id: z.string().min(1).max(64),
+  label: RequiredText('Label'),
+  path: z.string().min(1).max(2048),
+  type: z.enum(['page', 'custom']).optional(),
+  pageId: z.string().min(1).max(64).optional(),
+  openInNewTab: z.boolean().optional(),
+  /** Curated Presence menu icon key (see presence-menu-icons). */
+  icon: z.string().min(1).max(64).optional(),
+});
+
+export const PresenceMenuItemSchema = PresenceMenuItemLeafSchema.extend({
+  children: z.array(PresenceMenuItemLeafSchema).max(20).optional(),
+});
+
+export const PresenceMenuSchema = z.object({
+  id: z.string().min(1).max(64),
+  name: RequiredText('Menu name'),
+  items: z.array(PresenceMenuItemSchema).max(50),
+});
+
+/** Named menus keyed by slug (primary, footer, custom…). */
+export const PresenceMenusJsonSchema = z.record(z.string().min(1).max(64), PresenceMenuSchema);
+
+/** Theme location key → menu key in menusJson. */
+export const PresenceMenuAssignmentsSchema = z.record(
+  z.string().min(1).max(64),
+  z.string().min(1).max(64),
+);
+
+/** Site-level SEO defaults (pages override via PresencePage.seoJson). */
+export const PresenceSiteSeoSchema = z.object({
+  titleSuffix: z.string().max(120).optional(),
+  defaultDescription: z.string().max(500).optional(),
+  defaultOgImage: z.string().max(2048).optional(),
+  canonicalBase: z.string().max(2048).optional(),
+  noindex: z.boolean().optional(),
+  robots: z.string().max(200).optional(),
+});
+
+/** Analytics / third-party script IDs stored in site settingsJson.analytics. */
+export const PresenceSiteAnalyticsSchema = z.object({
+  googleAnalyticsId: z.string().max(64).optional(),
+  googleTagManagerId: z.string().max(64).optional(),
+  metaPixelId: z.string().max(64).optional(),
+  customHeadHtml: z.string().max(10000).optional(),
+});
+
+/** Custom site variables (merged over org defaults). */
+export const PresenceVariableMapSchema = z.record(
+  z.string().min(1).max(80),
+  z.union([z.string(), z.number(), z.boolean()]),
+);
+export type PresenceVariableMap = z.infer<typeof PresenceVariableMapSchema>;
+
+/** Data source query attached to section props. */
+export const PresenceDataSourceQuerySchema = z.object({
+  source: z.string().min(1).max(120),
+  filters: z.record(z.unknown()).optional(),
+  sort: z
+    .object({
+      field: z.string().min(1).max(80),
+      dir: z.enum(['asc', 'desc']).default('desc'),
+    })
+    .optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+  fields: z.array(z.string().min(1).max(80)).max(40).optional(),
+});
+export type PresenceDataSourceQuery = z.infer<typeof PresenceDataSourceQuerySchema>;
+
+/** Visitor context for personalization / A/B. */
+export const PresenceVisitorContextSchema = z.object({
+  country: z.string().max(8).optional(),
+  device: z.enum(['desktop', 'mobile', 'tablet', 'unknown']).optional(),
+  utmSource: z.string().max(120).optional(),
+  utmMedium: z.string().max(120).optional(),
+  utmCampaign: z.string().max(120).optional(),
+  variantSeed: z.string().max(64).optional(),
+});
+export type PresenceVisitorContext = z.infer<typeof PresenceVisitorContextSchema>;
+
+/** Simple personalization / schedule / A/B rule. */
+export const PresenceContentRuleSchema = z.object({
+  id: z.string().max(64).optional(),
+  kind: z.enum(['schedule', 'personalize', 'ab']),
+  when: z
+    .object({
+      publishAt: z.string().datetime().optional(),
+      unpublishAt: z.string().datetime().optional(),
+      countries: z.array(z.string().max(8)).optional(),
+      devices: z.array(z.enum(['desktop', 'mobile', 'tablet'])).optional(),
+      utmSource: z.array(z.string().max(120)).optional(),
+    })
+    .optional(),
+  variantKey: z.string().max(40).optional(),
+  trafficPercent: z.number().min(0).max(100).optional(),
+  propsOverride: JsonRecord.optional(),
+});
+export type PresenceContentRule = z.infer<typeof PresenceContentRuleSchema>;
+
+/** Structured Presence site settingsJson contract. */
+export const PresenceSiteConversationWidgetSchema = z.object({
+  widgetId: z.string().min(1).max(64).nullable().optional(),
+  enabledOverride: z.boolean().nullable().optional(),
+  /** @deprecated — use PresenceChatWidget.position */
+  position: z.enum(['bottom-right', 'bottom-left', 'top-right', 'top-left']).optional(),
+  /** @deprecated — use PresenceChatWidget.includePathsJson */
+  includePaths: z.array(z.string().max(2048)).max(100).optional(),
+  /** @deprecated — use PresenceChatWidget.excludePathsJson */
+  excludePaths: z.array(z.string().max(2048)).max(100).optional(),
+});
+
+export const UpsertPresenceChatWidgetSchema = z.object({
+  key: RequiredText('Widget key'),
+  name: RequiredText('Widget name'),
+  enabled: z.boolean().optional(),
+  priority: z.number().int().min(0).max(9999).optional(),
+  publicKey: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  brandName: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  primaryColor: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  whatsappNumber: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  defaultGreeting: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  position: z.enum(['bottom-right', 'bottom-left', 'top-right', 'top-left']).optional(),
+  includePaths: z.array(z.string().max(2048)).max(100).optional(),
+  excludePaths: z.array(z.string().max(2048)).max(100).optional(),
+  targetRules: z
+    .object({
+      show: z
+        .array(
+          z.object({
+            field: z.literal('website_url').default('website_url'),
+            op: z.enum(['begins_with', 'is', 'contains', 'matches_wildcard']),
+            value: z.string().min(1).max(2048),
+          }),
+        )
+        .max(50)
+        .optional(),
+      hide: z
+        .array(
+          z.object({
+            field: z.literal('website_url').default('website_url'),
+            op: z.enum(['begins_with', 'is', 'contains', 'matches_wildcard']),
+            value: z.string().min(1).max(2048),
+          }),
+        )
+        .max(50)
+        .optional(),
+    })
+    .optional(),
+  /** When true, generate a new publicKey on upsert. */
+  regeneratePublicKey: z.boolean().optional(),
+});
+
+export const UpsertInboxChatSettingsSchema = z.object({
+  accentColor: z.string().max(32).optional(),
+  fontFamily: z.string().max(64).optional(),
+  allowAttachments: z.boolean().optional(),
+  allowScreenCapture: z.boolean().optional(),
+  placementSide: z.enum(['left', 'right']).optional(),
+  allowDrag: z.boolean().optional(),
+  availabilityMode: z.enum(['always', 'operating_hours', 'user_availability']).optional(),
+  alwaysOpen: z.boolean().optional(),
+  timezone: z.string().max(64).optional(),
+  hoursStart: z.string().max(8).optional(),
+  hoursEnd: z.string().max(8).optional(),
+  availableReplyTime: z.string().max(120).optional(),
+  awayMessage: z.string().max(500).optional(),
+  afterHoursMessage: z.string().max(500).optional(),
+});
+
+export const PresenceSiteSettingsSchema = z.object({
+  seo: PresenceSiteSeoSchema.optional(),
+  analytics: PresenceSiteAnalyticsSchema.optional(),
+  /** Site assignment + placement for Presence chat widgets. */
+  conversationWidget: PresenceSiteConversationWidgetSchema.optional(),
+  /** Site-scoped custom variables for `{{ key }}` interpolation. */
+  variables: PresenceVariableMapSchema.optional(),
+  /** Design-system token overrides layered on theme tokens. */
+  designSystem: JsonRecord.optional(),
+  /** Named style preset key for the active theme family (e.g. ocean, sunset). */
+  stylePreset: z.string().min(1).max(64).optional().nullable(),
+  themeKey: z.string().optional(),
+  siteTemplateKey: z.string().optional(),
+  fromThemeDefaultSite: z.boolean().optional(),
+  defaultSiteTemplateKey: z.string().nullable().optional(),
+}).passthrough();
+
+export type PresenceSiteSeo = z.infer<typeof PresenceSiteSeoSchema>;
+export type PresenceSiteAnalytics = z.infer<typeof PresenceSiteAnalyticsSchema>;
+export type PresenceSiteSettings = z.infer<typeof PresenceSiteSettingsSchema>;
+
+export const CreatePresenceCollectionSchema = z.object({
+  key: z
+    .string()
+    .min(1)
+    .max(64)
+    .regex(/^[a-z][a-z0-9_]*$/, 'Use lowercase snake_case key'),
+  name: RequiredText('Collection name'),
+  fieldsJson: JsonArray.optional(),
+  listingPath: z.string().max(200).optional(),
+  detailPathPattern: z.string().max(200).optional(),
+});
+export type CreatePresenceCollection = z.infer<typeof CreatePresenceCollectionSchema>;
+
+export const UpsertPresenceCollectionEntrySchema = z.object({
+  slug: z
+    .string()
+    .min(1)
+    .max(160)
+    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Use lowercase kebab-case slug'),
+  title: RequiredText('Entry title'),
+  dataJson: JsonRecord.optional(),
+  status: z.enum(['draft', 'published']).optional(),
+  publishedAt: z.string().datetime().nullable().optional(),
+});
+export type UpsertPresenceCollectionEntry = z.infer<typeof UpsertPresenceCollectionEntrySchema>;
+
+export const PresenceAnalyticsEventSchema = z.object({
+  siteId: RequiredText('Site'),
+  eventType: z.enum([
+    'page_view',
+    'cta_click',
+    'form_submit',
+    'whatsapp_click',
+    'search',
+    'ab_impression',
+    'ab_conversion',
+  ]),
+  path: z.string().max(500).optional(),
+  metaJson: JsonRecord.optional(),
+  visitorId: z.string().max(80).optional(),
+});
+export type PresenceAnalyticsEvent = z.infer<typeof PresenceAnalyticsEventSchema>;
+
+export const PresenceAdminSearchQuerySchema = z.object({
+  q: z.string().min(1).max(120),
+  limit: z.number().int().min(1).max(50).optional(),
+});
+export type PresenceAdminSearchQuery = z.infer<typeof PresenceAdminSearchQuerySchema>;
+
+/** Page SEO overrides. */
+export const PresencePageSeoSchema = z.object({
+  title: z.string().max(200).optional(),
+  description: z.string().max(500).optional(),
+  ogTitle: z.string().max(200).optional(),
+  ogDescription: z.string().max(500).optional(),
+  ogImage: z.string().max(2048).optional(),
+  canonical: z.string().max(2048).optional(),
+  noindex: z.boolean().optional(),
+  robots: z.string().max(200).optional(),
+});
+
+export type PresencePageSeo = z.infer<typeof PresencePageSeoSchema>;
+
+/** Layout keys for lightweight layout catalog. */
+export const PRESENCE_LAYOUT_KEYS = ['default', 'marketing', 'landing', 'minimal'] as const;
+export type PresenceLayoutKey = (typeof PRESENCE_LAYOUT_KEYS)[number];
+
+/** Global section slot keys. */
+export const PRESENCE_GLOBAL_SLOTS = [
+  'announcement',
+  'header',
+  'footer',
+  'cookie',
+  'sticky_cta',
+] as const;
+export type PresenceGlobalSlot = (typeof PRESENCE_GLOBAL_SLOTS)[number];
+
+export const PresenceMenuLocationSchema = z.object({
+  key: z.string().min(1).max(64),
+  label: RequiredText('Location label'),
+  description: z.string().max(500).optional(),
+});
+
+export const CreatePresenceSiteSchema = z.object({
+  name: RequiredText('Site name'),
+  kind: PresenceSiteKindSchema.default('marketing'),
+  themeId: RequiredText('Theme'),
+  templateId: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  isPrimary: z.boolean().optional(),
+  settingsJson: JsonRecord.optional(),
+  suggestJson: PresenceSuggestMetaSchema.nullable().optional(),
+  navigationJson: JsonArray.optional(),
+  menusJson: PresenceMenusJsonSchema.optional(),
+  menuAssignmentsJson: PresenceMenuAssignmentsSchema.optional(),
+  globalRegionsJson: JsonRecord.optional(),
+});
+
+export const UpdatePresenceSiteSchema = z.object({
+  name: z.string().min(1).optional(),
+  kind: PresenceSiteKindSchema.optional(),
+  themeId: z.string().min(1).optional(),
+  templateId: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  isPrimary: z.boolean().optional(),
+  status: PresenceStatusSchema.optional(),
+  settingsJson: JsonRecord.nullable().optional(),
+  suggestJson: PresenceSuggestMetaSchema.nullable().optional(),
+  navigationJson: JsonArray.nullable().optional(),
+  menusJson: PresenceMenusJsonSchema.nullable().optional(),
+  menuAssignmentsJson: PresenceMenuAssignmentsSchema.nullable().optional(),
+  globalRegionsJson: JsonRecord.nullable().optional(),
+  primaryDomain: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  homePageId: z.preprocess(blankToNull, z.string().nullable()).optional(),
+});
+
+export const CreatePresencePageSchema = z.object({
+  path: z
+    .string()
+    .min(1)
+    .regex(/^\//, 'Path must start with /')
+    .default('/'),
+  title: RequiredText('Title'),
+  templateId: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  layoutKey: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  seoJson: z.record(z.unknown()).optional(),
+  draftJson: JsonRecord.optional(),
+  suggestJson: PresenceSuggestMetaSchema.nullable().optional(),
+  position: z.number().int().min(0).optional(),
+});
+
+export const UpdatePresencePageSchema = z.object({
+  path: z
+    .string()
+    .min(1)
+    .regex(/^\//, 'Path must start with /')
+    .optional(),
+  title: z.string().min(1).optional(),
+  templateId: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  layoutKey: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  layoutMode: z.enum(['flow', 'freeform']).optional(),
+  seoJson: z.record(z.unknown()).nullable().optional(),
+  draftJson: JsonRecord.nullable().optional(),
+  suggestJson: PresenceSuggestMetaSchema.nullable().optional(),
+  publishedSnapshotJson: JsonRecord.nullable().optional(),
+  position: z.number().int().min(0).optional(),
+  status: PresenceStatusSchema.optional(),
+  publishAt: z.string().datetime().nullable().optional(),
+  unpublishAt: z.string().datetime().nullable().optional(),
+});
+
+export const UpsertPresenceSectionSchema = z.object({
+  type: PresenceRendererKeySchema,
+  moduleDefinitionId: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  parentId: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  slotKey: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  propsJson: z.record(z.unknown()).default({}),
+  position: z.number().int().min(0).optional(),
+});
+
+export const PRESENCE_GLOBAL_SLOT_KEYS = [
+  'announcement',
+  'header',
+  'footer',
+  'cookie',
+  'sticky_cta',
+] as const;
+
+export const PresenceGlobalSlotKeySchema = z.enum(PRESENCE_GLOBAL_SLOT_KEYS);
+
+export const UpsertPresenceGlobalSectionSchema = z.object({
+  name: RequiredText('Section name'),
+  moduleDefinitionId: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  type: z.string().min(1).max(64).default('rich_text'),
+  propsJson: JsonRecord.default({}),
+  enabled: z.boolean().optional(),
+  position: z.number().int().min(0).optional(),
+});
+
+export const ReorderPresenceSectionsSchema = z.object({
+  orderedIds: z.array(z.string().min(1)).min(1),
+});
+
+export const UpsertPresenceFormSchema = z.object({
+  key: RequiredText('Form key'),
+  name: RequiredText('Form name'),
+  orgKindPreset: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  fieldsJson: z.array(z.record(z.unknown())).default([]),
+  ingestMode: z
+    .enum(['chat', 'contact', 'travel_enquiry', 'callback', 'whatsapp'])
+    .default('contact'),
+  isActive: z.boolean().optional(),
+});
+
+export const UpsertPresenceThemeSchema = z.object({
+  key: RequiredText('Theme key'),
+  name: RequiredText('Theme name'),
+  previewUrl: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  status: PresenceStatusSchema.default('published'),
+  tokensJson: JsonRecord.default({}),
+  tokensSchemaJson: JsonRecord.nullable().optional(),
+  schemaJson: JsonRecord.nullable().optional(),
+  layoutJson: JsonRecord.nullable().optional(),
+  regionsJson: JsonRecord.nullable().optional(),
+  previewAssetsJson: JsonRecord.nullable().optional(),
+  suggestJson: PresenceSuggestMetaSchema.nullable().optional(),
+});
+
+export const ClonePresenceThemeSchema = z.object({
+  key: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  name: z.preprocess(blankToNull, z.string().nullable()).optional(),
+});
+
+/** Create a WordPress-style child theme that inherits from a parent. */
+export const CreatePresenceChildThemeSchema = z.object({
+  key: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  name: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  /** Partial token overrides; missing keys inherit from parent. */
+  tokensJson: JsonRecord.optional(),
+});
+
+/** theme.json inside a v1 theme package ZIP. */
+export const PresenceThemePackageManifestSchema = z.object({
+  key: z
+    .string()
+    .min(1)
+    .max(64)
+    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Theme key must be a lowercase slug'),
+  name: RequiredText('Theme name'),
+  version: z.string().min(1).max(32),
+  description: z.string().max(2000).optional(),
+  author: z.string().max(200).optional(),
+  /** Parent theme key (WordPress-style child). */
+  parent: z
+    .string()
+    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+    .optional(),
+  tags: z.array(z.string().max(64)).max(20).optional(),
+  supports: z.array(z.string().max(64)).max(20).optional(),
+  stylesheets: z.array(z.string().max(256)).max(20).optional(),
+  scripts: z.array(z.string().max(256)).max(10).optional(),
+  chrome: z
+    .object({
+      header: z.string().max(256).optional(),
+      footer: z.string().max(256).optional(),
+    })
+    .optional(),
+  /** Package-relative image path (e.g. preview.png) or https:// URL for card thumbnail. */
+  preview: z.string().max(2048).optional(),
+  requires: JsonRecord.optional(),
+  /**
+   * Bundled component packages under the theme root.
+   * When omitted, each components/<name>/component.json folder is discovered automatically.
+   */
+  components: z
+    .array(
+      z.object({
+        path: z.string().min(1).max(256),
+        key: z
+          .string()
+          .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+          .optional(),
+      }),
+    )
+    .max(50)
+    .optional(),
+  /** Path to structure.json (navigation, pages, sections). Default site/structure.json. */
+  site: z.string().max(256).optional(),
+  /**
+   * When site structure is present:
+   * - none: install look (+ components) only
+   * - create_site: new primary draft site
+   * - update_primary: replace primary pages (requires confirmReplace)
+   * Default: create_site if site structure exists, else none.
+   */
+  installSite: z.enum(['none', 'create_site', 'update_primary']).optional(),
+  /** Locations themes expose for site menus (header/footer chrome). */
+  menuLocations: z.array(PresenceMenuLocationSchema).max(20).optional(),
+  /** AI suggestion hints for theme ranking. */
+  suggest: PresenceSuggestMetaSchema.optional(),
+});
+
+export type PresenceThemePackageManifest = z.infer<typeof PresenceThemePackageManifestSchema>;
+export type PresenceMenuItem = z.infer<typeof PresenceMenuItemSchema>;
+export type PresenceMenu = z.infer<typeof PresenceMenuSchema>;
+export type PresenceMenusJson = z.infer<typeof PresenceMenusJsonSchema>;
+export type PresenceMenuAssignments = z.infer<typeof PresenceMenuAssignmentsSchema>;
+export type PresenceMenuLocation = z.infer<typeof PresenceMenuLocationSchema>;
+
+/** component.json inside a v1 component package ZIP. */
+export const PresenceComponentPackageManifestSchema = z.object({
+  key: z
+    .string()
+    .min(1)
+    .max(64)
+    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Component key must be a lowercase slug'),
+  name: RequiredText('Component name'),
+  version: z.string().min(1).max(32),
+  description: z.string().max(2000).optional(),
+  category: PresenceModuleCategorySchema.default('content'),
+  rendererKind: z.literal('package').default('package'),
+  entry: z
+    .object({
+      html: z.string().max(256).optional(),
+      css: z.array(z.string().max(256)).max(10).optional(),
+      js: z.array(z.string().max(256)).max(10).optional(),
+    })
+    .default({}),
+  schema: z.array(PresenceModuleSchemaFieldSchema).default([]),
+  defaultProps: JsonRecord.default({}),
+  /** Package-relative image path (e.g. preview.png) or https:// URL for card thumbnail. */
+  preview: z.string().max(2048).optional(),
+  variants: z.array(PresenceModuleVariationSchema).max(40).optional(),
+  suggest: PresenceSuggestMetaSchema.optional(),
+});
+
+export type PresenceComponentPackageManifest = z.infer<
+  typeof PresenceComponentPackageManifestSchema
+>;
+
+export const UpsertPresenceModuleDefinitionSchema = z.object({
+  key: RequiredText('Module key'),
+  name: RequiredText('Module name'),
+  category: PresenceModuleCategorySchema.default('content'),
+  rendererKey: PresenceRendererKeySchema,
+  status: PresenceStatusSchema.default('published'),
+  schemaJson: z.array(PresenceModuleSchemaFieldSchema).default([]),
+  defaultPropsJson: JsonRecord.default({}),
+  previewJson: JsonRecord.nullable().optional(),
+  assetsJson: JsonRecord.nullable().optional(),
+  styleSchemaJson: z.array(PresenceModuleSchemaFieldSchema).optional(),
+  defaultStyleJson: JsonRecord.nullable().optional(),
+  variantsJson: z.array(PresenceModuleVariationSchema).max(40).nullable().optional(),
+  suggestJson: PresenceSuggestMetaSchema.nullable().optional(),
+  templateSource: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  moduleSource: z.preprocess(blankToNull, z.string().nullable()).optional(),
+});
+
+export const PublishPresenceAssetVersionSchema = z.object({
+  assetType: z.enum(['theme', 'module', 'site_template', 'page_template']),
+  assetId: RequiredText('Asset'),
+  changelog: z.preprocess(blankToNull, z.string().nullable()).optional(),
+});
+
+export const CreatePresenceMarketplaceListingSchema = z.object({
+  sourceAssetVersionId: RequiredText('Asset version'),
+  key: RequiredText('Listing key'),
+  name: RequiredText('Listing name'),
+  category: z.string().min(1).default('general'),
+  description: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  priceTier: z.enum(['free']).default('free'),
+  screenshotsJson: JsonArray.optional(),
+  status: PresenceStatusSchema.default('published'),
+});
+
+export const InstallPresenceMarketplaceListingSchema = z.object({
+  listingId: RequiredText('Listing'),
+  key: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  name: z.preprocess(blankToNull, z.string().nullable()).optional(),
+});
+
+export const SavePageAsTemplateSchema = z.object({
+  key: RequiredText('Template key'),
+  name: RequiredText('Template name'),
+  category: z.string().min(1).default('page'),
+  description: z.preprocess(blankToNull, z.string().nullable()).optional(),
+});
+
+export const UpsertPresenceSiteTemplateSchema = z.object({
+  key: RequiredText('Site template key'),
+  name: RequiredText('Site template name'),
+  category: z.string().min(1).default('marketing'),
+  description: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  previewUrl: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  status: PresenceStatusSchema.default('published'),
+  recommendedThemeKeysJson: z.array(z.string().min(1)).optional(),
+  suggestJson: PresenceSuggestMetaSchema.nullable().optional(),
+  structureJson: JsonRecord,
+});
+
+export const UpsertPresencePageTemplateSchema = z.object({
+  key: RequiredText('Page template key'),
+  name: RequiredText('Page template name'),
+  category: z.string().min(1).default('page'),
+  description: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  previewUrl: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  layoutKey: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  status: PresenceStatusSchema.default('published'),
+  suggestJson: PresenceSuggestMetaSchema.nullable().optional(),
+  structureJson: JsonRecord,
+});
+
+export const CreatePresenceSiteFromTemplateSchema = z.object({
+  name: RequiredText('Site name'),
+  kind: PresenceSiteKindSchema.default('marketing'),
+  themeId: RequiredText('Theme'),
+  siteTemplateId: RequiredText('Site template'),
+  isPrimary: z.boolean().optional(),
+  suggestJson: PresenceSuggestMetaSchema.nullable().optional(),
+});
+
+/** Create a site using the theme's built-in defaultSiteStructure (system full-site themes). */
+export const CreatePresenceSiteFromThemeSchema = z.object({
+  name: RequiredText('Site name'),
+  kind: PresenceSiteKindSchema.default('marketing'),
+  themeId: RequiredText('Theme'),
+  isPrimary: z.boolean().optional(),
+  suggestJson: PresenceSuggestMetaSchema.nullable().optional(),
+});
+
+export const CreatePresencePageFromTemplateSchema = z.object({
+  siteId: RequiredText('Site'),
+  title: RequiredText('Title'),
+  path: z.string().min(1).regex(/^\//, 'Path must start with /'),
+  pageTemplateId: RequiredText('Page template'),
+  position: z.number().int().min(0).optional(),
+  suggestJson: PresenceSuggestMetaSchema.nullable().optional(),
+});
+
+export const SavePresenceBuilderSchema = z.object({
+  title: RequiredText('Title'),
+  path: z.string().min(1).regex(/^\//, 'Path must start with /'),
+  layoutKey: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  layoutMode: z.enum(['flow', 'freeform']).optional(),
+  seoJson: JsonRecord.nullable().optional(),
+  draftJson: JsonRecord.default({}),
+  sections: z.array(
+    z.object({
+      id: z.preprocess(blankToNull, z.string().nullable()).optional(),
+      clientId: z.preprocess(blankToNull, z.string().nullable()).optional(),
+      type: PresenceRendererKeySchema,
+      moduleDefinitionId: z.preprocess(blankToNull, z.string().nullable()).optional(),
+      parentId: z.preprocess(blankToNull, z.string().nullable()).optional(),
+      slotKey: z.preprocess(blankToNull, z.string().nullable()).optional(),
+      propsJson: JsonRecord.default({}),
+      position: z.number().int().min(0),
+    }),
+  ),
+});
+
+export type CreatePresenceSiteInput = z.infer<typeof CreatePresenceSiteSchema>;
+export type UpdatePresenceSiteInput = z.infer<typeof UpdatePresenceSiteSchema>;
+export type CreatePresencePageInput = z.infer<typeof CreatePresencePageSchema>;
+export type UpdatePresencePageInput = z.infer<typeof UpdatePresencePageSchema>;
+export type UpsertPresenceSectionInput = z.infer<typeof UpsertPresenceSectionSchema>;
+export type UpsertPresenceGlobalSectionInput = z.infer<typeof UpsertPresenceGlobalSectionSchema>;
+export type PresenceGlobalSlotKey = z.infer<typeof PresenceGlobalSlotKeySchema>;
+export type UpsertPresenceFormInput = z.infer<typeof UpsertPresenceFormSchema>;
+export type UpsertPresenceChatWidgetInput = z.infer<typeof UpsertPresenceChatWidgetSchema>;
+export type UpsertInboxChatSettingsInput = z.infer<typeof UpsertInboxChatSettingsSchema>;
+export type UpsertPresenceThemeInput = z.infer<typeof UpsertPresenceThemeSchema>;
+export type ClonePresenceThemeInput = z.infer<typeof ClonePresenceThemeSchema>;
+export type CreatePresenceChildThemeInput = z.infer<typeof CreatePresenceChildThemeSchema>;
+export type UpsertPresenceModuleDefinitionInput = z.infer<
+  typeof UpsertPresenceModuleDefinitionSchema
+>;
+export type PublishPresenceAssetVersionInput = z.infer<typeof PublishPresenceAssetVersionSchema>;
+export type CreatePresenceMarketplaceListingInput = z.infer<
+  typeof CreatePresenceMarketplaceListingSchema
+>;
+export type InstallPresenceMarketplaceListingInput = z.infer<
+  typeof InstallPresenceMarketplaceListingSchema
+>;
+export type SavePageAsTemplateInput = z.infer<typeof SavePageAsTemplateSchema>;
+export type UpsertPresenceSiteTemplateInput = z.infer<typeof UpsertPresenceSiteTemplateSchema>;
+export type UpsertPresencePageTemplateInput = z.infer<typeof UpsertPresencePageTemplateSchema>;
+export type CreatePresenceSiteFromTemplateInput = z.infer<
+  typeof CreatePresenceSiteFromTemplateSchema
+>;
+export type CreatePresenceSiteFromThemeInput = z.infer<typeof CreatePresenceSiteFromThemeSchema>;
+export type CreatePresencePageFromTemplateInput = z.infer<
+  typeof CreatePresencePageFromTemplateSchema
+>;
+export type SavePresenceBuilderInput = z.infer<typeof SavePresenceBuilderSchema>;
+
+export const PresenceCatalogReviewTargetTypeSchema = z.enum(['theme', 'module']);
+
+export const ListPresenceCatalogReviewsQuerySchema = z.object({
+  targetType: PresenceCatalogReviewTargetTypeSchema,
+  targetId: RequiredText('Target id'),
+});
+
+export const UpsertPresenceCatalogReviewSchema = z.object({
+  targetType: PresenceCatalogReviewTargetTypeSchema,
+  targetId: RequiredText('Target id'),
+  rating: z.coerce.number().int().min(1).max(5),
+  body: z.preprocess(
+    blankToNull,
+    z.string().trim().max(2000).nullable(),
+  ).optional(),
+});
+
+export type ListPresenceCatalogReviewsQuery = z.infer<
+  typeof ListPresenceCatalogReviewsQuerySchema
+>;
+export type UpsertPresenceCatalogReviewInput = z.infer<
+  typeof UpsertPresenceCatalogReviewSchema
+>;
 
 export const LogPhoneInteractionSchema = z.object({
   partyId: z.preprocess(blankToNull, z.string().nullable()).optional(),
@@ -1218,6 +2159,7 @@ export const INTERACTION_CHANNELS = [
   'api',
   'facebook',
   'instagram',
+  'google_business',
 ] as const;
 
 export const INTERACTION_OUTCOMES = [
@@ -1320,6 +2262,21 @@ export const ReplyEmailSchema = z.object({
 /** Reply on an Instagram DM touch via the Meta Graph send API (same page token as Facebook). */
 export const ReplyInstagramSchema = z.object({
   text: RequiredText('Message'),
+});
+
+/** Reply on a Website chat touch — stored for the visitor widget to poll. */
+export const ReplyWebsiteSchema = z.object({
+  text: RequiredText('Message'),
+});
+
+/** Public widget poll for agent replies (after an inbound website chat). */
+export const WidgetMessagesQuerySchema = z.object({
+  publicKey: RequiredText('Public key'),
+  conversationId: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  email: OptionalEmail,
+  phone: OptionalPhone,
+  /** ISO timestamp or ms — only messages after this (exclusive). */
+  after: z.preprocess(blankToNull, z.string().nullable()).optional(),
 });
 
 export const CreatePipelineSchema = z.object({
@@ -1567,17 +2524,143 @@ export const ProposalFamilyAgencyReplySchema = z.object({
   shareLinkId: z.string().min(1).optional(),
 });
 
+export const QuoteServiceTypeSchema = z.enum([
+  'hotel',
+  'transfer',
+  'activity',
+  'flight',
+  'train',
+  'visa',
+  'meal',
+  'guide',
+  'insurance',
+  'fee',
+  'discount',
+  'custom',
+]);
+
+/** Structured commercial fields for hotel / transport / activity quote lines. */
+export const QuoteHotelRateBasisSchema = z.enum([
+  'per_room_night',
+  'per_room_stay',
+  'per_person_night',
+  'per_person_stay',
+  'package_total',
+]);
+export const QuoteMarkupModeSchema = z.enum(['percent', 'fixed']);
+export const QuotePriceSourceSchema = z.enum([
+  'matched',
+  'manual',
+  'none',
+  'expired',
+  'overridden',
+]);
+export const QuoteAvailabilitySchema = z.enum([
+  'unknown',
+  'available',
+  'on_request',
+  'confirmed',
+]);
+
+export const QuotationItemDetailsSchema = z
+  .object({
+    /** Destination / city for the stay or service. */
+    placeId: z.string().optional(),
+    placeName: z.string().optional(),
+    /** Accommodation being sold (may differ from commercial supplier). */
+    propertyName: z.string().optional(),
+    supplierId: z.string().optional(),
+    supplierName: z.string().optional(),
+    roomType: z.string().optional(),
+    mealPlan: z.string().optional(),
+    nights: z.number().optional(),
+    rooms: z.number().optional(),
+    checkIn: z.string().optional(),
+    checkOut: z.string().optional(),
+    adults: z.number().optional(),
+    children: z.number().optional(),
+    childAges: z.array(z.number()).optional(),
+    extraBeds: z.number().optional(),
+    childrenWithoutBed: z.number().optional(),
+    rateBasis: QuoteHotelRateBasisSchema.optional(),
+    markupMode: QuoteMarkupModeSchema.optional(),
+    markupValue: z.number().optional(),
+    /** True when sell was typed manually instead of following markup. */
+    sellManual: z.boolean().optional(),
+    priceSource: QuotePriceSourceSchema.optional(),
+    rateLabel: z.string().optional(),
+    rateSupplierLabel: z.string().optional(),
+    rateValidFrom: z.string().optional(),
+    rateValidTo: z.string().optional(),
+    rateLastUpdated: z.string().optional(),
+    availability: QuoteAvailabilitySchema.optional(),
+    cancellationPolicy: z.string().optional(),
+    supplementsNote: z.string().optional(),
+    extraBedCharge: z.number().optional(),
+    childCharge: z.number().optional(),
+    internalNotes: z.string().optional(),
+    customerNotes: z.string().optional(),
+    /** Custom line unit label (item, day, person, service…). */
+    unitLabel: z.string().optional(),
+    fromPlaceId: z.string().optional(),
+    fromPlaceName: z.string().optional(),
+    toPlaceId: z.string().optional(),
+    toPlaceName: z.string().optional(),
+    /** ISO country name/code when known — used for route plausibility warnings. */
+    fromCountry: z.string().optional(),
+    toCountry: z.string().optional(),
+    vehicleTypeId: z.string().optional(),
+    vehicleLabel: z.string().optional(),
+    serviceDate: z.string().optional(),
+    /** Authorised override when service date is outside the trip window. */
+    serviceDateOutsideTripOverride: z.boolean().optional(),
+    vehicles: z.number().optional(),
+    /** Confirmed unusually large vehicle quantity before save. */
+    unusualVehiclesConfirmed: z.boolean().optional(),
+    activityDate: z.string().optional(),
+    activityTime: z.string().optional(),
+    privateOrSic: z.enum(['private', 'sic']).optional(),
+  })
+  .partial();
+
 export const QuotationItemSchema = z.object({
   id: z.string(),
   description: RequiredText('Description'),
   quantity: z.number(),
-  unitCost: z.number(),
-  unitSell: z.number(),
+  /** null = not entered yet; 0 = intentionally free. */
+  unitCost: z.number().nullable(),
+  /** null = not entered yet; 0 = intentionally free. */
+  unitSell: z.number().nullable(),
   taxPercent: z.number().default(0),
   pricingUnit: z.enum(['per_person', 'per_room', 'per_service', 'package']).default('per_service'),
+  serviceType: QuoteServiceTypeSchema.optional(),
   /** Provenance when priced from agency rate directory. */
   rateKind: z.enum(['hotel', 'transfer']).optional(),
   rateId: z.string().optional(),
+  /** True when hotel/transfer had no matching rate card. */
+  rateUnmatched: z.boolean().optional(),
+  /** Type-specific commercial details (hotel stay, transfer route, activity). */
+  details: QuotationItemDetailsSchema.optional(),
+  /** Audit when a line was marked included / non-billable at ₹0. */
+  includedMeta: z
+    .object({
+      at: z.string(),
+      reason: z.string(),
+      previousUnitCost: z.number().nullable().optional(),
+      previousUnitSell: z.number().nullable().optional(),
+      byUserId: z.string().optional(),
+    })
+    .optional(),
+  /** Authorised override when sell is below cost or below org min margin %. */
+  marginOverride: z
+    .object({
+      at: z.string(),
+      reason: z.string().min(1),
+      byUserId: z.string().optional(),
+      unitCost: z.number().optional(),
+      unitSell: z.number().optional(),
+    })
+    .optional(),
 });
 
 export const CreateSupplierHotelRateSchema = z.object({
@@ -1684,6 +2767,47 @@ export const SaveQuotationVersionSchema = z.object({
   terms: z.preprocess(blankToNull, z.string().nullable()).optional(),
   discountTotal: z.number().default(0),
   expectedLock: z.number().int().optional(),
+});
+
+/** Authorise below-cost / below-floor margin on selected quotation lines. */
+export const RecordQuoteMarginOverridesSchema = z.object({
+  reason: RequiredText('Override reason'),
+  lineIds: z.array(z.string().min(1)).min(1).max(200),
+});
+export type RecordQuoteMarginOverridesInput = z.infer<typeof RecordQuoteMarginOverridesSchema>;
+
+/** Reusable quote skeleton stored in QuoteTemplate.contentJson (legacy array checklists allowed). */
+export const QuoteTemplateContentSchema = z.object({
+  currency: z.string().length(3).optional(),
+  items: z.array(QuotationItemSchema).optional(),
+  inclusions: z.union([z.string(), z.array(z.string())]).optional(),
+  exclusions: z.union([z.string(), z.array(z.string())]).optional(),
+  terms: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  destinationHint: z.preprocess(blankToNull, z.string().nullable()).optional(),
+});
+
+export const CreateQuoteTemplateSchema = z
+  .object({
+    name: RequiredText('Template name'),
+    contentJson: QuoteTemplateContentSchema.optional(),
+    /** When set, copy items/meta from this quotation version (org-scoped). */
+    versionId: z.string().min(1).optional(),
+  })
+  .refine((v) => Boolean(v.contentJson || v.versionId), {
+    message: 'Provide contentJson or versionId',
+  });
+
+export const UpdateQuoteTemplateSchema = z.object({
+  name: RequiredText('Template name').optional(),
+  contentJson: QuoteTemplateContentSchema.optional(),
+});
+
+export const ApplyQuoteTemplateSchema = z.object({
+  templateId: RequiredText('Template'),
+});
+
+export const CloneQuotationSchema = z.object({
+  versionId: z.string().min(1).optional(),
 });
 
 export const CreateTaskSchema = z.object({
@@ -1898,6 +3022,8 @@ export type ReplyWhatsappTemplateInput = z.infer<typeof ReplyWhatsappTemplateSch
 export type CreateWhatsAppTemplateInput = z.infer<typeof CreateWhatsAppTemplateSchema>;
 export type UpdateWhatsAppTemplateInput = z.infer<typeof UpdateWhatsAppTemplateSchema>;
 export type ReplyEmailInput = z.infer<typeof ReplyEmailSchema>;
+export type ReplyWebsiteInput = z.infer<typeof ReplyWebsiteSchema>;
+export type WidgetMessagesQueryInput = z.infer<typeof WidgetMessagesQuerySchema>;
 export type ReplyInstagramInput = z.infer<typeof ReplyInstagramSchema>;
 export type CreatePipelineInput = z.infer<typeof CreatePipelineSchema>;
 export type UpdatePipelineInput = z.infer<typeof UpdatePipelineSchema>;
@@ -1979,6 +3105,13 @@ export type InviteMemberInput = z.infer<typeof InviteMemberSchema>;
 export type AcceptInviteInput = z.infer<typeof AcceptInviteSchema>;
 export type SaveQuotationVersionInput = z.infer<typeof SaveQuotationVersionSchema>;
 export type QuotationItem = z.infer<typeof QuotationItemSchema>;
+export type QuotationItemDetails = z.infer<typeof QuotationItemDetailsSchema>;
+export type QuoteServiceType = z.infer<typeof QuoteServiceTypeSchema>;
+export type QuoteTemplateContent = z.infer<typeof QuoteTemplateContentSchema>;
+export type CreateQuoteTemplateInput = z.infer<typeof CreateQuoteTemplateSchema>;
+export type UpdateQuoteTemplateInput = z.infer<typeof UpdateQuoteTemplateSchema>;
+export type ApplyQuoteTemplateInput = z.infer<typeof ApplyQuoteTemplateSchema>;
+export type CloneQuotationInput = z.infer<typeof CloneQuotationSchema>;
 export type CreateSupplierHotelRateInput = z.infer<typeof CreateSupplierHotelRateSchema>;
 export type UpdateSupplierHotelRateInput = z.infer<typeof UpdateSupplierHotelRateSchema>;
 export type CreateTransferFareInput = z.infer<typeof CreateTransferFareSchema>;
@@ -2012,3 +3145,93 @@ export {
 } from './trip-season';
 
 export * from './commerce-foundation';
+
+export {
+  extraModulesCss,
+  renderExtraModule,
+  type ExtraFormLookup,
+} from './presence-extra-modules-html';
+
+export {
+  PRESENCE_FONT_CATALOG,
+  presenceFontsForRole,
+  matchPresenceFontStack,
+  presenceFontGoogleFamily,
+  type PresenceFontOption,
+  type PresenceFontRole,
+  type PresenceFontSource,
+} from './presence-fonts';
+
+export {
+  PRESENCE_MODULE_RENDERER_ALIASES,
+  resolveRenderableModuleType,
+} from './presence-module-aliases';
+
+export {
+  PRESENCE_CONTENT_MAX_PRESETS,
+  PRESENCE_GUTTER_PRESETS,
+  PRESENCE_SECTION_GAP_PRESETS,
+  DEFAULT_PRESENCE_SITE_LAYOUT,
+  parsePresenceSiteLayout,
+  presenceContentMaxPx,
+  type PresenceSiteLayout,
+} from './presence-site-layout';
+
+export {
+  PRESENCE_MENU_ICONS,
+  PRESENCE_MENU_ICON_CATEGORIES,
+  isPresenceMenuIconKey,
+  presenceMenuIconDef,
+  presenceMenuIconSvg,
+  presenceMenuIconHtml,
+  type PresenceMenuIconCategory,
+  type PresenceMenuIconDef,
+  type PresenceMenuIconKey,
+} from './presence-menu-icons';
+
+export {
+  PRESENCE_WIDGET_POSITIONS,
+  DEFAULT_PRESENCE_CONVERSATION_WIDGET,
+  matchPresencePathPatterns,
+  isPresenceWidgetPathAllowed,
+  normalizePresenceWidgetPosition,
+  normalizePresencePathList,
+  parsePresenceConversationWidget,
+  parsePresencePageWidgetOverride,
+  resolvePresenceWidgetPlacement,
+  type PresenceWidgetPosition,
+  type PresenceConversationWidgetSettings,
+  type PresencePageWidgetOverride,
+  type PresenceChatWidgetPlacement,
+} from './presence-conversation-widget';
+
+export {
+  PRESENCE_CHAT_TARGET_OPS,
+  PresenceChatTargetRuleSchema,
+  PresenceChatTargetRulesSchema,
+  DEFAULT_PRESENCE_CHAT_TARGET_RULES,
+  parsePresenceChatTargetRules,
+  compileTargetRulesToPathLists,
+  matchChatTargetRule,
+  isChatflowPathAllowed,
+  InboxChatSettingsSchema,
+  DEFAULT_INBOX_CHAT_SETTINGS,
+  parseInboxChatSettings,
+  placementSideToPosition,
+  positionToPlacementSide,
+  isInboxChatWithinHours,
+  pathsFromLegacyOrTarget,
+  type PresenceChatTargetOp,
+  type PresenceChatTargetRule,
+  type PresenceChatTargetRules,
+  type InboxChatSettings,
+} from './inbox-chat-settings';
+
+export {
+  lineUnitMargin,
+  lineMarginPolicyViolation,
+  countMarginPolicyViolations,
+  countLossMakingLines,
+  parseMinMarginPercent,
+  type MarginPolicyKind,
+} from './quote-margin-policy';
