@@ -17,6 +17,7 @@ import type {
   QuotationItem,
   RecordQuoteMarginOverridesInput,
   SaveQuotationVersionInput,
+  SendQuoteWhatsappInput,
   UpdateQuoteTemplateInput,
 } from '@wayrune/contracts';
 import {
@@ -24,6 +25,9 @@ import {
   parseMinMarginPercent,
   resolveTripWindowDisplay,
 } from '@wayrune/contracts';
+import { hashPassword } from '@wayrune/auth';
+import { loadEnv } from '@wayrune/config';
+import { randomBytes } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { OutboxService } from '../outbox/outbox.service';
@@ -31,6 +35,8 @@ import { FilesService } from '../files/files.service';
 import { LeadsService } from '../leads/leads.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { GoogleService } from '../google/google.service';
+import { MetaCloudMessagingProvider } from '../messaging/meta-cloud.messaging';
+import { InteractionsService } from '../interactions/interactions.service';
 import {
   computePackageSummary,
   customerItineraryDays,
@@ -79,6 +85,9 @@ export class QuotationsService {
     private files: FilesService,
     private leads: LeadsService,
     private notifications: NotificationsService,
+    private messaging: MetaCloudMessagingProvider,
+    @Inject(forwardRef(() => InteractionsService))
+    private interactions: InteractionsService,
     @Optional()
     @Inject(forwardRef(() => GoogleService))
     private google?: GoogleService,
@@ -1725,10 +1734,208 @@ export class QuotationsService {
     return { queued: true, ...pdf };
   }
 
+  /**
+   * Send proposal via WhatsApp Cloud (session text + public itinerary link).
+   * When Cloud is not configured, returns a wa.me fallback URL without marking sent.
+   */
+  async sendWhatsapp(user: AuthUser, versionId: string, input: SendQuoteWhatsappInput) {
+    const version = await this.prisma.quotationVersion.findFirst({
+      where: { id: versionId },
+      include: {
+        quotation: {
+          include: {
+            trip: {
+              include: {
+                party: { select: { id: true, displayName: true, phone: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+    if (!version || version.quotation.organizationId !== user.organizationId) {
+      throw new NotFoundException('Version not found');
+    }
+
+    const digits = normalizeQuoteWhatsappPhone(input.toPhone);
+    if (!digits) throw new BadRequestException('Enter a valid WhatsApp mobile number');
+
+    const pdf = await this.generatePdf(user, versionId);
+    const share = await this.ensureTripProposalShare(
+      user,
+      version.quotation.tripId,
+    );
+    const webOrigin = loadEnv().webOrigin.replace(/\/$/, '');
+    const proposalUrl = `${webOrigin}${share.path}`;
+    const quoteRef = pdf.versionLabel
+      ? `${pdf.quoteNumber} (${pdf.versionLabel})`
+      : pdf.quoteNumber;
+    const guestName = version.quotation.trip.party?.displayName?.trim() || 'there';
+    const defaultText = [
+      `Hi ${guestName},`,
+      ``,
+      `Here is our travel proposal for ${pdf.tripTitle} (${quoteRef}):`,
+      proposalUrl,
+      ``,
+      `Happy to adjust anything — just reply here.`,
+    ].join('\n');
+    const text = (input.message?.trim() || defaultText).slice(0, 3500);
+    const waMeUrl = `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
+
+    const cfg = await this.whatsappCloudConfig(user.organizationId);
+    const cloudReady = Boolean(cfg.enabled && cfg.accessToken && cfg.phoneNumberId);
+    if (!cloudReady) {
+      return {
+        sent: false,
+        cloudConfigured: false,
+        fallbackWaMeUrl: waMeUrl,
+        proposalUrl,
+        toPhone: digits,
+        quoteNumber: pdf.quoteNumber,
+        tripTitle: pdf.tripTitle,
+        message:
+          'WhatsApp Cloud API is not configured — open WhatsApp to send manually, or enable WhatsApp under Integrations.',
+      };
+    }
+
+    const demo = cfg.accessToken.startsWith('seed-demo-');
+    let providerMessageId: string | undefined;
+    if (!demo) {
+      const result = await this.messaging.sendText({
+        to: digits,
+        text,
+        phoneNumberId: cfg.phoneNumberId,
+        accessToken: cfg.accessToken,
+      });
+      providerMessageId = result.providerMessageId;
+    }
+
+    await this.transition(user, versionId, 'send');
+
+    const partyId = version.quotation.trip.party?.id ?? null;
+    try {
+      await this.interactions.create(user, {
+        channel: 'whatsapp',
+        partyId,
+        outcome: 'pending',
+        unread: false,
+        summary: `Quote ${pdf.quoteNumber} sent via WhatsApp`,
+        staffUserId: user.sub,
+        rawPayloadJson: {
+          direction: 'outbound',
+          kind: 'quote.send_whatsapp',
+          to: digits,
+          text,
+          proposalUrl,
+          quotationVersionId: versionId,
+          documentId: pdf.documentId,
+          providerMessageId,
+          demo,
+        },
+      });
+    } catch {
+      // Never fail the send because inbox logging failed.
+    }
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorUserId: user.sub,
+      action: 'quote.send_whatsapp',
+      entityType: 'quotation_version',
+      entityId: versionId,
+      metadata: {
+        to: digits,
+        demo,
+        providerMessageId,
+        proposalUrl,
+        documentId: pdf.documentId,
+      },
+    });
+
+    return {
+      sent: true,
+      cloudConfigured: true,
+      demo,
+      providerMessageId,
+      proposalUrl,
+      toPhone: digits,
+      quoteNumber: pdf.quoteNumber,
+      tripTitle: pdf.tripTitle,
+      documentId: pdf.documentId,
+    };
+  }
+
+  private async whatsappCloudConfig(organizationId: string) {
+    const org = await this.prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { settingsJson: true },
+    });
+    if (!org) throw new NotFoundException('Organization not found');
+    const settings = (org.settingsJson ?? {}) as Record<string, unknown>;
+    const integrations = (settings.integrations ?? {}) as Record<string, unknown>;
+    const wa = (integrations.whatsapp ?? {}) as Record<string, unknown>;
+    return {
+      enabled: Boolean(wa.enabled),
+      phoneNumberId: typeof wa.phoneNumberId === 'string' ? wa.phoneNumberId : '',
+      accessToken: typeof wa.accessToken === 'string' ? wa.accessToken : '',
+    };
+  }
+
+  /** Reuse an active share link or create one so WhatsApp can deep-link the proposal. */
+  private async ensureTripProposalShare(user: AuthUser, tripId: string) {
+    const existing = await this.prisma.itineraryShareLink.findFirst({
+      where: {
+        organizationId: user.organizationId,
+        tripId,
+        revokedAt: null,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (existing) {
+      return { id: existing.id, token: existing.token, path: `/p/itinerary/${existing.token}` };
+    }
+
+    const itinerary = await this.prisma.itinerary.findFirst({
+      where: { tripId, organizationId: user.organizationId },
+      include: { versions: { orderBy: { versionNumber: 'desc' }, take: 1 } },
+    });
+    const version = itinerary?.versions[0];
+    if (!version) {
+      throw new BadRequestException(
+        'Save an itinerary before sending the proposal on WhatsApp',
+      );
+    }
+
+    const token = randomBytes(24).toString('base64url');
+    const familyPin = String(Math.floor(100000 + Math.random() * 900000));
+    const familyPinHash = await hashPassword(familyPin);
+    const link = await this.prisma.itineraryShareLink.create({
+      data: {
+        organizationId: user.organizationId,
+        tripId,
+        itineraryVersionId: version.id,
+        token,
+        familyPinHash,
+        createdBy: user.sub,
+      },
+    });
+    return { id: link.id, token: link.token, path: `/p/itinerary/${link.token}`, familyPin };
+  }
+
   async savePdfToDrive(user: AuthUser, versionId: string) {
     if (!this.google) throw new BadRequestException('Google Drive is not available');
     const pdf = await this.generatePdf(user, versionId);
     const drive = await this.google.saveDocumentToDrive(user, pdf.documentId);
     return { ...pdf, drive };
   }
+}
+
+/** Prefer digits Meta accepts; keep India 10-digit mobiles usable. */
+function normalizeQuoteWhatsappPhone(waId: string): string | null {
+  const digits = waId.replace(/\D/g, '');
+  if (!digits) return null;
+  if (digits.length === 10) return `91${digits}`;
+  if (digits.length >= 11 && digits.length <= 15) return digits;
+  return null;
 }

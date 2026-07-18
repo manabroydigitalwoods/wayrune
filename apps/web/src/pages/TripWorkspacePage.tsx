@@ -588,6 +588,8 @@ export function TripWorkspacePage() {
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
   const [sendEmail, setSendEmail] = useState('');
+  const [sendPhone, setSendPhone] = useState('');
+  const [sendChannel, setSendChannel] = useState<'email' | 'whatsapp'>('email');
   const [sendOpen, setSendOpen] = useState(false);
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
   const [templateName, setTemplateName] = useState('');
@@ -2050,6 +2052,52 @@ export function TripWorkspacePage() {
   async function sendLatest() {
     const version = requireSelectedQuoteVersion();
     if (!version) return;
+    if (sendChannel === 'whatsapp') {
+      const phone = sendPhone.trim() || trip?.party?.phone || '';
+      if (!phone.trim()) {
+        toastError('Enter a WhatsApp mobile number');
+        return;
+      }
+      if (!canSendQuote) {
+        toastError(sendBlockedReason || 'Complete pricing before sending');
+        return;
+      }
+      try {
+        const res = await api<{
+          sent?: boolean;
+          cloudConfigured?: boolean;
+          fallbackWaMeUrl?: string;
+          demo?: boolean;
+          message?: string;
+        }>(`/quotations/${version.id}/send-whatsapp`, {
+          method: 'POST',
+          body: JSON.stringify({ toPhone: phone.trim() }),
+        });
+        if (res.sent) {
+          toastSuccess(
+            res.demo
+              ? 'Quote marked sent (WhatsApp demo mode — Cloud token is seed-demo)'
+              : 'Proposal sent on WhatsApp',
+          );
+          setSendOpen(false);
+          await load();
+          return;
+        }
+        if (res.fallbackWaMeUrl) {
+          window.open(res.fallbackWaMeUrl, '_blank', 'noopener,noreferrer');
+          toastSuccess(
+            res.message ||
+              'WhatsApp Cloud is not configured — opened WhatsApp with the proposal link',
+          );
+          setSendOpen(false);
+          return;
+        }
+        toastError('Could not send on WhatsApp');
+      } catch (e) {
+        toastError(e instanceof Error ? e.message : 'Could not send on WhatsApp');
+      }
+      return;
+    }
     if (!sendEmail.trim()) {
       toastError('Enter a recipient email');
       return;
@@ -2142,6 +2190,7 @@ export function TripWorkspacePage() {
     }
     if (canSendQuote) {
       setSendEmail(trip?.party?.email || sendEmail);
+      setSendPhone(trip?.party?.phone || sendPhone);
       setSendOpen(true);
       return;
     }
@@ -4085,18 +4134,54 @@ export function TripWorkspacePage() {
       <RecordDialog
         open={sendOpen}
         onOpenChange={setSendOpen}
-        title="Send quotation email"
-        description="Queues an email with the proposal PDF attached. Delivery requires SMTP to be configured on the worker."
-        submitLabel="Send email"
+        title="Send quotation"
+        description={
+          sendChannel === 'whatsapp'
+            ? 'Sends the proposal link on WhatsApp Cloud when configured. Otherwise opens WhatsApp with a prefilled message.'
+            : 'Queues an email with the proposal PDF attached. Delivery requires SMTP on the worker.'
+        }
+        submitLabel={sendChannel === 'whatsapp' ? 'Send WhatsApp' : 'Send email'}
         onSubmit={() => void sendLatest()}
       >
-        <FormField label="Recipient email" required>
-          <EmailInput
-            value={sendEmail}
-            onChange={setSendEmail}
-            placeholder={trip.party?.email || 'client@example.com'}
-          />
-        </FormField>
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant={sendChannel === 'email' ? 'default' : 'outline'}
+            className="h-8"
+            onClick={() => setSendChannel('email')}
+          >
+            Email
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={sendChannel === 'whatsapp' ? 'default' : 'outline'}
+            className="h-8"
+            onClick={() => setSendChannel('whatsapp')}
+          >
+            WhatsApp
+          </Button>
+        </div>
+        {sendChannel === 'email' ? (
+          <FormField label="Recipient email" required>
+            <EmailInput
+              value={sendEmail}
+              onChange={setSendEmail}
+              placeholder={trip.party?.email || 'client@example.com'}
+            />
+          </FormField>
+        ) : (
+          <FormField label="WhatsApp mobile" required>
+            <Input
+              value={sendPhone}
+              onChange={(e) => setSendPhone(e.target.value)}
+              placeholder={trip.party?.phone || '9876543210'}
+              inputMode="tel"
+              autoComplete="tel"
+            />
+          </FormField>
+        )}
       </RecordDialog>
 
       <RecordDialog

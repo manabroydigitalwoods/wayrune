@@ -20,6 +20,14 @@ import {
 } from '@wayrune/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PlacesService } from '../places/places.service';
+import {
+  anyNightInBlackout,
+  eachStayNight,
+  parseBlackoutRanges,
+  supplierBlockedReason,
+  type BlackoutRange,
+  type DateWindow,
+} from './rate-resolve-guards';
 
 function round2(n: number) {
   return Math.round(n * 100) / 100;
@@ -886,6 +894,66 @@ export class RatesService {
         })
       : [];
 
+    const blackoutsBySupplier = new Map<string, BlackoutRange[]>();
+    const stopSellByAsset = new Map<string, DateWindow[]>();
+    const supplierAssetId = new Map<string, string>();
+
+    if (supplierIds.length) {
+      const contracts = await this.prisma.supplierContract.findMany({
+        where: {
+          organizationId,
+          supplierId: { in: supplierIds },
+          deletedAt: null,
+          status: 'active',
+        },
+        select: { supplierId: true, blackoutJson: true },
+      });
+      for (const c of contracts) {
+        const ranges = parseBlackoutRanges(c.blackoutJson);
+        if (!ranges.length) continue;
+        const prev = blackoutsBySupplier.get(c.supplierId) ?? [];
+        blackoutsBySupplier.set(c.supplierId, prev.concat(ranges));
+      }
+
+      const suppliers = await this.prisma.supplier.findMany({
+        where: {
+          organizationId,
+          id: { in: supplierIds },
+          deletedAt: null,
+          linkedAssetId: { not: null },
+        },
+        select: { id: true, linkedAssetId: true },
+      });
+      const assetIds: string[] = [];
+      for (const s of suppliers) {
+        if (!s.linkedAssetId) continue;
+        supplierAssetId.set(s.id, s.linkedAssetId);
+        assetIds.push(s.linkedAssetId);
+      }
+      if (assetIds.length) {
+        const allotments = await this.prisma.assetAllotment.findMany({
+          where: {
+            stopSell: true,
+            roomProduct: {
+              assetId: { in: [...new Set(assetIds)] },
+              deletedAt: null,
+            },
+          },
+          select: {
+            startDate: true,
+            endDate: true,
+            roomProduct: { select: { assetId: true } },
+          },
+        });
+        for (const a of allotments) {
+          const assetId = a.roomProduct.assetId;
+          const prev = stopSellByAsset.get(assetId) ?? [];
+          prev.push({ startDate: a.startDate, endDate: a.endDate });
+          stopSellByAsset.set(assetId, prev);
+        }
+      }
+    }
+
     const results = input.items.map((item) =>
       this.resolveOne(item, {
         hotelRates,
@@ -895,6 +963,9 @@ export class RatesService {
         adults,
         children,
         infants,
+        blackoutsBySupplier,
+        stopSellByAsset,
+        supplierAssetId,
       }),
     );
 
@@ -927,6 +998,9 @@ export class RatesService {
       adults: number;
       children: number;
       infants: number;
+      blackoutsBySupplier: Map<string, BlackoutRange[]>;
+      stopSellByAsset: Map<string, DateWindow[]>;
+      supplierAssetId: Map<string, string>;
     },
   ) {
     const asOf = parseDateOnly(item.date) || ctx.tripAsOf;
@@ -936,6 +1010,29 @@ export class RatesService {
       const supplierId = item.details?.supplierId;
       const placeId = item.details?.placeId;
       const roomWanted = (item.details?.roomType || '').trim().toLowerCase();
+      const nightsCount = Math.max(1, Number(item.details?.nights) || 1);
+      const stayNights = eachStayNight(asOf, nightsCount);
+
+      const supplierBlocked = (sid: string | null | undefined) => {
+        if (!sid) return null;
+        const blackouts = ctx.blackoutsBySupplier.get(sid) ?? [];
+        const assetId = ctx.supplierAssetId.get(sid);
+        const stopSell = assetId ? (ctx.stopSellByAsset.get(assetId) ?? []) : [];
+        return supplierBlockedReason(stayNights, blackouts, stopSell);
+      };
+
+      if (supplierId) {
+        const block = supplierBlocked(supplierId);
+        if (block) {
+          return unmatched(
+            item.itemId,
+            'hotel',
+            'per_room',
+            ctx.pricing.taxPercent,
+            block,
+          );
+        }
+      }
 
       const pickBest = (pool: HotelRow[]) => {
         let best: HotelRow | undefined;
@@ -954,6 +1051,8 @@ export class RatesService {
       const inWindow = (r: HotelRow) =>
         dateInWindow(asOf, r.startDate, r.endDate);
 
+      const notBlocked = (r: HotelRow) => !supplierBlocked(r.supplierId);
+
       let best: HotelRow | undefined;
 
       if (supplierId) {
@@ -961,7 +1060,8 @@ export class RatesService {
           (r) =>
             !r.isSystem &&
             r.supplierId === supplierId &&
-            inWindow(r),
+            inWindow(r) &&
+            notBlocked(r),
         );
         const exact = roomWanted
           ? agency.filter(
@@ -977,7 +1077,8 @@ export class RatesService {
           (r) =>
             !r.isSystem &&
             r.placeId === placeId &&
-            inWindow(r),
+            inWindow(r) &&
+            notBlocked(r),
         );
         const systemPlace = ctx.hotelRates.filter(
           (r) => r.isSystem && r.placeId === placeId && inWindow(r),
@@ -995,10 +1096,23 @@ export class RatesService {
       }
 
       if (!best) {
-        return unmatched(item.itemId, 'hotel', 'per_room', ctx.pricing.taxPercent);
+        // Prefer a specific block reason when every candidate was filtered by policy.
+        const blockedHint =
+          supplierId
+            ? supplierBlocked(supplierId)
+            : ctx.hotelRates
+                .filter((r) => r.placeId === placeId && inWindow(r))
+                .map((r) => supplierBlocked(r.supplierId))
+                .find((b) => b) ?? null;
+        return unmatched(
+          item.itemId,
+          'hotel',
+          'per_room',
+          ctx.pricing.taxPercent,
+          blockedHint,
+        );
       }
       const unitCost = Number(best.unitCost);
-      const nights = Math.max(1, Number(item.details?.nights) || 1);
       return matched({
         itemId: item.itemId,
         rateKind: 'hotel',
@@ -1006,7 +1120,7 @@ export class RatesService {
         unitCost,
         markupPercent: ctx.pricing.markupPercent,
         taxPercent: ctx.pricing.taxPercent,
-        quantity: nights,
+        quantity: nightsCount,
         pricingUnit: 'per_room',
         rateMeta: {
           isSystem: best.isSystem,
@@ -1023,6 +1137,19 @@ export class RatesService {
       const fromPlaceId = item.details?.fromPlaceId;
       const toPlaceId = item.details?.toPlaceId;
       const vehicleTypeId = item.details?.vehicleTypeId;
+      const supplierId = item.details?.supplierId;
+      if (supplierId && asOf) {
+        const blackouts = ctx.blackoutsBySupplier.get(supplierId) ?? [];
+        if (anyNightInBlackout([asOf], blackouts)) {
+          return unmatched(
+            item.itemId,
+            'transfer',
+            'per_service',
+            ctx.pricing.taxPercent,
+            'blackout',
+          );
+        }
+      }
       if (!fromPlaceId || !toPlaceId || !vehicleTypeId) {
         return unmatched(
           item.itemId,
@@ -1125,6 +1252,7 @@ function unmatched(
   rateKind: 'hotel' | 'transfer',
   pricingUnit: 'per_room' | 'per_service',
   taxPercent: number,
+  blockReason?: 'blackout' | 'stop_sell' | null,
 ) {
   return {
     itemId,
@@ -1136,7 +1264,7 @@ function unmatched(
     quantity: 1,
     taxPercent,
     pricingUnit,
-    rateMeta: null as null,
+    rateMeta: blockReason ? { blockReason } : (null as null),
   };
 }
 

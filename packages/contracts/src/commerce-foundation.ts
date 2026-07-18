@@ -512,6 +512,13 @@ export const UpdateOrganizationProfileSchema = OrganizationProfileSchema;
 
 // ─── Agency depth ──────────────────────────────────────────────────────
 
+export const ContractBlackoutRangeSchema = z.object({
+  /** Inclusive ISO date YYYY-MM-DD */
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'Use YYYY-MM-DD'),
+  /** Inclusive ISO date YYYY-MM-DD */
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'Use YYYY-MM-DD'),
+});
+
 export const CreateSupplierContractSchema = z.object({
   supplierId: z.string().min(1),
   title: RequiredText('Contract title'),
@@ -523,7 +530,7 @@ export const CreateSupplierContractSchema = z.object({
   cancellationTerms: z.preprocess(blankToNull, z.string().nullable()).optional(),
   commissionPercent: z.number().min(0).max(100).nullable().optional(),
   preferred: z.boolean().optional(),
-  blackoutJson: z.array(z.unknown()).optional(),
+  blackoutJson: z.array(ContractBlackoutRangeSchema).optional(),
   notes: z.preprocess(blankToNull, z.string().nullable()).optional(),
 });
 

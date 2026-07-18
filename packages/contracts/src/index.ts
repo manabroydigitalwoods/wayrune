@@ -2229,6 +2229,13 @@ export const ReplyWhatsappSchema = z.object({
   to: z.preprocess(blankToNull, z.string().nullable()).optional(),
 });
 
+/** Send a quotation proposal via WhatsApp Cloud (session text + public share link). */
+export const SendQuoteWhatsappSchema = z.object({
+  toPhone: RequiredText('WhatsApp number'),
+  /** Optional custom message; default includes trip title + proposal link. */
+  message: z.preprocess(blankToNull, z.string().nullable()).optional(),
+});
+
 /** Send an approved Meta WhatsApp template (required for first outbound msg / after the 24h session window). */
 export const ReplyWhatsappTemplateSchema = z.object({
   templateId: RequiredText('Template'),
@@ -3018,6 +3025,7 @@ export type CreateCampaignInput = z.infer<typeof CreateCampaignSchema>;
 export type UpdateCampaignInput = z.infer<typeof UpdateCampaignSchema>;
 export type AssignInteractionInput = z.infer<typeof AssignInteractionSchema>;
 export type ReplyWhatsappInput = z.infer<typeof ReplyWhatsappSchema>;
+export type SendQuoteWhatsappInput = z.infer<typeof SendQuoteWhatsappSchema>;
 export type ReplyWhatsappTemplateInput = z.infer<typeof ReplyWhatsappTemplateSchema>;
 export type CreateWhatsAppTemplateInput = z.infer<typeof CreateWhatsAppTemplateSchema>;
 export type UpdateWhatsAppTemplateInput = z.infer<typeof UpdateWhatsAppTemplateSchema>;

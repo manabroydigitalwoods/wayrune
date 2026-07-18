@@ -5,6 +5,7 @@ import {
   CreateQuoteTemplateSchema,
   RecordQuoteMarginOverridesSchema,
   SaveQuotationVersionSchema,
+  SendQuoteWhatsappSchema,
   UpdateQuoteTemplateSchema,
 } from '@wayrune/contracts';
 import {
@@ -177,6 +178,20 @@ export class QuotationsController {
     @Body() body: { toEmail: string },
   ) {
     return this.quotations.sendEmail(user, versionId, body.toEmail);
+  }
+
+  @Post('quotations/:versionId/send-whatsapp')
+  @RequirePermissions('quote.write')
+  sendWhatsapp(
+    @CurrentUser() user: AuthUser,
+    @Param('versionId') versionId: string,
+    @Body() body: unknown,
+  ) {
+    return this.quotations.sendWhatsapp(
+      user,
+      versionId,
+      SendQuoteWhatsappSchema.parse(body),
+    );
   }
 
   @Post('quotations/:versionId/save-to-drive')
