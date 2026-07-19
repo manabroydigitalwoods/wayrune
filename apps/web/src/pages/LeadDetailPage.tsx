@@ -659,6 +659,7 @@ export function LeadDetailPage() {
             <DatePicker
               value={editForm.followUpAt}
               onChange={(followUpAt) => setEditForm({ ...editForm, followUpAt })}
+              disablePast
             />
           </FormField>
         </form>
@@ -702,6 +703,7 @@ export function LeadDetailPage() {
             <DatePicker
               value={taskForm.dueAt}
               onChange={(dueAt) => setTaskForm({ ...taskForm, dueAt })}
+              disablePast
             />
           </FormField>
         </form>

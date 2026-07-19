@@ -15,6 +15,9 @@ describe('validateActivityV1', () => {
     expect(result.errors).toEqual(
       expect.arrayContaining(['Enter an activity name', 'Select activity date']),
     );
+    expect(result.matchBlockedReasons).toEqual(
+      expect.arrayContaining(['enter an activity name', 'select activity date']),
+    );
   });
 
   it('passes with name, date and travellers', () => {
@@ -26,6 +29,7 @@ describe('validateActivityV1', () => {
     });
     expect(result.ok).toBe(true);
     expect(result.errors).toEqual([]);
+    expect(result.matchBlockedReasons).toEqual([]);
   });
 
   it('blocks activity date outside trip unless overridden', () => {

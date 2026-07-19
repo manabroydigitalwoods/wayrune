@@ -41,13 +41,30 @@ describe('agency role x capability matrix', () => {
   });
   check('sales_manager', {
     perms: ROLE_PERMISSION_MAP.sales_manager,
-    allow: ['leadWrite', 'leadAssign', 'quoteWrite', 'quoteApprove', 'partyWrite', 'networkWrite', 'taskWrite'],
+    allow: [
+      'leadWrite',
+      'leadAssign',
+      'quoteWrite',
+      'quoteApprove',
+      'inventoryRiskApprove',
+      'rateDriftApprove',
+      'belowMarginApprove',
+      'partyWrite',
+      'networkWrite',
+      'taskWrite',
+    ],
     deny: ['userManage', 'orgSettingsWrite', 'policyManage', 'platformCatalogWrite'],
   });
   check('sales_executive', {
     perms: ROLE_PERMISSION_MAP.sales_executive,
     allow: ['leadWrite', 'quoteWrite', 'tripWrite', 'partyWrite', 'networkWrite'],
-    deny: ['leadAssign', 'quoteApprove', 'userManage'],
+    deny: [
+      'leadAssign',
+      'quoteApprove',
+      'inventoryRiskApprove',
+      'rateDriftApprove',
+      'userManage',
+    ],
   });
   check('travel_consultant', {
     perms: ROLE_PERMISSION_MAP.travel_consultant,

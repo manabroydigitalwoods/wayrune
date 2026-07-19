@@ -5,7 +5,10 @@ import { cn } from '@wayrune/ui';
 type DisclosureSectionProps = {
   title: string;
   description?: string;
-  level?: 'secondary' | 'advanced';
+  /** secondary/none = no Advanced chip; advanced only when no statusLabel. */
+  level?: 'secondary' | 'advanced' | 'none';
+  /** Completeness / count chip (e.g. Complete, 3 active rates). Replaces Advanced. */
+  statusLabel?: string;
   defaultOpen?: boolean;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -14,12 +17,13 @@ type DisclosureSectionProps = {
 };
 
 /**
- * Progressive disclosure wrapper — collapses advanced detail without hiding routes.
+ * Progressive disclosure wrapper — collapses detail without hiding routes.
  */
 export function DisclosureSection({
   title,
   description,
-  level = 'advanced',
+  level = 'secondary',
+  statusLabel,
   defaultOpen = false,
   open,
   onOpenChange,
@@ -36,6 +40,10 @@ export function DisclosureSection({
     onOpenChange?.(next);
   }
 
+  const chip =
+    statusLabel?.trim() ||
+    (level === 'advanced' ? 'Advanced' : null);
+
   return (
     <div className={cn('rounded-xl border border-border/60', className)}>
       <button
@@ -50,14 +58,16 @@ export function DisclosureSection({
           <ChevronRight className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
         )}
         <span className="min-w-0 flex-1">
-          <span className="block text-sm font-medium">{title}</span>
+          <span className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium">{title}</span>
+            {chip ? (
+              <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                {chip}
+              </span>
+            ) : null}
+          </span>
           {description ? (
             <span className="mt-0.5 block text-xs text-muted-foreground">{description}</span>
-          ) : null}
-          {level === 'advanced' ? (
-            <span className="mt-1 inline-block rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-              Advanced
-            </span>
           ) : null}
         </span>
       </button>

@@ -27,6 +27,7 @@ import {
   CreateServiceRequestSchema,
   CreateSupplierContractSchema,
   UpdateSupplierContractSchema,
+  CloneSupplierContractVersionSchema,
   CreateTripChangeCaseSchema,
   ImportNegotiatedRateCsvSchema,
   NegotiateServiceRequestSchema,
@@ -269,6 +270,21 @@ export class CommerceController {
       user.organizationId,
       id,
       UpdateSupplierContractSchema.parse(body),
+    );
+  }
+
+  @Post('supplier-contracts/:id/clone-version')
+  @RequirePermissions('ops.write')
+  cloneContractVersion(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    return this.commerce.cloneSupplierContractVersion(
+      user.organizationId,
+      user.sub,
+      id,
+      CloneSupplierContractVersionSchema.parse(body ?? {}),
     );
   }
 
@@ -700,6 +716,32 @@ export class CommerceController {
     return this.commerce.paymentUnallocated(user.organizationId, id);
   }
 
+  @Get('trips/:tripId/bookings/:bookingId/cancellation-preview')
+  @RequirePermissions('ops.read', 'trip.read', 'ops.write', 'trip.write')
+  previewBookingCancel(
+    @CurrentUser() user: AuthUser,
+    @Param('tripId') tripId: string,
+    @Param('bookingId') bookingId: string,
+  ) {
+    return this.commerce.previewBookingCancellation(
+      user.organizationId,
+      tripId,
+      bookingId,
+    );
+  }
+
+  @Get('trips/:tripId/cancellations')
+  @RequirePermissions('ops.read', 'trip.read', 'ops.write', 'trip.write')
+  listTripCancels(
+    @CurrentUser() user: AuthUser,
+    @Param('tripId') tripId: string,
+  ) {
+    return this.commerce.listTripCancellationCases(
+      user.organizationId,
+      tripId,
+    );
+  }
+
   @Post('cancellations')
   @RequirePermissions('ops.write', 'trip.write')
   createCancel(@CurrentUser() user: AuthUser, @Body() body: unknown) {
@@ -707,6 +749,26 @@ export class CommerceController {
       user.organizationId,
       user.sub,
       CreateCancellationCaseSchema.parse(body),
+    );
+  }
+
+  @Post('cancellations/:id/request')
+  @RequirePermissions('ops.write', 'trip.write')
+  requestCancel(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.commerce.requestCancellationCase(
+      user.organizationId,
+      user.sub,
+      id,
+    );
+  }
+
+  @Post('cancellations/:id/approve')
+  @RequirePermissions('ops.write', 'trip.write')
+  approveCancel(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.commerce.approveCancellationCase(
+      user.organizationId,
+      user.sub,
+      id,
     );
   }
 

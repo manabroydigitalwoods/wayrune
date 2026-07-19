@@ -1691,6 +1691,22 @@ async function seedDriverDelhi(prisma: Db) {
   const org = await orgBySlug(prisma, 'seed-driver-delhi-fleet');
   const asset = await primaryAsset(prisma, org.id);
 
+  const fleetDefs = [
+    { name: 'Innova Crysta', plateNumber: 'DL01AB1001', seats: 7, vehicleTypeKey: 'suv' },
+    { name: 'Dzire', plateNumber: 'DL02CD2202', seats: 4, vehicleTypeKey: 'sedan' },
+    { name: 'Tempo Traveller', plateNumber: 'DL03EF3303', seats: 12, vehicleTypeKey: 'tempo' },
+  ];
+  for (const def of fleetDefs) {
+    const existing = await prisma.assetFleetUnit.findFirst({
+      where: { assetId: asset.id, plateNumber: def.plateNumber, deletedAt: null },
+    });
+    if (!existing) {
+      await prisma.assetFleetUnit.create({
+        data: { assetId: asset.id, ...def, isActive: true },
+      });
+    }
+  }
+
   const jobs = [
     {
       key: 'SEED-DRV-ENROUTE',
@@ -1904,11 +1920,26 @@ async function linkAgencyToPartners(prisma: Db) {
     const supplierType =
       p.kind === 'hotel' || p.kind === 'homestay' || p.kind === 'farmstay'
         ? 'hotel'
-        : p.kind === 'car_rental' || p.kind === 'driver'
-          ? 'transport'
-          : p.kind === 'dmc'
-            ? 'dmc'
-            : 'other';
+        : p.kind === 'car_rental'
+          ? 'car_rental'
+          : p.kind === 'driver'
+            ? 'driver'
+            : p.kind === 'dmc'
+              ? 'dmc'
+              : 'other';
+    const primary =
+      p.kind === 'driver' || p.kind === 'car_rental'
+        ? await prisma.partnerAsset.findFirst({
+            where: {
+              organizationId: p.id,
+              deletedAt: null,
+              isActive: true,
+              assetKind: { in: ['driver', 'vehicle'] },
+            },
+            orderBy: { createdAt: 'asc' },
+            select: { id: true },
+          })
+        : null;
     const existingSupplier = await prisma.supplier.findFirst({
       where: {
         organizationId: agency.id,
@@ -1924,7 +1955,21 @@ async function linkAgencyToPartners(prisma: Db) {
           type: supplierType,
           email: `${p.slug}@link.demo`,
           linkedOrganizationId: p.id,
+          linkedAssetId: primary?.id ?? null,
           notes: 'SEED network-linked supplier',
+        },
+      });
+      linked += 1;
+    } else if (
+      (p.kind === 'driver' || p.kind === 'car_rental') &&
+      primary &&
+      existingSupplier.linkedAssetId !== primary.id
+    ) {
+      await prisma.supplier.update({
+        where: { id: existingSupplier.id },
+        data: {
+          type: supplierType,
+          linkedAssetId: primary.id,
         },
       });
       linked += 1;

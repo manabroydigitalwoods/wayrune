@@ -313,7 +313,11 @@ export function LeadAboutPanel({
         >
           {editing === 'followUpAt' ? (
             <InlineEditor saving={saving} onCancel={cancel} onSave={() => void save('followUpAt')}>
-              <DatePicker value={followUpDraft} onChange={setFollowUpDraft} />
+              <DatePicker
+                value={followUpDraft}
+                onChange={setFollowUpDraft}
+                disablePast
+              />
             </InlineEditor>
           ) : (
             <button

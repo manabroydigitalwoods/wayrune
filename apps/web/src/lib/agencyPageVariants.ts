@@ -129,9 +129,9 @@ export const TRIPS_PAGE_COPY: Record<
     documentTitle: 'Incidents',
   },
   finance: {
-    title: 'Finance',
-    subtitle: 'Receivables, payments, and commercial documents.',
-    documentTitle: 'Finance',
+    title: 'Receivables',
+    subtitle: 'Open customer instalments aged by due date.',
+    documentTitle: 'Receivables',
   },
   'finance-overdue': {
     title: 'Overdue',
@@ -140,7 +140,7 @@ export const TRIPS_PAGE_COPY: Record<
   },
   'finance-payables': {
     title: 'Supplier payables',
-    subtitle: 'Amounts owed to suppliers and partners.',
+    subtitle: 'Amounts owed to suppliers, aged by due date.',
     documentTitle: 'Supplier payables',
   },
   'finance-reconciliation': {

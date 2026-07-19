@@ -21,7 +21,26 @@ export type MessagingSendMediaInput = {
   phoneNumberId: string;
   accessToken: string;
   mediaType: 'image' | 'document';
+  /** Public HTTPS URL Meta can fetch (link-based). Prefer uploadMedia + mediaId for private files. */
   link: string;
+  caption?: string;
+  filename?: string;
+};
+
+export type MessagingUploadMediaInput = {
+  phoneNumberId: string;
+  accessToken: string;
+  fileName: string;
+  mimeType: string;
+  buffer: Buffer;
+};
+
+export type MessagingSendMediaByIdInput = {
+  to: string;
+  phoneNumberId: string;
+  accessToken: string;
+  mediaType: 'image' | 'document';
+  mediaId: string;
   caption?: string;
   filename?: string;
 };
@@ -30,6 +49,10 @@ export interface MessagingProvider {
   sendText(input: MessagingSendTextInput): Promise<{ providerMessageId?: string }>;
   sendTemplate(input: MessagingSendTemplateInput): Promise<{ providerMessageId?: string }>;
   sendMedia(input: MessagingSendMediaInput): Promise<{ providerMessageId?: string }>;
+  uploadMedia(input: MessagingUploadMediaInput): Promise<{ mediaId: string }>;
+  sendMediaById(
+    input: MessagingSendMediaByIdInput,
+  ): Promise<{ providerMessageId?: string }>;
 }
 
 @Injectable()
@@ -114,6 +137,80 @@ export class MetaCloudMessagingProvider implements MessagingProvider {
         : {
             document: {
               link: input.link,
+              caption: input.caption,
+              filename: input.filename,
+            },
+          };
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${input.accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        to: digits,
+        type: input.mediaType,
+        ...mediaPayload,
+      }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '');
+      throw new BadRequestException(
+        `WhatsApp media send failed (${res.status})${errBody ? `: ${errBody.slice(0, 200)}` : ''}`,
+      );
+    }
+    const data = (await res.json().catch(() => ({}))) as {
+      messages?: Array<{ id?: string }>;
+    };
+    return { providerMessageId: data.messages?.[0]?.id };
+  }
+
+  /**
+   * Upload a binary to WhatsApp Cloud media (Graph multipart).
+   * Use sendMediaById afterward so Meta never needs to fetch our auth-gated files.
+   */
+  async uploadMedia(input: MessagingUploadMediaInput): Promise<{ mediaId: string }> {
+    const url = `https://graph.facebook.com/v21.0/${encodeURIComponent(input.phoneNumberId)}/media`;
+    const form = new FormData();
+    form.append('messaging_product', 'whatsapp');
+    form.append('type', input.mimeType);
+    form.append(
+      'file',
+      new Blob([new Uint8Array(input.buffer)], { type: input.mimeType }),
+      input.fileName,
+    );
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${input.accessToken}`,
+      },
+      body: form,
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '');
+      throw new BadRequestException(
+        `WhatsApp media upload failed (${res.status})${errBody ? `: ${errBody.slice(0, 200)}` : ''}`,
+      );
+    }
+    const data = (await res.json().catch(() => ({}))) as { id?: string };
+    if (!data.id?.trim()) {
+      throw new BadRequestException('WhatsApp media upload returned no media id');
+    }
+    return { mediaId: data.id };
+  }
+
+  async sendMediaById(input: MessagingSendMediaByIdInput) {
+    const digits = input.to.replace(/\D/g, '');
+    const url = `https://graph.facebook.com/v21.0/${encodeURIComponent(input.phoneNumberId)}/messages`;
+    const mediaPayload =
+      input.mediaType === 'image'
+        ? { image: { id: input.mediaId, caption: input.caption } }
+        : {
+            document: {
+              id: input.mediaId,
               caption: input.caption,
               filename: input.filename,
             },

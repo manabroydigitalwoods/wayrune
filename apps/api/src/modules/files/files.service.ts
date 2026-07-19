@@ -47,6 +47,7 @@ export class FilesService {
     mimeType: string;
     buffer: Buffer;
     visibility?: string;
+    documentType?: string;
   }) {
     const safeName = input.fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
     const storageKey = `${input.organizationId}/${input.entityType}/${input.entityId}/${randomUUID()}-${safeName}`;
@@ -89,6 +90,7 @@ export class FilesService {
         entityType: input.entityType,
         entityId: input.entityId,
         name: input.fileName,
+        ...(input.documentType ? { documentType: input.documentType } : {}),
         mimeType: input.mimeType,
         sizeBytes: input.buffer.length,
         storageKey,
@@ -237,9 +239,20 @@ export class FilesService {
     return `/api/v1/files/${documentId}/content`;
   }
 
-  async listForEntity(organizationId: string, entityType: string, entityId: string) {
+  async listForEntity(
+    organizationId: string,
+    entityType: string,
+    entityId: string,
+    opts?: { documentType?: string },
+  ) {
     const items = await this.prisma.document.findMany({
-      where: { organizationId, entityType, entityId, deletedAt: null },
+      where: {
+        organizationId,
+        entityType,
+        entityId,
+        deletedAt: null,
+        ...(opts?.documentType ? { documentType: opts.documentType } : {}),
+      },
       orderBy: { createdAt: 'desc' },
     });
     return items.map((doc) => ({
@@ -248,7 +261,12 @@ export class FilesService {
     }));
   }
 
-  async listForEntities(organizationId: string, entityType: string, entityIds: string[]) {
+  async listForEntities(
+    organizationId: string,
+    entityType: string,
+    entityIds: string[],
+    opts?: { documentType?: string },
+  ) {
     if (!entityIds.length) return [];
     const items = await this.prisma.document.findMany({
       where: {
@@ -256,6 +274,7 @@ export class FilesService {
         entityType,
         entityId: { in: entityIds },
         deletedAt: null,
+        ...(opts?.documentType ? { documentType: opts.documentType } : {}),
       },
       orderBy: { createdAt: 'desc' },
     });

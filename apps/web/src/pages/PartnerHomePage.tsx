@@ -17,8 +17,18 @@ import {
   SuggestionChips,
   toastError,
   toastSuccess,
+  toastWarning,
 } from '@wayrune/ui';
-import { api } from '../api';
+import { api, apiUpload } from '../api';
+import { allotmentConfirmToastCue } from '../lib/allotmentConfirmToast';
+import {
+  partnerInboundConfirmDescription,
+  partnerInboundConfirmPlaceholder,
+  partnerInboundServiceCue,
+  partnerInboundTypeLabel,
+  transferCapacityConfirmToastCue,
+  type PartnerInboundConfirmCue,
+} from '../lib/partnerInboundConfirmCopy';
 import { useOrgNavigate } from '../hooks/useOrgNavigate';
 import { PartnerInventoryPanel } from '../components/partner/PartnerInventoryPanel';
 import {
@@ -107,6 +117,9 @@ type InboundBooking = {
   status: string;
   confirmationRef?: string | null;
   createdAt: string;
+  startAt?: string | null;
+  endAt?: string | null;
+  confirmCue?: PartnerInboundConfirmCue | null;
   agency: { id: string; name: string; kind: string };
   trip: { tripNumber: string; title: string; status: string };
 };
@@ -268,6 +281,10 @@ export function PartnerHomePage() {
   const [saving, setSaving] = useState(false);
   const [assetOpen, setAssetOpen] = useState(false);
   const [editingAsset, setEditingAsset] = useState<PartnerAsset | null>(null);
+  const [confirmTarget, setConfirmTarget] = useState<InboundBooking | null>(null);
+  const [confirmRef, setConfirmRef] = useState('');
+  const [confirmFile, setConfirmFile] = useState<File | null>(null);
+  const [confirming, setConfirming] = useState(false);
   const [assetForm, setAssetForm] = useState({ name: '', assetKind: 'hotel' });
   const [form, setForm] = useState({
     discoverable: true,
@@ -415,22 +432,93 @@ export function PartnerHomePage() {
     }
   }
 
-  async function confirmInbound(booking: InboundBooking) {
-    const ref = window.prompt('Confirmation reference (optional)', booking.confirmationRef || '');
-    if (ref === null) return;
+  function openConfirmInbound(booking: InboundBooking) {
+    setConfirmTarget(booking);
+    setConfirmRef(booking.confirmationRef || '');
+    setConfirmFile(null);
+  }
+
+  async function submitConfirmInbound() {
+    if (!confirmTarget) return;
+    const trimmed = confirmRef.trim();
+    if (!trimmed) {
+      toastError('Confirmation reference is required');
+      return;
+    }
+    setConfirming(true);
     try {
-      await api(`/network/inbound-bookings/${booking.id}`, {
+      const res = await api<{
+        payable?: { created: boolean; invoiceId: string | null; reason: string | null };
+        allotmentUpgraded?: boolean;
+        allotmentQuantityResynced?: boolean;
+        allotmentSyncFailed?: string;
+        capacityWarn?: boolean;
+        capacityNote?: string | null;
+      }>(`/network/inbound-bookings/${confirmTarget.id}`, {
         method: 'PATCH',
         body: JSON.stringify({
           status: 'confirmed',
-          confirmationRef: ref.trim() || null,
+          confirmationRef: trimmed,
           assetId: selectedAsset?.id || undefined,
         }),
       });
-      toastSuccess('Booking confirmed — reservation created when stock allows');
+
+      let fileCue = '';
+      if (confirmFile) {
+        try {
+          const fd = new FormData();
+          fd.append('file', confirmFile);
+          await apiUpload(
+            `/network/inbound-bookings/${confirmTarget.id}/confirmation-document`,
+            fd,
+          );
+          fileCue = ' · confirmation file attached';
+        } catch (e) {
+          toastWarning(
+            e instanceof Error
+              ? `Booking confirmed · file not attached — ${e.message}`
+              : 'Booking confirmed · file not attached',
+          );
+          setConfirmTarget(null);
+          setConfirmRef('');
+          setConfirmFile(null);
+          await load();
+          return;
+        }
+      }
+
+      setConfirmTarget(null);
+      setConfirmRef('');
+      setConfirmFile(null);
+      const allotmentCue = allotmentConfirmToastCue(res);
+      const capacityCue = transferCapacityConfirmToastCue(res);
+      const softCues = `${allotmentCue}${capacityCue}${fileCue}`;
+      const softWarn =
+        Boolean(res.allotmentSyncFailed) || Boolean(res.capacityWarn);
+      if (softWarn) {
+        toastWarning(
+          res.payable?.created
+            ? `Booking confirmed · agency payable scheduled${softCues}`
+            : res.payable?.reason
+              ? `Booking confirmed · payable not created — ${res.payable.reason}${softCues}`
+              : `Booking confirmed${softCues}`,
+        );
+      } else if (res.payable?.created) {
+        toastSuccess(
+          `Booking confirmed · agency payable scheduled${softCues}`,
+        );
+      } else if (res.payable?.reason) {
+        toastWarning(
+          `Booking confirmed · payable not created — ${res.payable.reason}${softCues}`,
+        );
+      } else {
+        toastSuccess(`Booking confirmed${softCues}`);
+      }
       await load();
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Could not confirm booking');
+    } finally {
+      setConfirming(false);
     }
   }
 
@@ -595,12 +683,14 @@ export function PartnerHomePage() {
           </strong>
         </div>
         <p className="text-xs text-muted-foreground">
-          Confirming allocates inventory and creates a stay reservation when dates and
-          stock exist.
+          Confirm with a reference to allocate inventory, upgrade any allotment hold, and
+          schedule the agency supplier payable when cost exists.
         </p>
         {inbound.length ? (
           <ul className="space-y-2">
-            {inbound.map((b) => (
+            {inbound.map((b) => {
+              const serviceCue = partnerInboundServiceCue(b.type, b.confirmCue);
+              return (
               <li
                 key={b.id}
                 className="flex flex-wrap items-start justify-between gap-3 rounded-xl border px-3 py-2.5 text-sm glass-row"
@@ -610,18 +700,25 @@ export function PartnerHomePage() {
                   <div className="mt-0.5 text-xs text-muted-foreground">
                     {b.agency.name} · {b.trip.tripNumber} · {b.trip.title}
                     {b.confirmationRef ? ` · ${b.confirmationRef}` : ''}
+                    {serviceCue ? ` · ${serviceCue}` : ''}
                   </div>
-                  <div className="mt-1">
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                    <StatusBadge
+                      value={b.type}
+                      label={partnerInboundTypeLabel(b.type)}
+                      showIcon={false}
+                    />
                     <StatusBadge value={b.status} />
                   </div>
                 </div>
                 {canProfileWrite && b.status !== 'confirmed' && b.status !== 'cancelled' ? (
-                  <Button type="button" size="sm" onClick={() => void confirmInbound(b)}>
+                  <Button type="button" size="sm" onClick={() => openConfirmInbound(b)}>
                     Confirm
                   </Button>
                 ) : null}
               </li>
-            ))}
+              );
+            })}
           </ul>
         ) : (
           <p className="text-sm text-muted-foreground">
@@ -731,6 +828,80 @@ export function PartnerHomePage() {
           onChange={(assetKind) => setAssetForm((f) => ({ ...f, assetKind }))}
         />
       </FormField>
+    </RecordSheet>
+  );
+
+  const confirmServiceCue = confirmTarget
+    ? partnerInboundServiceCue(confirmTarget.type, confirmTarget.confirmCue)
+    : null;
+
+  const confirmSheet = (
+    <RecordSheet
+      open={Boolean(confirmTarget)}
+      onOpenChange={(open) => {
+        if (!open) {
+          setConfirmTarget(null);
+          setConfirmRef('');
+          setConfirmFile(null);
+        }
+      }}
+      title={confirmTarget ? `Confirm “${confirmTarget.title}”?` : 'Confirm booking'}
+      description={
+        confirmTarget
+          ? partnerInboundConfirmDescription(confirmTarget.type)
+          : partnerInboundConfirmDescription('hotel')
+      }
+      submitLabel="Confirm booking"
+      submitting={confirming}
+      onSubmit={() => void submitConfirmInbound()}
+    >
+      <FormField label="Confirmation reference" required>
+        <Input
+          value={confirmRef}
+          onChange={(e) => setConfirmRef(e.target.value)}
+          placeholder={
+            confirmTarget
+              ? partnerInboundConfirmPlaceholder(confirmTarget.type)
+              : partnerInboundConfirmPlaceholder('hotel')
+          }
+          autoFocus
+        />
+      </FormField>
+      <FormField label="Confirmation file" description="Optional PDF or image (max 8 MB)">
+        <Input
+          type="file"
+          accept="application/pdf,image/jpeg,image/png,image/webp"
+          onChange={(e) => setConfirmFile(e.target.files?.[0] ?? null)}
+        />
+      </FormField>
+      {confirmTarget?.type === 'transfer' &&
+      confirmTarget.confirmCue?.capacityNote ? (
+        <div
+          className={
+            confirmTarget.confirmCue.capacityWarn
+              ? 'rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-950 dark:text-amber-100'
+              : 'rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-xs text-muted-foreground'
+          }
+        >
+          {confirmTarget.confirmCue.capacityNote}
+          {confirmTarget.confirmCue.capacityWarn
+            ? ' Confirm still allowed — raise vehicles with the agency if needed.'
+            : ''}
+        </div>
+      ) : null}
+      {confirmTarget ? (
+        <p className="text-xs text-muted-foreground">
+          <StatusBadge
+            value={confirmTarget.type}
+            label={partnerInboundTypeLabel(confirmTarget.type)}
+            showIcon={false}
+            className="mr-1.5 align-middle"
+          />
+          {confirmTarget.agency.name} · {confirmTarget.trip.tripNumber} ·{' '}
+          {confirmTarget.trip.title}
+          {confirmServiceCue ? ` · ${confirmServiceCue}` : ''}
+        </p>
+      ) : null}
     </RecordSheet>
   );
 
@@ -992,6 +1163,7 @@ export function PartnerHomePage() {
       )}
 
       {assetSheet}
+      {confirmSheet}
       {profile ? null : null}
     </ListPageShell>
   );

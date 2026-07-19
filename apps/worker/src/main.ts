@@ -8,6 +8,11 @@ import {
   createRootLogger,
   runWithLogContextAsync,
 } from '@wayrune/observability';
+import {
+  resolveCsvAttachmentsFromPayload,
+  runFinanceReportPackDeliveries,
+} from './finance-report-pack-delivery';
+import { runUnreadSlaAutomations } from './unread-sla-automation';
 
 bootstrapEnv();
 const env = loadEnv(true);
@@ -231,6 +236,121 @@ async function processEvent(
         attached: Boolean(attachments?.length),
         fileName: attachments?.[0]?.filename,
       });
+      break;
+    }
+    case 'trip.vouchers.email': {
+      const to = String(payload.toEmail || '');
+      if (!to) {
+        jobLog.warn('trip.vouchers.email missing toEmail');
+        break;
+      }
+      const subject = String(payload.subject || 'Your hotel vouchers');
+      const body = String(
+        payload.body ||
+          'Please find attached your hotel voucher(s). Reply to this email if you have any questions.',
+      );
+      const rawAttachments = Array.isArray(payload.attachments)
+        ? payload.attachments
+        : [];
+      const attachments: {
+        filename: string;
+        path: string;
+        contentType: string;
+      }[] = [];
+      for (const item of rawAttachments) {
+        if (!item || typeof item !== 'object') continue;
+        const row = item as Record<string, unknown>;
+        const storageKey =
+          typeof row.storageKey === 'string' ? row.storageKey : '';
+        const documentId =
+          typeof row.documentId === 'string' ? row.documentId : '';
+        let key = storageKey;
+        let fileName =
+          typeof row.fileName === 'string' && row.fileName
+            ? row.fileName
+            : 'voucher.pdf';
+        let mimeType =
+          typeof row.mimeType === 'string' && row.mimeType
+            ? row.mimeType
+            : 'application/pdf';
+        if (!key && documentId) {
+          const doc = await prisma.document.findFirst({
+            where: { id: documentId, organizationId, deletedAt: null },
+            select: { storageKey: true, name: true, mimeType: true },
+          });
+          if (!doc?.storageKey) {
+            throw new Error(
+              `trip.vouchers.email document not found: ${documentId}`,
+            );
+          }
+          key = doc.storageKey;
+          fileName = doc.name || fileName;
+          mimeType = doc.mimeType || mimeType;
+        }
+        if (!key) continue;
+        const absolutePath = join(uploadRoot, key);
+        if (!existsSync(absolutePath)) {
+          throw new Error(
+            `trip.vouchers.email PDF missing on disk: ${key}`,
+          );
+        }
+        attachments.push({
+          filename: fileName,
+          path: absolutePath,
+          contentType: mimeType,
+        });
+      }
+      if (!attachments.length) {
+        throw new Error('trip.vouchers.email has no PDF attachments');
+      }
+      const result = await sendEmail({
+        to,
+        subject,
+        text: body,
+        attachments,
+      });
+      jobLog.info(
+        result.skipped
+          ? 'Voucher email skipped (no SMTP)'
+          : 'Voucher email sent',
+        {
+          to,
+          tripId: payload.tripId,
+          attachmentCount: attachments.length,
+        },
+      );
+      break;
+    }
+    case 'finance.report-pack.email': {
+      const to = String(payload.toEmail || '');
+      if (!to) {
+        jobLog.warn('finance.report-pack.email missing toEmail');
+        break;
+      }
+      const subject = String(payload.subject || 'Finance report');
+      const body = String(
+        payload.body || 'Please find attached your finance report CSV.',
+      );
+      const attachments = resolveCsvAttachmentsFromPayload(payload, uploadRoot);
+      if (!attachments.length) {
+        throw new Error('finance.report-pack.email has no CSV attachments');
+      }
+      const result = await sendEmail({
+        to,
+        subject,
+        text: body,
+        attachments,
+      });
+      jobLog.info(
+        result.skipped
+          ? 'Finance report pack email skipped (no SMTP)'
+          : 'Finance report pack email sent',
+        {
+          to,
+          packId: payload.packId,
+          attachmentCount: attachments.length,
+        },
+      );
       break;
     }
     case 'pdf.generation':
@@ -701,9 +821,39 @@ async function main() {
     );
   }, 60 * 60 * 1000);
 
+  setInterval(() => {
+    runFinanceReportPackDeliveries({
+      prisma,
+      sendEmail,
+      log: logger,
+    }).catch((err) =>
+      logger.error('Finance report pack delivery failed', {
+        message: err instanceof Error ? err.message : String(err),
+      }),
+    );
+  }, 60 * 60 * 1000);
+
+  setInterval(() => {
+    runUnreadSlaAutomations({ prisma, log: logger }).catch((err) =>
+      logger.error('Unread SLA automation failed', {
+        message: err instanceof Error ? err.message : String(err),
+      }),
+    );
+  }, 15 * 60 * 1000);
+
   await pollOutbox();
   await expireInventoryHolds();
   await runNotificationDigests();
+  await runFinanceReportPackDeliveries({
+    prisma,
+    sendEmail,
+    log: logger,
+  });
+  await runUnreadSlaAutomations({ prisma, log: logger }).catch((err) =>
+    logger.error('Unread SLA automation failed', {
+      message: err instanceof Error ? err.message : String(err),
+    }),
+  );
 }
 
 main().catch((err) => {

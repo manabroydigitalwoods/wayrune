@@ -27,6 +27,16 @@ import {
   orgKindToAssetKind,
   ensureDefaultPartnerAsset,
 } from '../../apps/api/src/modules/partner-assets/partner-assets.helpers';
+import {
+  backfillHotelRateRoomProducts,
+  ensureSupplierLinkedStayInventory,
+} from '../../apps/api/src/modules/rates/rates-backfill.helpers';
+import {
+  hotelBookingTitle,
+  hotelStayWindow,
+  lineBuyTotal,
+  lineSellTotal,
+} from '../../apps/api/src/modules/operations/hotel-quote-booking';
 import { seedPartnerOperationalData } from './partner-ops-seed';
 import {
   ensureOrgPresenceFormPresets,
@@ -758,11 +768,11 @@ const DEMO_PARTNERS = [
 
 const KIND_TO_SUPPLIER: Record<string, string> = {
   hotel: 'hotel',
-  homestay: 'hotel',
-  farmstay: 'hotel',
-  car_rental: 'transport',
-  driver: 'transport',
-  restaurant: 'other',
+  homestay: 'homestay',
+  farmstay: 'farmstay',
+  car_rental: 'car_rental',
+  driver: 'driver',
+  restaurant: 'restaurant',
   dmc: 'dmc',
   travel_agency: 'other',
   other: 'other',
@@ -1289,6 +1299,8 @@ async function ensureAgencyBootstrap(
       contentJson: {
         currency: 'INR',
         destinationHint: 'Darjeeling',
+        tags: ['hill', 'family'],
+        folder: 'Hill stations/Darjeeling',
         inclusions: [
           'Private transfers (IXB–Darjeeling–Kalimpong–IXB)',
           '2N Darjeeling + 1N Kalimpong on twin sharing',
@@ -1415,6 +1427,8 @@ async function ensureAgencyBootstrap(
       contentJson: {
         currency: 'INR',
         destinationHint: 'Goa',
+        tags: ['beach', 'honeymoon'],
+        folder: 'Beach/Goa',
         inclusions: [
           'Airport transfers (GOI)',
           '3N North Goa hotel on twin sharing',
@@ -1513,7 +1527,7 @@ async function ensureAgencyBootstrap(
 
   for (const spec of templateSpecs) {
     const existing = await prisma.quoteTemplate.findFirst({
-      where: { organizationId, name: spec.name },
+      where: { organizationId, name: spec.name, status: 'active' },
     });
     if (!existing) {
       await prisma.quoteTemplate.create({
@@ -1521,6 +1535,8 @@ async function ensureAgencyBootstrap(
           organizationId,
           name: spec.name,
           contentJson: spec.contentJson,
+          status: 'active',
+          versionNumber: 1,
         },
       });
       continue;
@@ -1651,9 +1667,16 @@ async function seedRichAgencyData(
     name: string;
     type: string;
     linkedOrganizationId?: string | null;
+    linkedAssetId?: string | null;
     placeId?: string | null;
+    email?: string | null;
+    phone?: string | null;
     profileJson?: Prisma.InputJsonValue;
   }) {
+    const email =
+      input.email ||
+      `${input.name.toLowerCase().replace(/[^a-z0-9]+/g, '.')}@suppliers.demo`;
+    const phone = input.phone || '+919900011122';
     if (input.linkedOrganizationId) {
       const linked = await prisma.supplier.findFirst({
         where: {
@@ -1663,42 +1686,49 @@ async function seedRichAgencyData(
         },
       });
       if (linked) {
-        if (input.placeId || input.profileJson) {
-          return prisma.supplier.update({
-            where: { id: linked.id },
-            data: {
-              placeId: input.placeId ?? linked.placeId,
-              profileJson: input.profileJson ?? linked.profileJson ?? undefined,
-            },
-          });
-        }
-        return linked;
+        return prisma.supplier.update({
+          where: { id: linked.id },
+          data: {
+            type: input.type,
+            placeId: input.placeId ?? linked.placeId,
+            email: input.email ?? linked.email ?? email,
+            phone: input.phone ?? linked.phone ?? phone,
+            profileJson: input.profileJson ?? linked.profileJson ?? undefined,
+            ...(input.linkedAssetId !== undefined
+              ? { linkedAssetId: input.linkedAssetId }
+              : {}),
+          },
+        });
       }
     }
     const byName = await prisma.supplier.findFirst({
       where: { organizationId, name: input.name, deletedAt: null },
     });
     if (byName) {
-      if (input.placeId || input.profileJson) {
-        return prisma.supplier.update({
-          where: { id: byName.id },
-          data: {
-            placeId: input.placeId ?? byName.placeId,
-            profileJson: input.profileJson ?? byName.profileJson ?? undefined,
-          },
-        });
-      }
-      return byName;
+      return prisma.supplier.update({
+        where: { id: byName.id },
+        data: {
+          type: input.type,
+          placeId: input.placeId ?? byName.placeId,
+          email: input.email ?? byName.email ?? email,
+          phone: input.phone ?? byName.phone ?? phone,
+          profileJson: input.profileJson ?? byName.profileJson ?? undefined,
+          ...(input.linkedAssetId !== undefined
+            ? { linkedAssetId: input.linkedAssetId }
+            : {}),
+        },
+      });
     }
     return prisma.supplier.create({
       data: {
         organizationId,
         name: input.name,
         type: input.type,
-        email: `${input.name.toLowerCase().replace(/\s+/g, '.')}@suppliers.demo`,
-        phone: '+919900011122',
+        email,
+        phone,
         notes: 'Seeded supplier',
         linkedOrganizationId: input.linkedOrganizationId || null,
+        linkedAssetId: input.linkedAssetId || null,
         placeId: input.placeId || null,
         profileJson: input.profileJson,
       },
@@ -1719,8 +1749,20 @@ async function seedRichAgencyData(
   const driverSupplier = driverOrg
     ? await ensureSupplier({
         name: driverOrg.name,
-        type: KIND_TO_SUPPLIER[driverOrg.kind] || 'transport',
+        type: KIND_TO_SUPPLIER[driverOrg.kind] || 'driver',
         linkedOrganizationId: driverOrg.id,
+        linkedAssetId: (
+          await prisma.partnerAsset.findFirst({
+            where: {
+              organizationId: driverOrg.id,
+              deletedAt: null,
+              isActive: true,
+              assetKind: { in: ['driver', 'vehicle'] },
+            },
+            orderBy: { createdAt: 'asc' },
+            select: { id: true },
+          })
+        )?.id ?? null,
       })
     : localActivity;
 
@@ -1762,16 +1804,35 @@ async function seedRichAgencyData(
     });
   }
 
-  // Lead activities on first few leads
+  // Lead activities on first few leads (+ SLA demo timestamps)
   const sampleLeads = await prisma.lead.findMany({
     where: { organizationId, idempotencyKey: { startsWith: 'seed-scroll-lead-' } },
     take: 5,
     orderBy: { createdAt: 'asc' },
   });
+  const slaNow = Date.now();
+  for (let i = 0; i < sampleLeads.length; i++) {
+    const lead = sampleLeads[i]!;
+    const created = new Date(slaNow - (i + 2) * 24 * 3_600_000);
+    const followUpAt =
+      i === 0
+        ? new Date(slaNow - 12 * 3_600_000)
+        : i === 1
+          ? new Date(slaNow + 24 * 3_600_000)
+          : null;
+    await prisma.lead.update({
+      where: { id: lead.id },
+      data: { createdAt: created, followUpAt },
+    });
+  }
   for (const lead of sampleLeads) {
     const existingAct = await prisma.activity.findFirst({
       where: { leadId: lead.id, type: 'note', body: { contains: 'Seed note' } },
     });
+    const refreshed = await prisma.lead.findUnique({ where: { id: lead.id } });
+    const touchAt = new Date(
+      (refreshed?.createdAt.getTime() ?? slaNow) + 4 * 3_600_000,
+    );
     if (!existingAct) {
       await prisma.activity.create({
         data: {
@@ -1780,6 +1841,7 @@ async function seedRichAgencyData(
           type: 'note',
           body: 'Seed note: client asked for beach-facing rooms.',
           createdBy: ownerId,
+          createdAt: touchAt,
         },
       });
       await prisma.activity.create({
@@ -1789,8 +1851,36 @@ async function seedRichAgencyData(
           type: 'call',
           body: 'Seed call logged — 8 minutes discovery.',
           createdBy: ownerId,
+          createdAt: new Date(touchAt.getTime() + 30 * 60_000),
         },
       });
+    } else {
+      await prisma.activity.updateMany({
+        where: { leadId: lead.id, body: { contains: 'Seed' } },
+        data: { createdAt: touchAt },
+      });
+    }
+  }
+
+  // Backdate first quote on INQ-SEED-02 chain so median lead→quote is non-null
+  const inq02 = await prisma.inquiry.findFirst({
+    where: { organizationId, inquiryNumber: 'INQ-SEED-02' },
+    select: { id: true, leadId: true },
+  });
+  if (inq02?.leadId) {
+    const lead = await prisma.lead.findUnique({ where: { id: inq02.leadId } });
+    if (lead) {
+      const trip = await prisma.trip.findFirst({
+        where: { inquiryId: inq02.id, deletedAt: null },
+        select: { id: true },
+      });
+      if (trip) {
+        const quoteAt = new Date(lead.createdAt.getTime() + 36 * 3_600_000);
+        await prisma.quotation.updateMany({
+          where: { tripId: trip.id },
+          data: { createdAt: quoteAt },
+        });
+      }
     }
   }
 
@@ -1891,46 +1981,897 @@ async function seedRichAgencyData(
     name: 'Darjeeling Heritage Lodge',
     type: 'hotel',
     placeId: darjeeling.placeId,
+    phone: '+919831100101',
     profileJson: {
+      description:
+        'Boutique mountain rooms with views that make evenings feel special.',
       imageUrl:
-        'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=1000&q=80',
-      amenities: ['WiFi', 'Breakfast', 'Mountain view', 'Parking'],
-      roomHints: ['Deluxe mountain view'],
+        'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=1200&q=80',
+      imageUrls: [
+        'https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?auto=format&fit=crop&w=800&q=80',
+        'https://images.unsplash.com/photo-1578683010236-d716f9a3f461?auto=format&fit=crop&w=800&q=80',
+      ],
+      amenities: ['WiFi', 'Breakfast', 'Mountain view', 'Parking', 'Hot water'],
+      roomHints: ['Deluxe mountain view', 'Heritage suite'],
+      capacityHint: '24 rooms · groups OK',
+      stars: 3,
+      googleRating: 4.4,
+      googleReviewCount: 312,
+      googleMapsUrl: 'https://maps.google.com/?q=Darjeeling+Heritage+Lodge',
+      reviewSnippet: 'Warm staff and excellent Kanchenjunga views at sunrise.',
+      checkIn: '2:00 PM',
+      checkOut: '11:00 AM',
+      distanceHint: '500m from Mall Road',
     },
   });
+
+  const DARJEELING_HERITAGE_ROOMS = [
+    {
+      name: 'Deluxe mountain view',
+      roomTypeKey: 'deluxe_mountain_view',
+      maxOccupancy: 2,
+      baseQuantity: 12,
+      allotmentStart: '2026-04-01',
+      allotmentEnd: '2026-12-31',
+    },
+    {
+      name: 'Heritage suite',
+      roomTypeKey: 'heritage_suite',
+      maxOccupancy: 3,
+      baseQuantity: 4,
+      allotmentStart: '2026-04-01',
+      allotmentEnd: '2026-12-31',
+    },
+  ] as const;
+
+  await ensureSupplierLinkedStayInventory(prisma, {
+    organizationId,
+    supplierId: darjeelingHeritageHotel.id,
+    supplierName: darjeelingHeritageHotel.name,
+    placeId: darjeeling.placeId,
+    profileJson: darjeelingHeritageHotel.profileJson as Prisma.InputJsonValue,
+    createdBy: ownerId,
+    roomProducts: [...DARJEELING_HERITAGE_ROOMS],
+  });
+
+  const darjeelingHeritageContractTitle = 'FY26 FIT — Darjeeling Heritage Lodge';
+  let darjeelingHeritageContract = await prisma.supplierContract.findFirst({
+    where: {
+      organizationId,
+      supplierId: darjeelingHeritageHotel.id,
+      title: darjeelingHeritageContractTitle,
+      deletedAt: null,
+    },
+  });
+  if (!darjeelingHeritageContract) {
+    darjeelingHeritageContract = await prisma.supplierContract.create({
+      data: {
+        organizationId,
+        supplierId: darjeelingHeritageHotel.id,
+        title: darjeelingHeritageContractTitle,
+        status: 'active',
+        versionNumber: 1,
+        effectiveFrom: new Date('2026-04-01T00:00:00.000Z'),
+        effectiveUntil: new Date('2026-12-31T00:00:00.000Z'),
+        preferred: true,
+        paymentTerms: 'Net 15',
+        cancellationTerms:
+          'Free cancel up to 7 days before check-in; 50% within 7 days; 100% within 72 hours.',
+        cancellationPolicyJson: {
+          text: 'Free cancel up to 7 days before check-in; 50% within 7 days; 100% within 72 hours.',
+          rules: [
+            { beforeHours: 168, chargeType: 'PERCENTAGE', chargeValue: 0 },
+            { beforeHours: 72, chargeType: 'PERCENTAGE', chargeValue: 50 },
+            { beforeHours: 24, chargeType: 'PERCENTAGE', chargeValue: 100 },
+          ],
+          noShowChargePercentage: 100,
+        },
+        blackoutJson: [{ from: '2026-12-21', to: '2026-12-26' }],
+        stopSaleJson: [],
+        notes: 'Seeded demo contract — blackout Christmas week; stop-sale via inventory.',
+        createdBy: ownerId,
+      },
+    });
+  } else {
+    darjeelingHeritageContract = await prisma.supplierContract.update({
+      where: { id: darjeelingHeritageContract.id },
+      data: {
+        status: 'active',
+        versionNumber: 1,
+        preferred: true,
+        cancellationTerms:
+          'Free cancel up to 7 days before check-in; 50% within 7 days; 100% within 72 hours.',
+        cancellationPolicyJson: {
+          text: 'Free cancel up to 7 days before check-in; 50% within 7 days; 100% within 72 hours.',
+          rules: [
+            { beforeHours: 168, chargeType: 'PERCENTAGE', chargeValue: 0 },
+            { beforeHours: 72, chargeType: 'PERCENTAGE', chargeValue: 50 },
+            { beforeHours: 24, chargeType: 'PERCENTAGE', chargeValue: 100 },
+          ],
+          noShowChargePercentage: 100,
+        },
+      },
+    });
+  }
   await ensureSupplier({
     name: 'Kalimpong Orchid Retreat',
     type: 'hotel',
     placeId: kalimpong.placeId,
+    phone: '+919831100102',
     profileJson: {
+      description: 'Garden-facing suites with space to unwind after the hills.',
       imageUrl:
-        'https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?auto=format&fit=crop&w=1000&q=80',
-      amenities: ['WiFi', 'Garden', 'Home-style meals'],
-      roomHints: ['Garden view room'],
+        'https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?auto=format&fit=crop&w=1200&q=80',
+      imageUrls: [
+        'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=800&q=80',
+      ],
+      amenities: ['WiFi', 'Garden', 'Home-style meals', 'Fireplace'],
+      roomHints: ['Garden view room', 'Orchid cottage'],
+      capacityHint: '18 rooms',
+      stars: 3,
+      googleRating: 4.6,
+      googleReviewCount: 148,
+      checkIn: '1:00 PM',
+      checkOut: '11:00 AM',
+      distanceHint: 'Near Deolo Hill road',
     },
   });
   await ensureSupplier({
     name: 'Mayfair Spa Resort Gangtok',
     type: 'hotel',
     placeId: (await placeRef('gangtok')).placeId,
+    phone: '+919831100103',
     profileJson: {
       imageUrl:
-        'https://images.unsplash.com/photo-1578683010236-d716f9a3f461?auto=format&fit=crop&w=1000&q=80',
-      amenities: ['Spa', 'WiFi', 'Restaurant', 'Valley view'],
-      roomHints: ['Deluxe valley view'],
+        'https://images.unsplash.com/photo-1578683010236-d716f9a3f461?auto=format&fit=crop&w=1200&q=80',
+      amenities: ['Spa', 'WiFi', 'Restaurant', 'Valley view', 'Conference'],
+      roomHints: ['Deluxe valley view', 'Spa suite'],
+      capacityHint: '60 rooms',
+      stars: 5,
+      googleRating: 4.7,
+      googleReviewCount: 890,
+      checkIn: '2:00 PM',
+      checkOut: '12:00 PM',
+      distanceHint: '10 min from MG Marg',
     },
   });
   await ensureSupplier({
     name: 'Siliguri Transit Inn',
     type: 'hotel',
     placeId: (await placeRef('siliguri')).placeId,
+    phone: '+919831100104',
     profileJson: {
       imageUrl:
-        'https://images.unsplash.com/photo-1618773928121-c32242e63f39?auto=format&fit=crop&w=1000&q=80',
-      amenities: ['WiFi', 'Airport desk', 'Parking'],
-      roomHints: ['Standard twin'],
+        'https://images.unsplash.com/photo-1618773928121-c32242e63f39?auto=format&fit=crop&w=1200&q=80',
+      amenities: ['WiFi', 'Airport desk', 'Parking', 'Early check-in'],
+      roomHints: ['Standard twin', 'Family room'],
+      capacityHint: '40 rooms · layover friendly',
+      stars: 2,
+      googleRating: 3.9,
+      googleReviewCount: 210,
+      checkIn: '12:00 PM',
+      checkOut: '10:00 AM',
+      distanceHint: '20 min to Bagdogra Airport',
     },
   });
+  await ensureSupplier({
+    name: 'Windamere Hotel Ridge',
+    type: 'hotel',
+    placeId: darjeeling.placeId,
+    phone: '+919831100105',
+    profileJson: {
+      imageUrl:
+        'https://images.unsplash.com/photo-1542314831-068cd1dbfeeb?auto=format&fit=crop&w=1200&q=80',
+      amenities: ['Heritage lounge', 'WiFi', 'Library', 'Garden'],
+      roomHints: ['Colonial suite', 'Ridge view deluxe'],
+      capacityHint: '32 rooms',
+      stars: 4,
+      googleRating: 4.5,
+      googleReviewCount: 620,
+      checkIn: '2:00 PM',
+      checkOut: '11:00 AM',
+      distanceHint: 'On Observatory Hill ridge',
+      reviewSnippet: 'Old-world charm with impeccable afternoon tea.',
+    },
+  });
+  await ensureSupplier({
+    name: 'Goa Breeze Beach Resort',
+    type: 'hotel',
+    placeId: goa.placeId,
+    phone: '+919831100106',
+    profileJson: {
+      imageUrl:
+        'https://images.unsplash.com/photo-1520250497591-112f2f40a3f4?auto=format&fit=crop&w=1200&q=80',
+      imageUrls: [
+        'https://images.unsplash.com/photo-1571896349842-33c89424de2d?auto=format&fit=crop&w=800&q=80',
+      ],
+      amenities: ['Pool', 'Beach access', 'WiFi', 'Bar', 'Spa'],
+      roomHints: ['Sea view deluxe', 'Garden cottage'],
+      capacityHint: '48 rooms',
+      stars: 4,
+      googleRating: 4.3,
+      googleReviewCount: 1104,
+      checkIn: '3:00 PM',
+      checkOut: '11:00 AM',
+      distanceHint: 'Calangute beachfront',
+    },
+  });
+
+  // Homestays
+  await ensureSupplier({
+    name: 'Lepcha Family Homestay',
+    type: 'homestay',
+    placeId: kalimpong.placeId,
+    phone: '+919831100201',
+    profileJson: {
+      imageUrl:
+        'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=1200&q=80',
+      amenities: ['Home kitchen', 'WiFi', 'Garden', 'Local host'],
+      roomHints: ['Family room', 'Attic twin'],
+      capacityHint: '6 rooms · host meals included',
+      stars: 0,
+      googleRating: 4.8,
+      googleReviewCount: 64,
+      checkIn: '1:00 PM',
+      checkOut: '10:00 AM',
+      distanceHint: 'Quiet lane above bazaar',
+      reviewSnippet: 'Authentic Lepcha hospitality and incredible local food.',
+    },
+  });
+  await ensureSupplier({
+    name: 'Mall Road Nest Homestay',
+    type: 'homestay',
+    placeId: darjeeling.placeId,
+    phone: '+919831100202',
+    profileJson: {
+      imageUrl:
+        'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=1200&q=80',
+      amenities: ['WiFi', 'Shared lounge', 'Kitchenette', 'City view'],
+      roomHints: ['Cozy double', 'Triple loft'],
+      capacityHint: '4 rooms',
+      googleRating: 4.5,
+      googleReviewCount: 91,
+      checkIn: '2:00 PM',
+      checkOut: '11:00 AM',
+      distanceHint: '3 min walk to Mall Road',
+    },
+  });
+  await ensureSupplier({
+    name: 'Manali Cedar Homestay',
+    type: 'homestay',
+    placeId: manali.placeId,
+    phone: '+919831100203',
+    profileJson: {
+      imageUrl:
+        'https://images.unsplash.com/photo-1518780664697-55e3ad937233?auto=format&fit=crop&w=1200&q=80',
+      amenities: ['Fireplace', 'WiFi', 'Mountain view', 'Parking'],
+      roomHints: ['Cedar loft', 'Valley double'],
+      capacityHint: '5 rooms',
+      googleRating: 4.7,
+      googleReviewCount: 128,
+      checkIn: '1:00 PM',
+      checkOut: '10:00 AM',
+      distanceHint: 'Old Manali side',
+    },
+  });
+
+  // Farmstays
+  await ensureSupplier({
+    name: 'Teesta Valley Farmstay',
+    type: 'farmstay',
+    placeId: kalimpong.placeId,
+    phone: '+919831100301',
+    profileJson: {
+      imageUrl:
+        'https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=1200&q=80',
+      imageUrls: [
+        'https://images.unsplash.com/photo-1464226184884-fa280b87c399?auto=format&fit=crop&w=800&q=80',
+      ],
+      amenities: ['Organic meals', 'Farm walk', 'WiFi', 'Campfire'],
+      roomHints: ['Cottage', 'Farm loft'],
+      capacityHint: '8 cottages · nature groups OK',
+      googleRating: 4.9,
+      googleReviewCount: 47,
+      checkIn: '12:00 PM',
+      checkOut: '10:00 AM',
+      distanceHint: 'Teesta riverside farm',
+      reviewSnippet: 'Kids loved the farm animals and evening campfire.',
+    },
+  });
+  await ensureSupplier({
+    name: 'Orange Grove Farmstay',
+    type: 'farmstay',
+    placeId: (await placeRef('gangtok')).placeId,
+    phone: '+919831100302',
+    profileJson: {
+      imageUrl:
+        'https://images.unsplash.com/photo-1464226184884-fa280b87c399?auto=format&fit=crop&w=1200&q=80',
+      amenities: ['Orchard tour', 'Home meals', 'WiFi', 'Pet-friendly'],
+      roomHints: ['Grove cabin', 'Family cottage'],
+      capacityHint: '6 cottages',
+      googleRating: 4.6,
+      googleReviewCount: 38,
+      checkIn: '1:00 PM',
+      checkOut: '11:00 AM',
+      distanceHint: 'East Sikkim orange belt',
+    },
+  });
+
+  // Drivers
+  await ensureSupplier({
+    name: 'Ramesh Hill Taxi',
+    type: 'driver',
+    placeId: darjeeling.placeId,
+    phone: '+919831100401',
+    email: 'ramesh.hilltaxi@suppliers.demo',
+    profileJson: {
+      licenceNumber: 'WB-78-2019-004512',
+      licenceExpiry: '2028-06-30',
+      languages: ['Nepali', 'Hindi', 'English'],
+      serviceAreas: ['Darjeeling', 'Kalimpong', 'Bagdogra', 'Gangtok'],
+      emergencyContact: '+919831100499',
+      verificationStatus: 'verified',
+    },
+  });
+  await ensureSupplier({
+    name: 'Sonam Sikkim Driver',
+    type: 'driver',
+    placeId: (await placeRef('gangtok')).placeId,
+    phone: '+919831100402',
+    profileJson: {
+      licenceNumber: 'SK-01-2020-118822',
+      licenceExpiry: '2027-11-15',
+      languages: ['Nepali', 'English', 'Bhutia'],
+      serviceAreas: ['Gangtok', 'Pelling', 'Lachung', 'Bagdogra'],
+      emergencyContact: '+919831100498',
+      verificationStatus: 'verified',
+    },
+  });
+  await ensureSupplier({
+    name: 'Delhi Airport Cab Partner',
+    type: 'driver',
+    placeId: delhi.placeId,
+    phone: '+919831100403',
+    profileJson: {
+      licenceNumber: 'DL-0420110012345',
+      licenceExpiry: '2029-01-31',
+      languages: ['Hindi', 'English'],
+      serviceAreas: ['Delhi NCR', 'Agra day trip', 'Jaipur'],
+      emergencyContact: '+919831100497',
+      verificationStatus: 'pending',
+    },
+  });
+
+  // Fleet / restaurant / guide / activity / DMC
+  await ensureSupplier({
+    name: 'North Bengal Fleet Rentals',
+    type: 'car_rental',
+    placeId: (await placeRef('siliguri')).placeId,
+    phone: '+919831100501',
+    profileJson: {
+      fleetHint: '18 sedans · 10 Innovas · 4 tempo travellers',
+      vehicleTypes: ['Sedan', 'Innova', 'Tempo Traveller', 'SUV'],
+      routesServed: 'Siliguri, Darjeeling, Kalimpong, Gangtok, Pelling',
+      permitNotes: 'Sikkim inner-line permits arranged on request',
+      parkingTollPolicy: 'Parking + tolls billed at actuals',
+    },
+  });
+  const northBengalFleet = await prisma.supplier.findFirst({
+    where: {
+      organizationId,
+      name: 'North Bengal Fleet Rentals',
+      deletedAt: null,
+    },
+  });
+  if (northBengalFleet) {
+    const fleetContractTitle = 'FY26 FIT — North Bengal Fleet corridors';
+    let fleetContract = await prisma.supplierContract.findFirst({
+      where: {
+        organizationId,
+        supplierId: northBengalFleet.id,
+        title: fleetContractTitle,
+        deletedAt: null,
+      },
+    });
+    if (!fleetContract) {
+      fleetContract = await prisma.supplierContract.create({
+        data: {
+          organizationId,
+          supplierId: northBengalFleet.id,
+          title: fleetContractTitle,
+          status: 'active',
+          versionNumber: 1,
+          effectiveFrom: new Date('2026-04-01T00:00:00.000Z'),
+          effectiveUntil: new Date('2027-03-31T00:00:00.000Z'),
+          preferred: true,
+          paymentTerms: 'Net 7',
+          // Soft blackout: Durga Puja week — manual rate OK.
+          blackoutJson: [{ from: '2026-10-10', to: '2026-10-16' }],
+          // Hard closing: monsoon landslide week — resolve blocks.
+          stopSaleJson: [{ from: '2026-07-15', to: '2026-07-22' }],
+          notes:
+            'Seeded fleet contract — soft blackout Puja week; hard stop-sale mid-July closing.',
+          createdBy: ownerId,
+        },
+      });
+    } else if (
+      !fleetContract.blackoutJson ||
+      !fleetContract.stopSaleJson ||
+      fleetContract.status !== 'active'
+    ) {
+      await prisma.supplierContract.update({
+        where: { id: fleetContract.id },
+        data: {
+          status: 'active',
+          blackoutJson: [{ from: '2026-10-10', to: '2026-10-16' }],
+          stopSaleJson: [{ from: '2026-07-15', to: '2026-07-22' }],
+        },
+      });
+    }
+
+    // Supplier-owned corridor chart (prefer over system catalog when quoting this fleet).
+    const innova = await prisma.vehicleType.findFirst({
+      where: {
+        key: 'suv-innova',
+        isSystem: true,
+        organizationId: null,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    const siliguriPlace = await placeRef('siliguri');
+    const darjeelingPlace = await placeRef('darjeeling');
+    const bagdograPlace = await placeRef('bagdogra-airport');
+    if (innova) {
+      const fleetCorridors = [
+        {
+          fromPlaceId: siliguriPlace.placeId,
+          toPlaceId: darjeelingPlace.placeId,
+          unitCost: 3600,
+        },
+        {
+          fromPlaceId: bagdograPlace.placeId,
+          toPlaceId: darjeelingPlace.placeId,
+          unitCost: 4100,
+        },
+      ] as const;
+      for (const corridor of fleetCorridors) {
+        const existingFare = await prisma.transferFare.findFirst({
+          where: {
+            organizationId,
+            supplierId: northBengalFleet.id,
+            fromPlaceId: corridor.fromPlaceId,
+            toPlaceId: corridor.toPlaceId,
+            vehicleTypeId: innova.id,
+            deletedAt: null,
+          },
+        });
+        if (existingFare) {
+          await prisma.transferFare.update({
+            where: { id: existingFare.id },
+            data: {
+              unitCost: new Prisma.Decimal(corridor.unitCost),
+              isActive: true,
+              isSystem: false,
+            },
+          });
+        } else {
+          await prisma.transferFare.create({
+            data: {
+              organizationId,
+              supplierId: northBengalFleet.id,
+              isSystem: false,
+              fromPlaceId: corridor.fromPlaceId,
+              toPlaceId: corridor.toPlaceId,
+              vehicleTypeId: innova.id,
+              unitCost: new Prisma.Decimal(corridor.unitCost),
+              pricingMode: 'per_vehicle',
+              currency: 'INR',
+              isActive: true,
+              createdBy: ownerId,
+            },
+          });
+        }
+      }
+    }
+  }
+  await ensureSupplier({
+    name: 'Glenarys Bakery Dining',
+    type: 'restaurant',
+    placeId: darjeeling.placeId,
+    phone: '+919831100601',
+    profileJson: {
+      cuisine: 'Bakery, Continental, Indian',
+      mealPeriods: ['Breakfast', 'Lunch', 'Tea', 'Dinner'],
+      menuType: 'a_la_carte',
+      seatingCapacity: 120,
+      openingHours: '08:00–21:00',
+      vegNonVeg: 'both',
+      reservationLeadHours: 2,
+      photos: [
+        'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=1200&q=80',
+      ],
+    },
+  });
+  await ensureSupplier({
+    name: 'Kunga Restaurant Gangtok',
+    type: 'restaurant',
+    placeId: (await placeRef('gangtok')).placeId,
+    phone: '+919831100602',
+    profileJson: {
+      cuisine: 'Tibetan, Nepali',
+      mealPeriods: ['Lunch', 'Dinner'],
+      menuType: 'a_la_carte',
+      seatingCapacity: 60,
+      openingHours: '11:00–21:30',
+      vegNonVeg: 'both',
+      photos: [
+        'https://images.unsplash.com/photo-1559339352-11d035aa65de?auto=format&fit=crop&w=1200&q=80',
+      ],
+    },
+  });
+  await ensureSupplier({
+    name: 'Pemayangtse Trek Guide',
+    type: 'guide',
+    placeId: (await placeRef('gangtok')).placeId,
+    phone: '+919831100701',
+    profileJson: {
+      languages: ['English', 'Nepali', 'Hindi'],
+      destinations: ['Gangtok', 'Pelling', 'Yuksom', 'Dzongri'],
+      specialties: ['Monastery tours', 'Nature walks', 'Photography'],
+      verificationStatus: 'verified',
+    },
+  });
+  const tigerHillSunriseDesk = await ensureSupplier({
+    name: 'Tiger Hill Sunrise Desk',
+    type: 'activity',
+    placeId: tigerHill.placeId,
+    phone: '+919831100801',
+    profileJson: {
+      activitiesOffered: ['Sunrise viewpoint', 'Photo stop', 'Tea stop'],
+      durationHint: '3–4 hours early morning',
+      privateOrSic: 'both',
+      capacity: 12,
+      inclusions: ['Pickup Mall Road', 'Viewpoint entry assist'],
+      safetyNotes: 'Warm layers required; roads may be foggy',
+    },
+  });
+  await ensureSupplier({
+    name: 'North Bengal Ground DMC',
+    type: 'dmc',
+    placeId: darjeeling.placeId,
+    phone: '+919831100901',
+    profileJson: {
+      destinationsServed: 'Darjeeling, Kalimpong, Gangtok, Pelling, Dooars',
+      serviceCategories: 'Hotels, Transport, Activities, Guides, Permits',
+      markets: 'FIT, small groups, MICE soft',
+      emergencyContact: '+919831100900',
+      bookingSlaHint: 'Confirmations within 4 business hours',
+    },
+  });
+
+  // Enrich linked network partners if present
+  if (hotelOrg) {
+    await ensureSupplier({
+      name: hotelOrg.name,
+      type: KIND_TO_SUPPLIER[hotelOrg.kind] || 'hotel',
+      linkedOrganizationId: hotelOrg.id,
+      placeId: goa.placeId,
+      profileJson: {
+        imageUrl:
+          'https://images.unsplash.com/photo-1571003123894-1f0594d2b5d9?auto=format&fit=crop&w=1200&q=80',
+        amenities: ['Pool', 'WiFi', 'Restaurant', 'Beach shuttle'],
+        roomHints: ['Ocean deluxe', 'Pool view'],
+        capacityHint: '72 rooms',
+        stars: 4,
+        googleRating: 4.2,
+        checkIn: '3:00 PM',
+        checkOut: '11:00 AM',
+        distanceHint: 'North Goa',
+      },
+    });
+  }
+  if (driverOrg) {
+    await ensureSupplier({
+      name: driverOrg.name,
+      type: KIND_TO_SUPPLIER[driverOrg.kind] || 'driver',
+      linkedOrganizationId: driverOrg.id,
+      linkedAssetId: (
+        await prisma.partnerAsset.findFirst({
+          where: {
+            organizationId: driverOrg.id,
+            deletedAt: null,
+            isActive: true,
+            assetKind: { in: ['driver', 'vehicle'] },
+          },
+          orderBy: { createdAt: 'asc' },
+          select: { id: true },
+        })
+      )?.id ?? null,
+      placeId: delhi.placeId,
+      profileJson: {
+        licenceNumber: 'DL-FLEET-SEED-001',
+        licenceExpiry: '2028-12-31',
+        languages: ['Hindi', 'English', 'Punjabi'],
+        serviceAreas: ['Delhi NCR', 'Agra', 'Jaipur'],
+        emergencyContact: '+919900022233',
+        verificationStatus: 'verified',
+      },
+    });
+  }
+
+  const spiceJetActivitiesDesk = await ensureSupplier({
+    name: 'SpiceJet Activities Desk',
+    type: 'activity',
+    placeId: goa.placeId,
+    profileJson: {
+      activitiesOffered: ['Water sports desk', 'Sunset cruise booking'],
+      durationHint: 'Half day / evening',
+      privateOrSic: 'sic',
+      capacity: 40,
+      inclusions: ['Life jackets', 'Instructor'],
+      safetyNotes: 'Weather-dependent; age limits apply',
+    },
+  });
+
+  async function ensureAgencyHotelRate(input: {
+    supplierId: string;
+    placeId?: string | null;
+    contractId?: string | null;
+    roomType: string | null;
+    mealPlan: string | null;
+    unitCost: number;
+    weekendUnitCost?: number | null;
+    startDate: string;
+    endDate: string;
+    occupancyPricing?: {
+      baseAdults?: number;
+      baseChildren?: number;
+      extraAdultPerNight?: number;
+      childWithBedPerNight?: number;
+      childWithoutBedPerNight?: number;
+      dateSupplements?: Array<{
+        date?: string;
+        from?: string;
+        to?: string;
+        amount: number;
+        label?: string;
+      }>;
+    } | null;
+  }) {
+    const existing = await prisma.supplierHotelRate.findFirst({
+      where: {
+        organizationId,
+        supplierId: input.supplierId,
+        roomType: input.roomType,
+        mealPlan: input.mealPlan,
+        startDate: new Date(input.startDate),
+        deletedAt: null,
+        isSystem: false,
+      },
+    });
+    const data = {
+      placeId: input.placeId || null,
+      ...(input.contractId !== undefined
+        ? { contractId: input.contractId }
+        : {}),
+      unitCost: new Prisma.Decimal(input.unitCost),
+      weekendUnitCost:
+        input.weekendUnitCost != null
+          ? new Prisma.Decimal(input.weekendUnitCost)
+          : null,
+      endDate: new Date(input.endDate),
+      currency: 'INR',
+      isActive: true,
+      ...(input.occupancyPricing !== undefined
+        ? {
+            occupancyPricingJson:
+              input.occupancyPricing == null
+                ? Prisma.JsonNull
+                : (input.occupancyPricing as Prisma.InputJsonValue),
+          }
+        : {}),
+    };
+    if (existing) {
+      await prisma.supplierHotelRate.update({
+        where: { id: existing.id },
+        data,
+      });
+      return;
+    }
+    await prisma.supplierHotelRate.create({
+      data: {
+        organizationId,
+        supplierId: input.supplierId,
+        isSystem: false,
+        roomType: input.roomType,
+        mealPlan: input.mealPlan,
+        startDate: new Date(input.startDate),
+        createdBy: ownerId,
+        ...data,
+      },
+    });
+  }
+
+  const heritageOccupancy = {
+    baseAdults: 2,
+    baseChildren: 0,
+    extraAdultPerNight: 1500,
+    childWithBedPerNight: 1000,
+    childWithoutBedPerNight: 500,
+  };
+
+  const heritageWinterOccupancy = {
+    ...heritageOccupancy,
+    dateSupplements: [
+      {
+        date: '2026-12-24',
+        amount: 2500,
+        label: 'Christmas Eve gala',
+      },
+      {
+        date: '2026-12-31',
+        amount: 3500,
+        label: 'New Year Eve gala',
+      },
+    ],
+  };
+
+  await ensureAgencyHotelRate({
+    supplierId: darjeelingHeritageHotel.id,
+    placeId: darjeeling.placeId,
+    contractId: darjeelingHeritageContract.id,
+    roomType: 'Deluxe mountain view',
+    mealPlan: 'MAP',
+    unitCost: 4500,
+    weekendUnitCost: 5200,
+    startDate: '2026-04-01',
+    endDate: '2026-06-30',
+    occupancyPricing: heritageOccupancy,
+  });
+  await ensureAgencyHotelRate({
+    supplierId: darjeelingHeritageHotel.id,
+    placeId: darjeeling.placeId,
+    contractId: darjeelingHeritageContract.id,
+    roomType: 'Deluxe mountain view',
+    mealPlan: 'MAP',
+    unitCost: 5200,
+    weekendUnitCost: 6000,
+    startDate: '2026-10-01',
+    endDate: '2026-12-20',
+    occupancyPricing: heritageOccupancy,
+  });
+  await ensureAgencyHotelRate({
+    supplierId: darjeelingHeritageHotel.id,
+    placeId: darjeeling.placeId,
+    contractId: darjeelingHeritageContract.id,
+    roomType: 'Deluxe mountain view',
+    mealPlan: 'MAP',
+    unitCost: 6500,
+    weekendUnitCost: 7500,
+    startDate: '2026-12-21',
+    endDate: '2027-01-05',
+    occupancyPricing: heritageWinterOccupancy,
+  });
+  await ensureAgencyHotelRate({
+    supplierId: darjeelingHeritageHotel.id,
+    placeId: darjeeling.placeId,
+    contractId: darjeelingHeritageContract.id,
+    roomType: 'Heritage suite',
+    mealPlan: 'CP',
+    unitCost: 6800,
+    weekendUnitCost: 7500,
+    startDate: '2026-04-01',
+    endDate: '2026-12-20',
+  });
+
+  async function ensureAgencyActivityRate(input: {
+    supplierId: string;
+    placeId?: string | null;
+    activityName: string;
+    privateOrSic?: 'private' | 'sic' | null;
+    adultUnitCost: number;
+    childUnitCost?: number | null;
+    childAgeMin?: number | null;
+    childAgeMax?: number | null;
+    startDate: string;
+    endDate: string;
+  }) {
+    const activityKey = input.activityName
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    const existing = await prisma.supplierActivityRate.findFirst({
+      where: {
+        organizationId,
+        supplierId: input.supplierId,
+        activityKey,
+        privateOrSic: input.privateOrSic ?? null,
+        startDate: new Date(input.startDate),
+        deletedAt: null,
+      },
+    });
+    const data = {
+      placeId: input.placeId || null,
+      activityName: input.activityName,
+      activityKey,
+      privateOrSic: input.privateOrSic ?? null,
+      adultUnitCost: new Prisma.Decimal(input.adultUnitCost),
+      childUnitCost:
+        input.childUnitCost != null
+          ? new Prisma.Decimal(input.childUnitCost)
+          : null,
+      childAgeMin: input.childAgeMin ?? null,
+      childAgeMax: input.childAgeMax ?? null,
+      endDate: new Date(input.endDate),
+      currency: 'INR',
+      isActive: true,
+    };
+    if (existing) {
+      await prisma.supplierActivityRate.update({
+        where: { id: existing.id },
+        data,
+      });
+      return;
+    }
+    await prisma.supplierActivityRate.create({
+      data: {
+        organizationId,
+        supplierId: input.supplierId,
+        startDate: new Date(input.startDate),
+        createdBy: ownerId,
+        ...data,
+      },
+    });
+  }
+
+  await ensureAgencyActivityRate({
+    supplierId: tigerHillSunriseDesk.id,
+    placeId: tigerHill.placeId,
+    activityName: 'Tiger Hill sunrise',
+    privateOrSic: 'private',
+    adultUnitCost: 1800,
+    childUnitCost: 900,
+    childAgeMin: 0,
+    childAgeMax: 11,
+    startDate: '2026-01-01',
+    endDate: '2026-12-31',
+  });
+  await ensureAgencyActivityRate({
+    supplierId: tigerHillSunriseDesk.id,
+    placeId: tigerHill.placeId,
+    activityName: 'Tiger Hill sunrise',
+    privateOrSic: 'sic',
+    adultUnitCost: 950,
+    childUnitCost: 500,
+    childAgeMin: 0,
+    childAgeMax: 11,
+    startDate: '2026-01-01',
+    endDate: '2026-12-31',
+  });
+  await ensureAgencyActivityRate({
+    supplierId: spiceJetActivitiesDesk.id,
+    placeId: goa.placeId,
+    activityName: 'Sunset cruise',
+    privateOrSic: 'sic',
+    adultUnitCost: 2200,
+    childUnitCost: 1400,
+    childAgeMin: 3,
+    childAgeMax: 12,
+    startDate: '2026-04-01',
+    endDate: '2026-10-31',
+  });
+
+  const heritageRatesBackfilled = await backfillHotelRateRoomProducts(
+    prisma,
+    organizationId,
+  );
+  if (heritageRatesBackfilled) {
+    console.log(
+      `Backfilled roomProductId on ${heritageRatesBackfilled} Darjeeling Heritage hotel rate(s)`,
+    );
+  }
 
   async function ensureTrip(input: {
     number: string;
@@ -2195,20 +3136,20 @@ async function seedRichAgencyData(
   });
   const tripConfirmed = await ensureTrip({
     number: 'TRP-SEED-02',
-    title: 'Goa honeymoon confirmed',
+    title: 'Darjeeling honeymoon confirmed',
     status: 'confirmed',
     partyKey: 'seed-party-sneha',
     inquiryId: inqConverted.id,
-    destinations: [goa, delhi],
-    startDate: '2026-09-10',
-    endDate: '2026-09-15',
+    destinations: [darjeeling, kalimpong],
+    startDate: '2026-10-05',
+    endDate: '2026-10-10',
   });
   const tripOps = await ensureTrip({
     number: 'TRP-SEED-03',
-    title: 'Corporate offsite bookings',
+    title: 'Corporate offsite — hotel enquiry',
     status: 'booking_in_progress',
     partyKey: 'seed-party-acme',
-    destinations: [goa],
+    destinations: [darjeeling],
     startDate: '2026-11-12',
     endDate: '2026-11-15',
   });
@@ -2891,22 +3832,71 @@ async function seedRichAgencyData(
     refresh: true,
     items: [
       {
-        id: '1',
-        description: 'Hotel package (3N)',
-        quantity: 1,
-        unitCost: 24000,
-        unitSell: 36000,
+        id: 'seed-qt02-hotel',
+        serviceType: 'hotel',
+        description: 'Darjeeling Heritage Lodge · Deluxe mountain view · MAP',
+        quantity: 3,
+        unitCost: 4500,
+        unitSell: 5400,
         taxPercent: 5,
         pricingUnit: 'per_room',
+        rateProvenance: {
+          rateKind: 'hotel',
+          matchSummary: 'Room matched; Active contract v1',
+        },
+        details: {
+          supplierId: darjeelingHeritageHotel.id,
+          supplierName: darjeelingHeritageHotel.name,
+          propertyName: darjeelingHeritageHotel.name,
+          roomType: 'Deluxe mountain view',
+          mealPlan: 'MAP',
+          checkIn: '2026-10-05',
+          checkOut: '2026-10-08',
+          nights: 3,
+          rooms: 1,
+        },
       },
       {
-        id: '2',
-        description: 'Airport transfers',
-        quantity: 2,
-        unitCost: 1500,
-        unitSell: 2500,
+        id: 'seed-qt02-transfer',
+        serviceType: 'transfer',
+        description: 'Bagdogra → Darjeeling · Innova',
+        quantity: 1,
+        unitCost: 4100,
+        unitSell: 4920,
         taxPercent: 5,
         pricingUnit: 'per_service',
+        details: {
+          supplierId: northBengalFleet?.id,
+          supplierName: northBengalFleet?.name || 'North Bengal Fleet Rentals',
+          fromPlaceId: bagdogra.placeId,
+          toPlaceId: darjeeling.placeId,
+          fromPlaceName: 'Bagdogra Airport',
+          toPlaceName: 'Darjeeling',
+          vehicleTypeName: 'Innova',
+          serviceDate: '2026-10-05',
+          vehicles: 1,
+        },
+      },
+      {
+        id: 'seed-qt02-activity',
+        serviceType: 'activity',
+        description: 'Tiger Hill sunrise',
+        quantity: 2,
+        unitCost: 900,
+        unitSell: 1200,
+        taxPercent: 5,
+        pricingUnit: 'per_person',
+        details: {
+          supplierId: tigerHillSunriseDesk.id,
+          supplierName: tigerHillSunriseDesk.name,
+          activityName: 'Tiger Hill sunrise',
+          placeId: tigerHill.placeId,
+          placeName: 'Tiger Hill',
+          serviceDate: '2026-10-06',
+          privateOrSic: 'private',
+          adults: 2,
+          children: 0,
+        },
       },
       {
         id: '3',
@@ -3130,22 +4120,166 @@ async function seedRichAgencyData(
       where: { tripId: trip.id },
     });
     if (!existingBookings) {
-      await prisma.bookingComponent.createMany({
-        data: [
-          {
+      if (trip.id === tripConfirmed.id) {
+        const hotelLine = {
+          id: 'seed-qt02-hotel',
+          serviceType: 'hotel' as const,
+          description: 'Darjeeling Heritage Lodge · Deluxe mountain view · MAP',
+          quantity: 3,
+          unitCost: 4500,
+          unitSell: 5400,
+          details: {
+            supplierId: darjeelingHeritageHotel.id,
+            propertyName: darjeelingHeritageHotel.name,
+            roomType: 'Deluxe mountain view',
+            mealPlan: 'MAP',
+            checkIn: '2026-10-05',
+            checkOut: '2026-10-08',
+            nights: 3,
+            rooms: 1,
+          },
+        };
+        const { startAt, endAt } = hotelStayWindow(hotelLine.details);
+        const costAmount = lineBuyTotal(hotelLine);
+        const quotedAmount = lineSellTotal(hotelLine);
+        const hotelBooking = await prisma.bookingComponent.create({
+          data: {
             organizationId,
             tripId: trip.id,
-            supplierId: hotelSupplier.id,
+            supplierId: darjeelingHeritageHotel.id,
+            partnerAssetId: darjeelingHeritageHotel.linkedAssetId || null,
+            quotationLineId: 'seed-qt02-hotel',
             type: 'hotel',
-            title: 'Hotel stay',
-            status: trip.id === tripConfirmed.id ? 'confirmed' : 'pending',
-            confirmationRef: trip.id === tripConfirmed.id ? 'HTL-SEED-1' : null,
-            costAmount: new Prisma.Decimal(24000),
+            title: hotelBookingTitle(hotelLine),
+            status: 'confirmed',
+            confirmationRef: 'HTL-SEED-1',
+            voucherNote: 'Confirmed HTL-SEED-1 · 2026-10-05 · 2026-10-08',
+            startAt,
+            endAt,
+            costAmount:
+              costAmount != null ? new Prisma.Decimal(costAmount) : new Prisma.Decimal(13500),
+            quotedAmount:
+              quotedAmount != null
+                ? new Prisma.Decimal(quotedAmount)
+                : new Prisma.Decimal(16200),
+            confirmedAmount:
+              costAmount != null ? new Prisma.Decimal(costAmount) : new Prisma.Decimal(13500),
             currency: 'INR',
+            requiredQuantity: new Prisma.Decimal(1),
             createdBy: ownerId,
             updatedBy: ownerId,
           },
-          {
+        });
+        const sr = await prisma.serviceRequest.create({
+          data: {
+            buyerOrganizationId: organizationId,
+            supplierId: darjeelingHeritageHotel.id,
+            partnerAssetId: darjeelingHeritageHotel.linkedAssetId || null,
+            serviceType: 'STAY',
+            title: hotelBooking.title,
+            status: 'confirmed',
+            tripId: trip.id,
+            quotationLineId: 'seed-qt02-hotel',
+            serviceStartAt: startAt,
+            serviceEndAt: endAt,
+            quotedAmount: hotelBooking.quotedAmount,
+            agreedAmount: hotelBooking.confirmedAmount,
+            currency: 'INR',
+            confirmationRef: 'HTL-SEED-1',
+            createdBy: ownerId,
+            updatedBy: ownerId,
+            items: {
+              create: {
+                bookingComponentId: hotelBooking.id,
+                quantity: 1,
+                selected: true,
+                status: 'confirmed',
+                agreedAmount: hotelBooking.confirmedAmount,
+                currency: 'INR',
+              },
+            },
+          },
+        });
+        await prisma.bookingComponent.update({
+          where: { id: hotelBooking.id },
+          data: { serviceRequestId: sr.id },
+        });
+        const invCount = await prisma.supplierInvoice.count({
+          where: { tripId: trip.id, bookingComponentId: hotelBooking.id },
+        });
+        if (!invCount) {
+          const inv = await prisma.supplierInvoice.create({
+            data: {
+              organizationId,
+              tripId: trip.id,
+              supplierId: darjeelingHeritageHotel.id,
+              bookingComponentId: hotelBooking.id,
+              invoiceNumber: 'AUTO-SEED-HTL',
+              amount: hotelBooking.confirmedAmount ?? new Prisma.Decimal(13500),
+              currency: 'INR',
+              status: 'open',
+              notes: 'Auto payable on confirm · seed hotel booking',
+              createdBy: ownerId,
+              updatedBy: ownerId,
+            },
+          });
+          await prisma.tripPayment.create({
+            data: {
+              organizationId,
+              tripId: trip.id,
+              direction: 'supplier',
+              label: `Invoice ${inv.invoiceNumber}`,
+              amount: inv.amount,
+              currency: 'INR',
+              status: 'scheduled',
+              supplierInvoiceId: inv.id,
+              bookingComponentId: hotelBooking.id,
+              createdBy: ownerId,
+              updatedBy: ownerId,
+            },
+          });
+        }
+        const cdCount = await prisma.commercialDocument.count({
+          where: {
+            organizationId,
+            direction: 'payable',
+            linkedEntityType: 'booking_component',
+            linkedEntityId: hotelBooking.id,
+          },
+        });
+        if (!cdCount) {
+          const payableAmount =
+            hotelBooking.confirmedAmount ?? new Prisma.Decimal(13500);
+          await prisma.commercialDocument.create({
+            data: {
+              organizationId,
+              docType: 'invoice',
+              direction: 'payable',
+              supplierId: darjeelingHeritageHotel.id,
+              linkedEntityType: 'booking_component',
+              linkedEntityId: hotelBooking.id,
+              tripId: trip.id,
+              serviceRequestId: sr.id,
+              documentNumber: 'AUTO-SEED-HTL',
+              label: `Payable · ${hotelBooking.title}`,
+              amount: payableAmount,
+              currency: 'INR',
+              status: 'open',
+              notes: 'Auto payable on confirm · seed hotel booking',
+              createdBy: ownerId,
+              lines: {
+                create: {
+                  description: hotelBooking.title,
+                  quantity: 1,
+                  unitAmount: payableAmount,
+                  taxAmount: 0,
+                },
+              },
+            },
+          });
+        }
+        await prisma.bookingComponent.create({
+          data: {
             organizationId,
             tripId: trip.id,
             supplierId: driverSupplier.id,
@@ -3157,8 +4291,193 @@ async function seedRichAgencyData(
             createdBy: ownerId,
             updatedBy: ownerId,
           },
-        ],
+        });
+      } else {
+        // Mid-pipeline demo: quote-sourced hotel at enquiry (requested) — Confirm next.
+        const hotelLine = {
+          id: 'seed-qt03-hotel',
+          serviceType: 'hotel' as const,
+          description: 'Darjeeling Heritage Lodge · Deluxe mountain view · MAP',
+          quantity: 3,
+          unitCost: 4500,
+          unitSell: 5400,
+          details: {
+            supplierId: darjeelingHeritageHotel.id,
+            propertyName: darjeelingHeritageHotel.name,
+            roomType: 'Deluxe mountain view',
+            mealPlan: 'MAP',
+            checkIn: '2026-11-12',
+            checkOut: '2026-11-15',
+            nights: 3,
+            rooms: 1,
+          },
+        };
+        const { startAt, endAt } = hotelStayWindow(hotelLine.details);
+        const costAmount = lineBuyTotal(hotelLine);
+        const quotedAmount = lineSellTotal(hotelLine);
+        const hotelBooking = await prisma.bookingComponent.create({
+          data: {
+            organizationId,
+            tripId: trip.id,
+            supplierId: darjeelingHeritageHotel.id,
+            partnerAssetId: darjeelingHeritageHotel.linkedAssetId || null,
+            quotationLineId: 'seed-qt03-hotel',
+            type: 'hotel',
+            title: hotelBookingTitle(hotelLine),
+            status: 'requested',
+            startAt,
+            endAt,
+            costAmount:
+              costAmount != null ? new Prisma.Decimal(costAmount) : new Prisma.Decimal(13500),
+            quotedAmount:
+              quotedAmount != null
+                ? new Prisma.Decimal(quotedAmount)
+                : new Prisma.Decimal(16200),
+            currency: 'INR',
+            requiredQuantity: new Prisma.Decimal(1),
+            createdBy: ownerId,
+            updatedBy: ownerId,
+          },
+        });
+        const sr = await prisma.serviceRequest.create({
+          data: {
+            buyerOrganizationId: organizationId,
+            supplierId: darjeelingHeritageHotel.id,
+            partnerAssetId: darjeelingHeritageHotel.linkedAssetId || null,
+            serviceType: 'STAY',
+            title: hotelBooking.title,
+            status: 'sent',
+            tripId: trip.id,
+            quotationLineId: 'seed-qt03-hotel',
+            serviceStartAt: startAt,
+            serviceEndAt: endAt,
+            quotedAmount: hotelBooking.quotedAmount,
+            currency: 'INR',
+            createdBy: ownerId,
+            updatedBy: ownerId,
+            items: {
+              create: {
+                bookingComponentId: hotelBooking.id,
+                quantity: 1,
+                selected: true,
+                status: 'requested',
+                currency: 'INR',
+              },
+            },
+          },
+        });
+        await prisma.bookingComponent.update({
+          where: { id: hotelBooking.id },
+          data: { serviceRequestId: sr.id },
+        });
+        await prisma.bookingComponent.create({
+          data: {
+            organizationId,
+            tripId: trip.id,
+            supplierId: driverSupplier.id,
+            type: 'transfer',
+            title: 'Airport transfers',
+            status: 'requested',
+            costAmount: new Prisma.Decimal(3000),
+            currency: 'INR',
+            createdBy: ownerId,
+            updatedBy: ownerId,
+          },
+        });
+      }
+    }
+
+    // Idempotent: upgrade legacy TRP-SEED-03 stub hotel to mid-pipeline enquiry.
+    if (trip.id === tripOps.id) {
+      const stubHotel = await prisma.bookingComponent.findFirst({
+        where: {
+          tripId: trip.id,
+          type: 'hotel',
+          quotationLineId: null,
+          title: 'Hotel stay',
+        },
       });
+      if (stubHotel) {
+        const hotelLine = {
+          id: 'seed-qt03-hotel',
+          serviceType: 'hotel' as const,
+          description: 'Darjeeling Heritage Lodge · Deluxe mountain view · MAP',
+          quantity: 3,
+          unitCost: 4500,
+          unitSell: 5400,
+          details: {
+            supplierId: darjeelingHeritageHotel.id,
+            propertyName: darjeelingHeritageHotel.name,
+            roomType: 'Deluxe mountain view',
+            mealPlan: 'MAP',
+            checkIn: '2026-11-12',
+            checkOut: '2026-11-15',
+            nights: 3,
+            rooms: 1,
+          },
+        };
+        const { startAt, endAt } = hotelStayWindow(hotelLine.details);
+        const costAmount = lineBuyTotal(hotelLine);
+        const quotedAmount = lineSellTotal(hotelLine);
+        await prisma.bookingComponent.update({
+          where: { id: stubHotel.id },
+          data: {
+            supplierId: darjeelingHeritageHotel.id,
+            partnerAssetId: darjeelingHeritageHotel.linkedAssetId || null,
+            quotationLineId: 'seed-qt03-hotel',
+            title: hotelBookingTitle(hotelLine),
+            status: 'requested',
+            startAt,
+            endAt,
+            costAmount:
+              costAmount != null ? new Prisma.Decimal(costAmount) : new Prisma.Decimal(13500),
+            quotedAmount:
+              quotedAmount != null
+                ? new Prisma.Decimal(quotedAmount)
+                : new Prisma.Decimal(16200),
+            updatedBy: ownerId,
+          },
+        });
+        const existingSr = await prisma.serviceRequest.findFirst({
+          where: { tripId: trip.id, quotationLineId: 'seed-qt03-hotel' },
+        });
+        if (!existingSr) {
+          const sr = await prisma.serviceRequest.create({
+            data: {
+              buyerOrganizationId: organizationId,
+              supplierId: darjeelingHeritageHotel.id,
+              partnerAssetId: darjeelingHeritageHotel.linkedAssetId || null,
+              serviceType: 'STAY',
+              title: hotelBookingTitle(hotelLine),
+              status: 'sent',
+              tripId: trip.id,
+              quotationLineId: 'seed-qt03-hotel',
+              serviceStartAt: startAt,
+              serviceEndAt: endAt,
+              quotedAmount:
+                quotedAmount != null
+                  ? new Prisma.Decimal(quotedAmount)
+                  : new Prisma.Decimal(16200),
+              currency: 'INR',
+              createdBy: ownerId,
+              updatedBy: ownerId,
+              items: {
+                create: {
+                  bookingComponentId: stubHotel.id,
+                  quantity: 1,
+                  selected: true,
+                  status: 'requested',
+                  currency: 'INR',
+                },
+              },
+            },
+          });
+          await prisma.bookingComponent.update({
+            where: { id: stubHotel.id },
+            data: { serviceRequestId: sr.id },
+          });
+        }
+      }
     }
 
     const readinessCount = await prisma.tripReadinessItem.count({
@@ -3176,7 +4495,8 @@ async function seedRichAgencyData(
           tripId: trip.id,
           label,
           position,
-          done: position === 0 && trip.id === tripConfirmed.id,
+          done:
+            trip.id === tripConfirmed.id && (position === 0 || position === 1),
         })),
       });
     }
@@ -3249,6 +4569,112 @@ async function seedRichAgencyData(
           notes: 'Seed hotel invoice',
           createdBy: ownerId,
           updatedBy: ownerId,
+        },
+      });
+    }
+  }
+
+  // Demo AR/AP aging fixtures (idempotent) — overdue customer + past-due supplier payable
+  {
+    const existingBalance = await prisma.tripPayment.findFirst({
+      where: {
+        tripId: tripConfirmed.id,
+        direction: 'customer',
+        label: 'Balance',
+      },
+    });
+    if (!existingBalance) {
+      await prisma.tripPayment.create({
+        data: {
+          organizationId,
+          tripId: tripConfirmed.id,
+          direction: 'customer',
+          label: 'Balance',
+          amount: new Prisma.Decimal(45000),
+          amountPaid: new Prisma.Decimal(0),
+          currency: 'INR',
+          status: 'overdue',
+          dueAt: new Date('2026-06-01'),
+          createdBy: ownerId,
+          updatedBy: ownerId,
+        },
+      });
+    } else if (
+      existingBalance.status !== 'paid' &&
+      existingBalance.status !== 'cancelled'
+    ) {
+      await prisma.tripPayment.update({
+        where: { id: existingBalance.id },
+        data: {
+          dueAt: new Date('2026-06-01'),
+          status: 'overdue',
+          amountPaid: new Prisma.Decimal(0),
+        },
+      });
+    }
+
+    const balanceForCd =
+      existingBalance ||
+      (await prisma.tripPayment.findFirst({
+        where: {
+          tripId: tripConfirmed.id,
+          direction: 'customer',
+          label: 'Balance',
+        },
+      }));
+    if (balanceForCd) {
+      const arCount = await prisma.commercialDocument.count({
+        where: {
+          organizationId,
+          direction: 'receivable',
+          linkedEntityType: 'trip_payment',
+          linkedEntityId: balanceForCd.id,
+        },
+      });
+      if (!arCount) {
+        await prisma.commercialDocument.create({
+          data: {
+            organizationId,
+            docType: 'invoice',
+            direction: 'receivable',
+            counterpartyPartyId: tripConfirmed.partyId,
+            linkedEntityType: 'trip_payment',
+            linkedEntityId: balanceForCd.id,
+            tripId: tripConfirmed.id,
+            documentNumber: `AR-${balanceForCd.id.slice(-8).toUpperCase()}`,
+            label: `Receivable · ${balanceForCd.label}`,
+            amount: balanceForCd.amount,
+            currency: 'INR',
+            status: 'open',
+            dueAt: balanceForCd.dueAt,
+            notes: `Customer instalment · ${balanceForCd.label}`,
+            createdBy: ownerId,
+            lines: {
+              create: {
+                description: balanceForCd.label,
+                quantity: 1,
+                unitAmount: balanceForCd.amount,
+                taxAmount: 0,
+              },
+            },
+          },
+        });
+      }
+    }
+
+    const supplierPayable = await prisma.tripPayment.findFirst({
+      where: {
+        tripId: tripConfirmed.id,
+        direction: 'supplier',
+        label: { startsWith: 'Invoice AUTO' },
+      },
+    });
+    if (supplierPayable && !supplierPayable.dueAt) {
+      await prisma.tripPayment.update({
+        where: { id: supplierPayable.id },
+        data: {
+          dueAt: new Date('2026-06-20'),
+          status: 'overdue',
         },
       });
     }
@@ -3427,6 +4853,69 @@ async function seedInboxReplyDemo(
     },
   });
 
+  const quoteProposalTpl = await prisma.whatsAppTemplate.upsert({
+    where: {
+      organizationId_name: {
+        organizationId,
+        name: 'Quote proposal',
+      },
+    },
+    create: {
+      organizationId,
+      name: 'Quote proposal',
+      metaTemplateName: 'quote_proposal',
+      languageCode: 'en',
+      variableCount: 4,
+      bodyPreview:
+        'Hi {{1}}, your proposal for {{2}} ({{3}}) is ready: {{4}}',
+      isActive: true,
+    },
+    update: {
+      metaTemplateName: 'quote_proposal',
+      languageCode: 'en',
+      variableCount: 4,
+      isActive: true,
+    },
+  });
+
+  const afterTplOrg = await prisma.organization.findUnique({
+    where: { id: organizationId },
+    select: { settingsJson: true },
+  });
+  const afterSettings =
+    afterTplOrg?.settingsJson &&
+    typeof afterTplOrg.settingsJson === 'object' &&
+    !Array.isArray(afterTplOrg.settingsJson)
+      ? (afterTplOrg.settingsJson as Record<string, unknown>)
+      : {};
+  const afterIntegrations =
+    afterSettings.integrations &&
+    typeof afterSettings.integrations === 'object' &&
+    !Array.isArray(afterSettings.integrations)
+      ? (afterSettings.integrations as Record<string, unknown>)
+      : {};
+  const afterWa =
+    afterIntegrations.whatsapp &&
+    typeof afterIntegrations.whatsapp === 'object' &&
+    !Array.isArray(afterIntegrations.whatsapp)
+      ? (afterIntegrations.whatsapp as Record<string, unknown>)
+      : {};
+  await prisma.organization.update({
+    where: { id: organizationId },
+    data: {
+      settingsJson: {
+        ...afterSettings,
+        integrations: {
+          ...afterIntegrations,
+          whatsapp: {
+            ...afterWa,
+            quoteProposalTemplateId: quoteProposalTpl.id,
+          },
+        },
+      },
+    },
+  });
+
   let kavya = await prisma.party.findFirst({
     where: {
       organizationId,
@@ -3556,7 +5045,7 @@ async function seedInboxReplyDemo(
           idempotencyKey: 'seed-inbox-gbp-kavya-1',
           direction: 'inbound',
           summary: '★5 Wonderful Manali trip — hotel and driver were excellent. Thank you!',
-          minutesAgo: 25,
+          minutesAgo: 300,
           unread: true,
           raw: {
             direction: 'inbound',

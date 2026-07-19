@@ -7,13 +7,19 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { GoogleModule } from '../google/google.module';
 import { MessagingModule } from '../messaging/messaging.module';
 import { InteractionsModule } from '../interactions/interactions.module';
+import { OperationsModule } from '../operations/operations.module';
+import { TripsModule } from '../trips/trips.module';
+import { RatesModule } from '../rates/rates.module';
 
 @Module({
   imports: [
+    TripsModule,
+    RatesModule,
     FilesModule,
     LeadsModule,
     NotificationsModule,
     MessagingModule,
+    OperationsModule,
     forwardRef(() => InteractionsModule),
     forwardRef(() => GoogleModule),
   ],

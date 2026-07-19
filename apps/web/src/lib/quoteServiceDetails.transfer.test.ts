@@ -9,6 +9,7 @@ import {
   transferMatchKeysChanged,
   transferRoutePlausibilityWarning,
   transferUnitSellFromSuggestedTotal,
+  trimChildAgesForChildrenCount,
   shouldReplaceTransferDescription,
   validateTransferV1,
 } from './quoteServiceDetails';
@@ -183,6 +184,21 @@ describe('transferMatchKeysChanged', () => {
     expect(transferMatchKeysChanged(prev, { serviceDate: '2026-04-11' })).toBe(true);
     expect(transferMatchKeysChanged(prev, { vehicles: 2 })).toBe(false);
   });
+
+  it('invalidates match when adults/children/childAges change', () => {
+    expect(
+      transferMatchKeysChanged(
+        { adults: 2, children: 1, fromPlaceId: 'a' },
+        { adults: 3 },
+      ),
+    ).toBe(true);
+    expect(
+      transferMatchKeysChanged(
+        { adults: 2, fromPlaceId: 'a' },
+        { childAges: [8] },
+      ),
+    ).toBe(true);
+  });
 });
 
 describe('transferAutoDescription', () => {
@@ -240,5 +256,13 @@ describe('golden scenario NJP → Darjeeling', () => {
     const margin = Math.round((profit / (sellTotal ?? 1)) * 10000) / 100;
     expect(profit).toBe(700);
     expect(margin).toBe(16.67);
+  });
+});
+
+describe('trimChildAgesForChildrenCount', () => {
+  it('trims or clears ages when children shrink', () => {
+    expect(trimChildAgesForChildrenCount(2, [5, 8, 11])).toEqual([5, 8]);
+    expect(trimChildAgesForChildrenCount(0, [5, 8])).toBeUndefined();
+    expect(trimChildAgesForChildrenCount(1, [])).toBeUndefined();
   });
 });

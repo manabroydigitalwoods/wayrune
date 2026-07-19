@@ -1,6 +1,20 @@
-import type { QuotationItemDetails, QuoteServiceType } from '@wayrune/contracts';
+import type {
+  QuotationItemDetails,
+  QuoteRateProvenance,
+  QuoteServiceType,
+} from '@wayrune/contracts';
+import {
+  lineNeedsRateDriftAck as sharedLineNeedsRateDriftAck,
+  rateChartChangedSinceMatch as sharedRateChartChangedSinceMatch,
+} from '@wayrune/contracts';
+import {
+  bumpTransferVehiclesForCapacity,
+  formatTransferCapacityNote,
+  withCapacityProvenance,
+} from './transferCapacityNote';
 
 export type QuoteServiceDetails = QuotationItemDetails;
+export type { QuoteRateProvenance };
 
 export type QuoteHotelRateBasis =
   | 'per_room_night'
@@ -378,21 +392,46 @@ export function resolvePayloadFromQuoteDetails(
       itemId: lineId,
       type: serviceType === 'transfer' ? 'transfer' : 'hotel',
       date:
-        (serviceType === 'transfer' ? details.serviceDate : null) ||
-        date ||
-        details.serviceDate ||
-        details.checkIn ||
-        details.activityDate ||
-        null,
+        serviceType === 'transfer'
+          ? details.serviceDate || date || details.checkIn || details.activityDate || null
+          : details.checkIn ||
+            details.serviceDate ||
+            date ||
+            details.activityDate ||
+            null,
       details: {
         supplierId: details.supplierId,
         placeId: details.placeId,
         roomType: details.roomType,
+        roomProductId: details.roomProductId,
         mealPlan: details.mealPlan,
         nights,
+        rooms: details.rooms,
+        adults: details.adults,
+        children: details.children,
+        infants: details.infants,
+        childAges: details.childAges,
+        childrenWithoutBed: details.childrenWithoutBed,
         vehicleTypeId: details.vehicleTypeId,
         fromPlaceId: details.fromPlaceId,
         toPlaceId: details.toPlaceId,
+      },
+    };
+  }
+  if (serviceType === 'activity') {
+    return {
+      itemId: lineId,
+      type: 'activity',
+      date: details.activityDate || details.serviceDate || date || null,
+      details: {
+        supplierId: details.supplierId,
+        placeId: details.placeId,
+        propertyName: details.propertyName,
+        activityName: details.propertyName || details.placeName,
+        privateOrSic: details.privateOrSic,
+        adults: details.adults,
+        children: details.children,
+        childAges: details.childAges,
       },
     };
   }
@@ -429,7 +468,25 @@ export const HOTEL_RATE_MATCH_KEYS = [
   'checkOut',
   'roomType',
   'mealPlan',
+  'rooms',
+  'adults',
+  'children',
+  'childAges',
+  'childrenWithoutBed',
 ] as const;
+
+/** Clamp without-bed kids to 0…children; undefined when none. */
+export function clampHotelChildrenWithoutBed(
+  children: number | undefined | null,
+  withoutBed: number | undefined | null,
+): number | undefined {
+  const kids = Math.max(0, Math.round(Number(children) || 0));
+  if (kids <= 0) return undefined;
+  if (withoutBed == null) return undefined;
+  const n = Math.round(Number(withoutBed));
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  return Math.min(n, kids);
+}
 
 export type HotelRoomCapacity = {
   maxAdults: number;
@@ -590,6 +647,15 @@ export function validateHotelV1(
     errors.push('Clear child ages when there are no children');
   }
 
+  const withoutBed = Math.max(0, Math.round(d.childrenWithoutBed ?? 0));
+  if (children === 0 && withoutBed > 0) {
+    errors.push('Clear children without bed when there are no children');
+  } else if (withoutBed > children) {
+    errors.push(
+      `Children without bed cannot exceed ${children} child${children === 1 ? '' : 'ren'}`,
+    );
+  }
+
   const occupancy = hotelOccupancyWarning(d);
   if (occupancy) warnings.push(occupancy);
 
@@ -635,7 +701,28 @@ export const TRANSFER_RATE_MATCH_KEYS = [
   'vehicleTypeId',
   'supplierId',
   'serviceDate',
+  'adults',
+  'children',
+  'infants',
+  'childAges',
 ] as const;
+
+/**
+ * Keep childAges length ≤ children (or clear when no children).
+ * Used when editing Children on hotel / transfer / activity lines.
+ */
+export function trimChildAgesForChildrenCount(
+  children: number | undefined | null,
+  ages: number[] | undefined | null,
+): number[] | undefined {
+  const kids = Math.max(0, Math.round(Number(children) || 0));
+  if (kids <= 0) return undefined;
+  const cleaned = (ages || [])
+    .map((a) => Math.round(Number(a)))
+    .filter((a) => Number.isFinite(a) && a >= 0 && a <= 17)
+    .slice(0, kids);
+  return cleaned.length ? cleaned : undefined;
+}
 
 export function transferMatchKeysChanged(
   prev: QuoteServiceDetails,
@@ -1015,11 +1102,39 @@ export function shouldReplaceActivityDescription(
   return false;
 }
 
+/** Fields that invalidate a directory rate match for activity. */
+export const ACTIVITY_RATE_MATCH_KEYS = [
+  'placeId',
+  'propertyName',
+  'placeName',
+  'supplierId',
+  'privateOrSic',
+  'activityDate',
+  'adults',
+  'children',
+  'childAges',
+] as const;
+
+export function activityMatchKeysChanged(
+  prev: QuoteServiceDetails,
+  patch: Partial<QuoteServiceDetails>,
+): boolean {
+  for (const key of ACTIVITY_RATE_MATCH_KEYS) {
+    if (!(key in patch)) continue;
+    const nextVal = patch[key];
+    const prevVal = prev[key];
+    if (String(nextVal ?? '') !== String(prevVal ?? '')) return true;
+  }
+  return false;
+}
+
 export type ActivityV1Validation = {
   ok: boolean;
   errors: string[];
   warnings: string[];
   requiresServiceDateOverride: boolean;
+  /** Why Match rate is unavailable (empty when matchable). */
+  matchBlockedReasons: string[];
 };
 
 export function validateActivityV1(
@@ -1033,13 +1148,16 @@ export function validateActivityV1(
 ): ActivityV1Validation {
   const errors: string[] = [];
   const warnings: string[] = [];
+  const matchBlockedReasons: string[] = [];
   const d = details || {};
 
   if (!d.propertyName?.trim() && !d.placeName?.trim()) {
     errors.push('Enter an activity name');
+    matchBlockedReasons.push('enter an activity name');
   }
   if (!d.activityDate) {
     errors.push('Select activity date');
+    matchBlockedReasons.push('select activity date');
   }
 
   if (d.adults != null && d.adults < 0) errors.push('Adults cannot be negative');
@@ -1086,6 +1204,7 @@ export function validateActivityV1(
     errors,
     warnings,
     requiresServiceDateOverride,
+    matchBlockedReasons,
   };
 }
 
@@ -1100,6 +1219,9 @@ export function rateMatchFingerprint(
   }
   if (serviceType === 'transfer') {
     return TRANSFER_RATE_MATCH_KEYS.map((k) => String(d[k] ?? '')).join('|');
+  }
+  if (serviceType === 'activity') {
+    return ACTIVITY_RATE_MATCH_KEYS.map((k) => String(d[k] ?? '')).join('|');
   }
   return '';
 }
@@ -1124,6 +1246,14 @@ export function shouldAutoRematchRate(opts: {
   if (opts.serviceType === 'transfer') {
     return (
       validateTransferV1(opts.details, {
+        tripStartDate: opts.tripStartDate,
+        tripEndDate: opts.tripEndDate,
+      }).matchBlockedReasons.length === 0
+    );
+  }
+  if (opts.serviceType === 'activity') {
+    return (
+      validateActivityV1(opts.details, {
         tripStartDate: opts.tripStartDate,
         tripEndDate: opts.tripEndDate,
       }).matchBlockedReasons.length === 0
@@ -1154,19 +1284,354 @@ export function rateBlockReasonFromMeta(
 }
 
 export function rateBlockReasonLabel(reason?: RateBlockReason | null): string | undefined {
-  if (reason === 'blackout') return 'Blackout';
-  if (reason === 'stop_sell') return 'Stop-sell';
+  if (reason === 'blackout') return 'Rate blackout';
+  if (reason === 'stop_sell') return 'Stop-sale';
   return undefined;
 }
 
 export function rateBlockReasonMessage(reason?: RateBlockReason | null): string {
   if (reason === 'blackout') {
-    return 'Supplier contract blackout covers these dates — adjust dates or clear the blackout on the contract.';
+    return 'Contracted rates do not apply for these dates. Enter a manual or on-request buy rate, or clear the blackout on the contract.';
   }
   if (reason === 'stop_sell') {
-    return 'Stop-sell is active on the linked property for these dates.';
+    return 'Stop-sale / closing: this hotel room or transfer fleet is unavailable. Quoting and booking are blocked — change dates, clear stop-sale, or pick another supplier.';
   }
   return 'No matching rate for these dates';
+}
+
+function parseProvenanceCalculation(
+  raw: unknown,
+): QuoteRateProvenance['calculation'] | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const c = raw as Record<string, unknown>;
+  const num = (v: unknown): number | undefined =>
+    typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+  const weekendUnit =
+    c.weekendUnit === null ? null : num(c.weekendUnit) ?? undefined;
+  const out = {
+    weekdayNights: num(c.weekdayNights),
+    weekendNights: num(c.weekendNights),
+    weekdayUnit: num(c.weekdayUnit),
+    weekendUnit,
+    rooms: num(c.rooms),
+    totalBuy: num(c.totalBuy),
+    baseRoomTotal: num(c.baseRoomTotal),
+    occupancyExtraTotal: num(c.occupancyExtraTotal),
+    extraAdultCount: num(c.extraAdultCount),
+    childWithBedCount: num(c.childWithBedCount),
+    childWithoutBedCount: num(c.childWithoutBedCount),
+    dateSupplementTotal: num(c.dateSupplementTotal),
+    dateSupplements: (() => {
+      if (!Array.isArray(c.dateSupplements)) return undefined;
+      const rows = c.dateSupplements
+        .map((item) => {
+          if (!item || typeof item !== 'object') return null;
+          const row = item as Record<string, unknown>;
+          const night = typeof row.night === 'string' ? row.night.slice(0, 10) : undefined;
+          const label = typeof row.label === 'string' ? row.label.trim() : undefined;
+          const amount = num(row.amount);
+          const rooms = num(row.rooms);
+          if (!night && !label && amount == null) return null;
+          return {
+            ...(night ? { night } : {}),
+            ...(label ? { label } : {}),
+            ...(amount != null ? { amount } : {}),
+            ...(rooms != null ? { rooms } : {}),
+          };
+        })
+        .filter((x): x is NonNullable<typeof x> => Boolean(x));
+      return rows.length ? rows : undefined;
+    })(),
+    cancellationSummary:
+      typeof c.cancellationSummary === 'string' && c.cancellationSummary.trim()
+        ? c.cancellationSummary.trim()
+        : undefined,
+    adultUnit: num(c.adultUnit),
+    childUnit: num(c.childUnit),
+    infantUnit: num(c.infantUnit),
+    adults: num(c.adults),
+    children: num(c.children),
+    infants: num(c.infants),
+    adultsCharged: num(c.adultsCharged),
+    childrenCharged: num(c.childrenCharged),
+    infantsCharged: num(c.infantsCharged),
+    partyAdults: num(c.partyAdults),
+    partyChildren: num(c.partyChildren),
+    partyInfants: num(c.partyInfants),
+    childAgeMin: num(c.childAgeMin),
+    childAgeMax: num(c.childAgeMax),
+    usedChildAges:
+      typeof c.usedChildAges === 'boolean' ? c.usedChildAges : undefined,
+  };
+  return Object.values(out).some((v) => v != null) ? out : undefined;
+}
+
+function matchSummaryFromMeta(meta: Record<string, unknown>): string | undefined {
+  const explain = meta.matchExplain;
+  if (!explain || typeof explain !== 'object') return undefined;
+  const accepted = (explain as Record<string, unknown>).accepted;
+  if (!Array.isArray(accepted)) return undefined;
+  const parts = accepted
+    .filter((x): x is string => typeof x === 'string' && Boolean(x.trim()))
+    .map((x) => x.trim());
+  return parts.length ? parts.join('; ') : undefined;
+}
+
+export function buildQuoteRateProvenance(opts: {
+  rateKind: 'hotel' | 'transfer' | 'activity';
+  rateId?: string | null;
+  unitCost: number;
+  rateMeta?: Record<string, unknown> | null;
+  matchedAt?: string;
+}): QuoteRateProvenance | undefined {
+  if (!opts.rateId) return undefined;
+  const meta = opts.rateMeta || {};
+  const strMeta = (key: string): string | undefined => {
+    const v = meta[key];
+    return typeof v === 'string' && v.trim() ? v.trim() : undefined;
+  };
+  const numMeta = (key: string): number | undefined => {
+    const v = meta[key];
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+    if (typeof v === 'string' && v.trim() && Number.isFinite(Number(v))) return Number(v);
+    return undefined;
+  };
+  const weekend =
+    meta.weekendUnitCost === null
+      ? null
+      : numMeta('weekendUnitCost') ?? undefined;
+  const contractVersionNumber = numMeta('contractVersionNumber');
+
+  return {
+    rateId: opts.rateId,
+    rateKind: opts.rateKind,
+    matchedAt: opts.matchedAt || new Date().toISOString(),
+    unitCostAtMatch: opts.unitCost,
+    isSystem: meta.isSystem === true,
+    supplierId: strMeta('supplierId'),
+    placeId: strMeta('placeId'),
+    roomType: strMeta('roomType'),
+    roomProductId: strMeta('roomProductId'),
+    mealPlan: strMeta('mealPlan'),
+    pricingMode: strMeta('pricingMode'),
+    startDate: strMeta('startDate')?.slice(0, 10),
+    endDate: strMeta('endDate')?.slice(0, 10),
+    rateUpdatedAt: strMeta('updatedAt'),
+    currency: strMeta('currency'),
+    weekendUnitCost: weekend,
+    fromPlaceId: strMeta('fromPlaceId'),
+    toPlaceId: strMeta('toPlaceId'),
+    vehicleTypeId: strMeta('vehicleTypeId'),
+    vehicleSeats:
+      opts.rateKind === 'transfer'
+        ? numMeta('vehicleSeats') ?? numMeta('capacity')
+        : undefined,
+    contractId: strMeta('contractId'),
+    contractTitle: strMeta('contractTitle'),
+    contractVersionNumber,
+    calculation: (() => {
+      const base = parseProvenanceCalculation(meta.calculation) || {};
+      if (opts.rateKind !== 'activity' && opts.rateKind !== 'transfer') {
+        return Object.values(base).some((v) => v != null) ? base : undefined;
+      }
+      const merged = {
+        ...base,
+        adults: numMeta('adultsCharged') ?? base.adults,
+        children: numMeta('childrenCharged') ?? base.children,
+        adultsCharged: numMeta('adultsCharged') ?? base.adultsCharged ?? base.adults,
+        childrenCharged:
+          numMeta('childrenCharged') ?? base.childrenCharged ?? base.children,
+        infantsCharged:
+          numMeta('infantsCharged') ??
+          base.infantsCharged ??
+          numMeta('infants') ??
+          base.infants,
+        partyAdults: numMeta('adults') ?? base.partyAdults,
+        partyChildren: numMeta('children') ?? base.partyChildren,
+        // Prefer calculation.partyInfants (declared); top-level infants is charged heads.
+        partyInfants: base.partyInfants ?? numMeta('infants'),
+        childAgeMin: numMeta('childAgeMin') ?? base.childAgeMin,
+        childAgeMax: numMeta('childAgeMax') ?? base.childAgeMax,
+        adultUnit: numMeta('adultUnitCost') ?? base.adultUnit,
+        childUnit: numMeta('childUnitCost') ?? base.childUnit,
+        infantUnit: numMeta('infantUnitCost') ?? base.infantUnit,
+        infants:
+          numMeta('infantsCharged') ??
+          base.infantsCharged ??
+          numMeta('infants') ??
+          base.infants,
+        usedChildAges: base.usedChildAges,
+      };
+      return Object.values(merged).some((v) => v != null) ? merged : undefined;
+    })(),
+    matchSummary: matchSummaryFromMeta(meta),
+  };
+}
+
+export function parseQuoteRateProvenance(raw: unknown): QuoteRateProvenance | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const d = raw as Record<string, unknown>;
+  const rateKind =
+    d.rateKind === 'hotel' || d.rateKind === 'transfer' || d.rateKind === 'activity'
+      ? d.rateKind
+      : undefined;
+  const rateId = typeof d.rateId === 'string' && d.rateId.trim() ? d.rateId.trim() : undefined;
+  if (!rateId && !rateKind) return undefined;
+  const numOrNull = (v: unknown): number | null | undefined => {
+    if (v === null) return null;
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+    return undefined;
+  };
+  return {
+    rateId,
+    rateKind,
+    matchedAt: typeof d.matchedAt === 'string' ? d.matchedAt : undefined,
+    unitCostAtMatch:
+      typeof d.unitCostAtMatch === 'number' && Number.isFinite(d.unitCostAtMatch)
+        ? d.unitCostAtMatch
+        : undefined,
+    isSystem: typeof d.isSystem === 'boolean' ? d.isSystem : undefined,
+    supplierId: typeof d.supplierId === 'string' ? d.supplierId : undefined,
+    placeId: typeof d.placeId === 'string' ? d.placeId : undefined,
+    roomType: typeof d.roomType === 'string' ? d.roomType : undefined,
+    roomProductId: typeof d.roomProductId === 'string' ? d.roomProductId : undefined,
+    mealPlan: typeof d.mealPlan === 'string' ? d.mealPlan : undefined,
+    pricingMode: typeof d.pricingMode === 'string' ? d.pricingMode : undefined,
+    startDate: typeof d.startDate === 'string' ? d.startDate.slice(0, 10) : undefined,
+    endDate: typeof d.endDate === 'string' ? d.endDate.slice(0, 10) : undefined,
+    rateUpdatedAt: typeof d.rateUpdatedAt === 'string' ? d.rateUpdatedAt : undefined,
+    rateDriftAckForUpdatedAt:
+      typeof d.rateDriftAckForUpdatedAt === 'string'
+        ? d.rateDriftAckForUpdatedAt
+        : undefined,
+    rateDriftAckReason:
+      typeof d.rateDriftAckReason === 'string' ? d.rateDriftAckReason : undefined,
+    allotmentNote: typeof d.allotmentNote === 'string' ? d.allotmentNote : undefined,
+    allotmentWarn: typeof d.allotmentWarn === 'boolean' ? d.allotmentWarn : undefined,
+    allotmentRiskAckForNote:
+      typeof d.allotmentRiskAckForNote === 'string'
+        ? d.allotmentRiskAckForNote
+        : undefined,
+    allotmentRiskAckReason:
+      typeof d.allotmentRiskAckReason === 'string'
+        ? d.allotmentRiskAckReason
+        : undefined,
+    capacityNote: typeof d.capacityNote === 'string' ? d.capacityNote : undefined,
+    capacityWarn: typeof d.capacityWarn === 'boolean' ? d.capacityWarn : undefined,
+    capacityRiskAckForNote:
+      typeof d.capacityRiskAckForNote === 'string'
+        ? d.capacityRiskAckForNote
+        : undefined,
+    capacityRiskAckReason:
+      typeof d.capacityRiskAckReason === 'string'
+        ? d.capacityRiskAckReason
+        : undefined,
+    vehicleSeats:
+      typeof d.vehicleSeats === 'number' && Number.isFinite(d.vehicleSeats)
+        ? d.vehicleSeats
+        : undefined,
+    currency: typeof d.currency === 'string' ? d.currency : undefined,
+    weekendUnitCost: numOrNull(d.weekendUnitCost),
+    fromPlaceId: typeof d.fromPlaceId === 'string' ? d.fromPlaceId : undefined,
+    toPlaceId: typeof d.toPlaceId === 'string' ? d.toPlaceId : undefined,
+    vehicleTypeId: typeof d.vehicleTypeId === 'string' ? d.vehicleTypeId : undefined,
+    contractId: typeof d.contractId === 'string' ? d.contractId : undefined,
+    contractTitle: typeof d.contractTitle === 'string' ? d.contractTitle : undefined,
+    contractVersionNumber:
+      typeof d.contractVersionNumber === 'number' && Number.isFinite(d.contractVersionNumber)
+        ? d.contractVersionNumber
+        : undefined,
+    calculation: parseProvenanceCalculation(d.calculation),
+    matchSummary: typeof d.matchSummary === 'string' ? d.matchSummary : undefined,
+  };
+}
+
+/** Agency-relative path to the source rate chart (supplier hotel chart or catalog transfers). */
+export function rateChartPath(opts: {
+  rateKind?: 'hotel' | 'transfer' | string | null;
+  supplierId?: string | null;
+  provenance?: QuoteRateProvenance | null;
+}): string | null {
+  const kind = opts.provenance?.rateKind || opts.rateKind;
+  if (kind === 'transfer') return '/rates';
+  const supplierId = opts.provenance?.supplierId || opts.supplierId;
+  if (kind === 'hotel' && supplierId) {
+    return `/suppliers/${supplierId}#supplier-rate-chart`;
+  }
+  return null;
+}
+
+/** Agency-relative path to a supplier’s Contracts tab (blackout / stop-sale). */
+export function supplierContractsPath(supplierId?: string | null): string | null {
+  const id = supplierId?.trim();
+  if (!id) return null;
+  return `/suppliers/${id}#contracts`;
+}
+
+export function rateProvenanceSourceLabel(
+  provenance?: QuoteRateProvenance | null,
+): string | undefined {
+  if (!provenance?.rateId) return undefined;
+  if (provenance.isSystem) return 'Platform catalog';
+  if (provenance.rateKind === 'transfer') return 'Agency transport fare';
+  if (provenance.rateKind === 'activity') return 'Activity rate card';
+  return 'Supplier rate chart';
+}
+
+/** Absolute freshness label for rate chart / match timestamps. */
+export function formatRateTimestamp(iso?: string | null): string | null {
+  if (!iso?.trim()) return null;
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return null;
+  return new Date(t).toLocaleString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+/**
+ * True when the live chart row was edited after this line was matched
+ * (uses the snapshot `rateUpdatedAt` when present, else `matchedAt`).
+ */
+export function rateChartChangedSinceMatch(opts: {
+  matchedAt?: string | null;
+  rateUpdatedAtAtMatch?: string | null;
+  currentUpdatedAt?: string | null;
+}): boolean {
+  return sharedRateChartChangedSinceMatch(opts);
+}
+
+/** Chart drifted and the editor has not acknowledged this chart updatedAt. */
+export function lineNeedsRateDriftAck(opts: {
+  matchedAt?: string | null;
+  rateUpdatedAtAtMatch?: string | null;
+  currentUpdatedAt?: string | null;
+  ackForUpdatedAt?: string | null;
+  ackReason?: string | null;
+}): boolean {
+  return sharedLineNeedsRateDriftAck(opts);
+}
+
+export function rateBuyChangedMessage(opts: {
+  previousBuy?: number | null;
+  nextBuy?: number | null;
+  currency?: string;
+}): string | null {
+  const prev = opts.previousBuy;
+  const next = opts.nextBuy;
+  if (prev == null || next == null) return null;
+  if (!Number.isFinite(prev) || !Number.isFinite(next)) return null;
+  if (Math.abs(prev - next) < 0.005) return null;
+  const fmt = (n: number) =>
+    new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency: opts.currency || 'INR',
+      maximumFractionDigits: 0,
+    }).format(n);
+  return `Chart buy changed ${fmt(prev)} → ${fmt(next)}`;
 }
 
 /**
@@ -1189,15 +1654,20 @@ export function applyRateResolveHit(opts: {
   rateId: string | undefined;
   rateUnmatched: boolean;
   rateBlockReason?: RateBlockReason;
-  rateKind: 'hotel' | 'transfer' | undefined;
+  rateKind: 'hotel' | 'transfer' | 'activity' | undefined;
+  rateProvenance?: QuoteRateProvenance;
   pricingUnit?: string;
+  /** Set when Match raised vehicles so party fits seats × vehicles. */
+  vehiclesBumped?: { from: number; to: number };
 } {
   const serviceType =
     opts.serviceType === 'transfer'
       ? 'transfer'
       : opts.serviceType === 'hotel'
         ? 'hotel'
-        : undefined;
+        : opts.serviceType === 'activity'
+          ? 'activity'
+          : undefined;
   const baseDetails = opts.details || {};
   const markupPercent = opts.defaultMarkupPercent ?? 20;
   const meta = opts.hit.rateMeta || {};
@@ -1212,6 +1682,7 @@ export function applyRateResolveHit(opts: {
         rateSupplierLabel: undefined,
         rateValidFrom: undefined,
         rateValidTo: undefined,
+        rateLastUpdated: undefined,
       },
       quantity: quantityFromServiceDetails(serviceType || 'custom', baseDetails, 1),
       unitCost: null,
@@ -1221,6 +1692,7 @@ export function applyRateResolveHit(opts: {
       rateUnmatched: true,
       rateBlockReason: blockReason,
       rateKind: serviceType,
+      rateProvenance: undefined,
     };
   }
 
@@ -1234,29 +1706,84 @@ export function applyRateResolveHit(opts: {
             : null,
           withNights.vehicleLabel,
         ].filter(Boolean)
-      : [
-          withNights.propertyName,
-          (meta.roomType as string) || withNights.roomType,
-          withNights.mealPlan,
-        ].filter(Boolean);
+      : serviceType === 'activity'
+        ? [
+            (meta.activityName as string) || withNights.propertyName || withNights.placeName,
+            withNights.privateOrSic === 'private'
+              ? 'Private'
+              : withNights.privateOrSic === 'sic'
+                ? 'SIC'
+                : null,
+          ].filter(Boolean)
+        : [
+            withNights.propertyName,
+            (meta.roomType as string) || withNights.roomType,
+            withNights.mealPlan,
+          ].filter(Boolean);
 
   const sellManual = !opts.forceSell && Boolean(withNights.sellManual);
+  const rateLastUpdated =
+    typeof meta.updatedAt === 'string' ? meta.updatedAt : undefined;
+  const calc =
+    meta.calculation && typeof meta.calculation === 'object'
+      ? (meta.calculation as Record<string, unknown>)
+      : null;
+  const cancelFromMatch =
+    typeof calc?.cancellationSummary === 'string' && calc.cancellationSummary.trim()
+      ? calc.cancellationSummary.trim()
+      : undefined;
+
   const nextDetails: QuoteServiceDetails = {
     ...withNights,
     priceSource: 'matched',
     sellManual,
     rateLabel:
       labelParts.join(' · ') ||
-      (serviceType === 'transfer' ? 'Matched transfer rate' : 'Matched hotel rate'),
+      (serviceType === 'transfer'
+        ? 'Matched transfer rate'
+        : serviceType === 'activity'
+          ? 'Matched activity rate'
+          : 'Matched hotel rate'),
     rateSupplierLabel: meta.isSystem
       ? 'System / platform rate'
       : withNights.supplierName ||
-        (serviceType === 'transfer' ? 'Transport rate directory' : 'Direct contract'),
+        (serviceType === 'transfer'
+          ? 'Transport rate directory'
+          : serviceType === 'activity'
+            ? 'Activity rate card'
+            : 'Direct contract'),
     rateValidFrom: typeof meta.startDate === 'string' ? meta.startDate : undefined,
     rateValidTo: typeof meta.endDate === 'string' ? meta.endDate : undefined,
+    rateLastUpdated,
     markupMode: withNights.markupMode || 'percent',
     markupValue: withNights.markupValue ?? markupPercent,
+    ...(cancelFromMatch ? { cancellationPolicy: cancelFromMatch } : {}),
   };
+
+  let vehiclesBumped: { from: number; to: number } | undefined;
+  let transferSeats: number | null = null;
+  let transferParty = 0;
+  if (serviceType === 'transfer') {
+    const seatsRaw = meta.vehicleSeats ?? meta.capacity;
+    transferSeats =
+      typeof seatsRaw === 'number' && Number.isFinite(seatsRaw)
+        ? seatsRaw
+        : typeof seatsRaw === 'string' && Number.isFinite(Number(seatsRaw))
+          ? Number(seatsRaw)
+          : null;
+    transferParty =
+      Math.max(0, Number(nextDetails.adults) || 0) +
+      Math.max(0, Number(nextDetails.children) || 0);
+    const bump = bumpTransferVehiclesForCapacity({
+      vehicles: nextDetails.vehicles,
+      party: transferParty,
+      seatsPerVehicle: transferSeats,
+    });
+    if (bump.bumped) {
+      nextDetails.vehicles = bump.vehicles;
+      vehiclesBumped = { from: bump.previous, to: bump.vehicles };
+    }
+  }
 
   const qty = quantityFromServiceDetails(
     serviceType,
@@ -1266,7 +1793,9 @@ export function applyRateResolveHit(opts: {
   const base =
     serviceType === 'transfer'
       ? transferBaseCost(opts.hit.unitCost, nextDetails)
-      : hotelBaseCost(opts.hit.unitCost, nextDetails);
+      : serviceType === 'activity'
+        ? activityBaseCost(opts.hit.unitCost, nextDetails)
+        : hotelBaseCost(opts.hit.unitCost, nextDetails);
   const suggested = suggestedSellFromMarkup(
     base,
     nextDetails.markupMode,
@@ -1275,12 +1804,33 @@ export function applyRateResolveHit(opts: {
   const suggestedUnit =
     (serviceType === 'transfer'
       ? transferUnitSellFromSuggestedTotal(suggested, nextDetails)
-      : unitSellFromSuggestedTotal(suggested, nextDetails)) ?? opts.hit.unitSell;
+      : serviceType === 'activity'
+        ? activityUnitSellFromSuggestedTotal(suggested, nextDetails)
+        : unitSellFromSuggestedTotal(suggested, nextDetails)) ?? opts.hit.unitSell;
 
   const unitSell =
     sellManual && opts.previousUnitSell != null && Number.isFinite(opts.previousUnitSell)
       ? opts.previousUnitSell
       : suggestedUnit;
+
+  let rateProvenance = buildQuoteRateProvenance({
+    rateKind: serviceType,
+    rateId: opts.hit.rateId,
+    unitCost: opts.hit.unitCost,
+    rateMeta: meta,
+  });
+
+  if (serviceType === 'transfer' && rateProvenance) {
+    if (transferSeats != null && transferSeats > 0) {
+      rateProvenance = { ...rateProvenance, vehicleSeats: transferSeats };
+    }
+    const note = formatTransferCapacityNote({
+      party: transferParty,
+      seatsPerVehicle: transferSeats,
+      vehicles: nextDetails.vehicles,
+    });
+    rateProvenance = withCapacityProvenance(rateProvenance, note) as typeof rateProvenance;
+  }
 
   return {
     details: nextDetails,
@@ -1292,7 +1842,9 @@ export function applyRateResolveHit(opts: {
     rateUnmatched: false,
     rateBlockReason: undefined,
     rateKind: serviceType,
+    rateProvenance,
     pricingUnit: opts.hit.pricingUnit || undefined,
+    vehiclesBumped,
   };
 }
 

@@ -17,6 +17,7 @@ export function PublicItineraryPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [accepting, setAccepting] = useState(false);
+  const [acceptPin, setAcceptPin] = useState('');
   const [acceptedMessage, setAcceptedMessage] = useState('');
 
   useDocumentTitle(data ? `${data.trip.title} · Itinerary` : 'Shared itinerary');
@@ -52,6 +53,18 @@ export function PublicItineraryPage() {
     if (!token) return;
     setAccepting(true);
     try {
+      let pin = acceptPin.trim();
+      if (!pin) {
+        try {
+          const raw = localStorage.getItem(`proposal-family:${token}`);
+          if (raw) {
+            const parsed = JSON.parse(raw) as { pin?: string };
+            if (parsed.pin) pin = parsed.pin;
+          }
+        } catch {
+          /* ignore */
+        }
+      }
       const res = await api<{
         alreadyAccepted?: boolean;
         message?: string;
@@ -60,6 +73,7 @@ export function PublicItineraryPage() {
       }>(`/public/itinerary/${encodeURIComponent(token)}/accept-quote`, {
         method: 'POST',
         skipAuthRefresh: true,
+        body: JSON.stringify(pin ? { pin } : {}),
       });
       setAcceptedMessage(
         res.message ||
@@ -141,24 +155,39 @@ export function PublicItineraryPage() {
                     </div>
                   </div>
                 ) : (
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <p className="font-medium">Ready to proceed?</p>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        Accept this proposal to confirm with {data.agency.name}.
-                        {quote
-                          ? ` Total ${formatCurrency(quote.sellTotal, quote.currency)}.`
-                          : ''}
-                      </p>
+                  <div className="space-y-4">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="font-medium">Ready to proceed?</p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          Accept this proposal to confirm with {data.agency.name}.
+                          {quote
+                            ? ` Total ${formatCurrency(quote.sellTotal, quote.currency)}.`
+                            : ''}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        className="shrink-0"
+                        disabled={accepting}
+                        onClick={() => void acceptQuote()}
+                      >
+                        {accepting ? 'Accepting…' : 'Accept proposal'}
+                      </Button>
                     </div>
-                    <Button
-                      type="button"
-                      className="shrink-0"
-                      disabled={accepting}
-                      onClick={() => void acceptQuote()}
-                    >
-                      {accepting ? 'Accepting…' : 'Accept proposal'}
-                    </Button>
+                    <div className="max-w-xs">
+                      <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                        Family PIN (required when the agency set one)
+                      </label>
+                      <input
+                        className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
+                        value={acceptPin}
+                        onChange={(e) => setAcceptPin(e.target.value)}
+                        placeholder="6-digit PIN"
+                      />
+                    </div>
                   </div>
                 )}
               </div>

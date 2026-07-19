@@ -6,6 +6,10 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { GoogleService } from '../google/google.service';
+import {
+  shouldResolveLeadFromInquiryTask,
+  shouldSyncLeadFollowUpAt,
+} from './lead-follow-up-sync';
 
 type CreateTaskInput = z.infer<typeof CreateTaskSchema>;
 
@@ -22,13 +26,14 @@ export class TasksService {
 
   async create(organizationId: string, userId: string, input: CreateTaskInput) {
     const assigneeId = input.assigneeId ?? userId;
+    const dueAt = input.dueAt ? new Date(input.dueAt) : null;
     const task = await this.prisma.task.create({
       data: {
         organizationId,
         title: input.title,
         description: input.description ?? null,
         priority: input.priority,
-        dueAt: input.dueAt ? new Date(input.dueAt) : null,
+        dueAt,
         assigneeId,
         entityType: input.entityType ?? null,
         entityId: input.entityId ?? null,
@@ -42,6 +47,12 @@ export class TasksService {
       action: 'task.create',
       entityType: 'task',
       entityId: task.id,
+    });
+
+    await this.syncLeadFollowUpFromTask(organizationId, {
+      entityType: input.entityType,
+      entityId: input.entityId,
+      dueAt,
     });
 
     if (assigneeId && assigneeId !== userId) {
@@ -74,6 +85,52 @@ export class TasksService {
     }
 
     return task;
+  }
+
+  /** Stamp Lead.followUpAt so sales overdue strip matches Log Activity / inbox follow-up. */
+  private async syncLeadFollowUpFromTask(
+    organizationId: string,
+    input: {
+      entityType?: string | null;
+      entityId?: string | null;
+      dueAt: Date | null;
+    },
+  ) {
+    if (!input.dueAt) return;
+
+    let leadId: string | null = null;
+    if (
+      shouldSyncLeadFollowUpAt({
+        entityType: input.entityType,
+        entityId: input.entityId,
+        dueAt: input.dueAt,
+      })
+    ) {
+      leadId = input.entityId!;
+    } else if (
+      shouldResolveLeadFromInquiryTask({
+        entityType: input.entityType,
+        entityId: input.entityId,
+        dueAt: input.dueAt,
+      })
+    ) {
+      const inquiry = await this.prisma.inquiry.findFirst({
+        where: {
+          id: input.entityId!,
+          organizationId,
+          deletedAt: null,
+        },
+        select: { leadId: true },
+      });
+      leadId = inquiry?.leadId ?? null;
+    }
+
+    if (!leadId) return;
+
+    await this.prisma.lead.updateMany({
+      where: { id: leadId, organizationId, deletedAt: null },
+      data: { followUpAt: input.dueAt },
+    });
   }
 
   async list(

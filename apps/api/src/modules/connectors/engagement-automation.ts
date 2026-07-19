@@ -1,5 +1,5 @@
+import type { PrismaClient } from '@prisma/client';
 import { Prisma } from '@prisma/client';
-import type { PrismaService } from '../../prisma/prisma.service';
 
 type AutomationEvent = {
   trigger: 'interaction.ingested' | 'conversation.waiting' | 'conversation.unread_sla';
@@ -7,12 +7,17 @@ type AutomationEvent = {
   conversationId: string;
 };
 
+type PrismaLike = Pick<
+  PrismaClient,
+  'engagementAutomationRule' | 'engagementConversation'
+>;
+
 /**
  * Run active EngagementAutomationRule rows for an org against a conversation event.
  * Actions supported: assignUserId, setStatus, tag (stored on subject prefix).
  */
 export async function runEngagementAutomation(
-  prisma: PrismaService,
+  prisma: PrismaLike,
   organizationId: string,
   event: AutomationEvent,
 ) {

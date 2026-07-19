@@ -30,6 +30,14 @@ import { CareHistoryPanel } from '../care/CareHistoryPanel';
 import { PartnerInventoryPanel } from '../partner/PartnerInventoryPanel';
 import type { DriverTabId } from './DriverPortalLayout';
 
+type FleetUnit = {
+  id: string;
+  name: string;
+  plateNumber?: string | null;
+  seats?: number | null;
+  isActive?: boolean;
+};
+
 type DriverJob = {
   id: string;
   guestName: string;
@@ -44,7 +52,23 @@ type DriverJob = {
   currency: string;
   notes?: string | null;
   completionNote?: string | null;
+  fleetUnitId?: string | null;
+  bookingComponentId?: string | null;
+  bookingComponent?: {
+    id: string;
+    title: string;
+    trip?: { tripNumber: string; title: string } | null;
+  } | null;
+  fleetUnit?: {
+    id: string;
+    name: string;
+    plateNumber?: string | null;
+  } | null;
 };
+
+function fleetUnitLabel(u: FleetUnit): string {
+  return [u.name, u.plateNumber].filter(Boolean).join(' · ');
+}
 
 function toIso(local: string) {
   if (!local) return '';
@@ -80,6 +104,8 @@ export function DriverOpsPanel({
   const [startAt, setStartAt] = useState('');
   const [endAt, setEndAt] = useState('');
   const [rateAmount, setRateAmount] = useState('');
+  const [fleetUnitId, setFleetUnitId] = useState('');
+  const [fleetUnits, setFleetUnits] = useState<FleetUnit[]>([]);
   const [assignNow, setAssignNow] = useState(true);
   const [completionNote, setCompletionNote] = useState('');
   const [payAmount, setPayAmount] = useState('');
@@ -92,12 +118,16 @@ export function DriverOpsPanel({
   const load = useCallback(async () => {
     try {
       const day = todayIsoDate();
-      const [all, today] = await Promise.all([
+      const [all, today, units] = await Promise.all([
         api<DriverJob[]>(`/driver/assets/${assetId}/jobs`),
         api<DriverJob[]>(`/driver/assets/${assetId}/jobs?day=${day}`),
+        api<FleetUnit[]>(`/inventory/assets/${assetId}/fleet`).catch(() => []),
       ]);
       setJobs(all);
       setTodayJobs(today);
+      setFleetUnits(
+        (Array.isArray(units) ? units : []).filter((u) => u.isActive !== false),
+      );
       if (!selectedId && (today[0] || all[0])) {
         setSelectedId((today[0] || all[0]).id);
       }
@@ -128,6 +158,7 @@ export function DriverOpsPanel({
           startAt: toIso(startAt),
           endAt: toIso(endAt),
           rateAmount: rateAmount ? Number(rateAmount) : undefined,
+          fleetUnitId: fleetUnitId || undefined,
           assignImmediately: assignNow,
         }),
       });
@@ -135,6 +166,7 @@ export function DriverOpsPanel({
       setGuestName('');
       setPickup('');
       setDrop('');
+      setFleetUnitId('');
       await load();
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Create failed');
@@ -254,10 +286,28 @@ export function DriverOpsPanel({
             onClick={() => setSelectedId(job.id)}
           >
             <div className="text-base font-medium">{job.guestName}</div>
+            {job.bookingComponentId || job.bookingComponent ? (
+              <div className="mt-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                Agency duty
+                {job.bookingComponent?.trip?.tripNumber
+                  ? ` · ${job.bookingComponent.trip.tripNumber}`
+                  : ''}
+                {job.bookingComponent?.title
+                  ? ` · ${job.bookingComponent.title}`
+                  : ''}
+              </div>
+            ) : null}
             <div className="mt-0.5 text-sm text-muted-foreground">
               {job.pickupLocation || 'Pickup TBD'}
               {job.dropLocation ? ` → ${job.dropLocation}` : ''}
             </div>
+            {job.fleetUnit ? (
+              <div className="mt-0.5 text-xs text-muted-foreground">
+                {[job.fleetUnit.name, job.fleetUnit.plateNumber]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </div>
+            ) : null}
             <div className="mt-1 text-xs text-muted-foreground">
               {new Date(job.startAt).toLocaleString()} →{' '}
               {new Date(job.endAt).toLocaleTimeString()}
@@ -441,6 +491,29 @@ export function DriverOpsPanel({
             <FormField label="Rate">
               <PriceField value={rateAmount} onChange={setRateAmount} />
             </FormField>
+            {fleetUnits.length ? (
+              <FormField
+                label="Fleet unit"
+                description="Optional plate for this duty. Conflicts block assign."
+              >
+                <Combobox
+                  options={[
+                    { value: '', label: 'No unit' },
+                    ...fleetUnits.map((u) => ({
+                      value: u.id,
+                      label: fleetUnitLabel(u),
+                      description:
+                        u.seats != null ? `${u.seats} seats` : undefined,
+                    })),
+                  ]}
+                  value={fleetUnitId}
+                  onChange={setFleetUnitId}
+                  placeholder="No unit"
+                  searchable
+                  searchPlaceholder="Search vehicle…"
+                />
+              </FormField>
+            ) : null}
           </FormGrid>
           <div className="flex min-h-11 items-center gap-2 sm:min-h-0">
             <Checkbox

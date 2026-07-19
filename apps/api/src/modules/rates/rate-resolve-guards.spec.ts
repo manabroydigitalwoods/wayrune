@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
   anyNightInBlackout,
+  anyNightInContractStopSale,
   anyNightInStopSell,
   averageHotelUnitCost,
   eachStayNight,
+  explainHotelRejects,
   filterHotelByRoomAndMeal,
   hotelNightUnitCost,
   isWeekendUtc,
   parseBlackoutRanges,
+  parseStopSaleRanges,
   supplierBlockedReason,
 } from './rate-resolve-guards';
 
@@ -31,6 +34,19 @@ describe('rate-resolve-guards', () => {
     ).toEqual([
       { from: '2026-12-20', to: '2026-12-26' },
       { from: '2026-01-01', to: '2026-01-02' },
+    ]);
+  });
+
+  it('parses stop-sale ranges with optional roomProductId', () => {
+    expect(
+      parseStopSaleRanges([
+        { from: '2026-08-10', to: '2026-08-12' },
+        { start: '2026-09-01', end: '2026-09-03', roomProductId: 'prod-suite' },
+        { from: '2026-10-01', to: '2026-09-30' },
+      ]),
+    ).toEqual([
+      { from: '2026-08-10', to: '2026-08-12', roomProductId: null },
+      { from: '2026-09-01', to: '2026-09-03', roomProductId: 'prod-suite' },
     ]);
   });
 
@@ -63,7 +79,28 @@ describe('rate-resolve-guards', () => {
     ).toBe(false);
   });
 
-  it('prefers blackout over stop-sell in block reason', () => {
+  it('scopes stop-sell to roomProductId when set', () => {
+    const nights = eachStayNight(new Date('2026-08-10T00:00:00.000Z'), 1);
+    const windows = [
+      {
+        startDate: new Date('2026-08-10T00:00:00.000Z'),
+        endDate: new Date('2026-08-11T00:00:00.000Z'),
+        roomProductId: 'suite-only',
+      },
+    ];
+    expect(anyNightInStopSell(nights, windows, 'deluxe-id')).toBe(false);
+    expect(anyNightInStopSell(nights, windows, 'suite-only')).toBe(true);
+    expect(anyNightInStopSell(nights, windows)).toBe(true);
+  });
+
+  it('scopes contract stop-sale to roomProductId when set', () => {
+    const nights = eachStayNight(new Date('2026-08-10T00:00:00.000Z'), 1);
+    const ranges = [{ from: '2026-08-10', to: '2026-08-10', roomProductId: 'prod-a' }];
+    expect(anyNightInContractStopSale(nights, ranges, 'prod-b')).toBe(false);
+    expect(anyNightInContractStopSale(nights, ranges, 'prod-a')).toBe(true);
+  });
+
+  it('prefers stop-sell over blackout in block reason when both apply', () => {
     const nights = eachStayNight(new Date('2026-08-10T00:00:00.000Z'), 1);
     expect(
       supplierBlockedReason(
@@ -75,6 +112,13 @@ describe('rate-resolve-guards', () => {
             endDate: new Date('2026-08-11T00:00:00.000Z'),
           },
         ],
+      ),
+    ).toBe('stop_sell');
+    expect(
+      supplierBlockedReason(
+        nights,
+        [{ from: '2026-08-10', to: '2026-08-10' }],
+        [],
       ),
     ).toBe('blackout');
     expect(
@@ -124,5 +168,67 @@ describe('rate-resolve-guards', () => {
     expect(filterHotelByRoomAndMeal(pool, 'Suite', '').map((r) => r.id)).toEqual([
       '4',
     ]);
+  });
+
+  it('prefers roomProductId exact match over string room type', () => {
+    const pool = [
+      {
+        id: 'legacy',
+        roomType: 'Deluxe mountain view',
+        mealPlan: 'MAP',
+        roomProductId: null,
+      },
+      {
+        id: 'canonical',
+        roomType: 'Deluxe mountain view',
+        mealPlan: 'MAP',
+        roomProductId: 'prod-deluxe',
+      },
+      {
+        id: 'other-product',
+        roomType: 'Deluxe mountain view',
+        mealPlan: 'MAP',
+        roomProductId: 'prod-suite',
+      },
+    ];
+    expect(
+      filterHotelByRoomAndMeal(pool, 'Deluxe mountain view', 'MAP', 'prod-deluxe').map(
+        (r) => r.id,
+      ),
+    ).toEqual(['canonical']);
+  });
+
+  it('classifies superseded contract rates in explainHotelRejects', () => {
+    const pool = [
+      {
+        id: 'old',
+        roomType: 'Deluxe',
+        mealPlan: 'MAP',
+        roomProductId: null,
+        startDate: new Date('2026-04-01'),
+        endDate: new Date('2026-12-31'),
+        contractId: 'c-old',
+        contractStatus: 'superseded',
+      },
+      {
+        id: 'active',
+        roomType: 'Deluxe',
+        mealPlan: 'MAP',
+        roomProductId: 'prod-1',
+        startDate: new Date('2026-04-01'),
+        endDate: new Date('2026-12-31'),
+        contractId: 'c-new',
+        contractStatus: 'active',
+      },
+    ];
+    const rejects = explainHotelRejects(pool, 'active', {
+      roomWanted: 'Deluxe',
+      mealWanted: 'MAP',
+      roomProductIdWanted: 'prod-1',
+      asOf: new Date('2026-10-05'),
+    });
+    expect(rejects.some((r) => r.rateId === 'old' && r.reason === 'superseded contract')).toBe(
+      true,
+    );
   });
 });

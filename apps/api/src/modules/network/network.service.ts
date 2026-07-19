@@ -16,10 +16,18 @@ import type {
 import { generateRefreshToken, hashToken } from '@wayrune/auth';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { FilesService } from '../files/files.service';
 import { InventoryService } from '../inventory/inventory.service';
+import { OperationsService } from '../operations/operations.service';
 import { PartnerAssetsService } from '../partner-assets/partner-assets.service';
 import { StayService } from '../stay/stay.service';
 import type { AuthUser } from '../../common/helpers';
+import {
+  isAllowedPartnerConfirmationMime,
+  MAX_PARTNER_CONFIRMATION_BYTES,
+  partnerConfirmationDocumentBinding,
+} from './inbound-booking-document';
+import { inboundPartnerConfirmCueFromBooking } from './inbound-partner-confirm-cue';
 
 export const ORG_KIND_TO_SUPPLIER_TYPE: Record<string, string> = {
   travel_agency: 'other',
@@ -41,6 +49,8 @@ export class NetworkService {
     private partnerAssets: PartnerAssetsService,
     private inventory: InventoryService,
     private stay: StayService,
+    private operations: OperationsService,
+    private files: FilesService,
   ) {}
 
   async discoverPartners(
@@ -391,29 +401,77 @@ export class NetworkService {
             endDate: true,
             status: true,
             organization: { select: { id: true, name: true, kind: true } },
+            inquiry: { select: { adults: true, children: true } },
           },
         },
         supplier: { select: { id: true, name: true } },
       },
     });
 
-    return bookings.map((b) => ({
-      id: b.id,
-      title: b.title,
-      type: b.type,
-      status: b.status,
-      confirmationRef: b.confirmationRef,
-      createdAt: b.createdAt,
-      agency: b.trip.organization,
-      trip: {
-        id: b.trip.id,
-        tripNumber: b.trip.tripNumber,
-        title: b.trip.title,
-        startDate: b.trip.startDate,
-        endDate: b.trip.endDate,
-        status: b.trip.status,
-      },
-    }));
+    const vehicleTypeIds = new Set<string>();
+    for (const b of bookings) {
+      if (b.type !== 'transfer') continue;
+      const req =
+        b.travellerRequirementsJson &&
+        typeof b.travellerRequirementsJson === 'object' &&
+        !Array.isArray(b.travellerRequirementsJson)
+          ? (b.travellerRequirementsJson as Record<string, unknown>)
+          : {};
+      const hasSeats =
+        (typeof req.vehicleSeats === 'number' && req.vehicleSeats > 0) ||
+        (typeof req.seats === 'number' && req.seats > 0);
+      const vtId =
+        typeof req.vehicleTypeId === 'string' ? req.vehicleTypeId.trim() : '';
+      if (!hasSeats && vtId) vehicleTypeIds.add(vtId);
+    }
+
+    const seatsByVehicleTypeId = new Map<string, number>();
+    if (vehicleTypeIds.size) {
+      const types = await this.prisma.vehicleType.findMany({
+        where: { id: { in: [...vehicleTypeIds] }, deletedAt: null },
+        select: { id: true, seats: true },
+      });
+      for (const t of types) {
+        if (t.seats != null && t.seats > 0) seatsByVehicleTypeId.set(t.id, t.seats);
+      }
+    }
+
+    return bookings.map((b) => {
+      const req =
+        b.travellerRequirementsJson &&
+        typeof b.travellerRequirementsJson === 'object' &&
+        !Array.isArray(b.travellerRequirementsJson)
+          ? (b.travellerRequirementsJson as Record<string, unknown>)
+          : {};
+      const vtId =
+        typeof req.vehicleTypeId === 'string' ? req.vehicleTypeId.trim() : '';
+      const inquiryParty =
+        (b.trip.inquiry?.adults ?? 0) + (b.trip.inquiry?.children ?? 0);
+      const confirmCue = inboundPartnerConfirmCueFromBooking(b, {
+        party: inquiryParty > 0 ? inquiryParty : null,
+        seatsPerVehicle: vtId ? seatsByVehicleTypeId.get(vtId) ?? null : null,
+      });
+      return {
+        id: b.id,
+        title: b.title,
+        type: b.type,
+        status: b.status,
+        confirmationRef: b.confirmationRef,
+        createdAt: b.createdAt,
+        startAt: b.startAt,
+        endAt: b.endAt,
+        confirmCue,
+        agency: b.trip.organization,
+        trip: {
+          id: b.trip.id,
+          tripNumber: b.trip.tripNumber,
+          title: b.trip.title,
+          startDate: b.trip.startDate,
+          endDate: b.trip.endDate,
+          status: b.trip.status,
+        },
+      };
+    });
   }
 
   async listFollowedPartnersForPicker(user: AuthUser) {
@@ -658,11 +716,8 @@ export class NetworkService {
     };
   }
 
-  async confirmInboundBooking(
-    user: AuthUser,
-    bookingId: string,
-    input: ConfirmInboundBookingInput,
-  ) {
+  /** Resolve an inbound booking owned via supplier mirrors for this partner org. */
+  private async resolveInboundBooking(user: AuthUser, bookingId: string) {
     const mirrors = await this.prisma.supplier.findMany({
       where: { linkedOrganizationId: user.organizationId, deletedAt: null },
       select: { id: true },
@@ -676,6 +731,75 @@ export class NetworkService {
       },
     });
     if (!booking) throw new NotFoundException('Booking not found');
+    return booking;
+  }
+
+  /**
+   * Partner uploads a confirmation file onto the agency booking Document store
+   * (agency organizationId — not partner org storage).
+   */
+  async uploadInboundConfirmationDocument(
+    user: AuthUser,
+    bookingId: string,
+    file: { originalname: string; mimetype: string; buffer: Buffer; size: number },
+  ) {
+    const booking = await this.resolveInboundBooking(user, bookingId);
+    if (booking.status === 'cancelled') {
+      throw new BadRequestException('Cancelled bookings cannot accept confirmation files');
+    }
+    if (!file?.buffer?.length) {
+      throw new BadRequestException('Choose a confirmation file');
+    }
+    if (file.size > MAX_PARTNER_CONFIRMATION_BYTES) {
+      throw new BadRequestException('File must be 8 MB or smaller');
+    }
+    if (!isAllowedPartnerConfirmationMime(file.mimetype)) {
+      throw new BadRequestException('Upload a PDF or image (JPEG, PNG, WebP)');
+    }
+
+    const binding = partnerConfirmationDocumentBinding(booking.id);
+    const doc = await this.files.upload({
+      organizationId: booking.organizationId,
+      userId: user.sub,
+      entityType: binding.entityType,
+      entityId: binding.entityId,
+      documentType: binding.documentType,
+      fileName: file.originalname || 'confirmation.pdf',
+      mimeType: file.mimetype,
+      buffer: file.buffer,
+      visibility: 'internal',
+    });
+
+    await this.audit.record({
+      organizationId: booking.organizationId,
+      actorUserId: user.sub,
+      action: 'network.inbound_confirmation_upload',
+      entityType: 'document',
+      entityId: doc.id,
+      metadata: {
+        bookingComponentId: booking.id,
+        partnerOrganizationId: user.organizationId,
+        documentType: binding.documentType,
+      },
+    });
+
+    return {
+      documentId: doc.id,
+      contentUrl: doc.contentUrl,
+      fileName: doc.name,
+      mimeType: doc.mimeType,
+      documentType: binding.documentType,
+      bookingId: booking.id,
+      agencyOrganizationId: booking.organizationId,
+    };
+  }
+
+  async confirmInboundBooking(
+    user: AuthUser,
+    bookingId: string,
+    input: ConfirmInboundBookingInput,
+  ) {
+    const booking = await this.resolveInboundBooking(user, bookingId);
     if (booking.status === 'cancelled') {
       throw new BadRequestException('Cancelled bookings cannot be confirmed');
     }
@@ -691,6 +815,9 @@ export class NetworkService {
       );
       partnerAssetId = asset.id;
     }
+
+    const becomingConfirmed =
+      input.status === 'confirmed' && booking.status !== 'confirmed';
 
     const updated = await this.prisma.bookingComponent.update({
       where: { id: bookingId },
@@ -729,7 +856,7 @@ export class NetworkService {
       },
     });
 
-    await this.inventory.syncBookingInventory(user, updated);
+    const inventorySync = await this.inventory.syncBookingInventory(user, updated);
     await this.stay.syncFromInboundBooking(user, {
       id: updated.id,
       title: updated.title,
@@ -739,6 +866,121 @@ export class NetworkService {
       startAt: updated.startAt,
       endAt: updated.endAt,
     });
+
+    let payableResult: {
+      created: boolean;
+      invoiceId: string | null;
+      reason: string | null;
+    } | null = null;
+    if (becomingConfirmed) {
+      // Payable lives on the agency org — act as agency for finance writes.
+      const agencyActor: AuthUser = {
+        ...user,
+        organizationId: booking.organizationId,
+      };
+      try {
+        const invoice = await this.operations.ensurePayableOnBookingConfirm(
+          agencyActor,
+          updated.trip.id,
+          bookingId,
+        );
+        if (invoice) {
+          payableResult = {
+            created: true,
+            invoiceId: invoice.id,
+            reason: null,
+          };
+        } else {
+          const amount = Number(
+            updated.confirmedAmount ?? updated.costAmount ?? updated.quotedAmount ?? 0,
+          );
+          const reason = !updated.supplierId
+            ? 'No supplier on booking — agency can create payable in Finance'
+            : !Number.isFinite(amount) || amount <= 0
+              ? 'No buy/confirmed amount — agency can set cost and create payable in Finance'
+              : 'Payable was not created';
+          payableResult = { created: false, invoiceId: null, reason };
+          await this.audit.record({
+            organizationId: booking.organizationId,
+            actorUserId: user.sub,
+            action: 'booking.confirm_payable_skipped',
+            entityType: 'booking_component',
+            entityId: booking.id,
+            metadata: {
+              tripId: updated.trip.id,
+              reason,
+              via: 'partner_inbound',
+            },
+          });
+        }
+      } catch (e) {
+        const reason = e instanceof Error ? e.message : 'Payable creation failed';
+        payableResult = { created: false, invoiceId: null, reason };
+        await this.audit.record({
+          organizationId: booking.organizationId,
+          actorUserId: user.sub,
+          action: 'booking.confirm_payable_failed',
+          entityType: 'booking_component',
+          entityId: booking.id,
+          metadata: {
+            tripId: updated.trip.id,
+            reason,
+            via: 'partner_inbound',
+          },
+        });
+      }
+    }
+
+    let capacityCue: {
+      capacityNote: string | null;
+      capacityWarn: boolean;
+    } | null = null;
+    if (booking.type === 'transfer') {
+      const req =
+        booking.travellerRequirementsJson &&
+        typeof booking.travellerRequirementsJson === 'object' &&
+        !Array.isArray(booking.travellerRequirementsJson)
+          ? (booking.travellerRequirementsJson as Record<string, unknown>)
+          : {};
+      let seatsFallback: number | null = null;
+      const vtId =
+        typeof req.vehicleTypeId === 'string' ? req.vehicleTypeId.trim() : '';
+      const hasSeats =
+        (typeof req.vehicleSeats === 'number' && req.vehicleSeats > 0) ||
+        (typeof req.seats === 'number' && req.seats > 0);
+      if (!hasSeats && vtId) {
+        const vt = await this.prisma.vehicleType.findFirst({
+          where: { id: vtId, deletedAt: null },
+          select: { seats: true },
+        });
+        if (vt?.seats != null && vt.seats > 0) seatsFallback = vt.seats;
+      }
+      let partyFallback: number | null = null;
+      const adults = Number(req.adults);
+      const children = Number(req.children);
+      if (
+        !(
+          (Number.isFinite(adults) && adults > 0) ||
+          (Number.isFinite(children) && children > 0)
+        )
+      ) {
+        const trip = await this.prisma.trip.findFirst({
+          where: { id: booking.tripId },
+          select: { inquiry: { select: { adults: true, children: true } } },
+        });
+        const inquiryParty =
+          (trip?.inquiry?.adults ?? 0) + (trip?.inquiry?.children ?? 0);
+        if (inquiryParty > 0) partyFallback = inquiryParty;
+      }
+      const cue = inboundPartnerConfirmCueFromBooking(booking, {
+        party: partyFallback,
+        seatsPerVehicle: seatsFallback,
+      });
+      capacityCue = {
+        capacityNote: cue.capacityNote,
+        capacityWarn: cue.capacityWarn,
+      };
+    }
 
     return {
       id: updated.id,
@@ -752,6 +994,37 @@ export class NetworkService {
         tripNumber: updated.trip.tripNumber,
         title: updated.trip.title,
       },
+      ...(payableResult ? { payable: payableResult } : {}),
+      ...(inventorySync && inventorySync.ok && inventorySync.upgraded
+        ? { allotmentUpgraded: true as const, allocationId: inventorySync.allocationId }
+        : {}),
+      ...(inventorySync && inventorySync.ok && inventorySync.quantityResynced
+        ? { allotmentQuantityResynced: true as const }
+        : {}),
+      ...(inventorySync && inventorySync.ok && inventorySync.datesResynced
+        ? { allotmentDatesResynced: true as const }
+        : {}),
+      ...(inventorySync && inventorySync.ok && inventorySync.assetRebound
+        ? { allotmentAssetRebound: true as const }
+        : {}),
+      ...(inventorySync && inventorySync.ok && inventorySync.roomProductRematched
+        ? { allotmentRoomProductRematched: true as const }
+        : {}),
+      ...(inventorySync && inventorySync.ok && inventorySync.fleetWindowResynced
+        ? { allotmentFleetWindowResynced: true as const }
+        : {}),
+      ...(inventorySync && inventorySync.ok && inventorySync.orphanReleased
+        ? { allotmentOrphanReleased: true as const }
+        : {}),
+      ...(inventorySync && !inventorySync.ok && inventorySync.failed
+        ? { allotmentSyncFailed: inventorySync.failed }
+        : {}),
+      ...(capacityCue?.capacityNote
+        ? {
+            capacityNote: capacityCue.capacityNote,
+            capacityWarn: capacityCue.capacityWarn,
+          }
+        : {}),
     };
   }
 }

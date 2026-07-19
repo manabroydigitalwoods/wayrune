@@ -21,6 +21,7 @@ import {
   UpdateAssetFleetUnitSchema,
   UpdateAssetRoomProductSchema,
   UpdateAssetServiceOfferSchema,
+  UpdateInventoryAllocationSchema,
 } from '@wayrune/contracts';
 import {
   CurrentUser,
@@ -56,6 +57,20 @@ export class InventoryController {
   @RequirePermissions('ops.write', 'network.write')
   allocate(@CurrentUser() user: AuthUser, @Body() body: unknown) {
     return this.inventory.allocate(user, AllocateInventorySchema.parse(body));
+  }
+
+  @Patch('allocations/:id')
+  @RequirePermissions('ops.write', 'network.write')
+  updateAllocation(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    return this.inventory.updateAllocation(
+      user,
+      id,
+      UpdateInventoryAllocationSchema.parse(body),
+    );
   }
 
   @Get('assets/:assetId/rooms')

@@ -19,11 +19,13 @@ import { reportError } from '../../lib/errors';
 type Doc = {
   id: string;
   docType: string;
+  direction?: string;
   status: string;
   label: string;
   amount?: number | string | null;
   currency: string;
   linkedEntityType?: string | null;
+  documentNumber?: string | null;
 };
 
 export function CommercialDocumentsPanel() {
@@ -145,7 +147,9 @@ export function CommercialDocumentsPanel() {
                 className="flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2 text-sm glass-row"
               >
                 <span>
-                  {d.label} · {d.docType}
+                  {d.label}
+                  {d.documentNumber ? ` · ${d.documentNumber}` : ''}
+                  {d.direction ? ` · ${d.direction}` : ` · ${d.docType}`}
                   {d.amount != null
                     ? ` · ${formatCurrency(d.amount, { maximumFractionDigits: 0 })}`
                     : ''}

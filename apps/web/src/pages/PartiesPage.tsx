@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import type { ColumnDef } from '@tanstack/react-table';
-import { ArrowUpRight, Building2, Copy, MoreHorizontal, Pencil, Plus, Upload } from 'lucide-react';
+import { ArrowUpRight, Building2, Copy, Import, MoreHorizontal, Pencil, Plus } from 'lucide-react';
 import { CreatePartySchema, parseWithFieldErrors } from '@wayrune/contracts';
 import {
   Button,
@@ -475,7 +475,7 @@ export function PartiesPage() {
             ) : null}
             <Can anyOf={CAP.partyWrite}>
               <Button type="button" variant="outline" onClick={() => setImportOpen(true)}>
-                <Upload className="size-4" />
+                <Import className="size-4" />
                 Import CSV
               </Button>
               {showNewClient ? (

@@ -24,6 +24,17 @@ export const StorageKeys = {
   trips: {
     columns: 'trips.columns',
   },
+  movementBoard: {
+    columns: 'movementBoard.columns',
+    view: 'movementBoard.view',
+  },
+  financeAging: {
+    columns: 'financeAging.columns',
+  },
+  financePortfolio: {
+    columns: 'financePortfolio.columns',
+    presets: 'financePortfolio.presets',
+  },
   suppliers: {
     columns: 'suppliers.columns',
   },
@@ -34,6 +45,10 @@ export const StorageKeys = {
   presence: {
     columns: 'presence.columns',
     builderUi: 'presence.builderUi',
+  },
+  onboarding: {
+    checklistDismissed: 'onboarding.checklistDismissed',
+    firstQuoteWalkthroughDismissed: 'onboarding.firstQuoteWalkthroughDismissed',
   },
 } as const;
 

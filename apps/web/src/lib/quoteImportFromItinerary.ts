@@ -15,7 +15,7 @@ export type QuoteImportRatePreview = {
   taxPercent?: number;
   pricingUnit?: string;
   rateId?: string | null;
-  rateKind?: 'hotel' | 'transfer' | null;
+  rateKind?: 'hotel' | 'transfer' | 'activity' | null;
   rateMeta?: Record<string, unknown> | null;
   message?: string;
 };

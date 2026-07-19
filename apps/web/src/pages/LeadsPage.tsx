@@ -10,7 +10,7 @@ import {
   List,
   MoreHorizontal,
   Plus,
-  Upload,
+  Import,
   UserPlus,
   Users,
 } from 'lucide-react';
@@ -182,8 +182,10 @@ export function LeadsPage() {
   const showNewLead = useCanonicalCreateVisibility('lead');
   const [searchParams] = useSearchParams();
   const stageFromUrl = searchParams.get('stage') || undefined;
+  const followUpFromUrl = searchParams.get('followUp') || undefined;
+  const ownerFromUrl = searchParams.get('owner') || undefined;
   const [view, setView] = useState<'board' | 'table'>(() =>
-    stageFromUrl ? 'table' : readLeadsView(),
+    stageFromUrl || followUpFromUrl || ownerFromUrl ? 'table' : readLeadsView(),
   );
   const [board, setBoard] = useState<Board | null>(null);
   const boardRef = useRef(board);
@@ -236,9 +238,12 @@ export function LeadsPage() {
   async function load() {
     setLoading(true);
     try {
+      const listQs = new URLSearchParams({ pageSize: '100' });
+      if (followUpFromUrl === 'overdue') listQs.set('followUp', 'overdue');
+      if (ownerFromUrl === 'me') listQs.set('owner', 'me');
       const [boardRes, listRes, sourcesRes, campaignsRes] = await Promise.all([
         api<Board>(`/leads/board?pageSize=${BOARD_PAGE_SIZE}`),
-        api<{ items: LeadRow[] }>('/leads?pageSize=100'),
+        api<{ items: LeadRow[] }>(`/leads?${listQs.toString()}`),
         api<Array<{ key: string; name: string; isActive: boolean }>>('/lead-sources').catch(
           () => [],
         ),
@@ -259,8 +264,9 @@ export function LeadsPage() {
   }
 
   useEffect(() => {
-    load();
-  }, []);
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when URL filters change
+  }, [followUpFromUrl, ownerFromUrl]);
 
   async function convertToClient(lead: LeadRow) {
     if (lead.partyId || lead.party?.id) {
@@ -416,17 +422,20 @@ export function LeadsPage() {
     setSubmitting(true);
     try {
       const res = await api<{
-        lead?: { id: string };
+        lead?: { id: string; owner?: { fullName?: string } | null };
         duplicates?: Array<{ id: string; title: string }>;
       }>('/leads', {
         method: 'POST',
         body: JSON.stringify(parsed.data),
       });
       const dupCount = res.duplicates?.length ?? 0;
+      const ownerName = res.lead?.owner?.fullName?.trim();
       toastSuccess(
         dupCount
-          ? `Lead created · ${dupCount} possible duplicate${dupCount === 1 ? '' : 's'} found — open the lead to merge`
-          : 'Lead created',
+          ? `Lead created${ownerName ? ` · ${ownerName}` : ''} · ${dupCount} possible duplicate${dupCount === 1 ? '' : 's'} found — open the lead to merge`
+          : ownerName
+            ? `Lead created · assigned to ${ownerName}`
+            : 'Lead created',
       );
       setForm(emptyForm);
       setOpen(false);
@@ -676,7 +685,13 @@ export function LeadsPage() {
       <PageHeader
         icon={Users}
         title={copy.title}
-        subtitle={copy.subtitle}
+        subtitle={
+          followUpFromUrl === 'overdue'
+            ? 'Showing open leads with overdue follow-up dates'
+            : ownerFromUrl === 'me'
+              ? 'Showing leads assigned to you'
+              : copy.subtitle
+        }
         className="mb-4 shrink-0"
         actions={
           <div className="flex flex-wrap items-center gap-2">
@@ -700,7 +715,7 @@ export function LeadsPage() {
             </div>
             <Can anyOf={CAP.leadWrite}>
               <Button variant="outline" onClick={() => setImportOpen(true)}>
-                <Upload className="size-4" />
+                <Import className="size-4" />
                 Import CSV
               </Button>
               {showNewLead ? (

@@ -11,11 +11,18 @@ type Rule = {
   actionJson: Record<string, unknown>;
 };
 
+type TriggerKind =
+  | 'interaction.ingested'
+  | 'conversation.waiting'
+  | 'conversation.unread_sla';
+
 /** Minimal omnichannel automation admin (Phase G). */
 export function EngagementAutomationPanel() {
   const [rules, setRules] = useState<Rule[]>([]);
-  const [name, setName] = useState('Auto-assign WhatsApp');
+  const [name, setName] = useState('Aging unread → waiting');
+  const [trigger, setTrigger] = useState<TriggerKind>('conversation.unread_sla');
   const [assignUserId, setAssignUserId] = useState('');
+  const [tag, setTag] = useState('SLA');
   const [saving, setSaving] = useState(false);
 
   function reload() {
@@ -32,15 +39,21 @@ export function EngagementAutomationPanel() {
     if (!name.trim()) return;
     setSaving(true);
     try {
+      const actionJson: Record<string, unknown> = {};
+      if (assignUserId.trim()) actionJson.assignUserId = assignUserId.trim();
+      if (tag.trim()) actionJson.tag = tag.trim();
+      if (trigger === 'conversation.unread_sla') {
+        actionJson.setStatus = 'waiting';
+      } else if (trigger === 'interaction.ingested') {
+        actionJson.setStatus = 'waiting';
+      }
       await api('/interactions/automation-rules', {
         method: 'POST',
         body: JSON.stringify({
           name: name.trim(),
-          trigger: 'interaction.ingested',
-          channel: 'whatsapp',
-          actionJson: assignUserId.trim()
-            ? { assignUserId: assignUserId.trim(), setStatus: 'waiting' }
-            : { setStatus: 'waiting' },
+          trigger,
+          channel: trigger === 'interaction.ingested' ? 'whatsapp' : null,
+          actionJson,
         }),
       });
       toastSuccess('Automation rule created');
@@ -58,7 +71,8 @@ export function EngagementAutomationPanel() {
       <div>
         <h3 className="text-sm font-semibold">Omnichannel automation</h3>
         <p className="text-xs text-muted-foreground">
-          Rules run after Interactions land on a Conversation (assign, status, tags).
+          Rules run on ingest, when a thread is set to waiting, or when unread
+          ages past the org inbox aging hours (dashboard / aging inbox / worker).
         </p>
       </div>
       <ul className="space-y-1 text-sm">
@@ -68,7 +82,9 @@ export function EngagementAutomationPanel() {
               {r.name} · {r.trigger}
               {r.channel ? ` · ${r.channel}` : ''}
             </span>
-            <span className="text-xs text-muted-foreground">{r.isActive ? 'Active' : 'Off'}</span>
+            <span className="text-xs text-muted-foreground">
+              {r.isActive ? 'Active' : 'Off'}
+            </span>
           </li>
         ))}
         {!rules.length ? (
@@ -82,6 +98,22 @@ export function EngagementAutomationPanel() {
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
+        <select
+          className="h-9 min-w-[12rem] rounded-md border border-input bg-background px-2 text-sm"
+          value={trigger}
+          onChange={(e) => setTrigger(e.target.value as TriggerKind)}
+          aria-label="Trigger"
+        >
+          <option value="conversation.unread_sla">Unread aging (SLA)</option>
+          <option value="interaction.ingested">Interaction ingested</option>
+          <option value="conversation.waiting">Set to waiting</option>
+        </select>
+        <Input
+          className="min-w-[8rem] flex-1"
+          placeholder="Tag (optional)"
+          value={tag}
+          onChange={(e) => setTag(e.target.value)}
+        />
         <Input
           className="min-w-[10rem] flex-1"
           placeholder="Assign user id (optional)"
@@ -89,7 +121,7 @@ export function EngagementAutomationPanel() {
           onChange={(e) => setAssignUserId(e.target.value)}
         />
         <Button type="button" disabled={saving} onClick={() => void createRule()}>
-          Add WhatsApp rule
+          Add rule
         </Button>
       </div>
     </div>

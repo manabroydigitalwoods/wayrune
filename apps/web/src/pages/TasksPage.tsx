@@ -428,7 +428,11 @@ export function TasksPage() {
               />
             </FormField>
             <FormField label="Due date" htmlFor="task-due">
-              <DatePicker value={form.dueAt} onChange={(dueAt) => setForm({ ...form, dueAt })} />
+              <DatePicker
+                value={form.dueAt}
+                onChange={(dueAt) => setForm({ ...form, dueAt })}
+                disablePast
+              />
             </FormField>
           </FormGrid>
           <FormField label="Link to" htmlFor="task-link-type">

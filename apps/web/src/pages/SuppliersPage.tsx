@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Building2, ClipboardList, IndianRupee, MoreHorizontal, Plus, UserPlus } from 'lucide-react';
+import {
+  Building2,
+  ClipboardList,
+  FileUser,
+  IndianRupee,
+  MoreHorizontal,
+  Plus,
+  UserPlus,
+} from 'lucide-react';
 import {
   Button,
   DataTable,
@@ -28,11 +36,19 @@ import { Can } from '../components/Can';
 import { CAP } from '../lib/capabilities';
 import { usePermissions } from '../lib/permissions';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import { useOrgNavigate } from '../hooks/useOrgNavigate';
 import { PlaceSinglePicker } from '../components/places/PlacePicker';
 import { PartnerInventoryPanel } from '../components/partner/PartnerInventoryPanel';
 import { SupplierContractsPanel } from '../components/agency/SupplierContractsPanel';
 import { SupplierHotelRatesPanel } from '../components/agency/SupplierHotelRatesPanel';
 import { toPlaceRef, type PlaceRef } from '../lib/placeRefs';
+import { AGENCY_ROUTES } from '../lib/agencyRoutes';
+import {
+  SUPPLIER_TYPE_GROUPS,
+  isInventorySupplierType,
+  isStaySupplierType,
+  supplierTypeLabel,
+} from '../lib/supplierTypes';
 
 type Supplier = {
   id: string;
@@ -40,29 +56,32 @@ type Supplier = {
   type: string;
   email?: string | null;
   phone?: string | null;
+  profileJson?: Record<string, unknown> | null;
   linkedOrganizationId?: string | null;
   linkedOrganization?: { id: string; name: string; kind: string } | null;
   linkedAsset?: { id: string; name: string; assetKind: string } | null;
 };
 
-const SUPPLIER_TYPES = [
-  { value: 'hotel', label: 'Hotel' },
-  { value: 'homestay', label: 'Homestay' },
-  { value: 'farmstay', label: 'Farmstay' },
-  { value: 'car_rental', label: 'Car rental' },
-  { value: 'driver', label: 'Driver' },
-  { value: 'restaurant', label: 'Restaurant' },
-  { value: 'dmc', label: 'DMC' },
-  { value: 'other', label: 'Other' },
-];
+function emptyCreateForm() {
+  return {
+    name: '',
+    type: 'hotel',
+    email: '',
+    phone: '',
+    placeId: null as PlaceRef | null,
+  };
+}
 
 export function SuppliersPage() {
   useDocumentTitle('Suppliers');
+  const { navigate } = useOrgNavigate();
   const { has, hasAny } = usePermissions();
   const canContracts = has('ops.read');
   const canNetworkWrite = hasAny(CAP.networkWrite);
   const canOpenInventory = hasAny(CAP.supplierInventory);
   const canRates = hasAny(CAP.ratesWrite) || has('quote.read');
+  const canProfile =
+    hasAny(CAP.supplierWrite) || has('trip.read') || has('network.read');
   const [items, setItems] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -83,52 +102,7 @@ export function SuppliersPage() {
     id: string;
     name: string;
   } | null>(null);
-  const [form, setForm] = useState({
-    name: '',
-    type: 'hotel',
-    email: '',
-    phone: '',
-    placeId: null as PlaceRef | null,
-    profileImageUrl: '',
-    capacityHint: '',
-    imageUrls: '',
-    amenities: '',
-    roomHints: '',
-    stars: '',
-    googleRating: '',
-    googleReviewCount: '',
-    googleMapsUrl: '',
-    reviewSnippet: '',
-    checkIn: '',
-    checkOut: '',
-    distanceHint: '',
-  });
-
-  const isStayType =
-    form.type === 'hotel' || form.type === 'homestay' || form.type === 'farmstay';
-
-  function emptyForm() {
-    return {
-      name: '',
-      type: 'hotel',
-      email: '',
-      phone: '',
-      placeId: null as PlaceRef | null,
-      profileImageUrl: '',
-      capacityHint: '',
-      imageUrls: '',
-      amenities: '',
-      roomHints: '',
-      stars: '',
-      googleRating: '',
-      googleReviewCount: '',
-      googleMapsUrl: '',
-      reviewSnippet: '',
-      checkIn: '',
-      checkOut: '',
-      distanceHint: '',
-    };
-  }
+  const [form, setForm] = useState(emptyCreateForm);
 
   async function load() {
     setLoading(true);
@@ -149,80 +123,39 @@ export function SuppliersPage() {
     void load();
   }, []);
 
+  function goToDetail(id: string) {
+    navigate(`${AGENCY_ROUTES.suppliers}/${id}`);
+  }
+
   async function create() {
     if (!form.name.trim()) {
       toastError('Name is required');
+      return;
+    }
+    if (!form.email.trim() && !form.phone.trim()) {
+      toastError('Add a phone or email');
       return;
     }
     try {
       const payload: Record<string, unknown> = {
         name: form.name.trim(),
         type: form.type,
-        email: form.email || undefined,
-        phone: form.phone || undefined,
+        email: form.email.trim() || undefined,
+        phone: form.phone.trim() || undefined,
       };
       const placeRef = toPlaceRef(form.placeId);
       if (placeRef?.placeId) payload.placeId = placeRef.placeId;
-      const profileJson: Record<string, unknown> = {};
-      if (form.profileImageUrl.trim()) profileJson.imageUrl = form.profileImageUrl.trim();
-      if (form.capacityHint.trim()) profileJson.capacityHint = form.capacityHint.trim();
-      if (isStayType) {
-        const gallery = form.imageUrls
-          .split(/\r?\n/)
-          .map((s) => s.trim())
-          .filter(Boolean);
-        if (gallery.length) profileJson.imageUrls = gallery;
-        const amenities = form.amenities
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean);
-        if (amenities.length) profileJson.amenities = amenities;
-        const roomHints = form.roomHints
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean);
-        if (roomHints.length) profileJson.roomHints = roomHints;
-        if (form.stars.trim()) {
-          const stars = Number(form.stars);
-          if (Number.isFinite(stars)) profileJson.stars = stars;
-        }
-        if (form.googleRating.trim()) {
-          const rating = Number(form.googleRating);
-          if (Number.isFinite(rating)) profileJson.googleRating = rating;
-        }
-        if (form.googleReviewCount.trim()) {
-          const count = Number(form.googleReviewCount);
-          if (Number.isFinite(count)) profileJson.googleReviewCount = count;
-        }
-        if (form.googleMapsUrl.trim()) profileJson.googleMapsUrl = form.googleMapsUrl.trim();
-        if (form.reviewSnippet.trim()) profileJson.reviewSnippet = form.reviewSnippet.trim();
-        if (form.checkIn.trim()) profileJson.checkIn = form.checkIn.trim();
-        if (form.checkOut.trim()) profileJson.checkOut = form.checkOut.trim();
-        if (form.distanceHint.trim()) profileJson.distanceHint = form.distanceHint.trim();
-      }
-      if (Object.keys(profileJson).length) payload.profileJson = profileJson;
-      await api('/suppliers', {
+      const created = await api<Supplier>('/suppliers', {
         method: 'POST',
         body: JSON.stringify(payload),
       });
-      toastSuccess('Supplier created');
+      toastSuccess('Supplier created — complete the profile next');
       setOpen(false);
-      setForm(emptyForm());
-      await load();
+      setForm(emptyCreateForm());
+      navigate(`${AGENCY_ROUTES.suppliers}/${created.id}`);
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Could not create supplier');
     }
-  }
-
-  function isInventoryType(type: string) {
-    return (
-      type === 'hotel' ||
-      type === 'homestay' ||
-      type === 'farmstay' ||
-      type === 'car_rental' ||
-      type === 'driver' ||
-      type === 'restaurant'
-    );
   }
 
   const columns = useMemo<ColumnDef<Supplier>[]>(
@@ -238,11 +171,11 @@ export function SuppliersPage() {
           const s = row.original;
           return (
             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-              {isInventoryType(s.type) && canOpenInventory ? (
+              {canProfile ? (
                 <button
                   type="button"
                   className="truncate font-medium text-primary hover:underline"
-                  onClick={() => void openInventory(s)}
+                  onClick={() => goToDetail(s.id)}
                 >
                   {s.name}
                 </button>
@@ -261,9 +194,15 @@ export function SuppliersPage() {
         accessorFn: (r) => r.type,
         header: 'Type',
         meta: { label: 'Type' },
-        size: 140,
-        minSize: 110,
-        cell: ({ row }) => <StatusBadge value={row.original.type} />,
+        size: 150,
+        minSize: 120,
+        cell: ({ row }) => (
+          <StatusBadge
+            value={row.original.type}
+            label={supplierTypeLabel(row.original.type)}
+            showIcon={false}
+          />
+        ),
       },
       {
         id: 'asset',
@@ -308,7 +247,9 @@ export function SuppliersPage() {
         size: 200,
         minSize: 140,
         cell: ({ row }) => (
-          <span className="truncate text-muted-foreground">{row.original.email || '—'}</span>
+          <span className="truncate text-muted-foreground">
+            {row.original.email || '—'}
+          </span>
         ),
       },
       {
@@ -318,7 +259,9 @@ export function SuppliersPage() {
         size: 140,
         minSize: 120,
         cell: ({ row }) => (
-          <span className="tabular-nums text-muted-foreground">{row.original.phone || '—'}</span>
+          <span className="tabular-nums text-muted-foreground">
+            {row.original.phone || '—'}
+          </span>
         ),
       },
       {
@@ -331,7 +274,8 @@ export function SuppliersPage() {
         enableHiding: false,
         cell: ({ row }) => {
           const s = row.original;
-          const stay = isInventoryType(s.type);
+          const stay = isStaySupplierType(s.type);
+          const inventory = isInventorySupplierType(s.type);
           return (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -349,6 +293,12 @@ export function SuppliersPage() {
                   {s.name}
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
+                {canProfile ? (
+                  <DropdownMenuItem onClick={() => goToDetail(s.id)}>
+                    <FileUser />
+                    Open
+                  </DropdownMenuItem>
+                ) : null}
                 {stay && canRates ? (
                   <DropdownMenuItem
                     onClick={() => {
@@ -371,7 +321,7 @@ export function SuppliersPage() {
                     Contracts
                   </DropdownMenuItem>
                 ) : null}
-                {stay && canOpenInventory ? (
+                {inventory && canOpenInventory ? (
                   <DropdownMenuItem onClick={() => void openInventory(s)}>
                     <ClipboardList />
                     Inventory
@@ -409,10 +359,13 @@ export function SuppliersPage() {
       let assetId = supplier.linkedAsset?.id;
       let assetKind = supplier.linkedAsset?.assetKind || supplier.type;
       if (!assetId) {
-        const asset = await api<{ id: string; assetKind: string }>('/inventory/shadow-asset', {
-          method: 'POST',
-          body: JSON.stringify({ supplierId: supplier.id }),
-        });
+        const asset = await api<{ id: string; assetKind: string }>(
+          '/inventory/shadow-asset',
+          {
+            method: 'POST',
+            body: JSON.stringify({ supplierId: supplier.id }),
+          },
+        );
         assetId = asset.id;
         assetKind = asset.assetKind;
         await load();
@@ -450,7 +403,7 @@ export function SuppliersPage() {
       <PageHeader
         icon={Building2}
         title="Suppliers"
-        subtitle="Hotels, homestays, farmstays, cars, drivers, restaurants and DMCs. Open Rate chart for negotiated room costs; Inventory for rooms & calendars; invite partners to claim their own workspace."
+        subtitle="Quick-create vendors, then open a supplier to complete the profile, rates, and contracts."
         className="mb-4 shrink-0"
         actions={
           <Can anyOf={CAP.supplierWrite}>
@@ -471,7 +424,7 @@ export function SuppliersPage() {
         searchPlaceholder="Search suppliers…"
         columnVisibilityKey={StorageKeys.suppliers.columns}
         emptyTitle="No suppliers yet"
-        emptyDescription="Add suppliers while confirming bookings, or create them here."
+        emptyDescription="Create a supplier with name, type, and contact — then open it to complete the profile."
         emptyIcon={Building2}
         emptyAction={
           <Can anyOf={CAP.supplierWrite}>
@@ -486,12 +439,10 @@ export function SuppliersPage() {
         open={open}
         onOpenChange={(next) => {
           setOpen(next);
-          if (!next) {
-            setForm(emptyForm());
-          }
+          if (!next) setForm(emptyCreateForm());
         }}
         title="New supplier"
-        description="Used when assigning bookings on a trip. Hotels can store the full itinerary photo/rating pack."
+        description="Name, type, and contact only. Property photos, fleet notes, and credentials go on the supplier detail page."
         submitLabel="Create"
         onSubmit={create}
       >
@@ -503,14 +454,29 @@ export function SuppliersPage() {
             required
           />
         </FormField>
-        <FormField label="Type">
-          <SuggestionChips
-            aria-label="Supplier type"
-            allowDeselect={false}
-            options={SUPPLIER_TYPES}
-            value={form.type}
-            onChange={(type) => setForm({ ...form, type })}
-          />
+        <FormField label="Type" required>
+          <div className="space-y-3">
+            {SUPPLIER_TYPE_GROUPS.map((group) => (
+              <div key={group.id} className="space-y-1.5">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  {group.label}
+                </p>
+                <SuggestionChips
+                  aria-label={`${group.label} supplier type`}
+                  allowDeselect={false}
+                  options={group.options}
+                  value={
+                    group.options.some((o) => o.value === form.type)
+                      ? form.type
+                      : ''
+                  }
+                  onChange={(type) => {
+                    if (type) setForm({ ...form, type });
+                  }}
+                />
+              </div>
+            ))}
+          </div>
         </FormField>
         <FormField label="Email">
           <EmailInput
@@ -525,114 +491,13 @@ export function SuppliersPage() {
             onChange={(phone) => setForm({ ...form, phone })}
           />
         </FormField>
+        <p className="text-xs text-muted-foreground">Phone or email required.</p>
         <PlaceSinglePicker
           label="Near place (optional)"
           value={form.placeId}
           onChange={(placeId) => setForm({ ...form, placeId })}
           placeholder="City or area for discovery"
         />
-        <FormField label="Profile image URL (optional)">
-          <Input
-            value={form.profileImageUrl}
-            onChange={(e) => setForm({ ...form, profileImageUrl: e.target.value })}
-            placeholder="https://…"
-          />
-        </FormField>
-        <FormField label="Capacity hint (optional)">
-          <Input
-            value={form.capacityHint}
-            onChange={(e) => setForm({ ...form, capacityHint: e.target.value })}
-            placeholder="24 rooms · groups OK"
-          />
-        </FormField>
-        {isStayType ? (
-          <>
-            <FormField label="Gallery photos (one URL per line)">
-              <textarea
-                className="flex min-h-[64px] w-full rounded-xl border border-border/80 bg-card/85 px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                value={form.imageUrls}
-                onChange={(e) => setForm({ ...form, imageUrls: e.target.value })}
-                placeholder={'https://…\nhttps://…'}
-              />
-            </FormField>
-            <FormField label="Amenities (comma-separated)">
-              <Input
-                value={form.amenities}
-                onChange={(e) => setForm({ ...form, amenities: e.target.value })}
-                placeholder="WiFi, Breakfast, Mountain view"
-              />
-            </FormField>
-            <FormField label="Room types (comma-separated)">
-              <Input
-                value={form.roomHints}
-                onChange={(e) => setForm({ ...form, roomHints: e.target.value })}
-                placeholder="Deluxe, Suite"
-              />
-            </FormField>
-            <FormField label="Stars">
-              <Input
-                type="number"
-                min={1}
-                max={5}
-                value={form.stars}
-                onChange={(e) => setForm({ ...form, stars: e.target.value })}
-                placeholder="4"
-              />
-            </FormField>
-            <FormField label="Google rating">
-              <Input
-                type="number"
-                step="0.1"
-                value={form.googleRating}
-                onChange={(e) => setForm({ ...form, googleRating: e.target.value })}
-                placeholder="4.5"
-              />
-            </FormField>
-            <FormField label="Google review count">
-              <Input
-                type="number"
-                value={form.googleReviewCount}
-                onChange={(e) => setForm({ ...form, googleReviewCount: e.target.value })}
-                placeholder="1287"
-              />
-            </FormField>
-            <FormField label="Google Maps URL">
-              <Input
-                value={form.googleMapsUrl}
-                onChange={(e) => setForm({ ...form, googleMapsUrl: e.target.value })}
-                placeholder="https://maps.google.com/…"
-              />
-            </FormField>
-            <FormField label="Review snippet">
-              <Input
-                value={form.reviewSnippet}
-                onChange={(e) => setForm({ ...form, reviewSnippet: e.target.value })}
-                placeholder="“Rooms were spotless…”"
-              />
-            </FormField>
-            <FormField label="Check-in default">
-              <Input
-                value={form.checkIn}
-                onChange={(e) => setForm({ ...form, checkIn: e.target.value })}
-                placeholder="2:00 PM"
-              />
-            </FormField>
-            <FormField label="Check-out default">
-              <Input
-                value={form.checkOut}
-                onChange={(e) => setForm({ ...form, checkOut: e.target.value })}
-                placeholder="11:00 AM"
-              />
-            </FormField>
-            <FormField label="Distance hint">
-              <Input
-                value={form.distanceHint}
-                onChange={(e) => setForm({ ...form, distanceHint: e.target.value })}
-                placeholder="500m from Mall Road"
-              />
-            </FormField>
-          </>
-        ) : null}
       </RecordSheet>
       <RecordSheet
         open={inventoryOpen}
@@ -640,7 +505,9 @@ export function SuppliersPage() {
           setInventoryOpen(next);
           if (!next) setInventoryTarget(null);
         }}
-        title={inventoryTarget ? `Inventory · ${inventoryTarget.name}` : 'Inventory'}
+        title={
+          inventoryTarget ? `Inventory · ${inventoryTarget.name}` : 'Inventory'
+        }
         description="Local shadow asset under your agency. Claimed partners edit inventory in their own workspace."
         submitLabel="Done"
         onSubmit={() => setInventoryOpen(false)}
@@ -676,7 +543,9 @@ export function SuppliersPage() {
           setContractOpen(next);
           if (!next) setContractTarget(null);
         }}
-        title={contractTarget ? `Contracts · ${contractTarget.name}` : 'Contracts'}
+        title={
+          contractTarget ? `Contracts · ${contractTarget.name}` : 'Contracts'
+        }
         description="Payment terms, preferred flag, and contract status for this supplier."
         submitLabel="Done"
         onSubmit={() => setContractOpen(false)}

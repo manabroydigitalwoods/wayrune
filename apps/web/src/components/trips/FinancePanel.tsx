@@ -16,6 +16,7 @@ import {
   SuggestionChips,
   toastError,
   toastSuccess,
+  toastWarning,
   formatCurrency,
   formatPercent,
   formatDate,
@@ -27,6 +28,12 @@ import { CAP } from '../../lib/capabilities';
 import { reportError } from '../../lib/errors';
 import { usePermissions } from '../../lib/permissions';
 import { formatDateInput, parseDateInput } from '../../lib/dateInput';
+import {
+  copyTripPaymentLink,
+  markTripPaymentLinkSent,
+  sendTripPaymentLinkWhatsapp,
+  toastForPaymentLinkWhatsapp,
+} from '../../lib/paymentLinkActions';
 
 type Payment = {
   id: string;
@@ -104,6 +111,7 @@ type FinanceSummary = {
     actualCost: number;
     variance: number | null;
     currency: string;
+    otherCurrencyBookingCount?: number;
   };
   summary: {
     customerDue: number;
@@ -186,6 +194,9 @@ export function FinancePanel({
     emptyPaymentForm(orgCurrencyProp || 'INR'),
   );
   const [paymentSubmitting, setPaymentSubmitting] = useState(false);
+  const [chaseBusyId, setChaseBusyId] = useState<string | null>(null);
+  const [markSentPaymentId, setMarkSentPaymentId] = useState<string | null>(null);
+  const [markingSentId, setMarkingSentId] = useState<string | null>(null);
 
   const [invoiceOpen, setInvoiceOpen] = useState(false);
   const [invoiceForm, setInvoiceForm] = useState({
@@ -329,6 +340,59 @@ export function FinancePanel({
     }
   }
 
+  async function copyPaymentLink(id: string) {
+    setChaseBusyId(id);
+    try {
+      const res = await copyTripPaymentLink(tripId, id);
+      toastSuccess(
+        res.reused ? 'Payment link copied (existing link)' : 'Payment link copied',
+      );
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not create payment link');
+    } finally {
+      setChaseBusyId(null);
+    }
+  }
+
+  async function sendPaymentLinkWhatsapp(id: string) {
+    setChaseBusyId(id);
+    try {
+      const res = await sendTripPaymentLinkWhatsapp(tripId, id);
+      const outcome = toastForPaymentLinkWhatsapp(res);
+      if (!outcome.ok) {
+        toastError(outcome.message);
+        return;
+      }
+      if (outcome.openUrl) {
+        window.open(outcome.openUrl, '_blank', 'noopener,noreferrer');
+      }
+      if (outcome.needsMarkSent) {
+        setMarkSentPaymentId(id);
+        toastWarning(outcome.message);
+      } else {
+        setMarkSentPaymentId(null);
+        toastSuccess(outcome.message);
+      }
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not send payment link');
+    } finally {
+      setChaseBusyId(null);
+    }
+  }
+
+  async function markPaymentLinkSent(id: string) {
+    setMarkingSentId(id);
+    try {
+      await markTripPaymentLinkSent(tripId, id);
+      toastSuccess('Payment link marked as sent');
+      setMarkSentPaymentId(null);
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not mark payment link sent');
+    } finally {
+      setMarkingSentId(null);
+    }
+  }
+
   async function unmarkPaid(id: string) {
     try {
       await api(`/trips/${tripId}/payments/${id}/unmark-paid`, { method: 'POST' });
@@ -448,6 +512,36 @@ export function FinancePanel({
               <Button size="sm" variant="secondary" onClick={() => openEditPayment(p)}>
                 Edit
               </Button>
+              {p.direction === 'customer' ? (
+                <>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={chaseBusyId === p.id}
+                    onClick={() => void copyPaymentLink(p.id)}
+                  >
+                    Copy payment link
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={chaseBusyId === p.id}
+                    onClick={() => void sendPaymentLinkWhatsapp(p.id)}
+                  >
+                    Send on WhatsApp
+                  </Button>
+                  {markSentPaymentId === p.id ? (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={markingSentId === p.id}
+                      onClick={() => void markPaymentLinkSent(p.id)}
+                    >
+                      {markingSentId === p.id ? 'Marking…' : 'Mark as sent'}
+                    </Button>
+                  ) : null}
+                </>
+              ) : null}
               <Button size="sm" variant="secondary" onClick={() => void markPaid(p.id)}>
                 Mark paid
               </Button>
@@ -503,6 +597,9 @@ export function FinancePanel({
               <div className="mt-0.5 text-[11px] text-muted-foreground tabular-nums">
                 Bookings {formatCurrency(costCompare?.actualBookingCost ?? 0, quote.currency)} ·
                 Invoices {formatCurrency(costCompare?.invoicedCost ?? 0, quote.currency)}
+                {(costCompare?.otherCurrencyBookingCount ?? 0) > 0
+                  ? ` · ${costCompare?.otherCurrencyBookingCount} other-currency booking${(costCompare?.otherCurrencyBookingCount ?? 0) === 1 ? '' : 's'} excluded`
+                  : ''}
               </div>
             </div>
             <div>
@@ -609,7 +706,13 @@ export function FinancePanel({
       <Card>
         <CardContent className="space-y-3 p-5">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <strong className="text-sm">Supplier payables</strong>
+            <div>
+              <strong className="text-sm">Supplier payables</strong>
+              <p className="text-xs text-muted-foreground">
+                Confirming a hotel booking in Operations creates an AUTO- invoice and scheduled
+                payment here.
+              </p>
+            </div>
             <Can anyOf={CAP.tripWrite}>
               <div className="flex gap-2">
                 <Button size="sm" variant="secondary" onClick={() => setInvoiceOpen(true)}>
@@ -630,7 +733,11 @@ export function FinancePanel({
           />
           {(data?.invoices || []).length ? (
             <ul className="mb-3 space-y-2">
-              {(data?.invoices || []).map((inv) => (
+              {(data?.invoices || []).map((inv) => {
+                const autoOnConfirm =
+                  inv.invoiceNumber.startsWith('AUTO-') ||
+                  Boolean(inv.notes?.toLowerCase().includes('auto payable on confirm'));
+                return (
                 <li
                   key={inv.id}
                   className="rounded-xl border px-3 py-2 text-sm glass-row"
@@ -641,6 +748,13 @@ export function FinancePanel({
                       {inv.supplier ? ` · ${inv.supplier.name}` : ''}
                     </span>
                     <StatusBadge value={inv.status} />
+                    {autoOnConfirm ? (
+                      <StatusBadge
+                        value="auto_confirm"
+                        label="Auto on confirm"
+                        showIcon={false}
+                      />
+                    ) : null}
                   </div>
                   <div className="text-xs text-muted-foreground tabular-nums">
                     {formatCurrency(inv.amount, inv.currency)}
@@ -650,7 +764,8 @@ export function FinancePanel({
                     {inv.bookingComponent ? ` · ${inv.bookingComponent.title}` : ''}
                   </div>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           ) : null}
           <ul className="space-y-2">

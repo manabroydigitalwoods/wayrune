@@ -8,6 +8,11 @@ import type {
 import { CONNECTOR_CAPABILITIES } from '@wayrune/contracts';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  inboxAgingCutoff,
+  inboxAgingHoursFromSettings,
+} from '../dashboard/inbox-sla-metrics';
+import { fireUnreadSlaAutomations } from '../connectors/unread-sla-fire';
 import { TasksService } from '../tasks/tasks.service';
 import type { AuthUser } from '../../common/helpers';
 import { runEngagementAutomation } from '../connectors/engagement-automation';
@@ -553,6 +558,7 @@ export class InteractionsService {
       pageSize?: number;
       channel?: string;
       unread?: boolean;
+      aging?: boolean;
       ownership?: 'mine' | 'unassigned' | 'all';
       queue?: 'assigned' | 'waiting' | 'follow_up' | 'all';
     } = {},
@@ -562,6 +568,18 @@ export class InteractionsService {
     const pageSize = Math.min(50, Math.max(1, opts.pageSize ?? 30));
     const ownership = opts.ownership || 'all';
     const queue = opts.queue || 'all';
+    const agingOnly = opts.aging === true;
+    const unreadOnly = agingOnly || opts.unread === true;
+
+    const org = agingOnly
+      ? await this.prisma.organization.findUnique({
+          where: { id: user.organizationId },
+          select: { settingsJson: true },
+        })
+      : null;
+    const agingHours = agingOnly
+      ? inboxAgingHoursFromSettings(org?.settingsJson)
+      : undefined;
 
     const where: Prisma.EngagementConversationWhereInput = {
       organizationId: user.organizationId,
@@ -569,7 +587,15 @@ export class InteractionsService {
       interactions: { some: {} },
       ...(ownership === 'mine' ? { assignedUserId: user.sub } : {}),
       ...(ownership === 'unassigned' ? { assignedUserId: null } : {}),
-      ...(opts.unread === true ? { unreadCount: { gt: 0 } } : {}),
+      ...(unreadOnly ? { unreadCount: { gt: 0 } } : {}),
+      ...(agingOnly
+        ? {
+            lastInteractionAt: {
+              lt: inboxAgingCutoff(new Date(), agingHours),
+            },
+            status: { not: 'closed' },
+          }
+        : {}),
       ...(queue === 'waiting' ? { status: 'waiting' } : {}),
       ...(queue === 'assigned' ? { assignedUserId: user.sub, status: { not: 'closed' } } : {}),
       ...(opts.channel
@@ -613,6 +639,12 @@ export class InteractionsService {
       }),
       this.prisma.engagementConversation.count({ where }),
     ]);
+
+    if (agingOnly) {
+      void fireUnreadSlaAutomations(this.prisma, {
+        organizationId: user.organizationId,
+      }).catch(() => undefined);
+    }
 
     const items = rows.map((row) => {
       const last = row.interactions[0];
@@ -773,8 +805,8 @@ export class InteractionsService {
     conversationId: string,
     input: UpdateEngagementConversationInput,
   ) {
-    await this.getConversation(user, conversationId);
-    return this.prisma.engagementConversation.update({
+    const before = await this.getConversation(user, conversationId);
+    const updated = await this.prisma.engagementConversation.update({
       where: { id: conversationId },
       data: {
         ...(input.status !== undefined ? { status: input.status } : {}),
@@ -784,6 +816,16 @@ export class InteractionsService {
         ...(input.subject !== undefined ? { subject: input.subject } : {}),
       },
     });
+    if (
+      input.status === 'waiting' &&
+      before.status !== 'waiting'
+    ) {
+      await runEngagementAutomation(this.prisma, user.organizationId, {
+        trigger: 'conversation.waiting',
+        conversationId,
+      }).catch(() => undefined);
+    }
+    return updated;
   }
 
   async claimConversation(user: AuthUser, conversationId: string) {

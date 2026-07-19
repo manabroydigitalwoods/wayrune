@@ -4,6 +4,7 @@ import {
   CreateTripSchema,
   PaginationQuerySchema,
   RecordTripFeedbackSchema,
+  UpdateTripDatesSchema,
   UpdateTripDestinationsSchema,
 } from '@wayrune/contracts';
 import {
@@ -51,6 +52,16 @@ export class TripsController {
       id,
       UpdateTripDestinationsSchema.parse(body),
     );
+  }
+
+  @Patch(':id/dates')
+  @RequirePermissions('trip.write')
+  updateDates(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    return this.trips.updateDates(user, id, UpdateTripDatesSchema.parse(body));
   }
 
   @Post(':id/travellers')

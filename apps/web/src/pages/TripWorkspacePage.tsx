@@ -11,6 +11,7 @@ import { useOrgNavigate } from '../hooks/useOrgNavigate';
 import type { ColumnDef } from '@tanstack/react-table';
 import {
   MoreHorizontal,
+  PackagePlus,
   Plane,
   Plus,
   Send,
@@ -23,6 +24,7 @@ import {
   CardContent,
   Combobox,
   ConfirmDialog,
+  Checkbox,
   DataTable,
   DatePicker,
   DropdownMenu,
@@ -32,6 +34,7 @@ import {
   DropdownMenuTrigger,
   EmailInput,
   EmptyState,
+  FormGrid,
   Input,
   PageHeader,
   PriceField,
@@ -47,6 +50,7 @@ import {
   Textarea,
   toastError,
   toastSuccess,
+  toastWarning,
   BrandTooltip,
   cn,
   formatCurrency,
@@ -56,13 +60,47 @@ import {
   formatDateTime,
   formatTime,
 } from '@wayrune/ui';
+import {
+  UpdateTripDatesSchema,
+  tripTravelEndOnOrAfterStart,
+} from '@wayrune/contracts';
 import { api, apiBlob } from '../api';
+import { formatDateInput, parseDateInput } from '../lib/dateInput';
 import { useAuth } from '../auth';
 import { usePermissions } from '../lib/permissions';
+import { AGENCY_ROUTES } from '../lib/agencyRoutes';
 import { TRIP_STATUS_OPTIONS, tripStatusLabel } from '../lib/agencyStatusLabels';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useProgressiveDisclosure } from '../hooks/useProgressiveDisclosure';
 import { DisclosureSection } from '../components/agency/DisclosureSection';
+import {
+  FirstQuoteWalkthrough,
+  dismissFirstQuoteWalkthrough,
+} from '../components/agency/FirstQuoteWalkthrough';
+import {
+  formatAgencyFitPackToast,
+  installAgencyFitPack,
+} from '../lib/agencyFitPack';
+import {
+  canUseTemplateHistoryVersion,
+  formatTemplateHistoryDiffLines,
+  formatTemplateVersionWhen,
+  showTemplateHistoryCue,
+  showTemplateHistoryDiffCue,
+  templateHistoryHasPriors,
+  templateHistoryPriorActionsCue,
+  type TemplateVersionListItem,
+} from '../lib/quoteTemplateHistory';
+import {
+  buildFolderNav,
+  folderPathSegments,
+  normalizeTemplateFolderLabel,
+  templateMatchesFolderFilter,
+} from '../lib/quoteTemplateFolder';
+import {
+  parseTemplateTagsCsv,
+  templateMatchesTagFilter,
+} from '../lib/quoteTemplateTags';
 import { trackExperienceEvent } from '../lib/progressiveComplexity';
 import { leadOutcomeMessage, type LeadOutcome } from '../lib/lead-outcome';
 import {
@@ -74,6 +112,7 @@ import {
 import { PlaceMultiPicker } from '../components/places/PlacePicker';
 import { OperationsPanel } from '../components/trips/OperationsPanel';
 import { FinancePanel } from '../components/trips/FinancePanel';
+import { TripControlCentre } from '../components/trips/TripControlCentre';
 import { TripClosurePanel } from '../components/trips/TripClosurePanel';
 import { TripTimeline } from '../components/trips/TripTimeline';
 import { QuoteImportReviewDialog } from '../components/trips/QuoteImportReviewDialog';
@@ -95,6 +134,10 @@ import {
   applyRateResolveHit,
   rateBlockReasonLabel,
   rateBlockReasonMessage,
+  parseQuoteRateProvenance,
+  rateProvenanceSourceLabel,
+  formatRateTimestamp,
+  type QuoteRateProvenance,
   type QuoteServiceDetails,
 } from '../lib/quoteServiceDetails';
 import {
@@ -102,16 +145,52 @@ import {
   readQuoteLocalDraft,
   writeQuoteLocalDraft,
 } from '../lib/quoteLocalDraft';
+import { parseApplyChildAgesCsv } from '../lib/createTripFromPackage';
 import {
   countMarginPolicyViolations,
   lineMarginPolicyViolation,
   parseMinMarginPercent,
 } from '../lib/quoteMargin';
 import {
+  attentionLineIdsForReason,
+  listQuoteAttentionLines,
+  quoteAttentionQueueMeta,
+  quoteAttentionReasonLabel,
+} from '../lib/quoteAttentionLines';
+import {
+  partyUsesAgentMarkup,
+  resolveOrgMarkupPercent,
+} from '../lib/orgMarkup';
+import {
   defaultValidUntilIso,
+  formatValiditySendToastSuffix,
+  isQuoteValidUntilExpired,
+  quoteExpiredGraceCue,
+  quoteNearExpiryToastMessage,
+  quotePastGraceBlockCue,
   quoteValidityDaysFromSettings,
+  quoteValidityGraceHoursFromSettings,
+  shouldBlockSendPastGrace,
   syncTermsWithValidUntil,
 } from '../lib/quoteValidity';
+import {
+  fxLockCoversQuote,
+  normalizeCurrency,
+  parseQuoteFxLock,
+  QUOTE_FX_CURRENCY_OPTIONS,
+  type QuoteFxLock,
+} from '../lib/quoteFx';
+import {
+  isWhatsappCloudConfigured,
+  pickQuoteProposalTemplate,
+  quoteWhatsappSendCue,
+} from '../lib/quoteWhatsappTemplate';
+import {
+  normalizeQuoteVersionLabel,
+  QUOTE_VERSION_LABEL_MAX,
+  quoteVersionLabelPickerOptions,
+  quoteVersionOptionLabel,
+} from '../lib/quoteVersionLabel';
 import {
   emptyItineraryStory,
   ensureItineraryDays,
@@ -255,12 +334,14 @@ type QuoteLine = {
   taxPercent: number;
   pricingUnit: string;
   serviceType?: import('@wayrune/contracts').QuoteServiceType;
-  rateKind?: 'hotel' | 'transfer';
+  rateKind?: 'hotel' | 'transfer' | 'activity';
   rateId?: string;
-  /** True when hotel/transfer had no matching rate card. */
+  /** True when hotel/transfer/activity had no matching rate card. */
   rateUnmatched?: boolean;
   /** Why resolve blocked the match (blackout / stop-sell). */
   rateBlockReason?: 'blackout' | 'stop_sell';
+  /** Durable snapshot of the matched rate card. */
+  rateProvenance?: QuoteRateProvenance;
   details?: QuoteServiceDetails;
   includedMeta?: {
     at: string;
@@ -313,7 +394,9 @@ function quoteLinesFromVersion(version: {
       pricingUnit: QUOTE_PRICING_UNITS.has(item.pricingUnit) ? item.pricingUnit : 'per_service',
       serviceType: item.serviceType,
       rateKind:
-        item.rateKind === 'hotel' || item.rateKind === 'transfer'
+        item.rateKind === 'hotel' ||
+        item.rateKind === 'transfer' ||
+        item.rateKind === 'activity'
           ? item.rateKind
           : undefined,
       rateId: typeof item.rateId === 'string' ? item.rateId : undefined,
@@ -322,6 +405,7 @@ function quoteLinesFromVersion(version: {
         item.rateBlockReason === 'blackout' || item.rateBlockReason === 'stop_sell'
           ? item.rateBlockReason
           : undefined,
+      rateProvenance: parseQuoteRateProvenance(item.rateProvenance),
       details: parseQuoteServiceDetails(item.details),
       includedMeta:
         item.includedMeta && typeof item.includedMeta === 'object'
@@ -379,6 +463,7 @@ function serializeQuoteLine(item: QuoteLine) {
     ...(item.rateId ? { rateId: item.rateId } : {}),
     ...(item.rateUnmatched ? { rateUnmatched: true } : {}),
     ...(item.rateBlockReason ? { rateBlockReason: item.rateBlockReason } : {}),
+    ...(item.rateProvenance ? { rateProvenance: item.rateProvenance } : {}),
     ...(item.details ? { details: item.details } : {}),
     ...(item.includedMeta ? { includedMeta: item.includedMeta } : {}),
     ...(item.marginOverride?.reason?.trim()
@@ -390,7 +475,7 @@ function serializeQuoteLine(item: QuoteLine) {
 type RateResolveRow = {
   itemId: string;
   matched: boolean;
-  rateKind: 'hotel' | 'transfer' | null;
+  rateKind: 'hotel' | 'transfer' | 'activity' | null;
   rateId: string | null;
   unitCost: number;
   unitSell: number;
@@ -444,9 +529,18 @@ function quoteSendBlockedReason(input: {
   missingSellCount: number;
   missingCostCount: number;
   marginGateCount: number;
+  rateDriftCount?: number;
+  allotmentBlockCount?: number;
+  capacityBlockCount?: number;
+  fxMissing?: boolean;
+  quoteCurrency?: string;
+  orgCurrency?: string;
   minMarginPercent: number;
   canViewCost: boolean;
   hasValidUntil: boolean;
+  validUntilExpired?: boolean;
+  /** Expired outside post-expiry grace — hard-block Send. */
+  validUntilBlocksSend?: boolean;
   travellerCount: number;
   statusAllowsSend: boolean;
 }): string {
@@ -462,19 +556,42 @@ function quoteSendBlockedReason(input: {
       `${input.missingSellCount} service price${input.missingSellCount === 1 ? '' : 's'}`,
     );
   }
-  if (input.canViewCost && input.missingCostCount > 0) {
+  if (input.missingCostCount > 0) {
     parts.push(
       `${input.missingCostCount} buy rate${input.missingCostCount === 1 ? '' : 's'}`,
     );
   }
-  if (input.canViewCost && input.marginGateCount > 0) {
+  if (input.marginGateCount > 0) {
     parts.push(
       input.minMarginPercent > 0
         ? `${input.marginGateCount} below-margin service${input.marginGateCount === 1 ? '' : 's'}`
         : `${input.marginGateCount} negative-margin service${input.marginGateCount === 1 ? '' : 's'}`,
     );
   }
+  if ((input.rateDriftCount ?? 0) > 0) {
+    parts.push(
+      `${input.rateDriftCount} rate chart change${input.rateDriftCount === 1 ? '' : 's'} to rematch or acknowledge`,
+    );
+  }
+  if ((input.allotmentBlockCount ?? 0) > 0) {
+    parts.push(
+      `${input.allotmentBlockCount} allotment shortfall${input.allotmentBlockCount === 1 ? '' : 's'} (reduce rooms or change property)`,
+    );
+  }
+  if ((input.capacityBlockCount ?? 0) > 0) {
+    parts.push(
+      `${input.capacityBlockCount} capacity shortfall${input.capacityBlockCount === 1 ? '' : 's'} (add vehicles or reduce party)`,
+    );
+  }
+  if (input.fxMissing) {
+    parts.push(
+      `an FX lock for ${input.quoteCurrency || 'foreign currency'} (org books in ${input.orgCurrency || 'INR'})`,
+    );
+  }
   if (!input.hasValidUntil) parts.push('a validity date');
+  else if (input.validUntilBlocksSend) {
+    parts.push('a fresh validity date (expired past grace)');
+  }
   if (input.travellerCount <= 0) parts.push('at least one traveller');
   if (!parts.length) return '';
   if (parts.length === 1) return `Complete ${parts[0]} before sending`;
@@ -491,6 +608,9 @@ function quoteReadinessLabel(input: {
   costIncomplete: boolean;
   canViewCost: boolean;
   hasValidUntil: boolean;
+  validUntilExpired?: boolean;
+  validUntilBlocksSend?: boolean;
+  validUntilInGrace?: boolean;
   canSend: boolean;
 }): { tone: 'neutral' | 'warn' | 'ok'; label: string; hint: string } {
   if (input.itemCount === 0) {
@@ -519,6 +639,11 @@ function quoteReadinessLabel(input: {
     );
   }
   if (!input.hasValidUntil) parts.push('Validity date not selected');
+  else if (input.validUntilBlocksSend) {
+    parts.push('Validity expired past grace — reset before send');
+  } else if (input.validUntilInGrace) {
+    parts.push('Validity expired — send keeps date (grace)');
+  }
   if (parts.length) {
     return {
       tone: 'warn',
@@ -567,7 +692,7 @@ const STATUS_GUIDANCE: Record<string, string> = {
 
 export function TripWorkspacePage() {
   const { id } = useParams();
-  const { navigate } = useOrgNavigate();
+  const { navigate, toOrgPath } = useOrgNavigate();
   const { me } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [trip, setTrip] = useState<any>(null);
@@ -592,6 +717,13 @@ export function TripWorkspacePage() {
   const [travellerOpen, setTravellerOpen] = useState(false);
   const [travellerName, setTravellerName] = useState('');
   const [travellerType, setTravellerType] = useState('adult');
+  const [travelDatesOpen, setTravelDatesOpen] = useState(false);
+  const [travelDatesSaving, setTravelDatesSaving] = useState(false);
+  const [travelDatesShiftQuote, setTravelDatesShiftQuote] = useState(true);
+  const [travelDatesForm, setTravelDatesForm] = useState({
+    startDate: '',
+    endDate: '',
+  });
   const [acceptOpen, setAcceptOpen] = useState(false);
   const [accepting, setAccepting] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
@@ -600,24 +732,55 @@ export function TripWorkspacePage() {
   const [sendPhone, setSendPhone] = useState('');
   const [sendChannel, setSendChannel] = useState<'email' | 'whatsapp'>('email');
   const [sendOpen, setSendOpen] = useState(false);
+  const [sendExtendValidity, setSendExtendValidity] = useState(false);
+  const [requestApprovalOpen, setRequestApprovalOpen] = useState(false);
+  const [approvalExtendValidity, setApprovalExtendValidity] = useState(false);
+  const [waMarkSentPending, setWaMarkSentPending] = useState(false);
+  const [waMarkSentBusy, setWaMarkSentBusy] = useState(false);
+  const [waSendTemplates, setWaSendTemplates] = useState<
+    Array<{ id: string; name: string; metaTemplateName: string; isActive: boolean }>
+  >([]);
+  const quoteWorkspaceOpenedAtMsRef = useRef<number | null>(null);
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
   const [templateName, setTemplateName] = useState('');
+  const [templateTagsCsv, setTemplateTagsCsv] = useState('');
+  const [templateFolder, setTemplateFolder] = useState('');
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [useTemplateOpen, setUseTemplateOpen] = useState(false);
+  const [templateTagFilter, setTemplateTagFilter] = useState('');
+  const [templateFolderFilter, setTemplateFolderFilter] = useState('');
+  const [templateApplyStartDate, setTemplateApplyStartDate] = useState('');
+  const [templateApplyAdults, setTemplateApplyAdults] = useState(2);
+  const [templateApplyChildren, setTemplateApplyChildren] = useState(0);
+  const [templateApplyChildAgesCsv, setTemplateApplyChildAgesCsv] = useState('');
+  const [templateApplyChildrenWithoutBed, setTemplateApplyChildrenWithoutBed] =
+    useState(0);
   const [quoteTemplates, setQuoteTemplates] = useState<
     Array<{
       id: string;
       name: string;
+      versionNumber?: number;
       content?: {
         items?: unknown[];
         inclusions?: unknown;
         exclusions?: unknown;
         destinationHint?: string | null;
+        tags?: string[];
+        folder?: string | null;
       };
     }>
   >([]);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [templateSaveAsNew, setTemplateSaveAsNew] = useState(false);
   const [applyingTemplateId, setApplyingTemplateId] = useState<string | null>(null);
+  const [templateHistoryForId, setTemplateHistoryForId] = useState<string | null>(null);
+  const [templateHistoryItems, setTemplateHistoryItems] = useState<
+    TemplateVersionListItem[]
+  >([]);
+  const [loadingTemplateHistory, setLoadingTemplateHistory] = useState(false);
+  const [restoringTemplateId, setRestoringTemplateId] = useState<string | null>(null);
+  const [templateDiffOpenId, setTemplateDiffOpenId] = useState<string | null>(null);
+  const [installingFitPack, setInstallingFitPack] = useState(false);
   const [cloningQuote, setCloningQuote] = useState(false);
   const [savingItinerary, setSavingItinerary] = useState(false);
   const [quoteItems, setQuoteItems] = useState<QuoteLine[]>(EMPTY_QUOTE_LINES);
@@ -626,6 +789,7 @@ export function TripWorkspacePage() {
     exclusions: '',
     terms: '',
     validUntil: '',
+    label: '',
   });
   const quoteMetaRef = useRef(quoteMeta);
   quoteMetaRef.current = quoteMeta;
@@ -641,9 +805,16 @@ export function TripWorkspacePage() {
   const [quoteSavedAt, setQuoteSavedAt] = useState<Date | null>(null);
   const [savingQuoteCheckpoint, setSavingQuoteCheckpoint] = useState(false);
   const [quoteSaveError, setQuoteSaveError] = useState<string | null>(null);
+  const [fxRateInput, setFxRateInput] = useState('');
+  const [lockingFx, setLockingFx] = useState(false);
   const [markupConfirmOpen, setMarkupConfirmOpen] = useState(false);
+  const [taxConfirmOpen, setTaxConfirmOpen] = useState(false);
   const [includedConfirmOpen, setIncludedConfirmOpen] = useState(false);
   const [attentionOpen, setAttentionOpen] = useState(false);
+  /** Live chart updatedAt by rateId from POST /rates/chart-freshness. */
+  const [chartUpdatedAtByRateId, setChartUpdatedAtByRateId] = useState<
+    Record<string, string>
+  >({});
   const [marginOverrideOpen, setMarginOverrideOpen] = useState(false);
   const [marginOverrideReason, setMarginOverrideReason] = useState('');
   const [marginOverrideLineIds, setMarginOverrideLineIds] = useState<string[]>([]);
@@ -669,6 +840,8 @@ export function TripWorkspacePage() {
   const [quoteDetailLineId, setQuoteDetailLineId] = useState<string | null>(null);
   const canApproveQuote = me?.permissions.includes('quote.approve');
   const canOverrideBelowMargin = me?.permissions.includes('below_margin.approve');
+  const canOverrideInventoryRisk = me?.permissions.includes('inventory_risk.approve');
+  const canOverrideRateDrift = me?.permissions.includes('rate_drift.approve');
   const { has } = usePermissions();
   const canTripWrite = has('trip.write');
   const canItinerary = has('itinerary.edit');
@@ -791,6 +964,7 @@ export function TripWorkspacePage() {
         validUntil: target?.validUntil
           ? String(target.validUntil).slice(0, 10)
           : '',
+        label: String((target as { label?: string | null } | null)?.label || ''),
       };
 
       // Prefer a newer unsaved local draft over the last server snapshot.
@@ -841,7 +1015,13 @@ export function TripWorkspacePage() {
       }
 
       setQuoteItems(nextItems);
-      setQuoteMeta(nextMeta);
+      setQuoteMeta({
+        inclusions: String(nextMeta.inclusions || ''),
+        exclusions: String(nextMeta.exclusions || ''),
+        terms: String(nextMeta.terms || ''),
+        validUntil: String(nextMeta.validUntil || ''),
+        label: String(nextMeta.label || ''),
+      });
       setQuoteSavedAt(
         target && typeof target.updatedAt === 'string'
           ? new Date(target.updatedAt)
@@ -867,10 +1047,12 @@ export function TripWorkspacePage() {
           }, 400);
         }
       });
+      return data;
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Could not load trip';
       setTripLoadError(msg);
       toastError(msg);
+      return null;
     }
   }
 
@@ -885,6 +1067,137 @@ export function TripWorkspacePage() {
       toastSuccess('Destinations updated');
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Could not update destinations');
+    }
+  }
+
+  function openTravelDatesSheet() {
+    setTravelDatesForm({
+      startDate: String(trip?.startDate || '').slice(0, 10),
+      endDate: String(trip?.endDate || '').slice(0, 10),
+    });
+    const hasQuotes =
+      quoteItems.length > 0 ||
+      (Array.isArray(trip?.quotations) && trip.quotations.length > 0);
+    setTravelDatesShiftQuote(hasQuotes);
+    setTravelDatesOpen(true);
+  }
+
+  async function saveTravelDates() {
+    if (!id) return;
+    if (!tripTravelEndOnOrAfterStart(travelDatesForm.startDate, travelDatesForm.endDate)) {
+      toastError('Travel end must be on or after travel start');
+      return;
+    }
+    const parsed = UpdateTripDatesSchema.safeParse({
+      startDate: travelDatesForm.startDate || null,
+      endDate: travelDatesForm.endDate || null,
+      shiftQuoteDates: travelDatesShiftQuote,
+    });
+    if (!parsed.success) {
+      toastError(parsed.error.errors[0]?.message || 'Check travel dates');
+      return;
+    }
+    setTravelDatesSaving(true);
+    try {
+      const updated = await api<{
+        startDate?: string | null;
+        endDate?: string | null;
+        dateShiftDays?: number;
+        quoteVersionsShifted?: number;
+        itineraryDaysReanchored?: boolean;
+        quoteRewriteFromStatus?: string | null;
+        quoteRewriteQuotationId?: string | null;
+        quoteRewriteVersionId?: string | null;
+        rematchMatched?: number;
+        rematchUnmatched?: number;
+      }>(`/trips/${id}/dates`, {
+        method: 'PATCH',
+        body: JSON.stringify(parsed.data),
+      });
+      setTrip((t: any) =>
+        t
+          ? {
+              ...t,
+              startDate: updated.startDate ?? null,
+              endDate: updated.endDate ?? null,
+            }
+          : t,
+      );
+      setTravelDatesOpen(false);
+      const shifted = (updated.quoteVersionsShifted ?? 0) > 0;
+      if (shifted) clearQuoteLocalDraft(id);
+      if (updated.quoteRewriteQuotationId) {
+        setSelectedQuotationId(updated.quoteRewriteQuotationId);
+        selectedQuotationIdRef.current = updated.quoteRewriteQuotationId;
+        selectedQuoteVersionIdRef.current =
+          updated.quoteRewriteVersionId ?? null;
+        setSelectedQuoteVersionId(updated.quoteRewriteVersionId ?? null);
+        writeQuoteQuery(
+          updated.quoteRewriteQuotationId,
+          updated.quoteRewriteVersionId ?? null,
+        );
+      }
+      const bits = ['Travel dates updated'];
+      const shiftDays = Number(updated.dateShiftDays) || 0;
+      if (shifted && shiftDays) {
+        bits.push(`quote dates shifted ${shiftDays > 0 ? '+' : ''}${shiftDays}d`);
+      } else if (shifted) {
+        bits.push('quote rates rematched');
+      }
+      if (updated.quoteRewriteFromStatus) {
+        bits.push(`new draft from ${updated.quoteRewriteFromStatus}`);
+      }
+      const rematchMatched = Number(updated.rematchMatched) || 0;
+      const rematchUnmatched = Number(updated.rematchUnmatched) || 0;
+      if (rematchMatched > 0 || rematchUnmatched > 0) {
+        bits.push(
+          `${rematchMatched} rate-matched${
+            rematchUnmatched ? ` · ${rematchUnmatched} need rates` : ''
+          }`,
+        );
+      }
+      if (updated.itineraryDaysReanchored) {
+        bits.push('story days aligned');
+      }
+      toastSuccess(bits.join(' · '));
+      if (!travelDatesShiftQuote && quoteItems.length > 0) {
+        toastWarning(
+          'Quote service dates were not shifted — rematch or edit lines if the stay window changed',
+        );
+      }
+      const data = await load();
+      if (
+        shifted &&
+        data &&
+        rematchMatched <= 0 &&
+        rematchUnmatched <= 0
+      ) {
+        const activeQ = pickActiveQuotation(
+          data.quotations,
+          selectedQuotationIdRef.current,
+        );
+        const versions = activeQ?.versions || [];
+        const target =
+          versions.find(
+            (v: { id?: string }) => v.id === selectedQuoteVersionIdRef.current,
+          ) ||
+          versions.find((v: { status?: string }) =>
+            EDITABLE_QUOTE_STATUSES.has(String(v.status || '')),
+          ) ||
+          versions[0] ||
+          null;
+        const seeded = target ? quoteLinesFromVersion(target as any) : [];
+        if (seeded.length) {
+          await new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+          });
+          await refreshPricesFromRates(undefined, seeded);
+        }
+      }
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not update travel dates');
+    } finally {
+      setTravelDatesSaving(false);
     }
   }
 
@@ -1090,6 +1403,7 @@ export function TripWorkspacePage() {
             exclusions: quoteMetaRef.current.exclusions || null,
             terms: quoteMetaRef.current.terms || null,
             validUntil: quoteMetaRef.current.validUntil || null,
+            label: normalizeQuoteVersionLabel(quoteMetaRef.current.label),
           }),
         });
         setSelectedQuoteVersionId(version.id);
@@ -1308,42 +1622,119 @@ export function TripWorkspacePage() {
   const quoteMinMarginPercent = parseMinMarginPercent(trip?.organization?.settingsJson);
   const marginGateCount = useMemo(
     () =>
-      canViewCost
-        ? countMarginPolicyViolations(quoteItems, quoteMinMarginPercent, {
-            ignoreOverridden: true,
-          })
-        : 0,
-    [quoteItems, canViewCost, quoteMinMarginPercent],
+      countMarginPolicyViolations(quoteItems, quoteMinMarginPercent, {
+        ignoreOverridden: true,
+      }),
+    [quoteItems, quoteMinMarginPercent],
   );
   const missingPricingCount = useMemo(
     () =>
       quoteItems.filter(
-        (line) =>
-          line.unitSell == null || (canViewCost && line.unitCost == null),
+        (line) => line.unitSell == null || line.unitCost == null,
       ).length,
-    [quoteItems, canViewCost],
+    [quoteItems],
   );
-  const needsAttentionCount = useMemo(
+  const attentionLineInputs = useMemo(
     () =>
-      quoteItems.filter((line) => {
-        const missing =
-          line.rateUnmatched ||
-          line.unitSell == null ||
-          (canViewCost && line.unitCost == null);
-        const loss =
-          Boolean(canViewCost) &&
-          Boolean(
-            lineMarginPolicyViolation(
-              line.unitCost,
-              line.unitSell,
-              quoteMinMarginPercent,
-            ),
-          ) &&
-          !line.marginOverride?.reason?.trim();
-        return missing || loss;
-      }).length,
-    [quoteItems, canViewCost, quoteMinMarginPercent],
+      quoteItems.map((line) => {
+        const rateId =
+          line.rateProvenance?.rateId?.trim() || line.rateId?.trim() || '';
+        return {
+          ...line,
+          chartUpdatedAt: rateId ? chartUpdatedAtByRateId[rateId] ?? null : null,
+        };
+      }),
+    [quoteItems, chartUpdatedAtByRateId],
   );
+  const attentionLines = useMemo(
+    () =>
+      listQuoteAttentionLines(attentionLineInputs, {
+        canViewCost,
+        minMarginPercent: quoteMinMarginPercent,
+      }),
+    [attentionLineInputs, canViewCost, quoteMinMarginPercent],
+  );
+  const needsAttentionCount = attentionLines.length;
+  const rateDriftCount = useMemo(
+    () => attentionLines.filter((r) => r.reasons.includes('rate_drift')).length,
+    [attentionLines],
+  );
+  const rateDriftIds = useMemo(
+    () => attentionLineIdsForReason(attentionLines, 'rate_drift'),
+    [attentionLines],
+  );
+  const allotmentWarnCount = useMemo(
+    () => attentionLines.filter((r) => r.reasons.includes('allotment_risk')).length,
+    [attentionLines],
+  );
+  const capacityWarnCount = useMemo(
+    () => attentionLines.filter((r) => r.reasons.includes('capacity_risk')).length,
+    [attentionLines],
+  );
+  const attentionIds = useMemo(
+    () => attentionLines.map((r) => r.id),
+    [attentionLines],
+  );
+  const attentionQueue = useMemo(
+    () => quoteAttentionQueueMeta(attentionIds, quoteDetailLineId),
+    [attentionIds, quoteDetailLineId],
+  );
+
+  useEffect(() => {
+    const candidates = quoteItems
+      .map((line) => {
+        const rateId =
+          line.rateProvenance?.rateId?.trim() || line.rateId?.trim() || '';
+        if (!rateId) return null;
+        const rateKind =
+          line.rateProvenance?.rateKind ||
+          line.rateKind ||
+          (line.serviceType === 'hotel' ||
+          line.serviceType === 'transfer' ||
+          line.serviceType === 'activity'
+            ? line.serviceType
+            : null);
+        return { rateId, rateKind };
+      })
+      .filter(Boolean) as Array<{
+      rateId: string;
+      rateKind: string | null;
+    }>;
+    if (!candidates.length) {
+      setChartUpdatedAtByRateId({});
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await api<{
+          items: Array<{ rateId: string; updatedAt?: string | null }>;
+        }>('/rates/chart-freshness', {
+          method: 'POST',
+          body: JSON.stringify({ items: candidates }),
+        });
+        if (cancelled) return;
+        const next: Record<string, string> = {};
+        for (const row of res.items || []) {
+          if (row.updatedAt) next[row.rateId] = String(row.updatedAt);
+        }
+        setChartUpdatedAtByRateId(next);
+      } catch {
+        if (!cancelled) setChartUpdatedAtByRateId({});
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    quoteItems
+      .map(
+        (l) =>
+          `${l.rateProvenance?.rateId || l.rateId || ''}:${l.rateProvenance?.rateUpdatedAt || ''}:${l.rateProvenance?.rateDriftAckForUpdatedAt || ''}:${l.rateProvenance?.rateDriftAckReason || ''}`,
+      )
+      .join('|'),
+  ]);
+
   const existingQuoteLineIds = useMemo(
     () => new Set(quoteItems.map((l) => l.id)),
     [quoteItems],
@@ -1357,6 +1748,7 @@ export function TripWorkspacePage() {
   const quoteVersions = (activeQuotation?.versions || []) as Array<{
     id: string;
     versionNumber: number;
+    label?: string | null;
     status: string;
     versionLock?: number;
     sellTotal?: number | string;
@@ -1369,6 +1761,8 @@ export function TripWorkspacePage() {
     exclusions?: string | null;
     terms?: string | null;
     updatedAt?: string;
+    exchangeRatesJson?: unknown;
+    fx?: QuoteFxLock | null;
   }>;
   const selectedQuoteVersion =
     quoteVersions.find((v) => v.id === selectedQuoteVersionId) || quoteVersions[0] || null;
@@ -1377,18 +1771,58 @@ export function TripWorkspacePage() {
     trip?.organization?.currency ||
     me?.organization?.currency ||
     'INR';
+  const orgCurrency = normalizeCurrency(
+    trip?.organization?.currency || me?.organization?.currency || 'INR',
+  );
+  const quoteFxLock =
+    selectedQuoteVersion?.fx ||
+    parseQuoteFxLock(selectedQuoteVersion?.exchangeRatesJson);
+  const fxMissing = !fxLockCoversQuote(
+    quoteFxLock,
+    quoteCurrency,
+    orgCurrency,
+  );
+  const quoteWaSendCue = useMemo(() => {
+    const settings = trip?.organization?.settingsJson;
+    const cloudConfigured = isWhatsappCloudConfigured(settings);
+    const templateReady = Boolean(
+      pickQuoteProposalTemplate(waSendTemplates, settings),
+    );
+    return quoteWhatsappSendCue({ cloudConfigured, templateReady });
+  }, [trip?.organization?.settingsJson, waSendTemplates]);
   const quoteStatus = selectedQuoteVersion?.status || null;
   const quoteCan = quoteActionsForStatus(quoteStatus);
   const canPreviewQuote = quoteHasServices && Boolean(selectedQuoteVersion);
   const hasValidUntil = Boolean(quoteMeta.validUntil?.trim());
+  const validUntilExpired = isQuoteValidUntilExpired(quoteMeta.validUntil);
+  const validUntilNearExpiryMessage = quoteNearExpiryToastMessage(quoteMeta.validUntil);
+  const orgSettings = trip?.organization?.settingsJson;
+  const validityGraceHours = quoteValidityGraceHoursFromSettings(orgSettings);
+  const validUntilBlocksSend = shouldBlockSendPastGrace(
+    quoteMeta.validUntil,
+    validityGraceHours,
+  );
+  const validUntilGraceCue = quoteExpiredGraceCue(quoteMeta.validUntil, orgSettings);
+  const validUntilPastGraceCue = quotePastGraceBlockCue(
+    quoteMeta.validUntil,
+    orgSettings,
+  );
   const pricingBlockedReason = quoteSendBlockedReason({
     itemCount: quoteItems.length,
     missingSellCount,
     missingCostCount: costGaps.missingCount,
     marginGateCount,
+    rateDriftCount,
+    allotmentBlockCount: allotmentWarnCount,
+    capacityBlockCount: capacityWarnCount,
+    fxMissing,
+    quoteCurrency,
+    orgCurrency,
     minMarginPercent: quoteMinMarginPercent,
     canViewCost: Boolean(canViewCost),
     hasValidUntil,
+    validUntilExpired,
+    validUntilBlocksSend,
     travellerCount,
     statusAllowsSend: true,
   });
@@ -1397,9 +1831,17 @@ export function TripWorkspacePage() {
     missingSellCount,
     missingCostCount: costGaps.missingCount,
     marginGateCount: 0,
+    rateDriftCount,
+    allotmentBlockCount: allotmentWarnCount,
+    capacityBlockCount: capacityWarnCount,
+    fxMissing,
+    quoteCurrency,
+    orgCurrency,
     minMarginPercent: quoteMinMarginPercent,
     canViewCost: Boolean(canViewCost),
     hasValidUntil,
+    validUntilExpired,
+    validUntilBlocksSend,
     travellerCount,
     statusAllowsSend: true,
   });
@@ -1433,6 +1875,9 @@ export function TripWorkspacePage() {
     costIncomplete: costGaps.incomplete,
     canViewCost: Boolean(canViewCost),
     hasValidUntil,
+    validUntilExpired,
+    validUntilBlocksSend,
+    validUntilInGrace: Boolean(validUntilGraceCue),
     canSend: canSendQuote,
   });
   const quoteReadOnly = Boolean(
@@ -1453,7 +1898,7 @@ export function TripWorkspacePage() {
   const latestQuote = selectedQuoteVersion || quoteVersions[0] || null;
   const metaParts = [
     destinationsLabel || null,
-    dateRange,
+    dateRange || (canTripWrite ? 'Set travel dates' : null),
     trip?.party?.displayName ? `Client: ${trip.party.displayName}` : null,
     trip?.inquiry?.inquiryNumber ? `Inquiry: ${trip.inquiry.inquiryNumber}` : null,
   ].filter(Boolean);
@@ -1478,6 +1923,7 @@ export function TripWorkspacePage() {
       exclusions: String(version.exclusions || ''),
       terms,
       validUntil,
+      label: String(version.label || ''),
     });
     setQuoteSaveState('idle');
     setQuoteSaveError(null);
@@ -1543,6 +1989,7 @@ export function TripWorkspacePage() {
             exclusions: quoteMeta.exclusions || latest?.exclusions || null,
             terms: quoteMeta.terms || latest?.terms || null,
             validUntil: quoteMeta.validUntil || latest?.validUntil || null,
+            label: normalizeQuoteVersionLabel(quoteMeta.label),
             discountTotal: 0,
           }),
         },
@@ -1622,8 +2069,7 @@ export function TripWorkspacePage() {
     }
   }
 
-  async function openUseTemplateDialog() {
-    setUseTemplateOpen(true);
+  async function loadQuoteTemplates() {
     setLoadingTemplates(true);
     try {
       const res = await api<{ items: typeof quoteTemplates }>('/quote-templates');
@@ -1636,6 +2082,143 @@ export function TripWorkspacePage() {
     }
   }
 
+  async function toggleTemplateHistory(templateId: string) {
+    if (templateHistoryForId === templateId) {
+      setTemplateHistoryForId(null);
+      setTemplateHistoryItems([]);
+      setTemplateDiffOpenId(null);
+      return;
+    }
+    setTemplateHistoryForId(templateId);
+    setTemplateDiffOpenId(null);
+    setLoadingTemplateHistory(true);
+    setTemplateHistoryItems([]);
+    try {
+      const res = await api<{ items: TemplateVersionListItem[] }>(
+        `/quote-templates/${templateId}/versions`,
+      );
+      setTemplateHistoryItems(res.items || []);
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not load template history');
+      setTemplateHistoryForId(null);
+    } finally {
+      setLoadingTemplateHistory(false);
+    }
+  }
+
+  async function restoreTemplateVersion(chainTemplateId: string, fromTemplateId: string) {
+    if (!canQuoteWrite) return;
+    setRestoringTemplateId(fromTemplateId);
+    try {
+      const saved = await api<{
+        id: string;
+        versionNumber?: number;
+        restoredFromTemplateId?: string;
+      }>(`/quote-templates/${chainTemplateId}/restore`, {
+        method: 'POST',
+        body: JSON.stringify({ fromTemplateId }),
+      });
+      toastSuccess(
+        `Restored as v${saved.versionNumber ?? '?'} — Use the new active version`,
+      );
+      await loadQuoteTemplates();
+      setTemplateHistoryForId(saved.id);
+      const res = await api<{ items: TemplateVersionListItem[] }>(
+        `/quote-templates/${saved.id}/versions`,
+      );
+      setTemplateHistoryItems(res.items || []);
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not restore template');
+    } finally {
+      setRestoringTemplateId(null);
+    }
+  }
+
+  async function openUseTemplateDialog() {
+    const existing = String(trip?.startDate || '').slice(0, 10);
+    setTemplateApplyStartDate(/^\d{4}-\d{2}-\d{2}$/.test(existing) ? existing : '');
+    setTemplateApplyAdults(2);
+    setTemplateApplyChildren(0);
+    setTemplateHistoryForId(null);
+    setTemplateHistoryItems([]);
+    setUseTemplateOpen(true);
+    await loadQuoteTemplates();
+  }
+
+  /** Install Darjeeling/Goa pack in place — stay on this trip (do not follow demo walkthroughHref). */
+  async function installFitPackOnTrip() {
+    setInstallingFitPack(true);
+    try {
+      const res = await installAgencyFitPack();
+      toastSuccess(formatAgencyFitPackToast(res));
+      await loadQuoteTemplates();
+      if (!useTemplateOpen) {
+        await openUseTemplateDialog();
+      }
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not install sample pack');
+    } finally {
+      setInstallingFitPack(false);
+    }
+  }
+
+  const walkthroughOpenedRef = useRef(false);
+  useEffect(() => {
+    if (walkthroughOpenedRef.current) return;
+    if (searchParams.get('walkthrough') !== '1') return;
+    if (!canQuoteWrite) return;
+    if (tab !== 'quotations') {
+      setTab('quotations');
+      return;
+    }
+    walkthroughOpenedRef.current = true;
+    void openUseTemplateDialog();
+    const params = new URLSearchParams(searchParams);
+    params.delete('walkthrough');
+    setSearchParams(params, { replace: true });
+    // one-shot deep link from onboarding checklist
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, tab, canQuoteWrite, setSearchParams]);
+
+  useEffect(() => {
+    if (tab !== 'quotations' || quoteItems.length > 0 || !canQuoteWrite) return;
+    if (quoteTemplates.length > 0) return;
+    let cancelled = false;
+    api<{ items: typeof quoteTemplates }>('/quote-templates')
+      .then((res) => {
+        if (!cancelled) setQuoteTemplates(res.items || []);
+      })
+      .catch(() => {
+        /* non-blocking prefetch for walkthrough CTA */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, quoteItems.length, canQuoteWrite, quoteTemplates.length]);
+  useEffect(() => {
+    if (tab !== 'quotations') return;
+    if (quoteWorkspaceOpenedAtMsRef.current == null) {
+      quoteWorkspaceOpenedAtMsRef.current = Date.now();
+    }
+  }, [tab]);
+
+  useEffect(() => {
+    if (!sendOpen || sendChannel !== 'whatsapp') return;
+    let cancelled = false;
+    api<
+      Array<{ id: string; name: string; metaTemplateName: string; isActive: boolean }>
+    >('/lead-sources/whatsapp-templates')
+      .then((rows) => {
+        if (!cancelled) setWaSendTemplates(Array.isArray(rows) ? rows : []);
+      })
+      .catch(() => {
+        if (!cancelled) setWaSendTemplates([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sendOpen, sendChannel]);
+
   async function saveCurrentAsTemplate() {
     const name = templateName.trim();
     if (!name) {
@@ -1645,13 +2228,25 @@ export function TripWorkspacePage() {
     setSavingTemplate(true);
     try {
       const items = quoteItems.map((item) => serializeQuoteLine(item));
+      const asNew = templateSaveAsNew;
+      const tags = parseTemplateTagsCsv(templateTagsCsv);
+      const folder = normalizeTemplateFolderLabel(templateFolder);
+      let saved: { name?: string; versionNumber?: number; supersededTemplateId?: string | null };
       if (selectedQuoteVersion?.id && items.length === 0 && !quoteMeta.inclusions) {
-        await api('/quote-templates', {
+        saved = await api('/quote-templates', {
           method: 'POST',
-          body: JSON.stringify({ name, versionId: selectedQuoteVersion.id }),
+          body: JSON.stringify({
+            name,
+            versionId: selectedQuoteVersion.id,
+            ...((tags.length || folder)
+              ? { contentJson: { ...(tags.length ? { tags } : {}), ...(folder ? { folder } : {}) } }
+              : {}),
+            ...(id ? { tripId: id } : {}),
+            ...(asNew ? { asNew: true } : {}),
+          }),
         });
       } else {
-        await api('/quote-templates', {
+        saved = await api('/quote-templates', {
           method: 'POST',
           body: JSON.stringify({
             name,
@@ -1665,16 +2260,29 @@ export function TripWorkspacePage() {
               exclusions: quoteMeta.exclusions || undefined,
               terms: quoteMeta.terms || null,
               destinationHint: destinations[0]?.name || undefined,
+              ...(tags.length ? { tags } : {}),
+              ...(folder ? { folder } : {}),
             },
             ...(selectedQuoteVersion?.id && items.length === 0
               ? { versionId: selectedQuoteVersion.id }
               : {}),
+            ...(id ? { tripId: id } : {}),
+            ...(asNew ? { asNew: true } : {}),
           }),
         });
       }
-      toastSuccess(`Template “${name}” saved`);
+      const ver = saved.versionNumber ?? 1;
+      toastSuccess(
+        saved.supersededTemplateId
+          ? `Template “${saved.name || name}” v${ver} saved (previous retired)`
+          : `Template “${saved.name || name}” v${ver} saved`,
+      );
       setSaveTemplateOpen(false);
       setTemplateName('');
+      setTemplateTagsCsv('');
+      setTemplateFolder('');
+      setTemplateSaveAsNew(false);
+      await loadQuoteTemplates();
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Could not save template');
     } finally {
@@ -1684,15 +2292,48 @@ export function TripWorkspacePage() {
 
   async function applyQuoteTemplate(templateId: string) {
     if (!id) return;
+    const startDate = templateApplyStartDate.trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
+      toastError('Set a travel start date before applying a template');
+      return;
+    }
     setApplyingTemplateId(templateId);
     try {
+      const children = Math.max(0, Math.round(templateApplyChildren) || 0);
+      const childAges = parseApplyChildAgesCsv(templateApplyChildAgesCsv);
+      const childrenWithoutBed =
+        children > 0
+          ? Math.min(
+              children,
+              Math.max(0, Math.round(templateApplyChildrenWithoutBed) || 0),
+            )
+          : 0;
       const quotation = await api<{
         id: string;
         quoteNumber?: string;
-        versions?: Array<{ id: string }>;
+        dateShiftDays?: number;
+        tripStartDate?: string;
+        tripStartStamped?: boolean;
+        applyAdults?: number | null;
+        applyChildren?: number | null;
+        applyChildAges?: number[] | null;
+        paxStampedCount?: number;
+        rematchMatched?: number;
+        rematchUnmatched?: number;
+        itineraryDaysReanchored?: boolean;
+        itineraryDaysSeeded?: boolean;
+        itineraryDaysBuiltFromHotels?: boolean;
+        versions?: Array<{ id: string; itemsJson?: unknown }>;
       }>(`/trips/${id}/quotations/from-template`, {
         method: 'POST',
-        body: JSON.stringify({ templateId }),
+        body: JSON.stringify({
+          templateId,
+          startDate,
+          adults: Math.max(1, Math.round(templateApplyAdults) || 2),
+          children,
+          ...(children > 0 && childAges.length ? { childAges } : {}),
+          ...(childrenWithoutBed > 0 ? { childrenWithoutBed } : {}),
+        }),
       });
       setSelectedQuotationId(quotation.id);
       selectedQuotationIdRef.current = quotation.id;
@@ -1700,12 +2341,64 @@ export function TripWorkspacePage() {
       setSelectedQuoteVersionId(quotation.versions?.[0]?.id ?? null);
       writeQuoteQuery(quotation.id, quotation.versions?.[0]?.id ?? null);
       setUseTemplateOpen(false);
-      toastSuccess(
+      dismissFirstQuoteWalkthrough();
+      const shiftDays = Number(quotation.dateShiftDays) || 0;
+      const bits = [
         quotation.quoteNumber
           ? `Started ${quotation.quoteNumber} from template`
           : 'Quotation created from template',
-      );
+      ];
+      if (quotation.tripStartStamped) {
+        bits.push(`travel start ${quotation.tripStartDate || startDate}`);
+      }
+      if (
+        quotation.paxStampedCount &&
+        quotation.applyAdults != null
+      ) {
+        const kids = quotation.applyChildren ?? 0;
+        const ages = quotation.applyChildAges?.length
+          ? ` ages ${quotation.applyChildAges.join(',')}`
+          : '';
+        bits.push(
+          `${quotation.applyAdults}A${kids ? `+${kids}C` : ''}${ages} on ${quotation.paxStampedCount} lines`,
+        );
+      }
+      if (shiftDays) {
+        bits.push(`dates shifted ${shiftDays > 0 ? '+' : ''}${shiftDays}d`);
+      }
+      const rematchMatched = Number(quotation.rematchMatched) || 0;
+      const rematchUnmatched = Number(quotation.rematchUnmatched) || 0;
+      if (rematchMatched > 0 || rematchUnmatched > 0) {
+        bits.push(
+          `${rematchMatched} rate-matched${
+            rematchUnmatched ? ` · ${rematchUnmatched} need rates` : ''
+          }`,
+        );
+      }
+      if (quotation.itineraryDaysSeeded) {
+        bits.push('story itinerary seeded');
+      } else if (quotation.itineraryDaysBuiltFromHotels) {
+        bits.push('story days built from hotels');
+      } else if (quotation.itineraryDaysReanchored) {
+        bits.push('itinerary days aligned to trip start');
+      }
+      toastSuccess(bits.join(' · '));
       await load();
+      // Server rematch already priced the draft; skip client refresh when counts present.
+      const seeded = quotation.versions?.[0]
+        ? quoteLinesFromVersion(quotation.versions[0])
+        : [];
+      if (
+        seeded.length &&
+        rematchMatched <= 0 &&
+        rematchUnmatched <= 0
+      ) {
+        // Win the race against load() hydration setState.
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        });
+        await refreshPricesFromRates(undefined, seeded);
+      }
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Could not apply template');
     } finally {
@@ -1721,6 +2414,7 @@ export function TripWorkspacePage() {
     const versions = (q.versions || []) as Array<{
       id: string;
       status: string;
+      label?: string | null;
       inclusions?: string | null;
       exclusions?: string | null;
       terms?: string | null;
@@ -1738,6 +2432,7 @@ export function TripWorkspacePage() {
       exclusions: String(target?.exclusions || ''),
       terms: String(target?.terms || ''),
       validUntil: target?.validUntil ? String(target.validUntil).slice(0, 10) : '',
+      label: String(target?.label || ''),
     });
     setQuoteSaveState('idle');
     setQuoteSavedAt(null);
@@ -1770,17 +2465,109 @@ export function TripWorkspacePage() {
     }
   }
 
+  async function lockQuoteFx(quoteCurrencyCode: string) {
+    if (!selectedQuoteVersion?.id || quoteReadOnly) return;
+    setLockingFx(true);
+    try {
+      await flushQuoteAutosaveBeforeSend();
+      const rateRaw = fxRateInput.trim();
+      const rate = rateRaw ? Number(rateRaw) : undefined;
+      if (rateRaw && (!Number.isFinite(rate) || (rate as number) <= 0)) {
+        toastError('Enter a positive FX rate (org currency per 1 quote unit)');
+        return;
+      }
+      const res = await api<{
+        currency?: string;
+        fx?: QuoteFxLock | null;
+        convertCount?: number;
+      }>(`/quotations/${selectedQuoteVersion.id}/fx/lock`, {
+        method: 'POST',
+        body: JSON.stringify({
+          quoteCurrency: quoteCurrencyCode,
+          ...(rate != null ? { rate } : {}),
+          convertLines: true,
+        }),
+      });
+      toastSuccess(
+        res.convertCount
+          ? `FX locked · ${res.convertCount} line amount${res.convertCount === 1 ? '' : 's'} converted`
+          : `FX locked for ${quoteCurrencyCode}`,
+      );
+      setFxRateInput('');
+      await load();
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not lock FX');
+    } finally {
+      setLockingFx(false);
+    }
+  }
+
   async function acceptLatest() {
     const version = requireSelectedQuoteVersion();
     if (!version) return;
     setAccepting(true);
     try {
-      const res = await api<{ leadOutcome?: LeadOutcome }>(`/quotations/${version.id}/accept`, {
+      const res = await api<{
+        leadOutcome?: LeadOutcome;
+        hotelBookings?: {
+          created: number;
+          skipped: number;
+          bookingIds: string[];
+          warnings?: string[];
+          allotmentHolds?: number;
+        } | null;
+        transferBookings?: {
+          created: number;
+          skipped: number;
+          bookingIds: string[];
+        } | null;
+        activityBookings?: {
+          created: number;
+          skipped: number;
+          bookingIds: string[];
+        } | null;
+        materializeFailures?: string[];
+      }>(`/quotations/${version.id}/accept`, {
         method: 'POST',
       });
       setAcceptOpen(false);
-      toastSuccess(leadOutcomeMessage(res.leadOutcome, 'Quote accepted · Trip confirmed'));
+      const hb = res.hotelBookings;
+      const tb = res.transferBookings;
+      const ab = res.activityBookings;
+      const created =
+        (hb?.created ?? 0) + (tb?.created ?? 0) + (ab?.created ?? 0);
+      const skipped =
+        (hb?.skipped ?? 0) + (tb?.skipped ?? 0) + (ab?.skipped ?? 0);
+      const allotmentHolds = hb?.allotmentHolds ?? 0;
+      const failures = res.materializeFailures || [];
+      let base = 'Quote accepted · Trip confirmed';
+      if (created > 0) {
+        const bits = [
+          hb && hb.created > 0 ? `${hb.created} hotel` : null,
+          tb && tb.created > 0 ? `${tb.created} transfer` : null,
+          ab && ab.created > 0 ? `${ab.created} activity` : null,
+        ].filter(Boolean);
+        base = `Quote accepted · ${bits.join(' + ')} enquir${created === 1 ? 'y' : 'ies'} created · Trip confirmed`;
+      } else if (skipped > 0 && created === 0) {
+        base = 'Quote accepted · Enquiries already linked · Trip confirmed';
+      } else if (created === 0 && skipped === 0) {
+        base =
+          'Quote accepted · Trip confirmed · No hotel/transfer/activity lines with suppliers (add in Operations)';
+      }
+      if (allotmentHolds > 0) {
+        base = `${base} · ${allotmentHolds} allotment hold${allotmentHolds === 1 ? '' : 's'}`;
+      }
+      if (failures.length) {
+        toastWarning(
+          `${leadOutcomeMessage(res.leadOutcome, base)} · ${failures.length} ops warning${failures.length === 1 ? '' : 's'}: ${failures[0]}${failures.length > 1 ? '…' : ''}`,
+        );
+      } else {
+        toastSuccess(leadOutcomeMessage(res.leadOutcome, base));
+      }
       await load();
+      if (created > 0 || skipped > 0 || failures.length > 0) {
+        changeTab('operations');
+      }
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Could not accept quote');
     } finally {
@@ -1838,6 +2625,7 @@ export function TripWorkspacePage() {
         }
       }
       const details = detailsFromResolveRecord(detailsRaw);
+      const defaultTax = quoteDefaultTaxPercent();
       const preview = c.ratePreview;
       const line: QuoteLine = {
         id: c.lineId,
@@ -1845,7 +2633,7 @@ export function TripWorkspacePage() {
         quantity: 1,
         unitCost: null,
         unitSell: null,
-        taxPercent: 0,
+        taxPercent: defaultTax,
         pricingUnit,
         serviceType: c.serviceType,
         details,
@@ -1856,53 +2644,81 @@ export function TripWorkspacePage() {
 
       if (preview?.status === 'matched') {
         matched += 1;
-        const qty = preview.quantity || line.quantity;
-        const cost = preview.unitCost ?? null;
-        const sell = preview.unitSell ?? null;
-        let markupPercent: number | undefined;
-        if (cost != null && cost > 0 && sell != null) {
-          markupPercent = Math.round(((sell - cost) / cost) * 1000) / 10;
-        }
+        const rateKind =
+          preview.rateKind === 'hotel' ||
+          preview.rateKind === 'transfer' ||
+          preview.rateKind === 'activity'
+            ? preview.rateKind
+            : c.resolveItem.type === 'hotel' ||
+                c.resolveItem.type === 'transfer' ||
+                c.resolveItem.type === 'activity'
+              ? c.resolveItem.type
+              : undefined;
+        const applied = applyRateResolveHit({
+          serviceType: rateKind || c.serviceType,
+          details,
+          hit: {
+            matched: true,
+            rateKind: rateKind || null,
+            rateId: preview.rateId,
+            unitCost: preview.unitCost ?? 0,
+            unitSell: preview.unitSell ?? 0,
+            quantity: preview.quantity || 1,
+            taxPercent: preview.taxPercent ?? 0,
+            pricingUnit: preview.pricingUnit,
+            rateMeta: preview.rateMeta,
+          },
+          forceSell: true,
+        });
         return {
           ...line,
-          quantity: qty,
-          unitCost: cost,
-          unitSell: sell,
-          taxPercent: preview.taxPercent ?? 0,
-          pricingUnit: QUOTE_PRICING_UNITS.has(preview.pricingUnit || '')
-            ? (preview.pricingUnit as QuoteLine['pricingUnit'])
+          details: applied.details,
+          quantity: applied.quantity,
+          unitCost: applied.unitCost,
+          unitSell: applied.unitSell,
+          taxPercent: applied.taxPercent,
+          pricingUnit: QUOTE_PRICING_UNITS.has(applied.pricingUnit || '')
+            ? (applied.pricingUnit as QuoteLine['pricingUnit'])
             : line.pricingUnit,
-          rateKind: preview.rateKind || (c.resolveItem.type as 'hotel' | 'transfer'),
-          rateId: preview.rateId || undefined,
+          rateKind: applied.rateKind || rateKind,
+          rateId: applied.rateId,
           rateUnmatched: false,
-          details: details
-            ? {
-                ...details,
-                priceSource: 'matched' as const,
-                ...(markupPercent != null
-                  ? { markupMode: 'percent' as const, markupValue: markupPercent }
-                  : {}),
-              }
-            : details,
+          rateProvenance: applied.rateProvenance,
         };
       }
 
       unmatched += 1;
+      const unmatchedApplied = applyRateResolveHit({
+        serviceType:
+          c.resolveItem.type === 'hotel' || c.resolveItem.type === 'transfer'
+            ? c.resolveItem.type
+            : c.serviceType,
+        details,
+        hit: {
+          matched: false,
+          rateKind:
+            c.resolveItem.type === 'hotel' || c.resolveItem.type === 'transfer'
+              ? c.resolveItem.type
+              : null,
+          rateId: null,
+          unitCost: 0,
+          unitSell: 0,
+          quantity: 1,
+          taxPercent: defaultTax,
+          rateMeta: preview?.rateMeta,
+        },
+      });
       return {
         ...line,
-        rateKind: c.resolveItem.type as 'hotel' | 'transfer',
+        rateKind:
+          unmatchedApplied.rateKind ||
+          (c.resolveItem.type as 'hotel' | 'transfer' | 'activity'),
         rateUnmatched: true,
+        rateBlockReason: unmatchedApplied.rateBlockReason,
+        rateProvenance: undefined,
         unitCost: null,
         unitSell: null,
-        details: details
-          ? {
-              ...details,
-              priceSource:
-                preview?.status === 'unmatched' || preview?.status === 'error'
-                  ? ('none' as const)
-                  : details.priceSource,
-            }
-          : details,
+        details: unmatchedApplied.details,
       };
     });
 
@@ -1916,21 +2732,28 @@ export function TripWorkspacePage() {
     changeTab('quotations');
   }
 
-  async function refreshPricesFromRates(lineIds?: string[]) {
+  async function refreshPricesFromRates(
+    lineIds?: string[],
+    linesOverride?: QuoteLine[],
+  ) {
     if (quoteReadOnly) {
       toastError('Switch to a draft version to refresh prices');
       return;
     }
+    const sourceItems = linesOverride ?? quoteItems;
     const targetIds = lineIds ? new Set(lineIds) : null;
-    const pricedCandidates = quoteItems.filter((line) => {
+    const pricedCandidates = sourceItems.filter((line) => {
       if (targetIds && !targetIds.has(line.id)) return false;
       return (
         line.rateKind === 'hotel' ||
         line.rateKind === 'transfer' ||
+        line.rateKind === 'activity' ||
+        line.serviceType === 'activity' ||
         line.id.startsWith('itin-')
       );
     });
     if (!pricedCandidates.length) {
+      if (linesOverride) return;
       toastError(
         targetIds
           ? 'Could not match this line back to an itinerary hotel/transfer'
@@ -1988,6 +2811,7 @@ export function TripWorkspacePage() {
       .filter((x): x is NonNullable<typeof x> => Boolean(x));
 
     if (!resolveItems.length) {
+      if (linesOverride) return;
       toastError('Could not match quote lines back to itinerary hotel/transfer items');
       return;
     }
@@ -2004,65 +2828,117 @@ export function TripWorkspacePage() {
           adults: Number(trip?.inquiry?.adults) || undefined,
           children: Number(trip?.inquiry?.children) || undefined,
           infants: Number(trip?.inquiry?.infants) || undefined,
+          partyId: trip?.party?.id || undefined,
           items: resolveItems,
         }),
       });
       const map = new Map(res.items.map((r) => [r.itemId, r]));
       const markupDefault = quoteDefaultMarkupPercent();
-      setQuoteItems((prev) =>
-        prev.map((line) => {
-          const hit = map.get(line.id);
-          if (!hit) return line;
-          const resolveRow = resolveItems.find((r) => r.itemId === line.id);
-          const baseDetails =
-            line.details ||
-            detailsFromResolveRecord(
-              resolveRow?.details as Record<string, unknown> | undefined,
-            );
-          const serviceType =
-            line.serviceType ||
-            line.rateKind ||
-            (hit.rateKind === 'hotel' || hit.rateKind === 'transfer'
-              ? hit.rateKind
-              : undefined);
-          const applied = applyRateResolveHit({
-            serviceType,
-            details: baseDetails,
-            hit,
-            defaultMarkupPercent: markupDefault,
-            previousUnitSell: line.unitSell,
-            forceSell: !line.details?.sellManual,
-          });
-          return {
-            ...line,
-            details: applied.details,
-            quantity: applied.quantity,
-            unitCost: applied.unitCost,
-            unitSell: applied.unitSell,
-            taxPercent: applied.taxPercent,
-            pricingUnit: QUOTE_PRICING_UNITS.has(applied.pricingUnit || '')
-              ? (applied.pricingUnit as QuoteLine['pricingUnit'])
-              : line.pricingUnit,
-            rateKind: applied.rateKind || line.rateKind,
-            rateId: applied.rateId,
-            rateUnmatched: applied.rateUnmatched,
-            rateBlockReason: applied.rateBlockReason,
-          };
-        }),
-      );
+      const applyHit = (line: QuoteLine): QuoteLine => {
+        const hit = map.get(line.id);
+        if (!hit) return line;
+        const resolveRow = resolveItems.find((r) => r.itemId === line.id);
+        const baseDetails =
+          line.details ||
+          detailsFromResolveRecord(
+            resolveRow?.details as Record<string, unknown> | undefined,
+          );
+        const serviceType =
+          line.serviceType ||
+          line.rateKind ||
+          (hit.rateKind === 'hotel' ||
+          hit.rateKind === 'transfer' ||
+          hit.rateKind === 'activity'
+            ? hit.rateKind
+            : undefined);
+        const applied = applyRateResolveHit({
+          serviceType,
+          details: baseDetails,
+          hit,
+          defaultMarkupPercent: markupDefault,
+          previousUnitSell: line.unitSell,
+          forceSell: !line.details?.sellManual,
+        });
+        return {
+          ...line,
+          details: applied.details,
+          quantity: applied.quantity,
+          unitCost: applied.unitCost,
+          unitSell: applied.unitSell,
+          taxPercent: applied.taxPercent,
+          pricingUnit: QUOTE_PRICING_UNITS.has(applied.pricingUnit || '')
+            ? (applied.pricingUnit as QuoteLine['pricingUnit'])
+            : line.pricingUnit,
+          rateKind: applied.rateKind || line.rateKind,
+          rateId: applied.rateId,
+          rateUnmatched: applied.rateUnmatched,
+          rateBlockReason: applied.rateBlockReason,
+          rateProvenance: applied.rateProvenance,
+        };
+      };
+      if (linesOverride) {
+        setQuoteItems(linesOverride.map(applyHit));
+      } else {
+        setQuoteItems((prev) => prev.map(applyHit));
+      }
       toastSuccess(
         `Refreshed prices · ${res.matchedCount} matched${
           res.unmatchedCount ? ` · ${res.unmatchedCount} unmatched` : ''
         }`,
       );
     } catch (e) {
-      toastError(e instanceof Error ? e.message : 'Could not refresh prices');
+      if (!linesOverride) {
+        toastError(e instanceof Error ? e.message : 'Could not refresh prices');
+      }
+    }
+  }
+
+
+  async function flushQuoteAutosaveBeforeSend(): Promise<boolean> {
+    for (let i = 0; i < 6; i++) {
+      while (quoteSavingRef.current) {
+        await new Promise((r) => setTimeout(r, 40));
+      }
+      const dirty =
+        quoteSaveState === 'pending' ||
+        quoteSaveState === 'saving' ||
+        quoteSaveState === 'error';
+      if (!dirty) return true;
+      if (quoteSaveState === 'error' && i > 0) {
+        toastError(quoteSaveError || 'Save the quotation before sending');
+        return false;
+      }
+      await autosaveQuote({ manual: true, attempt: 0 });
+      await new Promise((r) => setTimeout(r, 80));
+    }
+    if (quoteSaveState === 'error' || quoteSaveState === 'pending' || quoteSaveState === 'saving') {
+      toastError(quoteSaveError || 'Save the quotation before sending');
+      return false;
+    }
+    return true;
+  }
+
+  async function recordFitTimingIfNeeded(versionId: string) {
+    const openedAtMs = quoteWorkspaceOpenedAtMsRef.current;
+    if (openedAtMs == null) return;
+    try {
+      await api('/quotations/fit-timing', {
+        method: 'POST',
+        body: JSON.stringify({
+          quotationVersionId: versionId,
+          openedAtMs,
+          milestone: 'first_send',
+        }),
+      });
+    } catch {
+      /* non-blocking telemetry */
     }
   }
 
   async function sendLatest() {
     const version = requireSelectedQuoteVersion();
     if (!version) return;
+    if (!(await flushQuoteAutosaveBeforeSend())) return;
     if (sendChannel === 'whatsapp') {
       const phone = sendPhone.trim() || trip?.party?.phone || '';
       if (!phone.trim()) {
@@ -2080,27 +2956,37 @@ export function TripWorkspacePage() {
           fallbackWaMeUrl?: string;
           demo?: boolean;
           message?: string;
+          requiresMarkSent?: boolean;
+          validityExtendedTo?: string | null;
+          validityGraceUsed?: boolean;
         }>(`/quotations/${version.id}/send-whatsapp`, {
           method: 'POST',
-          body: JSON.stringify({ toPhone: phone.trim() }),
+          body: JSON.stringify({
+            toPhone: phone.trim(),
+            ...(sendExtendValidity ? { extendValidity: true } : {}),
+          }),
         });
         if (res.sent) {
           toastSuccess(
-            res.demo
-              ? 'Quote marked sent (WhatsApp demo mode — Cloud token is seed-demo)'
-              : 'Proposal sent on WhatsApp',
+            res.validityExtendedTo || res.validityGraceUsed
+              ? `Proposal sent on WhatsApp${formatValiditySendToastSuffix(res)}`
+              : res.demo
+                ? 'Quote marked sent (WhatsApp demo mode — Cloud token is seed-demo)'
+                : 'Proposal sent on WhatsApp',
           );
+          void recordFitTimingIfNeeded(version.id);
           setSendOpen(false);
+          setWaMarkSentPending(false);
           await load();
           return;
         }
         if (res.fallbackWaMeUrl) {
           window.open(res.fallbackWaMeUrl, '_blank', 'noopener,noreferrer');
-          toastSuccess(
+          setWaMarkSentPending(true);
+          toastWarning(
             res.message ||
-              'WhatsApp Cloud is not configured — opened WhatsApp with the proposal link',
+              'Opened WhatsApp — confirm Mark as sent after you send the message',
           );
-          setSendOpen(false);
           return;
         }
         toastError('Could not send on WhatsApp');
@@ -2118,15 +3004,63 @@ export function TripWorkspacePage() {
       return;
     }
     try {
-      await api(`/quotations/${version.id}/send`, {
+      const res = await api<{
+        validityExtendedTo?: string | null;
+        validityGraceUsed?: boolean;
+      }>(`/quotations/${version.id}/send`, {
         method: 'POST',
-        body: JSON.stringify({ toEmail: sendEmail.trim() }),
+        body: JSON.stringify({
+          toEmail: sendEmail.trim(),
+          ...(sendExtendValidity ? { extendValidity: true } : {}),
+        }),
       });
-      toastSuccess('Email queued — PDF will be attached when delivered');
+      toastSuccess(
+        res.validityExtendedTo || res.validityGraceUsed
+          ? `Email queued${formatValiditySendToastSuffix(res)}`
+          : 'Email queued — PDF will be attached when delivered',
+      );
+      void recordFitTimingIfNeeded(version.id);
       setSendOpen(false);
+      setWaMarkSentPending(false);
       await load();
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Could not send quote');
+    }
+  }
+
+  async function markWhatsappSent() {
+    const version = requireSelectedQuoteVersion();
+    if (!version) return;
+    if (!(await flushQuoteAutosaveBeforeSend())) return;
+    if (!canSendQuote) {
+      toastError(sendBlockedReason || 'Complete pricing before marking sent');
+      return;
+    }
+    setWaMarkSentBusy(true);
+    try {
+      const res = await api<{
+        validityExtendedTo?: string | null;
+        validityGraceUsed?: boolean;
+      }>(`/quotations/${version.id}/mark-sent`, {
+        method: 'POST',
+        body: JSON.stringify({
+          channel: 'whatsapp',
+          ...(sendExtendValidity ? { extendValidity: true } : {}),
+        }),
+      });
+      toastSuccess(
+        res.validityExtendedTo || res.validityGraceUsed
+          ? `Marked sent${formatValiditySendToastSuffix(res)}`
+          : 'Quote marked as sent',
+      );
+      void recordFitTimingIfNeeded(version.id);
+      setWaMarkSentPending(false);
+      setSendOpen(false);
+      await load();
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not mark as sent');
+    } finally {
+      setWaMarkSentBusy(false);
     }
   }
 
@@ -2163,18 +3097,50 @@ export function TripWorkspacePage() {
     setMarginOverrideOpen(true);
   }
 
+  async function submitRequestApproval(extendValidity: boolean) {
+    const version = requireSelectedQuoteVersion();
+    if (!version) return;
+    try {
+      const res = await api<{
+        validityExtendedTo?: string | null;
+        validityGraceUsed?: boolean;
+      }>(`/quotations/${version.id}/request-approval`, {
+        method: 'POST',
+        body: JSON.stringify({
+          ...(extendValidity ? { extendValidity: true } : {}),
+        }),
+      });
+      toastSuccess(
+        res.validityExtendedTo || res.validityGraceUsed
+          ? `Approval requested${formatValiditySendToastSuffix(res)}`
+          : 'Approval requested',
+      );
+      setRequestApprovalOpen(false);
+      setApprovalExtendValidity(false);
+      await load();
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not request approval');
+    }
+  }
+
   async function requestApproval() {
     const version = requireSelectedQuoteVersion();
     if (!version) return;
+    if (!(await flushQuoteAutosaveBeforeSend())) return;
     if (!canRequestApproval) {
       const withoutLoss = quoteSendBlockedReason({
         itemCount: quoteItems.length,
         missingSellCount,
         missingCostCount: costGaps.missingCount,
         marginGateCount: 0,
+        rateDriftCount,
+        allotmentBlockCount: allotmentWarnCount,
+        capacityBlockCount: capacityWarnCount,
         minMarginPercent: quoteMinMarginPercent,
         canViewCost: Boolean(canViewCost),
         hasValidUntil,
+        validUntilExpired,
+        validUntilBlocksSend,
         travellerCount,
         statusAllowsSend: true,
       });
@@ -2185,13 +3151,12 @@ export function TripWorkspacePage() {
       toastError(pricingBlockedReason || 'Complete pricing before requesting approval');
       return;
     }
-    try {
-      await api(`/quotations/${version.id}/request-approval`, { method: 'POST' });
-      toastSuccess('Approval requested');
-      await load();
-    } catch (e) {
-      toastError(e instanceof Error ? e.message : 'Could not request approval');
+    if (validUntilGraceCue || validUntilNearExpiryMessage) {
+      setApprovalExtendValidity(false);
+      setRequestApprovalOpen(true);
+      return;
     }
+    await submitRequestApproval(false);
   }
 
   function openSendFlow() {
@@ -2200,6 +3165,8 @@ export function TripWorkspacePage() {
       return;
     }
     if (canSendQuote) {
+      const nearExpiry = validUntilNearExpiryMessage;
+      if (nearExpiry) toastWarning(nearExpiry);
       setSendEmail(trip?.party?.email || sendEmail);
       setSendPhone(trip?.party?.phone || sendPhone);
       setSendOpen(true);
@@ -2210,9 +3177,14 @@ export function TripWorkspacePage() {
       missingSellCount,
       missingCostCount: costGaps.missingCount,
       marginGateCount: 0,
+      rateDriftCount,
+      allotmentBlockCount: allotmentWarnCount,
+      capacityBlockCount: capacityWarnCount,
       minMarginPercent: quoteMinMarginPercent,
       canViewCost: Boolean(canViewCost),
       hasValidUntil,
+      validUntilExpired,
+      validUntilBlocksSend,
       travellerCount,
       statusAllowsSend: true,
     });
@@ -2281,13 +3253,12 @@ export function TripWorkspacePage() {
         return;
       }
       if (pending === 'requestApproval') {
-        try {
-          await api(`/quotations/${version.id}/request-approval`, { method: 'POST' });
-          toastSuccess('Approval requested');
-          await load();
-        } catch (e) {
-          toastError(e instanceof Error ? e.message : 'Could not request approval');
+        if (validUntilGraceCue || validUntilNearExpiryMessage) {
+          setApprovalExtendValidity(false);
+          setRequestApprovalOpen(true);
+          return;
         }
+        await submitRequestApproval(false);
       }
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Could not record margin override');
@@ -2306,7 +3277,7 @@ export function TripWorkspacePage() {
         quantity: 1,
         unitCost: null,
         unitSell: null,
-        taxPercent: 5,
+        taxPercent: quoteDefaultTaxPercent(),
         pricingUnit: 'per_service',
         serviceType: 'custom',
       },
@@ -2323,6 +3294,8 @@ export function TripWorkspacePage() {
               unitSell: 0,
               rateUnmatched: false,
               rateId: undefined,
+              rateProvenance: undefined,
+              rateBlockReason: undefined,
               includedMeta: {
                 at: new Date().toISOString(),
                 reason: 'Marked as included (no customer charge)',
@@ -2373,7 +3346,7 @@ export function TripWorkspacePage() {
     );
   }
 
-  function confirmApplyDefaultMarkup(markupPercent = 20) {
+  function confirmApplyDefaultMarkup(markupPercent = quoteDefaultMarkupPercent()) {
     const targets = quoteItems.filter(
       (line) => line.unitCost != null && line.unitSell == null,
     );
@@ -2388,12 +3361,43 @@ export function TripWorkspacePage() {
         if (!ids.has(line.id) || line.unitCost == null) return line;
         const sell =
           Math.round(line.unitCost * (1 + markupPercent / 100) * 100) / 100;
-        return { ...line, unitSell: sell, rateUnmatched: false };
+        return {
+          ...line,
+          unitSell: sell,
+          rateUnmatched: false,
+          details: {
+            ...(line.details || {}),
+            markupMode: 'percent',
+            markupValue: markupPercent,
+            sellManual: false,
+          },
+        };
       }),
     );
     setMarkupConfirmOpen(false);
     toastSuccess(
       `Applied ${markupPercent}% markup to ${targets.length} service${targets.length === 1 ? '' : 's'}`,
+    );
+  }
+
+  function confirmApplyDefaultTax(taxPercent = quoteDefaultTaxPercent()) {
+    const targets = quoteItems.filter(
+      (line) => !line.includedMeta && Number(line.taxPercent) === 0,
+    );
+    if (!targets.length) {
+      toastError('No billable lines at 0% tax');
+      setTaxConfirmOpen(false);
+      return;
+    }
+    const ids = new Set(targets.map((t) => t.id));
+    setQuoteItems((prev) =>
+      prev.map((line) =>
+        ids.has(line.id) ? { ...line, taxPercent } : line,
+      ),
+    );
+    setTaxConfirmOpen(false);
+    toastSuccess(
+      `Applied ${taxPercent}% tax to ${targets.length} service${targets.length === 1 ? '' : 's'}`,
     );
   }
 
@@ -2410,6 +3414,17 @@ export function TripWorkspacePage() {
       return;
     }
     setMarkupConfirmOpen(true);
+  }
+
+  function applyDefaultTax() {
+    const targets = quoteItems.filter(
+      (line) => !line.includedMeta && Number(line.taxPercent) === 0,
+    );
+    if (!targets.length) {
+      toastError('No billable lines at 0% tax');
+      return;
+    }
+    setTaxConfirmOpen(true);
   }
 
   async function pdfLatest() {
@@ -2460,11 +3475,21 @@ export function TripWorkspacePage() {
 
   function quoteDefaultMarkupPercent(): number {
     const settings = trip?.organization?.settingsJson as
-      | { defaultMarkupPercent?: number }
+      | { defaultMarkupPercent?: number; agentMarkupPercent?: number }
       | null
       | undefined;
-    const n = Number(settings?.defaultMarkupPercent);
-    return Number.isFinite(n) ? n : 20;
+    return resolveOrgMarkupPercent(settings, {
+      party: trip?.party as { businessType?: string | null } | null,
+    });
+  }
+
+  function quoteDefaultTaxPercent(): number {
+    const settings = trip?.organization?.settingsJson as
+      | { defaultTaxPercent?: number }
+      | null
+      | undefined;
+    const n = Number(settings?.defaultTaxPercent);
+    return Number.isFinite(n) ? n : 5;
   }
 
   function updateQuoteLine(id: string, patch: Partial<(typeof quoteItems)[0]>) {
@@ -2658,6 +3683,38 @@ export function TripWorkspacePage() {
                 </BrandTooltip>
               ) : row.original.rateUnmatched ? (
                 <span className="text-[10px] text-amber-700 dark:text-amber-400">No rate</span>
+              ) : row.original.rateId || row.original.details?.priceSource === 'matched' ? (
+                <BrandTooltip
+                  label={[
+                    rateProvenanceSourceLabel(row.original.rateProvenance),
+                    row.original.details?.rateLabel,
+                    row.original.rateProvenance?.startDate ||
+                    row.original.rateProvenance?.endDate
+                      ? `Season ${row.original.rateProvenance.startDate || '…'} → ${row.original.rateProvenance.endDate || '…'}`
+                      : null,
+                    row.original.rateProvenance?.unitCostAtMatch != null
+                      ? `Buy at match ${row.original.rateProvenance.unitCostAtMatch}`
+                      : null,
+                    formatRateTimestamp(
+                      row.original.rateProvenance?.rateUpdatedAt ||
+                        row.original.details?.rateLastUpdated,
+                    )
+                      ? `Chart updated ${formatRateTimestamp(
+                          row.original.rateProvenance?.rateUpdatedAt ||
+                            row.original.details?.rateLastUpdated,
+                        )}`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                  side="top"
+                  align="start"
+                  className="max-w-xs whitespace-normal break-words text-left font-normal leading-snug"
+                >
+                  <span className="text-[10px] text-emerald-700 dark:text-emerald-400">
+                    {row.original.rateProvenance?.isSystem ? 'Catalog' : 'Contract'}
+                  </span>
+                </BrandTooltip>
               ) : null}
             </>
           );
@@ -2940,7 +3997,7 @@ export function TripWorkspacePage() {
         ) : null}
         {quoteVersions.length > 1 ? (
           <Combobox
-            className="w-[11rem] shrink-0"
+            className="w-[14rem] shrink-0"
             size="sm"
             value={selectedQuoteVersion?.id || ''}
             onChange={(vid) => {
@@ -2949,7 +4006,7 @@ export function TripWorkspacePage() {
             }}
             options={quoteVersions.map((v) => ({
               value: v.id,
-              label: `Version ${v.versionNumber}`,
+              label: quoteVersionOptionLabel(v),
               description: `${String(v.status).replace(/_/g, ' ')} · ${formatCurrency(v.sellTotal)}`,
             }))}
             placeholder="Version"
@@ -2984,6 +4041,16 @@ export function TripWorkspacePage() {
                     <Link className="text-primary hover:underline" to={`/inquiries/${trip.inquiry.id}`}>
                       {trip.inquiry.inquiryNumber}
                     </Link>
+                  ) : typeof part === 'string' &&
+                    (part === dateRange || part === 'Set travel dates') &&
+                    canTripWrite ? (
+                    <button
+                      type="button"
+                      className="text-primary hover:underline"
+                      onClick={() => openTravelDatesSheet()}
+                    >
+                      {part}
+                    </button>
                   ) : (
                     <span>{part?.replace(/^Client:\s*/, '').replace(/^Inquiry:\s*/, '')}</span>
                   )}
@@ -3024,6 +4091,13 @@ export function TripWorkspacePage() {
         }
       />
 
+      <TripControlCentre
+        tripId={trip.id}
+        compact
+        activeTab={tab}
+        onOpenTab={(t) => changeTab(t)}
+      />
+
       <Tabs value={tab} onValueChange={changeTab}>
         <TabsList>
           {Object.entries(TAB_LABELS).map(([value, label]) => (
@@ -3038,6 +4112,7 @@ export function TripWorkspacePage() {
             <p className="text-sm text-muted-foreground">
               {STATUS_GUIDANCE[trip.status] || 'Continue working this trip in the tabs below.'}
             </p>
+            <TripControlCentre tripId={trip.id} onOpenTab={(t) => changeTab(t)} />
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <Card>
                 <CardContent className="p-4">
@@ -3062,6 +4137,27 @@ export function TripWorkspacePage() {
                     ) : (
                       <span className="text-sm text-muted-foreground">None yet</span>
                     )}
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="space-y-3 p-4">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-xs text-muted-foreground">Travel dates</div>
+                      {canTripWrite ? (
+                        <button
+                          type="button"
+                          className="text-xs font-medium text-primary hover:underline"
+                          onClick={() => openTravelDatesSheet()}
+                        >
+                          Edit
+                        </button>
+                      ) : null}
+                    </div>
+                    <p className="text-sm text-foreground/90">
+                      {dateRange || 'Not set'}
+                    </p>
                   </div>
                 </CardContent>
               </Card>
@@ -3180,7 +4276,7 @@ export function TripWorkspacePage() {
                     {selectedQuoteVersion ? (
                       <span className="font-normal text-muted-foreground">
                         {' '}
-                        · Version {selectedQuoteVersion.versionNumber}
+                        · {quoteVersionOptionLabel(selectedQuoteVersion)}
                       </span>
                     ) : null}
                   </h2>
@@ -3301,6 +4397,16 @@ export function TripWorkspacePage() {
                   >
                     Resolve missing rates
                   </Button>
+                  {rateDriftCount > 0 ? (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="h-7"
+                      onClick={() => void refreshPricesFromRates(rateDriftIds)}
+                    >
+                      Rematch drifted ({rateDriftCount})
+                    </Button>
+                  ) : null}
                   <Button
                     size="sm"
                     variant="secondary"
@@ -3309,6 +4415,18 @@ export function TripWorkspacePage() {
                   >
                     Apply default markup
                   </Button>
+                  {quoteItems.some(
+                    (l) => !l.includedMeta && Number(l.taxPercent) === 0,
+                  ) ? (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="h-7"
+                      onClick={() => applyDefaultTax()}
+                    >
+                      Apply default tax
+                    </Button>
+                  ) : null}
                   <Button
                     size="sm"
                     variant="ghost"
@@ -3334,32 +4452,43 @@ export function TripWorkspacePage() {
                   ) : null}
                 </div>
                 {attentionOpen ? (
-                  <ul className="mt-2 space-y-0.5 text-xs text-amber-900/90 dark:text-amber-100/90">
-                    {missingPricingCount > 0 ? (
-                      <li>
-                        {missingPricingCount} service{missingPricingCount === 1 ? '' : 's'} missing
-                        buy/sell rates
+                  <ul className="mt-2 space-y-1">
+                    {attentionLines.map((row) => (
+                      <li key={row.id}>
+                        <button
+                          type="button"
+                          className="flex w-full items-start gap-2 rounded-md px-1.5 py-1 text-left text-xs text-amber-900 transition-colors hover:bg-amber-500/15 dark:text-amber-100"
+                          onClick={() => {
+                            setQuoteDetailLineId(row.id);
+                            setAttentionOpen(true);
+                          }}
+                        >
+                          <span className="min-w-0 flex-1 truncate font-medium">
+                            {row.serviceType ? (
+                              <span className="mr-1.5 font-normal uppercase tracking-wide text-amber-800/70 dark:text-amber-200/70">
+                                {row.serviceType}
+                              </span>
+                            ) : null}
+                            {row.description}
+                          </span>
+                          <span className="flex shrink-0 flex-wrap justify-end gap-1">
+                            {row.reasons.map((reason) => (
+                              <span
+                                key={reason}
+                                className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-950 dark:text-amber-50"
+                              >
+                                {quoteAttentionReasonLabel(reason)}
+                              </span>
+                            ))}
+                          </span>
+                        </button>
                       </li>
-                    ) : null}
-                    {marginGateCount > 0 ? (
-                      <li>
-                        {marginGateCount} service{marginGateCount === 1 ? '' : 's'} below margin
-                        policy
-                        {quoteMinMarginPercent > 0
-                          ? ` (min ${quoteMinMarginPercent}%)`
-                          : ' (sell below cost)'}
-                      </li>
-                    ) : null}
-                    {quoteItems.some((l) => l.rateUnmatched) ? (
-                      <li>
-                        {quoteItems.filter((l) => l.rateUnmatched).length} service
-                        {quoteItems.filter((l) => l.rateUnmatched).length === 1 ? '' : 's'} with no
-                        rate-card match
-                        {quoteItems.some((l) => l.rateBlockReason === 'blackout')
-                          ? ` · ${quoteItems.filter((l) => l.rateBlockReason === 'blackout').length} blackout`
-                          : ''}
-                        {quoteItems.some((l) => l.rateBlockReason === 'stop_sell')
-                          ? ` · ${quoteItems.filter((l) => l.rateBlockReason === 'stop_sell').length} stop-sell`
+                    ))}
+                    {missingPricingCount > 0 || marginGateCount > 0 ? (
+                      <li className="px-1.5 pt-0.5 text-[11px] text-amber-800/80 dark:text-amber-200/80">
+                        Click a line to open details
+                        {quoteMinMarginPercent > 0 && marginGateCount > 0
+                          ? ` · min margin ${quoteMinMarginPercent}%`
                           : ''}
                       </li>
                     ) : null}
@@ -3375,18 +4504,46 @@ export function TripWorkspacePage() {
                     {quoteTableLeading ? (
                       <div className="flex flex-wrap items-center gap-1.5">{quoteTableLeading}</div>
                     ) : null}
+                    <FirstQuoteWalkthrough
+                      canWrite={canQuoteWrite}
+                      hasTemplates={quoteTemplates.length > 0}
+                      installingPack={installingFitPack}
+                      onUseTemplate={() => void openUseTemplateDialog()}
+                      onInstallPack={() => void installFitPackOnTrip()}
+                      onImportItinerary={() => openImportItineraryReview()}
+                      onAddService={() => addBlankQuoteLine()}
+                    />
                     <EmptyState
                       className="py-8"
                       title="Build this quotation"
-                      description="Import priced lines from the itinerary, start from a template, or add a service manually."
+                      description={
+                        quoteTemplates.length > 0
+                          ? 'Start from a template for the fastest FIT, import from the itinerary, or add a service manually.'
+                          : 'Install the sample FIT pack for Darjeeling / Goa packages, then set travel start and apply a template.'
+                      }
                       action={
                         canQuoteWrite ? (
                           <div className="flex flex-wrap justify-center gap-2">
-                            <Button onClick={() => openImportItineraryReview()}>
+                            {quoteTemplates.length > 0 ? (
+                              <Button onClick={() => void openUseTemplateDialog()}>
+                                Use template
+                              </Button>
+                            ) : (
+                              <Button
+                                disabled={installingFitPack}
+                                onClick={() => void installFitPackOnTrip()}
+                              >
+                                <PackagePlus className="size-4" />
+                                {installingFitPack
+                                  ? 'Installing…'
+                                  : 'Install sample FIT pack'}
+                              </Button>
+                            )}
+                            <Button
+                              variant="secondary"
+                              onClick={() => openImportItineraryReview()}
+                            >
                               Import itinerary
-                            </Button>
-                            <Button variant="secondary" onClick={() => void openUseTemplateDialog()}>
-                              Use template
                             </Button>
                             <Button variant="secondary" onClick={() => addBlankQuoteLine()}>
                               Add service
@@ -3406,6 +4563,8 @@ export function TripWorkspacePage() {
                     pageSize={25}
                     searchPlaceholder="Filter lines…"
                     showColumnsMenu={false}
+                    getDataRowId={(row) => row.id}
+                    highlightedRowId={quoteDetailLineId}
                     leading={quoteTableLeading}
                     toolbar={
                       <div className="flex shrink-0 flex-wrap items-center gap-1.5">
@@ -3529,6 +4688,8 @@ export function TripWorkspacePage() {
                                       const hint =
                                         trip?.title || destinationsLabel || 'Quote template';
                                       setTemplateName(String(hint).slice(0, 80));
+                                      setTemplateSaveAsNew(false);
+                                      void loadQuoteTemplates();
                                       setSaveTemplateOpen(true);
                                     }}
                                   >
@@ -3550,6 +4711,22 @@ export function TripWorkspacePage() {
                                     onClick={() => void refreshPricesFromRates()}
                                   >
                                     Refresh prices from rates
+                                  </DropdownMenuItem>
+                                  {rateDriftCount > 0 ? (
+                                    <DropdownMenuItem
+                                      disabled={!quoteCan.has('addLines')}
+                                      onClick={() =>
+                                        void refreshPricesFromRates(rateDriftIds)
+                                      }
+                                    >
+                                      Rematch drifted rates ({rateDriftCount})
+                                    </DropdownMenuItem>
+                                  ) : null}
+                                  <DropdownMenuItem
+                                    disabled={quoteReadOnly || quoteItems.length === 0}
+                                    onClick={() => applyDefaultTax()}
+                                  >
+                                    Apply default tax…
                                   </DropdownMenuItem>
                                   <DropdownMenuSeparator />
                                 </>
@@ -3685,6 +4862,53 @@ export function TripWorkspacePage() {
                   ) : null}
                   <div className="border-t border-border/60 pt-2 space-y-2">
                     <div className="space-y-1">
+                      <dt className="text-muted-foreground">Version label</dt>
+                      <dd className="space-y-2">
+                        {quoteReadOnly ? (
+                          <span className="text-sm">
+                            {quoteVersionOptionLabel({
+                              versionNumber: selectedQuoteVersion?.versionNumber,
+                              label: quoteMeta.label,
+                            })}
+                          </span>
+                        ) : (
+                          <>
+                            <Input
+                              className="h-8"
+                              value={quoteMeta.label}
+                              maxLength={QUOTE_VERSION_LABEL_MAX}
+                              placeholder={
+                                selectedQuoteVersion?.versionNumber
+                                  ? `v${selectedQuoteVersion.versionNumber}`
+                                  : 'e.g. Peak season FIT'
+                              }
+                              onChange={(e) =>
+                                setQuoteMeta((m) => ({
+                                  ...m,
+                                  label: e.target.value.slice(0, QUOTE_VERSION_LABEL_MAX),
+                                }))
+                              }
+                            />
+                            <SuggestionChips
+                              aria-label="Version label presets"
+                              className="gap-1.5"
+                              allowDeselect={false}
+                              value={quoteMeta.label}
+                              options={quoteVersionLabelPickerOptions({
+                                versionNumber: selectedQuoteVersion?.versionNumber,
+                              })}
+                              onChange={(label) =>
+                                setQuoteMeta((m) => ({
+                                  ...m,
+                                  label: label.slice(0, QUOTE_VERSION_LABEL_MAX),
+                                }))
+                              }
+                            />
+                          </>
+                        )}
+                      </dd>
+                    </div>
+                    <div className="space-y-1">
                       <dt className="text-muted-foreground">Valid until</dt>
                       <dd>
                         <DatePicker
@@ -3707,6 +4931,105 @@ export function TripWorkspacePage() {
                             }));
                           }}
                         />
+                      </dd>
+                      {validUntilExpired && !quoteReadOnly ? (
+                        <p className="text-xs text-amber-800 dark:text-amber-200">
+                          {validUntilPastGraceCue
+                            ? `${validUntilPastGraceCue}, or `
+                            : validUntilGraceCue
+                              ? `${validUntilGraceCue}, or `
+                              : 'Expired — reset validity, or '}
+                          <button
+                            type="button"
+                            className="font-medium underline underline-offset-2"
+                            onClick={() => {
+                              const days = quoteValidityDaysFromSettings(
+                                trip?.organization?.settingsJson,
+                              );
+                              const validUntil = defaultValidUntilIso(days);
+                              setQuoteMeta((m) => ({
+                                ...m,
+                                validUntil,
+                                terms: syncTermsWithValidUntil(m.terms, validUntil),
+                              }));
+                              toastSuccess(`Validity reset to +${days} days`);
+                            }}
+                          >
+                            Reset to org default
+                          </button>
+                        </p>
+                      ) : validUntilNearExpiryMessage && !quoteReadOnly ? (
+                        <p className="text-xs text-amber-800/90 dark:text-amber-200/90">
+                          {validUntilNearExpiryMessage}
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className="space-y-1">
+                      <dt className="text-muted-foreground">Quote currency</dt>
+                      <dd className="space-y-2">
+                        {quoteReadOnly ? (
+                          <span className="text-sm tabular-nums">
+                            {quoteCurrency}
+                            {quoteFxLock && quoteCurrency !== orgCurrency
+                              ? ` · ${quoteFxLock.rate} ${orgCurrency}/${quoteCurrency}`
+                              : ''}
+                          </span>
+                        ) : (
+                          <>
+                            <Combobox
+                              value={quoteCurrency}
+                              options={QUOTE_FX_CURRENCY_OPTIONS}
+                              onChange={(code) => {
+                                if (!code || code === quoteCurrency) return;
+                                void lockQuoteFx(code);
+                              }}
+                              placeholder="Currency"
+                              className="h-8"
+                            />
+                            {quoteCurrency !== orgCurrency ? (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Input
+                                  className="h-8 w-28 tabular-nums"
+                                  inputMode="decimal"
+                                  placeholder={`${orgCurrency} per 1 ${quoteCurrency}`}
+                                  value={fxRateInput}
+                                  onChange={(e) => setFxRateInput(e.target.value)}
+                                />
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="secondary"
+                                  disabled={lockingFx}
+                                  onClick={() => void lockQuoteFx(quoteCurrency)}
+                                >
+                                  {lockingFx ? 'Locking…' : 'Lock FX'}
+                                </Button>
+                              </div>
+                            ) : null}
+                            {quoteCurrency !== orgCurrency && !fxRateInput.trim() && !quoteFxLock ? (
+                              <p className="text-xs text-muted-foreground">
+                                Blank rate uses{' '}
+                                <Link
+                                  className="text-primary hover:underline"
+                                  to={toOrgPath(`${AGENCY_ROUTES.settings}?section=general`)}
+                                >
+                                  Settings → General
+                                </Link>{' '}
+                                FX rates (or platform defaults).
+                              </p>
+                            ) : null}
+                            {fxMissing ? (
+                              <p className="text-xs text-amber-800 dark:text-amber-200">
+                                Lock FX before send — org books in {orgCurrency}.
+                              </p>
+                            ) : quoteFxLock && quoteCurrency !== orgCurrency ? (
+                              <p className="text-xs text-muted-foreground">
+                                Locked {quoteFxLock.rate} {orgCurrency} per 1{' '}
+                                {quoteCurrency} ({quoteFxLock.source})
+                              </p>
+                            ) : null}
+                          </>
+                        )}
                       </dd>
                     </div>
                     {travellerCount > 0 ? (
@@ -3862,17 +5185,25 @@ export function TripWorkspacePage() {
                         <li className="flex items-start gap-2">
                           <span
                             className={
-                              quoteMeta.validUntil?.trim()
+                              quoteMeta.validUntil?.trim() && !validUntilBlocksSend
                                 ? 'mt-0.5 text-emerald-600 dark:text-emerald-400'
                                 : 'mt-0.5 text-amber-700 dark:text-amber-400'
                             }
                             aria-hidden
                           >
-                            {quoteMeta.validUntil?.trim() ? '✓' : '✕'}
+                            {quoteMeta.validUntil?.trim() && !validUntilBlocksSend
+                              ? '✓'
+                              : '✕'}
                           </span>
                           <span>
                             Validity date
-                            {quoteMeta.validUntil?.trim() ? '' : ' missing'}
+                            {!quoteMeta.validUntil?.trim()
+                              ? ' missing'
+                              : validUntilBlocksSend
+                                ? ' expired past grace — reset before send'
+                                : validUntilGraceCue
+                                  ? ' expired (grace — send keeps date)'
+                                  : ''}
                           </span>
                         </li>
                         <li className="flex items-start gap-2">
@@ -3928,7 +5259,12 @@ export function TripWorkspacePage() {
         </TabsContent>
 
         <TabsContent value="operations">
-          <OperationsPanel tripId={trip.id} status={trip.status} onChanged={load} />
+          <OperationsPanel
+            tripId={trip.id}
+            status={trip.status}
+            onChanged={load}
+            onOpenFinance={() => changeTab('finance')}
+          />
         </TabsContent>
 
         <TabsContent value="finance">
@@ -3983,6 +5319,65 @@ export function TripWorkspacePage() {
         </FormField>
       </RecordSheet>
 
+      <RecordSheet
+        open={travelDatesOpen}
+        onOpenChange={setTravelDatesOpen}
+        title="Travel dates"
+        description="Updates the trip window. Optionally shift draft quote lines and story days onto the new travel start (locked sent/accepted quotes become a new rematched draft)."
+        submitLabel="Save dates"
+        submitting={travelDatesSaving}
+        onSubmit={() => void saveTravelDates()}
+      >
+        <FormGrid>
+          <FormField label="Travel start">
+            <DatePicker
+              placeholder="Trip start"
+              value={parseDateInput(travelDatesForm.startDate)}
+              onChange={(date) =>
+                setTravelDatesForm((f) => ({
+                  ...f,
+                  startDate: formatDateInput(date),
+                }))
+              }
+            />
+          </FormField>
+          <FormField label="Travel end">
+            <DatePicker
+              placeholder="Trip end"
+              value={parseDateInput(travelDatesForm.endDate)}
+              onChange={(date) =>
+                setTravelDatesForm((f) => ({
+                  ...f,
+                  endDate: formatDateInput(date),
+                }))
+              }
+            />
+          </FormField>
+        </FormGrid>
+        {(quoteItems.length > 0 ||
+          (Array.isArray(trip?.quotations) && trip.quotations.length > 0)) ? (
+          <label className="flex items-start gap-2 text-sm">
+            <Checkbox
+              checked={travelDatesShiftQuote}
+              onCheckedChange={(v) => setTravelDatesShiftQuote(v === true)}
+              className="mt-0.5"
+            />
+            <span>
+              Shift quote &amp; story dates to the new travel start (drafts update
+              in place; sent/accepted become a new rematched draft)
+            </span>
+          </label>
+        ) : null}
+        {!tripTravelEndOnOrAfterStart(
+          travelDatesForm.startDate,
+          travelDatesForm.endDate,
+        ) ? (
+          <p className="text-xs text-amber-800 dark:text-amber-200">
+            Travel end must be on or after travel start.
+          </p>
+        ) : null}
+      </RecordSheet>
+
       <QuoteImportReviewDialog
         open={importReviewOpen}
         onOpenChange={setImportReviewOpen}
@@ -3992,6 +5387,7 @@ export function TripWorkspacePage() {
         partyAdults={Number(trip?.inquiry?.adults) || undefined}
         partyChildren={Number(trip?.inquiry?.children) || undefined}
         partyInfants={Number(trip?.inquiry?.infants) || undefined}
+        partyId={trip?.party?.id}
         onConfirm={confirmImportFromItinerary}
       />
 
@@ -4011,14 +5407,9 @@ export function TripWorkspacePage() {
         tripEndDate={trip?.endDate}
         partyAdults={Number(trip?.inquiry?.adults) || undefined}
         partyChildren={Number(trip?.inquiry?.children) || undefined}
-        defaultMarkupPercent={(() => {
-          const settings = trip?.organization?.settingsJson as
-            | { defaultMarkupPercent?: number }
-            | null
-            | undefined;
-          const n = Number(settings?.defaultMarkupPercent);
-          return Number.isFinite(n) ? n : 20;
-        })()}
+        partyInfants={Number(trip?.inquiry?.infants) || undefined}
+        defaultMarkupPercent={quoteDefaultMarkupPercent()}
+        partyId={trip?.party?.id}
         seedDetails={(() => {
           if (!quoteDetailLineId?.startsWith('itin-')) return null;
           const itinId = quoteDetailLineId.slice(5);
@@ -4028,6 +5419,46 @@ export function TripWorkspacePage() {
           }
           return null;
         })()}
+        attentionQueue={attentionQueue}
+        onNextAttention={(nextId) => {
+          setAttentionOpen(true);
+          setQuoteDetailLineId(nextId);
+        }}
+        quotationVersionId={selectedQuoteVersion?.id ?? null}
+        canOverrideInventoryRisk={Boolean(canOverrideInventoryRisk)}
+        onInventoryRiskAcked={(updated) => {
+          if (typeof updated.versionLock === 'number') {
+            quoteLockRef.current = updated.versionLock;
+          }
+          setQuoteItems(quoteLinesFromVersion(updated));
+          setTrip((prev: any) => {
+            if (!prev) return prev;
+            const quotations = (prev.quotations || []).map((q: any) => {
+              const versions = (q.versions || []).map((v: any) =>
+                v.id === updated.id ? { ...v, ...updated } : v,
+              );
+              return { ...q, versions };
+            });
+            return { ...prev, quotations };
+          });
+        }}
+        canOverrideRateDrift={Boolean(canOverrideRateDrift)}
+        onRateDriftAcked={(updated) => {
+          if (typeof updated.versionLock === 'number') {
+            quoteLockRef.current = updated.versionLock;
+          }
+          setQuoteItems(quoteLinesFromVersion(updated));
+          setTrip((prev: any) => {
+            if (!prev) return prev;
+            const quotations = (prev.quotations || []).map((q: any) => {
+              const versions = (q.versions || []).map((v: any) =>
+                v.id === updated.id ? { ...v, ...updated } : v,
+              );
+              return { ...q, versions };
+            });
+            return { ...prev, quotations };
+          });
+        }}
         onSave={(patch) => {
           const { id, ...rest } = patch;
           updateQuoteLine(id, rest);
@@ -4038,11 +5469,28 @@ export function TripWorkspacePage() {
         open={markupConfirmOpen}
         onOpenChange={setMarkupConfirmOpen}
         title="Apply default markup?"
-        description={`Apply 20% markup to ${
+        description={`Apply ${quoteDefaultMarkupPercent()}% markup${
+          partyUsesAgentMarkup(
+            trip?.party as { businessType?: string | null } | null,
+          )
+            ? ' (agent / B2B)'
+            : ' (org default)'
+        } to ${
           quoteItems.filter((l) => l.unitCost != null && l.unitSell == null).length
         } service(s) that already have a cost? Manually entered sell prices will not be changed.`}
         confirmLabel="Apply markup"
-        onConfirm={() => confirmApplyDefaultMarkup(20)}
+        onConfirm={() => confirmApplyDefaultMarkup()}
+      />
+
+      <ConfirmDialog
+        open={taxConfirmOpen}
+        onOpenChange={setTaxConfirmOpen}
+        title="Apply default tax?"
+        description={`Set tax to ${quoteDefaultTaxPercent()}% (org default) on ${
+          quoteItems.filter((l) => !l.includedMeta && Number(l.taxPercent) === 0).length
+        } billable service(s) currently at 0%? Lines with a tax already set will not change.`}
+        confirmLabel="Apply tax"
+        onConfirm={() => confirmApplyDefaultTax()}
       />
 
       <ConfirmDialog
@@ -4153,23 +5601,77 @@ export function TripWorkspacePage() {
         open={acceptOpen}
         onOpenChange={setAcceptOpen}
         title="Accept this quote?"
-        description="Accepted quotes become immutable. Continue only if the client has confirmed."
+        description="Accepted quotes become immutable. Hotel lines with suppliers become enquiries in Operations: confirm schedules supplier payable, then mark vouchered."
         confirmLabel="Accept quote"
         loading={accepting}
         onConfirm={acceptLatest}
       />
 
       <RecordDialog
+        open={requestApprovalOpen}
+        onOpenChange={(open) => {
+          setRequestApprovalOpen(open);
+          if (!open) setApprovalExtendValidity(false);
+        }}
+        title="Request approval"
+        description="Sends this draft to a manager for approval before customer send."
+        submitLabel="Request approval"
+        onSubmit={() => void submitRequestApproval(approvalExtendValidity)}
+      >
+        {(validUntilGraceCue || validUntilNearExpiryMessage) ? (
+          <label className="flex items-start gap-2 text-sm">
+            <Checkbox
+              checked={approvalExtendValidity}
+              onCheckedChange={(v) => setApprovalExtendValidity(v === true)}
+              className="mt-0.5"
+            />
+            <span>
+              Extend validity to org default
+              <span className="mt-0.5 block text-xs text-muted-foreground">
+                {validUntilGraceCue
+                  ? 'Leave unchecked to keep the expired date (grace).'
+                  : 'Leave unchecked to keep the current near-expiry date.'}
+              </span>
+            </span>
+          </label>
+        ) : (
+          <p className="text-sm text-muted-foreground">Ready to request approval.</p>
+        )}
+      </RecordDialog>
+
+      <RecordDialog
         open={sendOpen}
-        onOpenChange={setSendOpen}
+        onOpenChange={(open) => {
+          setSendOpen(open);
+          if (!open) {
+            setWaMarkSentPending(false);
+            setSendExtendValidity(false);
+          }
+        }}
         title="Send quotation"
         description={
           sendChannel === 'whatsapp'
-            ? 'Sends the proposal link on WhatsApp Cloud when configured. Otherwise opens WhatsApp with a prefilled message.'
+            ? waMarkSentPending
+              ? 'WhatsApp opened with a prefilled message. After you send it, mark this quote as sent so status and ops stay accurate.'
+              : quoteWaSendCue.message
             : 'Queues an email with the proposal PDF attached. Delivery requires SMTP on the worker.'
         }
-        submitLabel={sendChannel === 'whatsapp' ? 'Send WhatsApp' : 'Send email'}
-        onSubmit={() => void sendLatest()}
+        submitLabel={
+          sendChannel === 'whatsapp'
+            ? waMarkSentPending
+              ? waMarkSentBusy
+                ? 'Marking…'
+                : 'Mark as sent'
+              : 'Send WhatsApp'
+            : 'Send email'
+        }
+        onSubmit={() => {
+          if (sendChannel === 'whatsapp' && waMarkSentPending) {
+            void markWhatsappSent();
+            return;
+          }
+          void sendLatest();
+        }}
       >
         <div className="flex gap-2">
           <Button
@@ -4177,6 +5679,7 @@ export function TripWorkspacePage() {
             size="sm"
             variant={sendChannel === 'email' ? 'default' : 'outline'}
             className="h-8"
+            disabled={waMarkSentPending}
             onClick={() => setSendChannel('email')}
           >
             Email
@@ -4207,16 +5710,63 @@ export function TripWorkspacePage() {
               placeholder={trip.party?.phone || '9876543210'}
               inputMode="tel"
               autoComplete="tel"
+              disabled={waMarkSentPending}
             />
           </FormField>
         )}
+        {(validUntilGraceCue || validUntilNearExpiryMessage) ? (
+          <label className="flex items-start gap-2 text-sm">
+            <Checkbox
+              checked={sendExtendValidity}
+              onCheckedChange={(v) => setSendExtendValidity(v === true)}
+              className="mt-0.5"
+            />
+            <span>
+              Extend validity to org default on send
+              <span className="mt-0.5 block text-xs text-muted-foreground">
+                {validUntilGraceCue
+                  ? 'Leave unchecked to keep the expired date (grace).'
+                  : 'Leave unchecked to keep the current near-expiry date.'}
+              </span>
+            </span>
+          </label>
+        ) : null}
+        {sendChannel === 'whatsapp' && !waMarkSentPending && quoteWaSendCue.linkKind ? (
+          <p
+            className={
+              quoteWaSendCue.tone === 'warn'
+                ? 'text-xs text-amber-800 dark:text-amber-200'
+                : 'text-xs text-muted-foreground'
+            }
+          >
+            <Link
+              className="text-primary hover:underline"
+              to={toOrgPath(AGENCY_ROUTES.settingsIntegrations)}
+            >
+              Open Integrations → WhatsApp
+            </Link>{' '}
+            to set Cloud credentials or the Quote proposal template.
+          </p>
+        ) : null}
+        {waMarkSentPending ? (
+          <p className="text-xs text-muted-foreground">
+            Status stays draft until you mark as sent. Cancel closes without changing status.
+          </p>
+        ) : null}
       </RecordDialog>
 
       <RecordDialog
         open={saveTemplateOpen}
-        onOpenChange={setSaveTemplateOpen}
+        onOpenChange={(open) => {
+          setSaveTemplateOpen(open);
+          if (!open) {
+            setTemplateSaveAsNew(false);
+            setTemplateTagsCsv('');
+            setTemplateFolder('');
+          }
+        }}
         title="Save as quote template"
-        description="Reuse inclusions, exclusions, terms, and line items on future trips."
+        description="Reuse inclusions, exclusions, terms, and line items on future trips. Saving with the same name creates the next version and retires the current one."
         submitLabel={savingTemplate ? 'Saving…' : 'Save template'}
         onSubmit={() => void saveCurrentAsTemplate()}
       >
@@ -4228,28 +5778,208 @@ export function TripWorkspacePage() {
             autoFocus
           />
         </FormField>
+        <FormField
+          label="Folder"
+          description="Optional path — use / for nesting (e.g. Hill stations/Darjeeling)"
+        >
+          <Input
+            value={templateFolder}
+            onChange={(e) => setTemplateFolder(e.target.value)}
+            placeholder="e.g. Hill stations/Darjeeling"
+          />
+        </FormField>
+        <FormField
+          label="Tags"
+          description="Comma-separated — filter in Use template (e.g. hill, family)"
+        >
+          <Input
+            value={templateTagsCsv}
+            onChange={(e) => setTemplateTagsCsv(e.target.value)}
+            placeholder="e.g. hill, family"
+          />
+        </FormField>
+        {(() => {
+          const match = quoteTemplates.find(
+            (t) =>
+              t.name.trim().toLowerCase() === templateName.trim().toLowerCase() &&
+              templateName.trim().length > 0,
+          );
+          if (!match || templateSaveAsNew) return null;
+          const next = (match.versionNumber ?? 1) + 1;
+          return (
+            <p className="text-xs text-muted-foreground">
+              Will create <span className="font-medium">v{next}</span> and retire current v
+              {match.versionNumber ?? 1}.
+            </p>
+          );
+        })()}
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={templateSaveAsNew}
+            onChange={(e) => setTemplateSaveAsNew(e.target.checked)}
+          />
+          Keep both (new template with this name)
+        </label>
       </RecordDialog>
 
       <RecordDialog
         open={useTemplateOpen}
-        onOpenChange={setUseTemplateOpen}
+        onOpenChange={(open) => {
+          setUseTemplateOpen(open);
+          if (!open) {
+            setTemplateTagFilter('');
+            setTemplateFolderFilter('');
+          }
+        }}
         title="Start from template"
-        description="Creates a new draft quotation on this trip from a saved template."
+        description="Set travel start and party size so package dates and occupancy rematch onto this trip."
         hideFooter
       >
+        <FormField label="Travel start" required>
+          <DatePicker
+            className="h-9"
+            placeholder="Trip start date"
+            value={
+              /^\d{4}-\d{2}-\d{2}$/.test(templateApplyStartDate)
+                ? new Date(`${templateApplyStartDate}T12:00:00`)
+                : undefined
+            }
+            onChange={(date) => {
+              setTemplateApplyStartDate(
+                date
+                  ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+                  : '',
+              );
+            }}
+          />
+        </FormField>
+        {!/^\d{4}-\d{2}-\d{2}$/.test(templateApplyStartDate) ? (
+          <p className="text-xs text-amber-800 dark:text-amber-200">
+            Required so hotel nights and transfers land on the right dates (then auto-rematch).
+          </p>
+        ) : null}
+        <div className="grid grid-cols-2 gap-3">
+          <FormField label="Adults" required>
+            <Input
+              type="number"
+              min={1}
+              max={99}
+              className="h-9"
+              value={templateApplyAdults}
+              onChange={(e) =>
+                setTemplateApplyAdults(
+                  Math.max(1, Math.min(99, Number(e.target.value) || 1)),
+                )
+              }
+            />
+          </FormField>
+          <FormField label="Children">
+            <Input
+              type="number"
+              min={0}
+              max={99}
+              className="h-9"
+              value={templateApplyChildren}
+              onChange={(e) => {
+                const children = Math.max(
+                  0,
+                  Math.min(99, Number(e.target.value) || 0),
+                );
+                setTemplateApplyChildren(children);
+                setTemplateApplyChildrenWithoutBed((n) => Math.min(n, children));
+              }}
+            />
+          </FormField>
+        </div>
+        {templateApplyChildren > 0 ? (
+          <div className="grid grid-cols-2 gap-3">
+            <FormField
+              label="Child ages"
+              description="Comma-separated years (0–17). Missing ages default to 8 on apply."
+            >
+              <Input
+                className="h-9"
+                placeholder="e.g. 8, 11"
+                value={templateApplyChildAgesCsv}
+                onChange={(e) => setTemplateApplyChildAgesCsv(e.target.value)}
+              />
+            </FormField>
+            <FormField label="Children without bed">
+              <Input
+                type="number"
+                min={0}
+                max={templateApplyChildren}
+                className="h-9"
+                value={templateApplyChildrenWithoutBed}
+                onChange={(e) =>
+                  setTemplateApplyChildrenWithoutBed(
+                    Math.max(
+                      0,
+                      Math.min(
+                        templateApplyChildren,
+                        Number(e.target.value) || 0,
+                      ),
+                    ),
+                  )
+                }
+              />
+            </FormField>
+          </div>
+        ) : null}
+        <p className="text-xs text-muted-foreground">
+          Stamped onto hotel, transfer, and activity lines before rematch.
+        </p>
         {loadingTemplates ? (
           <p className="text-sm text-muted-foreground">Loading templates…</p>
         ) : quoteTemplates.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No templates yet. Save the current quote as a template first, or re-seed the
-            demo org for Darjeeling / Goa packages.
-          </p>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              No templates yet. Install the sample FIT pack for Darjeeling and Goa packages
+              without leaving this trip.
+            </p>
+            {canQuoteWrite ? (
+              <Button
+                size="sm"
+                disabled={installingFitPack}
+                onClick={() => void installFitPackOnTrip()}
+              >
+                <PackagePlus className="size-4" />
+                {installingFitPack ? 'Installing…' : 'Install sample FIT pack'}
+              </Button>
+            ) : null}
+          </div>
         ) : (
-          <ul className="space-y-2">
-            {[...quoteTemplates]
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-3">
+              <FormField label="Filter by folder">
+                <Input
+                  className="h-9"
+                  value={templateFolderFilter}
+                  onChange={(e) => setTemplateFolderFilter(e.target.value)}
+                  placeholder="e.g. Hill stations/Darjeeling…"
+                />
+              </FormField>
+              <FormField label="Filter by tag">
+                <Input
+                  className="h-9"
+                  value={templateTagFilter}
+                  onChange={(e) => setTemplateTagFilter(e.target.value)}
+                  placeholder="e.g. beach, hill…"
+                />
+              </FormField>
+            </div>
+          {(() => {
+            const folderNav = buildFolderNav(
+              quoteTemplates.map((t) => t.content?.folder),
+              templateFolderFilter,
+            );
+            const rows = [...quoteTemplates]
               .map((t) => {
                 const lineCount = Array.isArray(t.content?.items) ? t.content.items.length : 0;
                 const hint = String(t.content?.destinationHint || '').trim();
+                const tags = Array.isArray(t.content?.tags) ? t.content.tags : [];
+                const folder = String(t.content?.folder || '').trim() || undefined;
                 const destNames = destinations.map((d) => d.name.toLowerCase());
                 const hintLower = hint.toLowerCase();
                 const matchesTrip =
@@ -4257,44 +5987,303 @@ export function TripWorkspacePage() {
                   destNames.some(
                     (name) => name.includes(hintLower) || hintLower.includes(name),
                   );
-                return { t, lineCount, hint, matchesTrip };
+                const matchesTag = templateMatchesTagFilter(tags, templateTagFilter);
+                const matchesFolder = templateMatchesFolderFilter(
+                  folder,
+                  templateFolderFilter,
+                );
+                return {
+                  t,
+                  lineCount,
+                  hint,
+                  tags,
+                  folder,
+                  matchesTrip,
+                  matchesTag,
+                  matchesFolder,
+                };
               })
+              .filter((row) => row.matchesTag && row.matchesFolder)
               .sort((a, b) => {
                 if (a.matchesTrip !== b.matchesTrip) return a.matchesTrip ? -1 : 1;
                 if (a.lineCount !== b.lineCount) return b.lineCount - a.lineCount;
                 return a.t.name.localeCompare(b.t.name);
-              })
-              .map(({ t, lineCount, hint, matchesTrip }) => (
+              });
+            return (
+          <div className="space-y-2">
+            {folderNav.breadcrumbs.length || folderNav.children.length ? (
+              <div className="space-y-1.5">
+                {folderNav.breadcrumbs.length ? (
+                  <div className="flex flex-wrap items-center gap-1 text-[10px]">
+                    <button
+                      type="button"
+                      className="rounded bg-muted px-1.5 py-px font-medium text-muted-foreground hover:bg-muted/80"
+                      onClick={() => setTemplateFolderFilter('')}
+                    >
+                      All folders
+                    </button>
+                    {folderNav.breadcrumbs.map((crumb) => {
+                      const active =
+                        templateFolderFilter.trim().toLowerCase() ===
+                        crumb.path.toLowerCase();
+                      return (
+                        <span key={crumb.path} className="contents">
+                          <span className="text-muted-foreground/70">/</span>
+                          <button
+                            type="button"
+                            className={
+                              active
+                                ? 'rounded bg-primary/20 px-1.5 py-px font-medium text-primary'
+                                : 'rounded bg-primary/10 px-1.5 py-px font-medium text-primary hover:bg-primary/15'
+                            }
+                            onClick={() => setTemplateFolderFilter(crumb.path)}
+                          >
+                            {crumb.label}
+                          </button>
+                        </span>
+                      );
+                    })}
+                  </div>
+                ) : null}
+                {folderNav.children.length ? (
+                  <div className="flex flex-wrap gap-1">
+                    {folderNav.children.map((folder) => {
+                      const active =
+                        templateFolderFilter.trim().toLowerCase() ===
+                        folder.toLowerCase();
+                      const label = folder.includes('/')
+                        ? folder.slice(folder.lastIndexOf('/') + 1)
+                        : folder;
+                      return (
+                        <button
+                          key={`nav-${folder}`}
+                          type="button"
+                          className={
+                            active
+                              ? 'rounded bg-primary/20 px-1.5 py-px text-[10px] font-medium text-primary'
+                              : 'rounded bg-primary/10 px-1.5 py-px text-[10px] font-medium text-primary hover:bg-primary/15'
+                          }
+                          onClick={() =>
+                            setTemplateFolderFilter(active ? '' : folder)
+                          }
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+            {rows.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No templates match this folder/tag filter.
+                </p>
+            ) : (
+          <ul className="space-y-2">
+            {rows.map(({ t, lineCount, hint, tags, folder, matchesTrip }) => (
                 <li
                   key={t.id}
-                  className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2"
+                  className="space-y-2 rounded-lg border px-3 py-2"
                 >
-                  <div className="min-w-0">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <div className="truncate text-sm font-medium">{t.name}</div>
-                      {matchesTrip ? (
-                        <span className="shrink-0 rounded bg-primary/15 px-1.5 py-px text-[10px] font-medium text-primary">
-                          Matches trip
-                        </span>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <div className="truncate text-sm font-medium">{t.name}</div>
+                        {(t.versionNumber ?? 1) > 1 ? (
+                          <span className="shrink-0 rounded bg-muted px-1.5 py-px text-[10px] font-medium text-muted-foreground">
+                            v{t.versionNumber}
+                          </span>
+                        ) : null}
+                        {matchesTrip ? (
+                          <span className="shrink-0 rounded bg-primary/15 px-1.5 py-px text-[10px] font-medium text-primary">
+                            Matches trip
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        v{t.versionNumber ?? 1}
+                        {folder ? ` · ${folder}` : ''}
+                        {hint ? ` · ${hint}` : ''}
+                        {' · '}
+                        {lineCount > 0
+                          ? `${lineCount} line${lineCount === 1 ? '' : 's'}`
+                          : 'Meta only'}
+                      </div>
+                      {folder || tags.length ? (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {folderPathSegments(folder).map((seg, i, segs) => {
+                            const path = segs.slice(0, i + 1).join('/');
+                            return (
+                              <button
+                                key={path}
+                                type="button"
+                                className="rounded bg-primary/10 px-1.5 py-px text-[10px] font-medium text-primary hover:bg-primary/15"
+                                onClick={() => setTemplateFolderFilter(path)}
+                              >
+                                {seg}
+                              </button>
+                            );
+                          })}
+                          {tags.map((tag) => (
+                            <button
+                              key={tag}
+                              type="button"
+                              className="rounded bg-muted px-1.5 py-px text-[10px] font-medium text-muted-foreground hover:bg-muted/80"
+                              onClick={() => setTemplateTagFilter(tag)}
+                            >
+                              {tag}
+                            </button>
+                          ))}
+                        </div>
                       ) : null}
                     </div>
-                    <div className="text-xs text-muted-foreground">
-                      {hint ? `${hint} · ` : ''}
-                      {lineCount > 0
-                        ? `${lineCount} line${lineCount === 1 ? '' : 's'}`
-                        : 'Meta only'}
+                    <div className="flex shrink-0 items-center gap-2">
+                      {showTemplateHistoryCue(t.versionNumber) ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => void toggleTemplateHistory(t.id)}
+                        >
+                          {templateHistoryForId === t.id ? 'Hide' : 'History'}
+                        </Button>
+                      ) : null}
+                      <Button
+                        size="sm"
+                        disabled={
+                          applyingTemplateId === t.id ||
+                          !/^\d{4}-\d{2}-\d{2}$/.test(templateApplyStartDate)
+                        }
+                        onClick={() => void applyQuoteTemplate(t.id)}
+                      >
+                        {applyingTemplateId === t.id ? 'Applying…' : 'Use'}
+                      </Button>
                     </div>
                   </div>
-                  <Button
-                    size="sm"
-                    disabled={applyingTemplateId === t.id}
-                    onClick={() => void applyQuoteTemplate(t.id)}
-                  >
-                    {applyingTemplateId === t.id ? 'Applying…' : 'Use'}
-                  </Button>
+                  {templateHistoryForId === t.id ? (
+                    <div className="rounded-md bg-muted/40 px-2 py-2">
+                      {loadingTemplateHistory ? (
+                        <p className="text-xs text-muted-foreground">Loading history…</p>
+                      ) : templateHistoryItems.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">No versions found.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {templateHistoryHasPriors(templateHistoryItems) ? (
+                            <p className="text-[11px] text-muted-foreground">
+                              {templateHistoryPriorActionsCue()}
+                            </p>
+                          ) : null}
+                          <ul className="space-y-1.5">
+                          {templateHistoryItems.map((v) => {
+                            const when = formatTemplateVersionWhen(v.createdAt);
+                            const isActive = v.status === 'active';
+                            const canUsePrior =
+                              canUseTemplateHistoryVersion(v.status) && canQuoteWrite;
+                            const canDiff = showTemplateHistoryDiffCue(v);
+                            const diffOpen = templateDiffOpenId === v.id;
+                            const diffLines = formatTemplateHistoryDiffLines(
+                              v.diffVsActive,
+                            );
+                            return (
+                              <li key={v.id} className="space-y-1 text-xs">
+                                <div className="flex items-center justify-between gap-2">
+                                <div className="min-w-0 text-muted-foreground">
+                                  <span className="font-medium text-foreground">
+                                    v{v.versionNumber}
+                                  </span>
+                                  {isActive ? ' · current' : ' · prior'}
+                                  {when ? ` · ${when}` : ''}
+                                  {v.lineCount != null
+                                    ? ` · ${v.lineCount} line${v.lineCount === 1 ? '' : 's'}`
+                                    : ''}
+                                  {!isActive && v.diffVsActive?.summary
+                                    ? ` · ${v.diffVsActive.summary}`
+                                    : ''}
+                                </div>
+                                {!isActive && canQuoteWrite ? (
+                                  <div className="flex shrink-0 items-center gap-1.5">
+                                    {canDiff ? (
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() =>
+                                          setTemplateDiffOpenId(
+                                            diffOpen ? null : v.id,
+                                          )
+                                        }
+                                      >
+                                        {diffOpen ? 'Hide' : 'Diff'}
+                                      </Button>
+                                    ) : null}
+                                    {canUsePrior ? (
+                                      <Button
+                                        size="sm"
+                                        variant="secondary"
+                                        disabled={
+                                          applyingTemplateId === v.id ||
+                                          restoringTemplateId != null ||
+                                          !/^\d{4}-\d{2}-\d{2}$/.test(
+                                            templateApplyStartDate,
+                                          )
+                                        }
+                                        onClick={() => void applyQuoteTemplate(v.id)}
+                                      >
+                                        {applyingTemplateId === v.id
+                                          ? 'Applying…'
+                                          : 'Use'}
+                                      </Button>
+                                    ) : null}
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      disabled={
+                                        restoringTemplateId === v.id ||
+                                        applyingTemplateId != null
+                                      }
+                                      onClick={() =>
+                                        void restoreTemplateVersion(t.id, v.id)
+                                      }
+                                    >
+                                      {restoringTemplateId === v.id
+                                        ? 'Restoring…'
+                                        : 'Restore'}
+                                    </Button>
+                                  </div>
+                                ) : canDiff ? (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() =>
+                                      setTemplateDiffOpenId(diffOpen ? null : v.id)
+                                    }
+                                  >
+                                    {diffOpen ? 'Hide' : 'Diff'}
+                                  </Button>
+                                ) : null}
+                                </div>
+                                {diffOpen && diffLines.length ? (
+                                  <ul className="rounded border border-border/50 bg-background/60 px-2 py-1.5 text-[11px] text-muted-foreground">
+                                    {diffLines.map((line) => (
+                                      <li key={line}>{line}</li>
+                                    ))}
+                                  </ul>
+                                ) : null}
+                              </li>
+                            );
+                          })}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
                 </li>
               ))}
           </ul>
+            )}
+          </div>
+            );
+          })()}
+          </div>
         )}
       </RecordDialog>
 

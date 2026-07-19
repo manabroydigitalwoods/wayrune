@@ -14,6 +14,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import type { Response } from 'express';
 import { CurrentUser, RequirePermissions, type AuthUser } from '../../common/helpers';
+import { parseFileListEntityIds } from './files-list-query';
 import { FilesService } from './files.service';
 
 @Controller('files')
@@ -85,8 +86,18 @@ export class FilesController {
   list(
     @CurrentUser() user: AuthUser,
     @Query('entityType') entityType: string,
-    @Query('entityId') entityId: string,
+    @Query('entityId') entityId?: string | string[],
+    @Query('entityIds') entityIdsCsv?: string,
+    @Query('documentType') documentType?: string,
   ) {
-    return this.files.listForEntity(user.organizationId, entityType, entityId);
+    const ids = parseFileListEntityIds(entityId, entityIdsCsv);
+    const typeFilter = { documentType: documentType?.trim() || undefined };
+    if (ids.length === 0) {
+      return [];
+    }
+    if (ids.length === 1) {
+      return this.files.listForEntity(user.organizationId, entityType, ids[0]!, typeFilter);
+    }
+    return this.files.listForEntities(user.organizationId, entityType, ids, typeFilter);
   }
 }

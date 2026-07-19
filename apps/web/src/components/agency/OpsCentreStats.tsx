@@ -14,6 +14,7 @@ import {
 import { StatCard } from '@wayrune/ui';
 import { api } from '../../api';
 import { reportError } from '../../lib/errors';
+import { AGENCY_ROUTES } from '../../lib/agencyRoutes';
 
 type OpsCentre = {
   unconfirmedBookings: number;
@@ -50,63 +51,63 @@ export function OpsCentreStats() {
         value={data.unconfirmedBookings}
         tone="warn"
         icon={CalendarClock}
-        onClick={() => navigate('/trips')}
+        onClick={() => navigate(AGENCY_ROUTES.operations)}
       />
       <StatCard
         label="Open incidents"
         value={data.openIncidents}
         tone="danger"
         icon={ShieldAlert}
-        onClick={() => navigate('/trips')}
+        onClick={() => navigate(AGENCY_ROUTES.operationsIncidents)}
       />
       <StatCard
         label="Open service requests"
         value={data.openServiceRequests}
         tone="neutral"
         icon={Handshake}
-        onClick={() => navigate('/trips')}
+        onClick={() => navigate(AGENCY_ROUTES.operationsSuppliers)}
       />
       <StatCard
         label="Open change cases"
         value={data.openChangeCases}
         tone="warn"
         icon={Wrench}
-        onClick={() => navigate('/trips')}
+        onClick={() => navigate(AGENCY_ROUTES.operations)}
       />
       <StatCard
         label="Overdue payments"
         value={data.overduePayments}
         tone="danger"
         icon={Wallet}
-        onClick={() => navigate('/trips')}
+        onClick={() => navigate(AGENCY_ROUTES.financeOverdue)}
       />
       <StatCard
         label="Upcoming arrivals"
         value={data.upcomingArrivals}
         tone="success"
         icon={AlertTriangle}
-        onClick={() => navigate('/trips')}
+        onClick={() => navigate(AGENCY_ROUTES.operationsMovement)}
       />
       <StatCard
         label="Open conversations"
         value={data.openConversations}
         tone="neutral"
         icon={MessageSquare}
-        onClick={() => navigate('/tasks')}
+        onClick={() => navigate(AGENCY_ROUTES.tasks)}
       />
       <StatCard
         label="Active inventory holds"
         value={data.activeHolds ?? 0}
         tone="warn"
         icon={Handshake}
-        onClick={() => navigate('/trips')}
+        onClick={() => navigate(AGENCY_ROUTES.operationsBookings)}
       />
       <StatCard
         label="Data quality issues"
         value={data.dataQualityOpen ?? 0}
         tone="danger"
         icon={ShieldAlert}
-        onClick={() => navigate('/trips')}
+        onClick={() => navigate(AGENCY_ROUTES.operations)}
       />
       <StatCard
         label="Open recovery items"

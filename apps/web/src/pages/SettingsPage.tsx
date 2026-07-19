@@ -53,6 +53,11 @@ import {
   type TimeFormatId,
 } from '@wayrune/ui';
 import { api } from '../api';
+import {
+  formatOrgFxRatesMetaCue,
+  formatOrgFxRefreshToast,
+  type OrgFxRatesMetaCue,
+} from '../lib/orgFxRefresh';
 import { useAuth } from '../auth';
 import { Can } from '../components/Can';
 import { CAP } from '../lib/capabilities';
@@ -267,6 +272,15 @@ const TIMEZONES = [
 
 const CURRENCIES = ['INR', 'USD', 'EUR', 'GBP', 'AED', 'SGD', 'THB', 'AUD'];
 
+/** Mirrors API `DEFAULT_INR_PER_FOREIGN` — book currency per 1 foreign unit. */
+const ORG_FX_CODES = ['USD', 'EUR', 'AED', 'GBP'] as const;
+const ORG_FX_DEFAULTS: Record<(typeof ORG_FX_CODES)[number], number> = {
+  USD: 83.25,
+  EUR: 90.5,
+  AED: 22.7,
+  GBP: 105,
+};
+
 const TAX_LABELS = ['GST', 'VAT', 'Sales Tax', 'None'];
 
 const CURRENCY_LUCIDE: Partial<Record<string, LucideIcon>> = {
@@ -441,7 +455,19 @@ export function SettingsPage({
   const [taxLabel, setTaxLabel] = useState('GST');
   const [defaultTaxPercent, setDefaultTaxPercent] = useState(5);
   const [defaultMarkupPercent, setDefaultMarkupPercent] = useState(20);
+  const [agentMarkupPercent, setAgentMarkupPercent] = useState(20);
+  const [defaultQuoteValidityDays, setDefaultQuoteValidityDays] = useState(7);
+  const [quoteValidityGraceHours, setQuoteValidityGraceHours] = useState(24);
+  const [inboxAgingHours, setInboxAgingHours] = useState(4);
+  const [firstTouchTargetHours, setFirstTouchTargetHours] = useState('');
+  const [leadToQuoteTargetHours, setLeadToQuoteTargetHours] = useState('');
+  const [fitBuildTargetMinutes, setFitBuildTargetMinutes] = useState('');
   const [minMarginPercent, setMinMarginPercent] = useState(0);
+  const [fxRateInputs, setFxRateInputs] = useState<Record<string, string>>(() =>
+    Object.fromEntries(ORG_FX_CODES.map((c) => [c, String(ORG_FX_DEFAULTS[c])])),
+  );
+  const [fxRatesMeta, setFxRatesMeta] = useState<OrgFxRatesMetaCue | null>(null);
+  const [refreshingFx, setRefreshingFx] = useState(false);
   const [branding, setBranding] = useState<BrandingForm>({
     companyName: '',
     tagline: '',
@@ -524,7 +550,56 @@ export function SettingsPage({
     setTaxLabel(o.taxLabel || 'GST');
     setDefaultTaxPercent(num(settings.defaultTaxPercent, 5));
     setDefaultMarkupPercent(num(settings.defaultMarkupPercent, 20));
+    setAgentMarkupPercent(
+      settings.agentMarkupPercent != null
+        ? num(settings.agentMarkupPercent, 20)
+        : num(settings.defaultMarkupPercent, 20),
+    );
+    setDefaultQuoteValidityDays(num(settings.defaultQuoteValidityDays, 7));
+    setQuoteValidityGraceHours(num(settings.quoteValidityGraceHours, 24));
+    setInboxAgingHours(num(settings.inboxAgingHours, 4));
+    setFirstTouchTargetHours(
+      settings.firstTouchTargetHours != null && Number(settings.firstTouchTargetHours) > 0
+        ? String(settings.firstTouchTargetHours)
+        : '',
+    );
+    setLeadToQuoteTargetHours(
+      settings.leadToQuoteTargetHours != null && Number(settings.leadToQuoteTargetHours) > 0
+        ? String(settings.leadToQuoteTargetHours)
+        : '',
+    );
+    setFitBuildTargetMinutes(
+      settings.fitBuildTargetMinutes != null && Number(settings.fitBuildTargetMinutes) > 0
+        ? String(settings.fitBuildTargetMinutes)
+        : '',
+    );
     setMinMarginPercent(num(settings.minMarginPercent, 0));
+    {
+      const fxRaw = asRecord(settings.fxRates);
+      const nextFx: Record<string, string> = {};
+      for (const code of ORG_FX_CODES) {
+        const n = Number(fxRaw[code]);
+        nextFx[code] =
+          Number.isFinite(n) && n > 0 ? String(n) : String(ORG_FX_DEFAULTS[code]);
+      }
+      setFxRateInputs(nextFx);
+      const metaRaw = asRecord(settings.fxRatesMeta);
+      setFxRatesMeta(
+        metaRaw.fetchedAt || metaRaw.asOf
+          ? {
+              fetchedAt: str(metaRaw.fetchedAt) || null,
+              asOf: str(metaRaw.asOf) || null,
+              source: str(metaRaw.source) || null,
+              refreshed: Array.isArray(metaRaw.refreshed)
+                ? metaRaw.refreshed.map(String)
+                : null,
+              skipped: Array.isArray(metaRaw.skipped)
+                ? metaRaw.skipped.map(String)
+                : null,
+            }
+          : null,
+      );
+    }
     setDisplay(nextDisplay);
     setDateTimePrefs(nextDisplay);
     setBranding({
@@ -660,6 +735,19 @@ export function SettingsPage({
 
   const patchBody = useMemo(() => {
     if (section === 'general') {
+      const fxRates: Record<string, number> = {};
+      for (const code of ORG_FX_CODES) {
+        const raw = (fxRateInputs[code] || '').trim();
+        const n = raw ? Number(raw) : ORG_FX_DEFAULTS[code];
+        fxRates[code] = Number.isFinite(n) && n > 0 ? n : ORG_FX_DEFAULTS[code];
+      }
+      const optionalTarget = (raw: string, max: number): number | null => {
+        const t = raw.trim();
+        if (!t) return null;
+        const n = Number(t);
+        if (!Number.isFinite(n) || n <= 0 || n > max) return null;
+        return n;
+      };
       return {
         timezone,
         currency,
@@ -667,7 +755,15 @@ export function SettingsPage({
         settingsJson: {
           defaultTaxPercent,
           defaultMarkupPercent,
+          agentMarkupPercent,
+          defaultQuoteValidityDays,
+          quoteValidityGraceHours,
+          inboxAgingHours,
+          firstTouchTargetHours: optionalTarget(firstTouchTargetHours, 168),
+          leadToQuoteTargetHours: optionalTarget(leadToQuoteTargetHours, 720),
+          fitBuildTargetMinutes: optionalTarget(fitBuildTargetMinutes, 1440),
           minMarginPercent,
+          fxRates,
           itinerary,
           display,
         },
@@ -713,7 +809,15 @@ export function SettingsPage({
     taxLabel,
     defaultTaxPercent,
     defaultMarkupPercent,
+    agentMarkupPercent,
+    defaultQuoteValidityDays,
+    quoteValidityGraceHours,
+    inboxAgingHours,
+    firstTouchTargetHours,
+    leadToQuoteTargetHours,
+    fitBuildTargetMinutes,
     minMarginPercent,
+    fxRateInputs,
     itinerary,
     display,
     name,
@@ -728,6 +832,38 @@ export function SettingsPage({
   async function onSave(e: FormEvent) {
     e.preventDefault();
     if (!patchBody) return;
+    if (section === 'general') {
+      for (const code of ORG_FX_CODES) {
+        const raw = (fxRateInputs[code] || '').trim();
+        if (!raw) continue;
+        const n = Number(raw);
+        if (!Number.isFinite(n) || n <= 0) {
+          toastError(`Enter a positive FX rate for ${code}`);
+          return;
+        }
+      }
+      const checkTarget = (
+        raw: string,
+        label: string,
+        max: number,
+      ): boolean => {
+        const t = raw.trim();
+        if (!t) return true;
+        const n = Number(t);
+        if (!Number.isFinite(n) || n <= 0 || n > max) {
+          toastError(`${label} must be between 0 and ${max} (or blank)`);
+          return false;
+        }
+        return true;
+      };
+      if (
+        !checkTarget(firstTouchTargetHours, 'First-touch target', 168) ||
+        !checkTarget(leadToQuoteTargetHours, 'Lead → quote target', 720) ||
+        !checkTarget(fitBuildTargetMinutes, 'FIT build target', 1440)
+      ) {
+        return;
+      }
+    }
     setSaving(true);
     try {
       const updated = await api('/organizations/current', {
@@ -746,8 +882,45 @@ export function SettingsPage({
     }
   }
 
+  async function refreshFxFromMarket() {
+    setRefreshingFx(true);
+    try {
+      const res = await api<{
+        currency?: string;
+        fxRates?: Record<string, number>;
+        fxRatesMeta?: OrgFxRatesMetaCue;
+        settingsJson?: unknown;
+      }>('/organizations/current/fx/refresh', { method: 'POST' });
+      if (res.settingsJson != null && org) {
+        hydrateFromOrg({
+          ...org,
+          currency: res.currency ?? org.currency,
+          settingsJson: res.settingsJson,
+        });
+      } else if (res.fxRates) {
+        const nextFx: Record<string, string> = {};
+        for (const code of ORG_FX_CODES) {
+          const n = Number(res.fxRates[code]);
+          nextFx[code] =
+            Number.isFinite(n) && n > 0
+              ? String(n)
+              : fxRateInputs[code] || String(ORG_FX_DEFAULTS[code]);
+        }
+        setFxRateInputs(nextFx);
+        setFxRatesMeta(res.fxRatesMeta ?? null);
+      }
+      toastSuccess(formatOrgFxRefreshToast(res.fxRatesMeta));
+    } catch (err) {
+      toastError(err instanceof Error ? err.message : 'Could not refresh FX rates');
+    } finally {
+      setRefreshingFx(false);
+    }
+  }
+
   if (loadError) return <p className="text-sm text-destructive">{loadError}</p>;
   if (!org) return <p className="text-sm text-muted-foreground">Loading…</p>;
+
+  const fxMetaCue = formatOrgFxRatesMetaCue(fxRatesMeta);
 
   if (!forcedSection && searchParams.get('section') === 'audit') {
     return <Navigate to={toOrgPath(AGENCY_ROUTES.settingsAudit)} replace />;
@@ -1024,6 +1197,53 @@ export function SettingsPage({
                           onChange={setCurrency}
                         />
                       </FormField>
+                      <FormField
+                        label={`FX rates (${currency} per 1 foreign)`}
+                        description="Used when Lock FX has no manual rate. Refresh pulls ECB rates via Frankfurter (AED kept if not in feed)."
+                        className="sm:col-span-2"
+                      >
+                        <div className="space-y-3">
+                          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                            {ORG_FX_CODES.map((code) => (
+                              <div key={code} className="space-y-1.5">
+                                <Label htmlFor={`fx-rate-${code}`}>{code}</Label>
+                                <Input
+                                  id={`fx-rate-${code}`}
+                                  type="number"
+                                  min={0.0001}
+                                  step="any"
+                                  inputMode="decimal"
+                                  className="tabular-nums"
+                                  value={fxRateInputs[code] ?? ''}
+                                  onChange={(e) =>
+                                    setFxRateInputs((prev) => ({
+                                      ...prev,
+                                      [code]: e.target.value,
+                                    }))
+                                  }
+                                  placeholder={String(ORG_FX_DEFAULTS[code])}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Can anyOf={CAP.orgSettingsWrite}>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                disabled={refreshingFx || saving}
+                                onClick={() => void refreshFxFromMarket()}
+                              >
+                                {refreshingFx ? 'Refreshing…' : 'Refresh from market'}
+                              </Button>
+                            </Can>
+                            {fxMetaCue ? (
+                              <p className="text-xs text-muted-foreground">{fxMetaCue}</p>
+                            ) : null}
+                          </div>
+                        </div>
+                      </FormField>
                       <FormField label="Date format" required>
                         <Combobox
                           options={DATE_FORMAT_COMBO_OPTIONS}
@@ -1088,7 +1308,7 @@ export function SettingsPage({
                       </FormField>
                       <FormField
                         label="Default markup %"
-                        description="Sell = cost × (1 + markup/100) when pricing from the rate directory."
+                        description="Sell = cost × (1 + markup/100) when pricing from the rate directory (retail / FIT clients)."
                       >
                         <Input
                           type="number"
@@ -1099,6 +1319,108 @@ export function SettingsPage({
                           onChange={(e) =>
                             setDefaultMarkupPercent(Number(e.target.value))
                           }
+                        />
+                      </FormField>
+                      <FormField
+                        label="Agent / B2B markup %"
+                        description="Used for travel agency, reseller, and DMC clients when set. Leave equal to default if you do not split trade vs retail."
+                      >
+                        <Input
+                          type="number"
+                          min={0}
+                          max={500}
+                          step={0.5}
+                          value={agentMarkupPercent}
+                          onChange={(e) =>
+                            setAgentMarkupPercent(Number(e.target.value))
+                          }
+                        />
+                      </FormField>
+                      <FormField
+                        label="Default quote validity (days)"
+                        description="New, cloned, template, and revise-from-accepted drafts get Valid until = today + this many days."
+                      >
+                        <Input
+                          type="number"
+                          min={1}
+                          max={365}
+                          step={1}
+                          value={defaultQuoteValidityDays}
+                          onChange={(e) =>
+                            setDefaultQuoteValidityDays(Number(e.target.value))
+                          }
+                        />
+                      </FormField>
+                      <FormField
+                        label="Post-expiry grace (hours)"
+                        description="After Valid until passes, send keeps that date for this many hours. Past grace blocks send until you reset the date (0 = no grace). Default 24."
+                      >
+                        <Input
+                          type="number"
+                          min={0}
+                          max={72}
+                          step={1}
+                          value={quoteValidityGraceHours}
+                          onChange={(e) =>
+                            setQuoteValidityGraceHours(Number(e.target.value))
+                          }
+                        />
+                      </FormField>
+                      <FormField
+                        label="Inbox aging (hours)"
+                        description="Unread open threads older than this count as aging on the sales dashboard and /inbox?aging=1."
+                      >
+                        <Input
+                          type="number"
+                          min={1}
+                          max={72}
+                          step={1}
+                          value={inboxAgingHours}
+                          onChange={(e) =>
+                            setInboxAgingHours(Number(e.target.value))
+                          }
+                        />
+                      </FormField>
+                      <FormField
+                        label="First-touch target (hours)"
+                        description="Optional. When set, the sales dashboard tones median first touch against this (blank = no target)."
+                      >
+                        <Input
+                          type="number"
+                          min={0.25}
+                          max={168}
+                          step={0.25}
+                          placeholder="e.g. 4"
+                          value={firstTouchTargetHours}
+                          onChange={(e) => setFirstTouchTargetHours(e.target.value)}
+                        />
+                      </FormField>
+                      <FormField
+                        label="Lead → quote target (hours)"
+                        description="Optional. Tones median lead→quote on the sales dashboard (blank = no target)."
+                      >
+                        <Input
+                          type="number"
+                          min={0.25}
+                          max={720}
+                          step={0.25}
+                          placeholder="e.g. 48"
+                          value={leadToQuoteTargetHours}
+                          onChange={(e) => setLeadToQuoteTargetHours(e.target.value)}
+                        />
+                      </FormField>
+                      <FormField
+                        label="FIT build target (minutes)"
+                        description="Optional. Tones median FIT build (workspace open → first send) on the sales dashboard (blank = no target)."
+                      >
+                        <Input
+                          type="number"
+                          min={1}
+                          max={1440}
+                          step={1}
+                          placeholder="e.g. 30"
+                          value={fitBuildTargetMinutes}
+                          onChange={(e) => setFitBuildTargetMinutes(e.target.value)}
                         />
                       </FormField>
                       <FormField

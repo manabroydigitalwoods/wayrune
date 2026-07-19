@@ -113,7 +113,6 @@ function useSidebarScroll(storageKey: string) {
       return typeof stored === 'number' && stored >= 0 ? stored : 0;
     })(),
   );
-  const hideTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const persistTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   const persistScroll = useCallback(() => {
@@ -127,7 +126,6 @@ function useSidebarScroll(storageKey: string) {
 
   useEffect(() => {
     return () => {
-      clearTimeout(hideTimerRef.current);
       clearTimeout(persistTimerRef.current);
       persistScroll();
     };
@@ -136,16 +134,7 @@ function useSidebarScroll(storageKey: string) {
   const onScroll = useCallback(() => {
     const el = ref.current;
     if (!el) return;
-
     scrollTopRef.current = el.scrollTop;
-
-    // Toggle class directly — never React state (re-renders break hover).
-    el.classList.add('scrollbar-active');
-    clearTimeout(hideTimerRef.current);
-    hideTimerRef.current = setTimeout(() => {
-      el.classList.remove('scrollbar-active');
-    }, 850);
-
     clearTimeout(persistTimerRef.current);
     persistTimerRef.current = setTimeout(persistScroll, 400);
   }, [persistScroll]);
@@ -650,7 +639,7 @@ export function AppShell({
 
           <main
             className={cn(
-              'min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-4 pb-10 md:p-7 md:pb-12',
+              'app-main-scroll min-h-0 min-w-0 flex-1 overflow-x-hidden p-4 pb-10 md:p-7 md:pb-12',
               headerActions ? 'pt-4 md:pt-5' : 'pt-14 md:pt-7',
             )}
           >

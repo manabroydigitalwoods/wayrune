@@ -6,13 +6,16 @@ import {
   ArrowUpRight,
   ClipboardList,
   MoreHorizontal,
+  PackagePlus,
   Plane,
   Plus,
   Wallet,
 } from 'lucide-react';
 import {
   Button,
+  Combobox,
   DataTable,
+  DatePicker,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -20,6 +23,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   EntityCombobox,
+  FormGrid,
   Input,
   ListPageShell,
   PageHeader,
@@ -33,7 +37,29 @@ import {
   formatDateRange,
   type ComboboxOption,
 } from '@wayrune/ui';
+import { tripTravelEndOnOrAfterStart } from '@wayrune/contracts';
 import { api } from '../api';
+import { formatDateInput, parseDateInput } from '../lib/dateInput';
+import {
+  formatCreateTripFromPackageToast,
+  fromPackageRequestBody,
+  planCreateTripFromPackage,
+  parseApplyChildAgesCsv,
+  sortQuoteTemplatesForPicker,
+} from '../lib/createTripFromPackage';
+import {
+  clearTemplateIdIfFilteredOut,
+  collectUniquePickerMetaChips,
+  filterTemplatesByFolderAndTag,
+  formatPackagePickerDescription,
+} from '../lib/quoteTemplatePickerFilter';
+import { buildFolderNav } from '../lib/quoteTemplateFolder';
+import {
+  agencyFitPackWalkthroughPath,
+  formatAgencyFitPackToast,
+  installAgencyFitPack,
+  tripsEmptyShowInstallPack,
+} from '../lib/agencyFitPack';
 import { Can } from '../components/Can';
 import { CAP } from '../lib/capabilities';
 import { TRIP_STATUS_OPTIONS, tripStatusLabel } from '../lib/agencyStatusLabels';
@@ -68,6 +94,30 @@ type Trip = {
     readinessDone: number;
     readinessTotal: number;
   };
+};
+
+type QuoteTemplateRow = {
+  id: string;
+  name: string;
+  content?: {
+    destinationHint?: string | null;
+    items?: unknown[];
+    tags?: string[];
+    folder?: string | null;
+  } | null;
+};
+
+const EMPTY_FORM = {
+  title: '',
+  partyId: '',
+  partyLabel: '',
+  startDate: '',
+  endDate: '',
+  templateId: '',
+  adults: 2,
+  children: 0,
+  childAgesCsv: '',
+  childrenWithoutBed: 0,
 };
 
 const STATUS_OPTIONS = [...TRIP_STATUS_OPTIONS];
@@ -106,7 +156,12 @@ export function TripsPage() {
   const [error, setError] = useState('');
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [form, setForm] = useState({ title: '', partyId: '', partyLabel: '' });
+  const [installingPack, setInstallingPack] = useState(false);
+  const [templates, setTemplates] = useState<QuoteTemplateRow[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [packageFolderFilter, setPackageFolderFilter] = useState('');
+  const [packageTagFilter, setPackageTagFilter] = useState('');
+  const [form, setForm] = useState(EMPTY_FORM);
 
   useDocumentTitle(copy.documentTitle);
 
@@ -153,7 +208,9 @@ export function TripsPage() {
     if (opsMode) return `/trips/${id}?tab=operations`;
     if (financeMode) return `/trips/${id}?tab=finance`;
     if (variant === 'quotations' || variant === 'drafts') {
-      return `/trips/${id}?tab=quotations`;
+      const walkthrough =
+        searchParams.get('walkthrough') === '1' ? '&walkthrough=1' : '';
+      return `/trips/${id}?tab=quotations${walkthrough}`;
     }
     return `/trips/${id}`;
   }
@@ -173,6 +230,7 @@ export function TripsPage() {
 
   useEffect(() => {
     void load();
+    void loadTemplates();
   }, []);
 
   async function searchParties(q: string): Promise<ComboboxOption[]> {
@@ -186,19 +244,153 @@ export function TripsPage() {
     }));
   }
 
+  async function loadTemplates() {
+    setTemplatesLoading(true);
+    try {
+      const res = await api<{ items: QuoteTemplateRow[] }>('/quote-templates');
+      setTemplates(res.items || []);
+    } catch {
+      setTemplates([]);
+    } finally {
+      setTemplatesLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    void loadTemplates();
+  }, [open]);
+
+  useEffect(() => {
+    if (open) return;
+    setPackageFolderFilter('');
+    setPackageTagFilter('');
+  }, [open]);
+
+  const filteredTemplates = useMemo(
+    () =>
+      filterTemplatesByFolderAndTag(templates, {
+        folder: packageFolderFilter,
+        tag: packageTagFilter,
+      }),
+    [templates, packageFolderFilter, packageTagFilter],
+  );
+
+  const packageOptions = useMemo(() => {
+    const sorted = sortQuoteTemplatesForPicker(filteredTemplates);
+    return [
+      { value: '', label: 'Blank trip (no package)', description: 'Create workspace only' },
+      ...sorted.map((t) => ({
+        value: t.id,
+        label: t.name,
+        description: formatPackagePickerDescription(t.content),
+      })),
+    ];
+  }, [filteredTemplates]);
+
+  const packageMetaChips = useMemo(
+    () => collectUniquePickerMetaChips(templates),
+    [templates],
+  );
+
+  const packageFolderNav = useMemo(
+    () =>
+      buildFolderNav(
+        templates.map((t) => t.content?.folder),
+        packageFolderFilter,
+      ),
+    [templates, packageFolderFilter],
+  );
+
+  useEffect(() => {
+    setForm((prev) => {
+      const nextId = clearTemplateIdIfFilteredOut(
+        prev.templateId,
+        filteredTemplates.map((t) => t.id),
+      );
+      if (nextId === prev.templateId) return prev;
+      return { ...prev, templateId: nextId };
+    });
+  }, [filteredTemplates]);
+
+  const selectedPackage = templates.find((t) => t.id === form.templateId);
+  const packageRequiresStart = Boolean(form.templateId);
+
+  async function installFitPack(opts?: { fromEmpty?: boolean }) {
+    setInstallingPack(true);
+    try {
+      const res = await installAgencyFitPack();
+      toastSuccess(formatAgencyFitPackToast(res));
+      await loadTemplates();
+      if (opts?.fromEmpty) {
+        await load();
+        const path = agencyFitPackWalkthroughPath(res);
+        if (path) {
+          navigate(path);
+          return;
+        }
+      }
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not install sample pack');
+    } finally {
+      setInstallingPack(false);
+    }
+  }
+
   async function onCreate() {
-    if (!form.title.trim()) {
-      toastError('Enter a trip title');
+    const plan = planCreateTripFromPackage({
+      title: form.title,
+      partyId: form.partyId || undefined,
+      startDate: form.startDate || undefined,
+      endDate: form.endDate || undefined,
+      templateId: form.templateId || undefined,
+      adults: form.adults,
+      children: form.children,
+      childAges: parseApplyChildAgesCsv(form.childAgesCsv),
+      childrenWithoutBed: form.childrenWithoutBed,
+    });
+    if (!plan.ok) {
+      toastError(plan.error);
       return;
     }
     setSubmitting(true);
     try {
+      if (plan.apply) {
+        const body = fromPackageRequestBody(plan);
+        if (!body) {
+          toastError('Could not build package request');
+          return;
+        }
+        const created = await api<{
+          id: string;
+          quoteNumber?: string;
+          rematchMatched?: number;
+          rematchUnmatched?: number;
+        }>('/trips/from-package', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        });
+        toastSuccess(
+          formatCreateTripFromPackageToast({
+            appliedPackage: true,
+            quoteNumber: created.quoteNumber,
+            packageName: selectedPackage?.name,
+            rematchMatched: created.rematchMatched,
+            rematchUnmatched: created.rematchUnmatched,
+          }),
+        );
+        setForm(EMPTY_FORM);
+        setOpen(false);
+        navigate(`/trips/${created.id}?tab=quotations`);
+        return;
+      }
+
       const trip = await api<{ id: string }>('/trips', {
         method: 'POST',
-        body: JSON.stringify({ title: form.title.trim(), partyId: form.partyId || undefined }),
+        body: JSON.stringify(plan.createBody),
       });
-      toastSuccess('Trip created');
-      setForm({ title: '', partyId: '', partyLabel: '' });
+      toastSuccess(formatCreateTripFromPackageToast({ appliedPackage: false }));
+      setForm(EMPTY_FORM);
       setOpen(false);
       navigate(`/trips/${trip.id}`);
     } catch (e) {
@@ -532,7 +724,12 @@ export function TripsPage() {
             ? 'Trips appear here after a quote is confirmed. Accept a quotation, then open the trip Operations tab to add bookings.'
             : financeMode
               ? 'Confirmed trips will appear here for payments.'
-              : 'Create a trip or convert an inquiry.'
+              : tripsEmptyShowInstallPack({
+                    templateCount: templates.length,
+                    templatesLoading,
+                  })
+                ? 'Install the sample FIT pack for Darjeeling / Goa packages and a demo trip, or create a trip from scratch.'
+                : 'Create a trip or convert an inquiry.'
         }
         emptyIcon={opsMode ? ClipboardList : Plane}
         emptyAction={
@@ -546,10 +743,36 @@ export function TripsPage() {
           ) : !financeMode ? (
             <Can anyOf={CAP.tripWrite}>
               {showNewTrip ? (
-              <Button onClick={() => setOpen(true)}>
-                <Plus className="size-4" />
-                New trip
-              </Button>
+                <div className="flex flex-wrap justify-center gap-2">
+                  {tripsEmptyShowInstallPack({
+                    templateCount: templates.length,
+                    templatesLoading,
+                  }) ? (
+                    <Button
+                      disabled={installingPack || templatesLoading}
+                      onClick={() => void installFitPack({ fromEmpty: true })}
+                    >
+                      <PackagePlus className="size-4" />
+                      {installingPack
+                        ? 'Installing…'
+                        : 'Install sample FIT pack'}
+                    </Button>
+                  ) : null}
+                  <Button
+                    variant={
+                      tripsEmptyShowInstallPack({
+                        templateCount: templates.length,
+                        templatesLoading,
+                      })
+                        ? 'secondary'
+                        : 'default'
+                    }
+                    onClick={() => setOpen(true)}
+                  >
+                    <Plus className="size-4" />
+                    New trip
+                  </Button>
+                </div>
               ) : null}
             </Can>
           ) : undefined
@@ -559,11 +782,13 @@ export function TripsPage() {
         open={open}
         onOpenChange={(next) => {
           setOpen(next);
-          if (!next) setForm({ title: '', partyId: '', partyLabel: '' });
+          if (!next) setForm(EMPTY_FORM);
         }}
         title="New trip"
-        description="Start a blank trip workspace — or convert from an inquiry for fuller context."
-        submitLabel="Create trip"
+        description="Optionally start from a FIT package — travel start shifts hotel nights and rematches rates."
+        submitLabel={
+          form.templateId ? 'Create & apply package' : 'Create trip'
+        }
         submitting={submitting}
         onSubmit={onCreate}
       >
@@ -593,6 +818,259 @@ export function TripsPage() {
               clearable
             />
           </FormField>
+          <FormField
+            label="Package (optional)"
+            description={
+              templatesLoading
+                ? 'Loading packages…'
+                : templates.length
+                  ? 'Creates a draft quote from the package on this trip'
+                  : 'No packages yet — install the sample FIT pack'
+            }
+          >
+            {templates.length || templatesLoading ? (
+              <div className="space-y-2">
+                <FormGrid>
+                  <FormField label="Filter by folder">
+                    <Input
+                      className="h-9"
+                      value={packageFolderFilter}
+                      onChange={(e) => setPackageFolderFilter(e.target.value)}
+                      placeholder="e.g. Hill stations/Darjeeling…"
+                    />
+                  </FormField>
+                  <FormField label="Filter by tag">
+                    <Input
+                      className="h-9"
+                      value={packageTagFilter}
+                      onChange={(e) => setPackageTagFilter(e.target.value)}
+                      placeholder="e.g. hill…"
+                    />
+                  </FormField>
+                </FormGrid>
+                {filteredTemplates.length === 0 &&
+                (packageFolderFilter.trim() || packageTagFilter.trim()) ? (
+                  <p className="text-xs text-muted-foreground">
+                    No packages match this folder/tag filter.
+                  </p>
+                ) : null}
+                <Combobox
+                  value={form.templateId}
+                  onChange={(templateId) =>
+                    setForm({ ...form, templateId: templateId || '' })
+                  }
+                  placeholder="Blank trip, or pick a package…"
+                  options={packageOptions}
+                />
+                {packageFolderNav.breadcrumbs.length ||
+                packageFolderNav.children.length ||
+                packageMetaChips.tags.length ? (
+                  <div className="space-y-1.5">
+                    {packageFolderNav.breadcrumbs.length ? (
+                      <div className="flex flex-wrap items-center gap-1 text-[10px]">
+                        <button
+                          type="button"
+                          className="rounded bg-muted px-1.5 py-px font-medium text-muted-foreground hover:bg-muted/80"
+                          onClick={() => setPackageFolderFilter('')}
+                        >
+                          All folders
+                        </button>
+                        {packageFolderNav.breadcrumbs.map((crumb) => {
+                          const active =
+                            packageFolderFilter.trim().toLowerCase() ===
+                            crumb.path.toLowerCase();
+                          return (
+                            <span key={crumb.path} className="contents">
+                              <span className="text-muted-foreground/70">/</span>
+                              <button
+                                type="button"
+                                className={
+                                  active
+                                    ? 'rounded bg-primary/20 px-1.5 py-px font-medium text-primary'
+                                    : 'rounded bg-primary/10 px-1.5 py-px font-medium text-primary hover:bg-primary/15'
+                                }
+                                onClick={() => setPackageFolderFilter(crumb.path)}
+                              >
+                                {crumb.label}
+                              </button>
+                            </span>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                    <div className="flex flex-wrap gap-1">
+                      {packageFolderNav.children.map((folder) => {
+                        const active =
+                          packageFolderFilter.trim().toLowerCase() ===
+                          folder.toLowerCase();
+                        const label = folder.includes('/')
+                          ? folder.slice(folder.lastIndexOf('/') + 1)
+                          : folder;
+                        return (
+                          <button
+                            key={`folder-${folder}`}
+                            type="button"
+                            className={
+                              active
+                                ? 'rounded bg-primary/20 px-1.5 py-px text-[10px] font-medium text-primary'
+                                : 'rounded bg-primary/10 px-1.5 py-px text-[10px] font-medium text-primary hover:bg-primary/15'
+                            }
+                            onClick={() =>
+                              setPackageFolderFilter(active ? '' : folder)
+                            }
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                      {packageMetaChips.tags.map((tag) => {
+                        const active =
+                          packageTagFilter.trim().toLowerCase() === tag.toLowerCase();
+                        return (
+                          <button
+                            key={`tag-${tag}`}
+                            type="button"
+                            className={
+                              active
+                                ? 'rounded bg-muted px-1.5 py-px text-[10px] font-medium text-foreground ring-1 ring-border'
+                                : 'rounded bg-muted px-1.5 py-px text-[10px] font-medium text-muted-foreground hover:bg-muted/80'
+                            }
+                            onClick={() => setPackageTagFilter(active ? '' : tag)}
+                          >
+                            {tag}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={installingPack}
+                onClick={() => void installFitPack()}
+              >
+                {installingPack ? 'Installing…' : 'Install sample FIT pack'}
+              </Button>
+            )}
+          </FormField>
+          <FormGrid>
+            <FormField
+              label="Travel start"
+              required={packageRequiresStart}
+              description={
+                packageRequiresStart
+                  ? 'Required for package date shift + rematch'
+                  : 'Optional — Use template skips asking when set'
+              }
+            >
+              <DatePicker
+                placeholder="Trip start"
+                value={parseDateInput(form.startDate)}
+                onChange={(date) =>
+                  setForm({ ...form, startDate: formatDateInput(date) })
+                }
+              />
+            </FormField>
+            <FormField label="Travel end" description="Optional">
+              <DatePicker
+                placeholder="Trip end"
+                value={parseDateInput(form.endDate)}
+                onChange={(date) =>
+                  setForm({ ...form, endDate: formatDateInput(date) })
+                }
+              />
+            </FormField>
+          </FormGrid>
+          {packageRequiresStart &&
+          !/^\d{4}-\d{2}-\d{2}$/.test(form.startDate.trim()) ? (
+            <p className="text-xs text-amber-800 dark:text-amber-200">
+              Set travel start so package hotel nights land on the right dates.
+            </p>
+          ) : null}
+          {form.templateId ? (
+            <div className="space-y-3">
+              <FormGrid>
+                <FormField label="Adults" required>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={99}
+                    value={form.adults}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        adults: Math.max(1, Math.min(99, Number(e.target.value) || 1)),
+                      })
+                    }
+                  />
+                </FormField>
+                <FormField label="Children">
+                  <Input
+                    type="number"
+                    min={0}
+                    max={99}
+                    value={form.children}
+                    onChange={(e) => {
+                      const children = Math.max(
+                        0,
+                        Math.min(99, Number(e.target.value) || 0),
+                      );
+                      setForm({
+                        ...form,
+                        children,
+                        childrenWithoutBed: Math.min(form.childrenWithoutBed, children),
+                      });
+                    }}
+                  />
+                </FormField>
+              </FormGrid>
+              {form.children > 0 ? (
+                <FormGrid>
+                  <FormField
+                    label="Child ages"
+                    description="Comma-separated years (0–17). Missing ages default to 8 on apply."
+                  >
+                    <Input
+                      placeholder="e.g. 8, 11"
+                      value={form.childAgesCsv}
+                      onChange={(e) =>
+                        setForm({ ...form, childAgesCsv: e.target.value })
+                      }
+                    />
+                  </FormField>
+                  <FormField label="Children without bed">
+                    <Input
+                      type="number"
+                      min={0}
+                      max={form.children}
+                      value={form.childrenWithoutBed}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          childrenWithoutBed: Math.max(
+                            0,
+                            Math.min(
+                              form.children,
+                              Number(e.target.value) || 0,
+                            ),
+                          ),
+                        })
+                      }
+                    />
+                  </FormField>
+                </FormGrid>
+              ) : null}
+            </div>
+          ) : null}
+          {!tripTravelEndOnOrAfterStart(form.startDate, form.endDate) ? (
+            <p className="text-xs text-amber-800 dark:text-amber-200">
+              Travel end must be on or after travel start.
+            </p>
+          ) : null}
         </form>
       </RecordSheet>
     </ListPageShell>

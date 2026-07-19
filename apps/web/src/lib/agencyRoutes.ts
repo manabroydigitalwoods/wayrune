@@ -9,11 +9,13 @@ export const AGENCY_ROUTES = {
   workFollowUps: '/work/follow-ups',
   operations: '/operations',
   operationsBookings: '/operations/bookings',
+  operationsMovement: '/operations/movement',
   operationsSuppliers: '/operations/suppliers',
   operationsIncidents: '/operations/incidents',
   finance: '/finance',
   financeOverdue: '/finance/overdue',
   financePayables: '/finance/payables',
+  financeProfitability: '/finance/profitability',
   financeReconciliation: '/finance/reconciliation',
   financeDocuments: '/finance/documents',
   financePayments: '/finance/payments',
@@ -206,11 +208,13 @@ export const AGENCY_FLAT_REDIRECT_PATHS = [
   AGENCY_ROUTES.workFollowUps,
   AGENCY_ROUTES.operations,
   AGENCY_ROUTES.operationsBookings,
+  AGENCY_ROUTES.operationsMovement,
   AGENCY_ROUTES.operationsSuppliers,
   AGENCY_ROUTES.operationsIncidents,
   AGENCY_ROUTES.finance,
   AGENCY_ROUTES.financeOverdue,
   AGENCY_ROUTES.financePayables,
+  AGENCY_ROUTES.financeProfitability,
   AGENCY_ROUTES.financeReconciliation,
   AGENCY_ROUTES.financeDocuments,
   AGENCY_ROUTES.financePayments,
@@ -322,6 +326,10 @@ export function isAgencyNavActive(navPath: string, pathname: string, search: str
 
   if (relPath.startsWith('/business/')) {
     return relPath === relNav;
+  }
+
+  if (/^\/suppliers\/[^/]+$/.test(relPath)) {
+    return relNav === AGENCY_ROUTES.suppliers;
   }
 
   if (/^\/parties\/[^/]+$/.test(relPath)) {

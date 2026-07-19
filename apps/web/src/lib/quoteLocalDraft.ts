@@ -9,6 +9,8 @@ export type QuoteLocalDraftPayload = {
     exclusions: string;
     terms: string;
     validUntil: string;
+    /** Optional version display name (drafts before this field omit it). */
+    label?: string;
   };
   updatedAt: number;
 };

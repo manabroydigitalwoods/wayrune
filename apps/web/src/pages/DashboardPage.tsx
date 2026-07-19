@@ -15,7 +15,11 @@ import {
 } from 'lucide-react';
 import { PageHeader, StatCard, formatCurrency } from '@wayrune/ui';
 import { api } from '../api';
+import { AgencyOnboardingChecklist } from '../components/agency/AgencyOnboardingChecklist';
 import { OpsCentreStats } from '../components/agency/OpsCentreStats';
+import { FinanceHomeStats } from '../components/agency/FinanceHomeStats';
+import { MovementHomeStats } from '../components/agency/MovementHomeStats';
+import { SalesSlaHomeStats } from '../components/agency/SalesSlaHomeStats';
 import { CommercialDocumentsPanel } from '../components/commerce/CommercialDocumentsPanel';
 import { ConversationsPanel } from '../components/commerce/ConversationsPanel';
 import { ServiceRequestsPanel } from '../components/commerce/ServiceRequestsPanel';
@@ -38,6 +42,7 @@ type AgingBucket = { count: number; amount: number };
 type SalesDash = {
   myNewLeads: number;
   followUpsDue: number;
+  followUpsOverdue?: number;
   openInquiries: number;
   quotesAwaiting: number;
   won: number;
@@ -60,6 +65,18 @@ type SalesDash = {
   unassignedInquiries?: number;
   teamFollowUpsDue?: number;
   staleOpportunities?: number;
+  medianFirstTouchHours30d?: number | null;
+  medianLeadToQuoteHours30d?: number | null;
+  firstTouchSampleSize30d?: number;
+  leadToQuoteSampleSize30d?: number;
+  medianFitBuildMinutes30d?: number | null;
+  fitBuildSampleSize30d?: number;
+  firstTouchTargetHours?: number | null;
+  leadToQuoteTargetHours?: number | null;
+  fitBuildTargetMinutes?: number | null;
+  inboxUnreadThreads?: number;
+  inboxAgingUnreadThreads?: number;
+  inboxAgingHours?: number;
 };
 
 type JourneyAnalytics = {
@@ -112,6 +129,7 @@ export function DashboardPage() {
     widgetKeys.has('new_requests') ||
     widgetKeys.has('team_pipeline') ||
     widgetKeys.has('business_health');
+  const showSalesSla = widgetKeys.has('sales_sla');
   const showOpsPanels =
     widgetKeys.has('arrivals_today') ||
     widgetKeys.has('unconfirmed_bookings') ||
@@ -124,7 +142,11 @@ export function DashboardPage() {
   const showFinancePanels =
     widgetKeys.has('due_today') ||
     widgetKeys.has('overdue_receivables') ||
-    widgetKeys.has('supplier_payables');
+    widgetKeys.has('supplier_payables') ||
+    widgetKeys.has('portfolio_margin');
+  const showMovement =
+    widgetKeys.has('movement_window') ||
+    widgetKeys.has('arrivals_today');
 
   useDocumentTitle(workspaceLabel ?? 'Dashboard');
   const { has } = usePermissions();
@@ -134,12 +156,14 @@ export function DashboardPage() {
   const [data, setData] = useState<SalesDash | null>(null);
   const [journeyAnalytics, setJourneyAnalytics] = useState<JourneyAnalytics | null>(null);
   const [error, setError] = useState('');
+  const needSales = showSalesStats || showManagerStats || showSalesSla;
 
   useEffect(() => {
+    if (!needSales) return;
     api<SalesDash>('/dashboard/sales')
       .then(setData)
       .catch((e) => setError(e.message));
-  }, []);
+  }, [needSales]);
 
   useEffect(() => {
     if (!showChannelJourneys) return;
@@ -161,7 +185,13 @@ export function DashboardPage() {
         }
       />
       {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
-      {!data && !error ? <p className="text-sm text-muted-foreground">Loading…</p> : null}
+      {workspace === 'owner' || widgetKeys.has('business_health') ? (
+        <AgencyOnboardingChecklist />
+      ) : null}
+      {needSales && !data && !error ? (
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : null}
+      {data && showSalesSla ? <SalesSlaHomeStats data={data} /> : null}
       {data && showSalesStats ? (
         <>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3">
@@ -226,7 +256,7 @@ export function DashboardPage() {
               value={data.overduePayments}
               tone="danger"
               icon={Wallet}
-              onClick={() => navigate('/trips')}
+              onClick={() => navigate(AGENCY_ROUTES.financeOverdue)}
             />
             <StatCard
               label="Won"
@@ -391,6 +421,16 @@ export function DashboardPage() {
             <OpsCentreStats />
           </div>
 
+          {showMovement ? (
+            <div className="mt-6">
+              <h2 className="mb-3 text-sm font-semibold">Movement (14 days)</h2>
+              <p className="mb-3 text-sm text-muted-foreground">
+                Upcoming hotel check-ins and transfers with risk chips.
+              </p>
+              <MovementHomeStats />
+            </div>
+          ) : null}
+
           <div className="mt-4">
             <WorkflowRecoveryPanel />
           </div>
@@ -414,9 +454,18 @@ export function DashboardPage() {
         </div>
       ) : null}
 
-      {canFinanceDocs && showFinancePanels ? (
-        <div className="mt-4">
-          <CommercialDocumentsPanel />
+      {showFinancePanels ? (
+        <div className="mt-8">
+          <h2 className="mb-3 text-sm font-semibold">Finance</h2>
+          <p className="mb-3 text-sm text-muted-foreground">
+            Receivables, payables, and accepted-quote portfolio margin.
+          </p>
+          <FinanceHomeStats />
+          {canFinanceDocs ? (
+            <div className="mt-4">
+              <CommercialDocumentsPanel />
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>

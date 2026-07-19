@@ -291,6 +291,8 @@ export const PolicyRulesSchema = z
   .object({
     rules: z.array(CancellationRuleSchema).optional(),
     noShowChargePercentage: z.number().min(0).max(100).optional(),
+    /** Guest-facing summary (also mirrored to cancellationTerms when set from Contracts UI). */
+    text: z.string().max(500).optional(),
     minStayNights: z.number().int().positive().optional(),
     maxStayNights: z.number().int().positive().optional(),
     closedToArrival: z.boolean().optional(),
@@ -519,34 +521,57 @@ export const ContractBlackoutRangeSchema = z.object({
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'Use YYYY-MM-DD'),
 });
 
+/** Contract stop-sale window — optional roomProductId scopes to one room; null = property-wide. */
+export const ContractStopSaleRangeSchema = z.object({
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'Use YYYY-MM-DD'),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'Use YYYY-MM-DD'),
+  roomProductId: z.preprocess(blankToNull, z.string().nullable()).optional(),
+});
+
 export const CreateSupplierContractSchema = z.object({
   supplierId: z.string().min(1),
   title: RequiredText('Contract title'),
-  status: z.enum(['draft', 'active', 'expired', 'terminated']).default('draft'),
+  status: z
+    .enum(['draft', 'active', 'expired', 'terminated', 'superseded'])
+    .default('draft'),
+  versionNumber: z.number().int().positive().optional(),
+  supersedesId: z.preprocess(blankToNull, z.string().nullable()).optional(),
   effectiveFrom: z.preprocess(blankToNull, z.string().nullable()).optional(),
   effectiveUntil: z.preprocess(blankToNull, z.string().nullable()).optional(),
   creditLimit: z.number().nonnegative().nullable().optional(),
   paymentTerms: z.preprocess(blankToNull, z.string().nullable()).optional(),
   cancellationTerms: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  cancellationPolicyJson: PolicyRulesSchema.nullable().optional(),
   commissionPercent: z.number().min(0).max(100).nullable().optional(),
   preferred: z.boolean().optional(),
   blackoutJson: z.array(ContractBlackoutRangeSchema).optional(),
+  stopSaleJson: z.array(ContractStopSaleRangeSchema).optional(),
   notes: z.preprocess(blankToNull, z.string().nullable()).optional(),
 });
 
 export const UpdateSupplierContractSchema = z.object({
   title: RequiredText('Contract title').optional(),
-  status: z.enum(['draft', 'active', 'expired', 'terminated']).optional(),
+  status: z.enum(['draft', 'active', 'expired', 'terminated', 'superseded']).optional(),
+  versionNumber: z.number().int().positive().optional(),
+  supersedesId: z.preprocess(blankToNull, z.string().nullable()).optional(),
   effectiveFrom: z.preprocess(blankToNull, z.string().nullable()).optional(),
   effectiveUntil: z.preprocess(blankToNull, z.string().nullable()).optional(),
   creditLimit: z.number().nonnegative().nullable().optional(),
   paymentTerms: z.preprocess(blankToNull, z.string().nullable()).optional(),
   cancellationTerms: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  cancellationPolicyJson: PolicyRulesSchema.nullable().optional(),
   commissionPercent: z.number().min(0).max(100).nullable().optional(),
   preferred: z.boolean().optional(),
   /** Pass [] to clear blackouts. */
   blackoutJson: z.array(ContractBlackoutRangeSchema).optional(),
+  /** Pass [] to clear stop-sales. */
+  stopSaleJson: z.array(ContractStopSaleRangeSchema).optional(),
   notes: z.preprocess(blankToNull, z.string().nullable()).optional(),
+});
+
+export const CloneSupplierContractVersionSchema = z.object({
+  /** When true, duplicate hotel rate seasons onto the new draft version. Default true. */
+  copyRates: z.boolean().optional(),
 });
 
 export const CreateTripChangeCaseSchema = z.object({
@@ -911,6 +936,8 @@ export const CreateDriverJobSchema = z.object({
   guestPhone: z.preprocess(blankToNull, z.string().nullable()).optional(),
   partyId: z.preprocess(blankToNull, z.string().nullable()).optional(),
   serviceRequestId: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  /** Optional plate from this asset’s fleet units. */
+  fleetUnitId: z.preprocess(blankToNull, z.string().nullable()).optional(),
   pickupLocation: z.preprocess(blankToNull, z.string().nullable()).optional(),
   dropLocation: z.preprocess(blankToNull, z.string().nullable()).optional(),
   startAt: z.string().min(1),

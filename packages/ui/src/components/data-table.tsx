@@ -45,6 +45,18 @@ export type DataTableFacet = {
   options: Array<{ value: string; label: string }>;
 };
 
+/** Page index (0-based) for a row id in pre-pagination order. */
+export function dataTablePageIndexForRowId(
+  rowIds: string[],
+  targetId: string | null | undefined,
+  pageSize: number,
+): number | null {
+  if (!targetId?.trim() || pageSize <= 0) return null;
+  const idx = rowIds.indexOf(targetId);
+  if (idx < 0) return null;
+  return Math.floor(idx / pageSize);
+}
+
 export function FilterBar({
   search,
   onSearchChange,
@@ -252,6 +264,8 @@ export function DataTable<TData, TValue>({
   leading,
   toolbar,
   showColumnsMenu = true,
+  getDataRowId,
+  highlightedRowId = null,
 }: {
   columns: ColumnDef<TData, TValue>[];
   data: TData[];
@@ -282,6 +296,10 @@ export function DataTable<TData, TValue>({
   toolbar?: React.ReactNode;
   /** Show the Columns visibility menu (default true). */
   showColumnsMenu?: boolean;
+  /** Stable id for each data row (`data-row-id` + highlight / scroll target). */
+  getDataRowId?: (row: TData) => string | undefined;
+  /** When set, jumps to that row’s page and scrolls/highlights it. */
+  highlightedRowId?: string | null;
 }) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
@@ -345,6 +363,9 @@ export function DataTable<TData, TValue>({
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
+    getRowId: getDataRowId
+      ? (row, index) => getDataRowId(row)?.trim() || String(index)
+      : undefined,
     initialState: { pagination: { pageSize } },
     defaultColumn: {
       size: 140,
@@ -372,6 +393,30 @@ export function DataTable<TData, TValue>({
 
   const page = table.getState().pagination.pageIndex + 1;
   const total = table.getFilteredRowModel().rows.length;
+
+  React.useEffect(() => {
+    if (!highlightedRowId?.trim() || !getDataRowId) return;
+    const size = table.getState().pagination.pageSize;
+    const pageIndex = table.getState().pagination.pageIndex;
+    const rowIds = table
+      .getPrePaginationRowModel()
+      .rows.map((row) => getDataRowId(row.original)?.trim() || '')
+      .filter(Boolean);
+    const nextPage = dataTablePageIndexForRowId(rowIds, highlightedRowId, size);
+    if (nextPage != null && nextPage !== pageIndex) {
+      table.setPageIndex(nextPage);
+      return;
+    }
+    const targetId = highlightedRowId;
+    const t = window.setTimeout(() => {
+      const el = document.querySelector(
+        `[data-row-id="${CSS.escape(targetId)}"]`,
+      ) as HTMLElement | null;
+      el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 0);
+    return () => window.clearTimeout(t);
+  }, [highlightedRowId, getDataRowId, table, data, page]);
+
   const headerScrollRef = React.useRef<HTMLDivElement | null>(null);
   const bodyScrollRef = React.useRef<HTMLDivElement | null>(null);
   const visibleColumns = table.getVisibleLeafColumns();
@@ -528,10 +573,14 @@ export function DataTable<TData, TValue>({
                     {table.getRowModel().rows.map((row) => (
                       <TableRow
                         key={row.id}
+                        data-row-id={getDataRowId?.(row.original) || undefined}
                         data-state={row.getIsSelected() && 'selected'}
                         className={cn(
                           'border-border/60 transition-colors hover:bg-muted/40 data-[state=selected]:bg-primary/5',
                           wrapCells ? 'h-auto' : 'h-9',
+                          highlightedRowId &&
+                            getDataRowId?.(row.original) === highlightedRowId &&
+                            'bg-amber-500/10 ring-1 ring-inset ring-amber-500/40',
                         )}
                       >
                         {row.getVisibleCells().map((cell) => {
@@ -618,10 +667,14 @@ export function DataTable<TData, TValue>({
                   {table.getRowModel().rows.map((row) => (
                     <TableRow
                       key={row.id}
+                      data-row-id={getDataRowId?.(row.original) || undefined}
                       data-state={row.getIsSelected() && 'selected'}
                       className={cn(
                         'border-border/60 transition-colors hover:bg-muted/40 data-[state=selected]:bg-primary/5',
                         wrapCells ? 'h-auto' : 'h-9',
+                        highlightedRowId &&
+                          getDataRowId?.(row.original) === highlightedRowId &&
+                          'bg-amber-500/10 ring-1 ring-inset ring-amber-500/40',
                       )}
                     >
                       {row.getVisibleCells().map((cell) => {

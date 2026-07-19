@@ -70,11 +70,16 @@ import { PartiesPage } from './pages/PartiesPage';
 import { PartyDetailPage } from './pages/PartyDetailPage';
 import { InboxPage } from './pages/InboxPage';
 import { TasksPage } from './pages/TasksPage';
+import { MovementBoardPage } from './pages/MovementBoardPage';
+import { FinanceAgingPage } from './pages/FinanceAgingPage';
+import { FinancePortfolioPage } from './pages/FinancePortfolioPage';
 import { TripsPage } from './pages/TripsPage';
 import { TripWorkspacePage } from './pages/TripWorkspacePage';
 import { ItineraryPreviewPage } from './pages/ItineraryPreviewPage';
 import { PublicItineraryPage } from './pages/PublicItineraryPage';
+import { PublicTripPaymentPage } from './pages/PublicTripPaymentPage';
 import { SuppliersPage } from './pages/SuppliersPage';
+import { SupplierDetailPage } from './pages/SupplierDetailPage';
 import { RatesPage } from './pages/RatesPage';
 import { IntegrationsPage } from './pages/integrations/IntegrationsPage';
 import { LeadSourcesPage } from './pages/LeadSourcesPage';
@@ -611,6 +616,7 @@ export function App() {
       <Route path="/claim/:token" element={<ClaimInvitePage />} />
       <Route path="/accept/:token" element={<AcceptInvitePage />} />
       <Route path="/p/itinerary/:token" element={<PublicItineraryPage />} />
+      <Route path="/p/pay/:token" element={<PublicTripPaymentPage />} />
       <Route path="/o/:token" element={<PublicGuestOrderPage />} />
 
       <Route path="/" element={<RootEntry />} />
@@ -647,6 +653,7 @@ export function App() {
       <Route path="/settings/access" element={<SharedSettingsRedirect page="access" />} />
       <Route path="/settings" element={<SharedSettingsRedirect page="settings" />} />
       <Route path="/network" element={<SharedNetworkRedirect />} />
+      <Route path="/suppliers/*" element={<LegacyOrgPathRedirect />} />
       <Route path="/suppliers" element={<SharedSuppliersRedirect />} />
 
       {/* Legacy presence URLs */}
@@ -674,11 +681,13 @@ export function App() {
           <Route path="work/follow-ups" element={agencyPerm(['task.read'], <TasksPage />)} />
           <Route path="operations" element={agencyPerm(['ops.read', 'trip.read'], <TripsPage />)} />
           <Route path="operations/bookings" element={agencyPerm(['ops.read', 'trip.read'], <TripsPage />)} />
+          <Route path="operations/movement" element={agencyPerm(['ops.read', 'trip.read'], <MovementBoardPage />)} />
           <Route path="operations/suppliers" element={agencyPerm(['ops.read'], <TripsPage />)} />
           <Route path="operations/incidents" element={agencyPerm(['ops.read', 'incident.manage'], <TripsPage />)} />
-          <Route path="finance" element={agencyPerm(['finance.cost.read', 'trip.read'], <TripsPage />)} />
-          <Route path="finance/overdue" element={agencyPerm(['finance.cost.read'], <TripsPage />)} />
-          <Route path="finance/payables" element={agencyPerm(['finance.cost.read', 'finance.settlement.read'], <TripsPage />)} />
+          <Route path="finance" element={agencyPerm(['finance.cost.read', 'trip.read'], <FinanceAgingPage />)} />
+          <Route path="finance/overdue" element={agencyPerm(['finance.cost.read'], <FinanceAgingPage />)} />
+          <Route path="finance/payables" element={agencyPerm(['finance.cost.read', 'finance.settlement.read'], <FinanceAgingPage />)} />
+          <Route path="finance/profitability" element={agencyPerm(['finance.margin.read', 'finance.cost.read'], <FinancePortfolioPage />)} />
           <Route path="finance/reconciliation" element={agencyPerm(['finance.payment.manage', 'finance.cost.read'], <TripsPage />)} />
           <Route path="finance/documents" element={agencyPerm(['finance.cost.read'], <TripsPage />)} />
           <Route path="finance/payments" element={agencyPerm(['finance.cost.read'], <TripsPage />)} />
@@ -687,6 +696,14 @@ export function App() {
           <Route path="parties" element={agencyPerm(['party.read'], <PartiesPage />)} />
           <Route path="parties/:id" element={agencyPerm(['party.read'], <PartyDetailPage />)} />
           <Route path="suppliers" element={<OrgSuppliersRoute />} />
+          <Route
+            path="suppliers/:id"
+            element={
+              <RequirePermission anyOf={['network.read']}>
+                <SupplierDetailPage />
+              </RequirePermission>
+            }
+          />
           <Route path="rates" element={agencyPerm(['quote.read'], <RatesPage />)} />
           <Route path="network" element={<OrgNetworkRoute />} />
           <Route path="tasks" element={agencyPerm(['task.read'], <TasksPage />)} />

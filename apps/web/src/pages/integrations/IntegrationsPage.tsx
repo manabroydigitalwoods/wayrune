@@ -313,6 +313,7 @@ function buildConnectorPatch(
         verifyToken: draft.whatsapp.verifyToken.trim(),
         accessToken: draft.whatsapp.accessToken.trim(),
         appSecret: draft.whatsapp.appSecret.trim(),
+        quoteProposalTemplateId: draft.whatsapp.quoteProposalTemplateId.trim(),
       },
     };
   }

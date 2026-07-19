@@ -72,6 +72,7 @@ model Organization {
   vehicleTypes    VehicleType[]
   suppliers       Supplier[]
   supplierHotelRates SupplierHotelRate[]
+  supplierActivityRates SupplierActivityRate[]
   transferFares   TransferFare[]
   supplierInvoices SupplierInvoice[]
   partnerProfile  OrganizationPartnerProfile?
@@ -219,18 +220,21 @@ model PartnerAsset {
 
 /** Sellable room / unit under a stay PartnerAsset (hotel | homestay | farmstay). */
 model AssetRoomProduct {
-  id           String    @id @default(cuid())
-  assetId      String    @map("asset_id")
-  name         String
-  roomTypeKey  String?   @map("room_type_key")
-  maxOccupancy Int       @default(2) @map("max_occupancy")
-  bedConfig    String?   @map("bed_config")
-  baseQuantity Int       @default(1) @map("base_quantity")
-  rateHint     Decimal?  @map("rate_hint") @db.Decimal(14, 2)
-  isActive     Boolean   @default(true) @map("is_active")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
-  deletedAt    DateTime? @map("deleted_at")
+  id                 String    @id @default(cuid())
+  assetId            String    @map("asset_id")
+  /** Internal / ops name — used in rates, inventory, and matching. */
+  name               String
+  /** Optional customer-facing label for proposals; falls back to name. */
+  customerFacingName String?   @map("customer_facing_name")
+  roomTypeKey        String?   @map("room_type_key")
+  maxOccupancy       Int       @default(2) @map("max_occupancy")
+  bedConfig          String?   @map("bed_config")
+  baseQuantity       Int       @default(1) @map("base_quantity")
+  rateHint           Decimal?  @map("rate_hint") @db.Decimal(14, 2)
+  isActive           Boolean   @default(true) @map("is_active")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+  deletedAt          DateTime? @map("deleted_at")
 
   asset       PartnerAsset          @relation(fields: [assetId], references: [id], onDelete: Cascade)
   allotments  AssetAllotment[]
@@ -238,6 +242,7 @@ model AssetRoomProduct {
   units       AssetRoomUnit[]
   ratePlans   AssetRatePlan[]
   stayReservations StayReservation[]
+  hotelRates  SupplierHotelRate[]
 
   @@index([assetId, isActive])
   @@map("asset_room_products")
@@ -402,6 +407,7 @@ model AssetFleetUnit {
   calendarBlocks AssetCalendarBlock[]
   allocations    InventoryAllocation[]
   rentals        RentalReservation[]
+  driverJobs     DriverJob[]
 
   @@index([assetId, isActive])
   @@map("asset_fleet_units")
@@ -483,6 +489,10 @@ model DriverJob {
   inventoryAllocationId String?   @map("inventory_allocation_id")
   inventoryHoldId       String?   @map("inventory_hold_id")
   serviceRequestId      String?   @map("service_request_id")
+  /** Agency transfer booking that spawned this job (movement drag-assign sync). */
+  bookingComponentId    String?   @map("booking_component_id")
+  /** Fleet plate assigned from agency ops (when partner asset has units). */
+  fleetUnitId           String?   @map("fleet_unit_id")
   partyId               String?   @map("party_id")
   guestName             String    @map("guest_name")
   guestPhone            String?   @map("guest_phone")
@@ -505,12 +515,17 @@ model DriverJob {
   inventoryAllocation InventoryAllocation? @relation(fields: [inventoryAllocationId], references: [id], onDelete: SetNull)
   inventoryHold       InventoryHold?       @relation(fields: [inventoryHoldId], references: [id], onDelete: SetNull)
   serviceRequest      ServiceRequest?      @relation(fields: [serviceRequestId], references: [id], onDelete: SetNull)
+  bookingComponent    BookingComponent?    @relation(fields: [bookingComponentId], references: [id], onDelete: SetNull)
+  fleetUnit           AssetFleetUnit?      @relation(fields: [fleetUnitId], references: [id], onDelete: SetNull)
   party               Party?               @relation(fields: [partyId], references: [id], onDelete: SetNull)
 
   @@index([assetId, status])
   @@index([assetId, startAt, endAt])
   @@index([serviceRequestId])
+  @@index([bookingComponentId])
+  @@index([fleetUnitId, startAt, endAt])
   @@index([partyId])
+  /** One partner job per agency transfer booking (partial unique in migration). */
   @@map("driver_jobs")
 }
 
@@ -1060,6 +1075,7 @@ model Place {
   transferFaresFrom TransferFare[] @relation("TransferFareFrom")
   transferFaresTo   TransferFare[] @relation("TransferFareTo")
   hotelRates        SupplierHotelRate[]
+  activityRates     SupplierActivityRate[]
 
   @@index([organizationId, isActive])
   @@index([isSystem, isActive])
@@ -1684,6 +1700,8 @@ model ItineraryShareLink {
   organizationId      String    @map("organization_id")
   tripId              String    @map("trip_id")
   itineraryVersionId  String    @map("itinerary_version_id")
+  /** Quotation version presented on this share; public accept binds to it when set. */
+  quotationVersionId  String?   @map("quotation_version_id")
   token               String    @unique
   /** bcrypt hash of family discussion PIN; null = legacy open thread */
   familyPinHash       String?   @map("family_pin_hash")
@@ -1699,6 +1717,7 @@ model ItineraryShareLink {
   messages     ProposalMessage[]
 
   @@index([organizationId, tripId])
+  @@index([quotationVersionId])
   @@map("itinerary_share_links")
 }
 
@@ -1822,11 +1841,20 @@ model QuoteTemplate {
   organizationId String   @map("organization_id")
   name           String
   contentJson    Json     @map("content_json")
+  /** active | superseded */
+  status         String   @default("active")
+  versionNumber  Int      @default(1) @map("version_number")
+  /** Prior template row this version supersedes. */
+  supersedesId   String?  @map("supersedes_id")
   createdAt      DateTime @default(now()) @map("created_at")
 
-  organization Organization @relation(fields: [organizationId], references: [id])
+  organization Organization   @relation(fields: [organizationId], references: [id])
+  supersedes   QuoteTemplate? @relation("QuoteTemplateVersionChain", fields: [supersedesId], references: [id], onDelete: SetNull)
+  supersededBy QuoteTemplate[] @relation("QuoteTemplateVersionChain")
 
   @@index([organizationId])
+  @@index([organizationId, status])
+  @@index([supersedesId])
   @@map("quote_templates")
 }
 
@@ -1836,7 +1864,7 @@ model Supplier {
   id                   String    @id @default(cuid())
   organizationId       String    @map("organization_id")
   name                 String
-  /** hotel | homestay | farmstay | car_rental | driver | restaurant | dmc | other (+ legacy transfer/activity/flight_ref) */
+  /** hotel | homestay | farmstay | car_rental | driver | restaurant | activity | guide | dmc | other (+ legacy) */
   type                 String    @default("other")
   email                String?
   phone                String?
@@ -1860,6 +1888,8 @@ model Supplier {
   invoices           SupplierInvoice[]
   invites            SupplierInvite[]
   hotelRates         SupplierHotelRate[]
+  activityRates      SupplierActivityRate[]
+  transferFares      TransferFare[]
   contracts          SupplierContract[]
   serviceRequests    ServiceRequest[]
   incidents          ServiceIncident[]
@@ -1887,11 +1917,20 @@ model SupplierHotelRate {
   isSystem       Boolean   @default(false) @map("is_system")
   /** Empty/null = default rate for supplier; else matches itinerary details.roomType. */
   roomType       String?   @map("room_type")
+  /** Canonical room product on the supplier linked asset (preferred match key). */
+  roomProductId  String?   @map("room_product_id")
+  /** Owning contract version; null = legacy / system / unversioned agency rate. */
+  contractId     String?   @map("contract_id")
   /** Empty/null = any/default meal; else matches itinerary details.mealPlan (EP/CP/MAP/AP…). */
   mealPlan       String?   @map("meal_plan")
   unitCost       Decimal   @map("unit_cost") @db.Decimal(14, 2)
   /** Optional Sat/Sun night cost; weekday nights use unitCost. */
   weekendUnitCost Decimal? @map("weekend_unit_cost") @db.Decimal(14, 2)
+  /**
+   * Thin occupancy matrix: base adults/children included in unitCost + per-night extras.
+   * Shape: { baseAdults, baseChildren?, childAgeMax?, extraAdultPerNight?, childWithBedPerNight?, childWithoutBedPerNight? }
+   */
+  occupancyPricingJson Json? @map("occupancy_pricing_json")
   currency       String    @default("INR") @db.Char(3)
   startDate      DateTime? @map("start_date") @db.Date
   endDate        DateTime? @map("end_date") @db.Date
@@ -1901,24 +1940,30 @@ model SupplierHotelRate {
   updatedAt      DateTime  @updatedAt @map("updated_at")
   deletedAt      DateTime? @map("deleted_at")
 
-  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  supplier     Supplier?     @relation(fields: [supplierId], references: [id], onDelete: Cascade)
-  place        Place?        @relation(fields: [placeId], references: [id], onDelete: Restrict)
+  organization Organization?     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  supplier     Supplier?         @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  place        Place?            @relation(fields: [placeId], references: [id], onDelete: Restrict)
+  roomProduct  AssetRoomProduct? @relation(fields: [roomProductId], references: [id], onDelete: SetNull)
+  contract     SupplierContract? @relation(fields: [contractId], references: [id], onDelete: SetNull)
 
   @@index([organizationId, supplierId, isActive])
   @@index([organizationId, isActive])
   @@index([isSystem, isActive])
   @@index([placeId, roomType, mealPlan, isActive])
+  @@index([roomProductId, isActive])
+  @@index([contractId, isActive])
   @@map("supplier_hotel_rates")
 }
 
 /**
- * Transfer fare — agency override or system catalog.
+ * Transfer fare — system catalog, agency override, or supplier-owned chart.
  * unitCost = adult / per-vehicle base cost depending on pricingMode.
  */
 model TransferFare {
   id             String    @id @default(cuid())
   organizationId String?   @map("organization_id")
+  /** Negotiated corridor on a transport supplier; null = org/system catalog. */
+  supplierId     String?   @map("supplier_id")
   isSystem       Boolean   @default(false) @map("is_system")
   fromPlaceId    String    @map("from_place_id")
   toPlaceId      String    @map("to_place_id")
@@ -1927,6 +1972,9 @@ model TransferFare {
   unitCost       Decimal   @map("unit_cost") @db.Decimal(14, 2)
   childUnitCost  Decimal?  @map("child_unit_cost") @db.Decimal(14, 2)
   infantUnitCost Decimal?  @map("infant_unit_cost") @db.Decimal(14, 2)
+  /** Inclusive child-rate age window for per_adult fares (null = 0–17 default on Match). */
+  childAgeMin    Int?      @map("child_age_min")
+  childAgeMax    Int?      @map("child_age_max")
   /** per_vehicle | per_adult */
   pricingMode    String    @default("per_vehicle") @map("pricing_mode")
   currency       String    @default("INR") @db.Char(3)
@@ -1939,15 +1987,56 @@ model TransferFare {
   deletedAt      DateTime? @map("deleted_at")
 
   organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  supplier     Supplier?     @relation(fields: [supplierId], references: [id], onDelete: Cascade)
   fromPlace    Place         @relation("TransferFareFrom", fields: [fromPlaceId], references: [id], onDelete: Restrict)
   toPlace      Place         @relation("TransferFareTo", fields: [toPlaceId], references: [id], onDelete: Restrict)
   vehicleType  VehicleType   @relation(fields: [vehicleTypeId], references: [id], onDelete: Restrict)
 
   @@index([organizationId, fromPlaceId, toPlaceId, vehicleTypeId, isActive])
+  @@index([organizationId, supplierId, isActive])
   @@index([organizationId, isActive])
   @@index([isSystem, isActive])
   @@index([fromPlaceId, toPlaceId, vehicleTypeId, isSystem, isActive])
   @@map("transfer_fares")
+}
+
+/**
+ * Activity / sightseeing rate card — adult (and optional child) per-person cost.
+ * Matched from quote Activity drawer via rates/resolve (type activity → sightseeing).
+ */
+model SupplierActivityRate {
+  id             String    @id @default(cuid())
+  organizationId String    @map("organization_id")
+  supplierId     String?   @map("supplier_id")
+  placeId        String?   @map("place_id")
+  activityName   String    @map("activity_name")
+  /** Normalized slug of activityName for matching. */
+  activityKey    String    @map("activity_key")
+  /** private | sic | null = either */
+  privateOrSic   String?   @map("private_or_sic")
+  adultUnitCost  Decimal   @map("adult_unit_cost") @db.Decimal(14, 2)
+  childUnitCost  Decimal?  @map("child_unit_cost") @db.Decimal(14, 2)
+  /** Inclusive child age bounds for childUnitCost (default 0–17 when null). */
+  childAgeMin    Int?      @map("child_age_min")
+  childAgeMax    Int?      @map("child_age_max")
+  currency       String    @default("INR") @db.Char(3)
+  startDate      DateTime? @map("start_date") @db.Date
+  endDate        DateTime? @map("end_date") @db.Date
+  isActive       Boolean   @default(true) @map("is_active")
+  createdBy      String?   @map("created_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  supplier     Supplier?    @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  place        Place?       @relation(fields: [placeId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, activityKey, isActive], map: "sar_org_key_active_idx")
+  @@index([organizationId, supplierId, isActive], map: "sar_org_supplier_active_idx")
+  @@index([organizationId, placeId, isActive], map: "sar_org_place_active_idx")
+  @@index([organizationId, isActive], map: "sar_org_active_idx")
+  @@map("supplier_activity_rates")
 }
 
 /** Stage B — agency invites a local supplier to claim a partner organization link. */
@@ -1995,6 +2084,8 @@ model BookingComponent {
    * pending | required | drafted | requested | acknowledged | held | confirmed | rejected | expired | cancelled
    */
   status         String    @default("pending")
+  /** Quote line id when this booking was materialized from an accepted quotation. */
+  quotationLineId String?  @map("quotation_line_id")
   confirmationRef String?  @map("confirmation_ref")
   voucherNote    String?   @map("voucher_note") @db.Text
   startAt        DateTime? @map("start_at")
@@ -2021,11 +2112,14 @@ model BookingComponent {
   payments          TripPayment[]
   allocations       InventoryAllocation[]
   stayReservations  StayReservation[]
+  driverJobs        DriverJob[]
 
+  @@unique([tripId, quotationLineId])
   @@index([tripId, status])
   @@index([organizationId])
   @@index([partnerAssetId])
   @@index([serviceRequestId])
+  @@index([quotationLineId])
   @@map("booking_components")
 }
 
@@ -2074,6 +2168,12 @@ model TripPayment {
   notes              String?   @db.Text
   supplierInvoiceId  String?   @map("supplier_invoice_id")
   bookingComponentId String?   @map("booking_component_id")
+  /** Opaque token for public customer payment-link checkout. */
+  paymentLinkToken     String?   @unique @map("payment_link_token")
+  paymentLinkExpiresAt DateTime? @map("payment_link_expires_at")
+  /** Razorpay order bound at pay-intent (confirm must match). */
+  paymentLinkRazorpayOrderId     String? @map("payment_link_razorpay_order_id")
+  paymentLinkRazorpayAmountPaise Int?    @map("payment_link_razorpay_amount_paise")
   createdBy          String?   @map("created_by")
   updatedBy          String?   @map("updated_by")
   createdAt          DateTime  @default(now()) @map("created_at")
@@ -2085,6 +2185,7 @@ model TripPayment {
 
   @@index([tripId, direction, status])
   @@index([organizationId])
+  @@index([paymentLinkRazorpayOrderId])
   @@map("trip_payments")
 }
 
@@ -2311,6 +2412,7 @@ model CommercialDocument {
 
   @@index([organizationId, direction, status])
   @@index([serviceRequestId])
+  @@index([organizationId, linkedEntityType, linkedEntityId])
   @@map("commercial_documents")
 }
 
@@ -2431,26 +2533,39 @@ model SupplierContract {
   organizationId     String    @map("organization_id")
   supplierId         String    @map("supplier_id")
   title              String
+  /** draft | active | expired | terminated | superseded */
   status             String    @default("draft")
+  versionNumber      Int       @default(1) @map("version_number")
+  /** Prior contract version this row supersedes (clone chain). */
+  supersedesId       String?   @map("supersedes_id")
   effectiveFrom      DateTime? @map("effective_from") @db.Date
   effectiveUntil     DateTime? @map("effective_until") @db.Date
   creditLimit        Decimal?  @map("credit_limit") @db.Decimal(14, 2)
   paymentTerms       String?   @map("payment_terms")
   cancellationTerms  String?   @map("cancellation_terms") @db.Text
+  /** Structured cancel windows — PolicyRules shape (beforeHours / chargeType / chargeValue). */
+  cancellationPolicyJson Json? @map("cancellation_policy_json")
   commissionPercent  Decimal?  @map("commission_percent") @db.Decimal(5, 2)
   preferred          Boolean   @default(false)
+  /** Inclusive date ranges — contracted rate invalid; manual ad-hoc still allowed. */
   blackoutJson       Json?     @map("blackout_json")
+  /** Inclusive date ranges — hotel/room unavailable. Optional roomProductId scopes to one room. */
+  stopSaleJson       Json?     @map("stop_sale_json")
   notes              String?   @db.Text
   createdBy          String?   @map("created_by")
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
   deletedAt          DateTime? @map("deleted_at")
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  supplier     Supplier     @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  supplier     Supplier            @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  supersedes   SupplierContract?   @relation("ContractVersionChain", fields: [supersedesId], references: [id], onDelete: SetNull)
+  supersededBy SupplierContract[]  @relation("ContractVersionChain")
+  hotelRates   SupplierHotelRate[]
 
   @@index([organizationId, supplierId])
   @@index([organizationId, status])
+  @@index([supersedesId])
   @@map("supplier_contracts")
 }
 

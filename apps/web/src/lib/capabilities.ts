@@ -31,6 +31,12 @@ export const CAP = {
   itineraryEdit: ['itinerary.edit'],
   quoteWrite: ['quote.write'],
   quoteApprove: ['quote.approve'],
+  /** Authorise allotment / capacity shortfall send-anyway on quote lines. */
+  inventoryRiskApprove: ['inventory_risk.approve'],
+  /** Authorise Keep-buy when rate chart drifted since match. */
+  rateDriftApprove: ['rate_drift.approve'],
+  /** Authorise below-cost / below-floor margin overrides on quote lines. */
+  belowMarginApprove: ['below_margin.approve'],
   partyWrite: ['party.write'],
   networkWrite: ['network.write'],
   supplierWrite: ['trip.write', 'network.write'],

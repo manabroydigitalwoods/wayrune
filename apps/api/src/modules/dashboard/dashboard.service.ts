@@ -1,6 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthUser } from '../../common/helpers';
+import {
+  computeSalesSlaMetrics,
+  salesSlaTargetsFromSettings,
+} from './sales-sla-metrics';
+import {
+  computeInboxSlaMetrics,
+  inboxAgingHoursFromSettings,
+} from './inbox-sla-metrics';
+import { fireUnreadSlaAutomations } from '../connectors/unread-sla-fire';
 
 @Injectable()
 export class DashboardService {
@@ -20,6 +29,7 @@ export class DashboardService {
     const [
       myNewLeads,
       followUpsDue,
+      followUpsOverdue,
       openInquiries,
       quotesAwaiting,
       wonLost,
@@ -33,6 +43,10 @@ export class DashboardService {
       unassignedInquiries,
       teamFollowUpsDue,
       staleOpportunities,
+      slaLeadRows,
+      inboxUnreadRows,
+      orgSettings,
+      fitBuildAudits,
     ] = await Promise.all([
       this.prisma.lead.count({
         where: { organizationId, ownerId: user.sub, deletedAt: null, stage: { key: 'new' } },
@@ -43,6 +57,15 @@ export class DashboardService {
           ownerId: user.sub,
           deletedAt: null,
           followUpAt: { lte: now },
+        },
+      }),
+      this.prisma.lead.count({
+        where: {
+          organizationId,
+          ownerId: user.sub,
+          deletedAt: null,
+          followUpAt: { lt: now },
+          stage: { isWon: false, isLost: false },
         },
       }),
       this.prisma.inquiry.count({
@@ -144,6 +167,61 @@ export class DashboardService {
             },
           })
         : Promise.resolve(0),
+      this.prisma.lead.findMany({
+        where: {
+          organizationId,
+          deletedAt: null,
+          createdAt: { gte: last30Start },
+        },
+        select: {
+          createdAt: true,
+          activities: {
+            where: { type: { in: ['note', 'call', 'email'] } },
+            orderBy: { createdAt: 'asc' },
+            take: 1,
+            select: { createdAt: true },
+          },
+          inquiries: {
+            where: { deletedAt: null },
+            select: {
+              trips: {
+                where: { deletedAt: null },
+                select: {
+                  quotations: {
+                    orderBy: { createdAt: 'asc' },
+                    take: 1,
+                    select: { createdAt: true },
+                  },
+                },
+              },
+            },
+          },
+        },
+        take: 500,
+      }),
+      this.prisma.engagementConversation.findMany({
+        where: {
+          organizationId,
+          status: { not: 'closed' },
+          unreadCount: { gt: 0 },
+          interactions: { some: {} },
+        },
+        select: { unreadCount: true, lastInteractionAt: true },
+        take: 500,
+      }),
+      this.prisma.organization.findUnique({
+        where: { id: organizationId },
+        select: { settingsJson: true },
+      }),
+      this.prisma.auditEvent.findMany({
+        where: {
+          organizationId,
+          action: 'quote.fit_build',
+          createdAt: { gte: last30Start },
+        },
+        select: { metadataJson: true },
+        take: 500,
+      }),
     ]);
 
     const won = wonLost.filter((l) => l.stage.isWon).length;
@@ -186,9 +264,51 @@ export class DashboardService {
       }
     }
 
+    const sla = computeSalesSlaMetrics(
+      slaLeadRows.map((lead) => {
+        let firstQuoteAt: Date | null = null;
+        for (const inquiry of lead.inquiries) {
+          for (const trip of inquiry.trips) {
+            const qAt = trip.quotations[0]?.createdAt;
+            if (qAt && (!firstQuoteAt || qAt < firstQuoteAt)) {
+              firstQuoteAt = qAt;
+            }
+          }
+        }
+        return {
+          createdAt: lead.createdAt,
+          firstTouchAt: lead.activities[0]?.createdAt ?? null,
+          firstQuoteAt,
+        };
+      }),
+      fitBuildAudits.map((row) => {
+        const meta =
+          row.metadataJson && typeof row.metadataJson === 'object'
+            ? (row.metadataJson as Record<string, unknown>)
+            : {};
+        const minutes = typeof meta.minutes === 'number' ? meta.minutes : Number(meta.minutes);
+        return { minutes: Number.isFinite(minutes) ? minutes : NaN };
+      }),
+    );
+
+    const inboxSla = computeInboxSlaMetrics(
+      inboxUnreadRows,
+      now,
+      inboxAgingHoursFromSettings(orgSettings?.settingsJson),
+    );
+    const salesSlaTargets = salesSlaTargetsFromSettings(orgSettings?.settingsJson);
+
+    if (inboxSla.agingUnreadThreads > 0) {
+      void fireUnreadSlaAutomations(this.prisma, {
+        organizationId,
+        now,
+      }).catch(() => undefined);
+    }
+
     return {
       myNewLeads,
       followUpsDue,
+      followUpsOverdue,
       openInquiries,
       quotesAwaiting,
       won,
@@ -205,6 +325,18 @@ export class DashboardService {
       unassignedInquiries,
       teamFollowUpsDue,
       staleOpportunities,
+      medianFirstTouchHours30d: sla.medianFirstTouchHours,
+      medianLeadToQuoteHours30d: sla.medianLeadToQuoteHours,
+      firstTouchSampleSize30d: sla.firstTouchSampleSize,
+      leadToQuoteSampleSize30d: sla.leadToQuoteSampleSize,
+      medianFitBuildMinutes30d: sla.medianFitBuildMinutes,
+      fitBuildSampleSize30d: sla.fitBuildSampleSize,
+      firstTouchTargetHours: salesSlaTargets.firstTouchTargetHours,
+      leadToQuoteTargetHours: salesSlaTargets.leadToQuoteTargetHours,
+      fitBuildTargetMinutes: salesSlaTargets.fitBuildTargetMinutes,
+      inboxUnreadThreads: inboxSla.unreadThreads,
+      inboxAgingUnreadThreads: inboxSla.agingUnreadThreads,
+      inboxAgingHours: inboxSla.agingHours,
     };
   }
 }

@@ -49,8 +49,22 @@ export class LeadsController {
   @RequirePermissions('lead.read', 'lead.read.own')
   list(@CurrentUser() user: AuthUser, @Query() query: unknown) {
     const q = PaginationQuerySchema.parse(query);
-    const extra = query as { stageKey?: string; priority?: string };
-    return this.leads.list(user, q.page, q.pageSize, extra.stageKey, q.q, extra.priority);
+    const extra = query as {
+      stageKey?: string;
+      priority?: string;
+      followUp?: string;
+      owner?: string;
+    };
+    return this.leads.list(
+      user,
+      q.page,
+      q.pageSize,
+      extra.stageKey,
+      q.q,
+      extra.priority,
+      extra.followUp,
+      extra.owner,
+    );
   }
 
   @Get('board')
@@ -138,6 +152,15 @@ export class LeadsController {
     @Body() body: unknown,
   ) {
     return this.leads.replyWhatsapp(user, interactionId, ReplyWhatsappSchema.parse(body));
+  }
+
+  @Get('whatsapp/session/:interactionId')
+  @RequirePermissions('lead.read', 'lead.read.own', 'lead.write')
+  whatsappSession(
+    @CurrentUser() user: AuthUser,
+    @Param('interactionId') interactionId: string,
+  ) {
+    return this.leads.whatsappCustomerSession(user, interactionId);
   }
 
   @Post('whatsapp/reply-template/:interactionId')

@@ -29,11 +29,14 @@ type AssignRule = {
   channel: string;
   acquisitionKey: string;
   memberIds: string[];
+  cursor: number;
 };
 
 type AutoAssign = {
   mode: 'off' | 'round_robin' | 'rules';
   memberIds: string[];
+  cursor: number;
+  lastAssignedUserId: string | null;
   rules: AssignRule[];
 };
 
@@ -79,6 +82,8 @@ export function LeadSourcesPage() {
   const [autoAssign, setAutoAssign] = useState<AutoAssign>({
     mode: 'off',
     memberIds: [],
+    cursor: 0,
+    lastAssignedUserId: null,
     rules: [],
   });
   const [autoSaving, setAutoSaving] = useState(false);
@@ -128,6 +133,9 @@ export function LeadSourcesPage() {
         memberIds: Array.isArray(aa.memberIds)
           ? aa.memberIds.filter((id): id is string => typeof id === 'string')
           : [],
+        cursor: typeof aa.cursor === 'number' && aa.cursor >= 0 ? aa.cursor : 0,
+        lastAssignedUserId:
+          typeof aa.lastAssignedUserId === 'string' ? aa.lastAssignedUserId : null,
         rules: rawRules.map((r) => {
           const rule = (r && typeof r === 'object' ? r : {}) as Record<string, unknown>;
           return {
@@ -136,6 +144,7 @@ export function LeadSourcesPage() {
             memberIds: Array.isArray(rule.memberIds)
               ? rule.memberIds.filter((id): id is string => typeof id === 'string')
               : [],
+            cursor: typeof rule.cursor === 'number' && rule.cursor >= 0 ? rule.cursor : 0,
           };
         }),
       });
@@ -195,10 +204,13 @@ export function LeadSourcesPage() {
               autoAssign: {
                 mode: autoAssign.mode,
                 memberIds: autoAssign.memberIds,
+                cursor: autoAssign.cursor,
+                lastAssignedUserId: autoAssign.lastAssignedUserId ?? undefined,
                 rules: autoAssign.rules.map((r) => ({
                   channel: r.channel.trim() || undefined,
                   acquisitionKey: r.acquisitionKey.trim() || undefined,
                   memberIds: r.memberIds,
+                  cursor: r.cursor,
                 })),
               },
             },
@@ -206,6 +218,7 @@ export function LeadSourcesPage() {
         }),
       });
       toastSuccess('Auto-assign saved');
+      await load();
     } catch (err) {
       toastError(err instanceof Error ? err.message : 'Could not save auto-assign');
     } finally {
@@ -225,7 +238,7 @@ export function LeadSourcesPage() {
   function addRule() {
     setAutoAssign((prev) => ({
       ...prev,
-      rules: [...prev.rules, { channel: '', acquisitionKey: '', memberIds: [] }],
+      rules: [...prev.rules, { channel: '', acquisitionKey: '', memberIds: [], cursor: 0 }],
     }));
   }
 
@@ -399,8 +412,8 @@ export function LeadSourcesPage() {
           <section className="space-y-3">
             <h2 className="text-sm font-medium">Auto-assignment</h2>
             <p className="text-xs text-muted-foreground">
-              When round-robin is on, new leads rotate among selected members (or all members if none
-              selected).
+              When round-robin is on, new leads rotate among selected members (or all active members
+              if none selected). Inactive memberships are skipped.
             </p>
             <div className="flex flex-wrap gap-2">
               <button
@@ -438,21 +451,70 @@ export function LeadSourcesPage() {
               </button>
             </div>
             {autoAssign.mode === 'round_robin' && members.length ? (
-              <ul className="space-y-2 rounded-xl border border-border/60 p-3">
-                {members.map((m) => (
-                  <li key={m.id} className="flex items-center justify-between gap-2 text-sm">
-                    <span>
-                      {m.fullName}{' '}
-                      <span className="text-muted-foreground">({m.email})</span>
-                    </span>
-                    <Switch
-                      checked={autoAssign.memberIds.includes(m.id)}
-                      onCheckedChange={() => toggleMember(m.id)}
-                      disabled={!canWrite}
-                    />
-                  </li>
-                ))}
-              </ul>
+              <>
+                {(() => {
+                  const pool = autoAssign.memberIds.length
+                    ? members.filter((m) => autoAssign.memberIds.includes(m.id))
+                    : members;
+                  const next =
+                    pool.length > 0
+                      ? pool[autoAssign.cursor % pool.length]
+                      : null;
+                  const last = autoAssign.lastAssignedUserId
+                    ? members.find((m) => m.id === autoAssign.lastAssignedUserId)
+                    : null;
+                  return next || last ? (
+                    <p className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                      {next ? (
+                        <>
+                          Next up:{' '}
+                          <span className="font-medium text-foreground">{next.fullName}</span>
+                        </>
+                      ) : null}
+                      {next && last ? ' · ' : null}
+                      {last ? (
+                        <>
+                          Last assigned:{' '}
+                          <span className="font-medium text-foreground">{last.fullName}</span>
+                        </>
+                      ) : null}
+                    </p>
+                  ) : null;
+                })()}
+                <ul className="space-y-2 rounded-xl border border-border/60 p-3">
+                  {members.map((m) => {
+                    const pool = autoAssign.memberIds.length
+                      ? members.filter((x) => autoAssign.memberIds.includes(x.id))
+                      : members;
+                    const nextId =
+                      pool.length > 0
+                        ? pool[autoAssign.cursor % pool.length]?.id
+                        : null;
+                    const isNext = nextId === m.id;
+                    return (
+                      <li
+                        key={m.id}
+                        className="flex items-center justify-between gap-2 text-sm"
+                      >
+                        <span>
+                          {m.fullName}{' '}
+                          <span className="text-muted-foreground">({m.email})</span>
+                          {isNext ? (
+                            <span className="ml-2 rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                              Next
+                            </span>
+                          ) : null}
+                        </span>
+                        <Switch
+                          checked={autoAssign.memberIds.includes(m.id)}
+                          onCheckedChange={() => toggleMember(m.id)}
+                          disabled={!canWrite}
+                        />
+                      </li>
+                    );
+                  })}
+                </ul>
+              </>
             ) : null}
             {autoAssign.mode === 'rules' ? (
               <div className="space-y-3">

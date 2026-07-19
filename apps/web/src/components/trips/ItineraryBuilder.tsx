@@ -75,6 +75,11 @@ import {
   storyEssentialsScore,
   storyHasContent,
 } from '../../lib/proposalStory';
+import {
+  STAY_SUPPLIER_TYPE_QUERY,
+  isStaySupplierType,
+  supplierTypeLabel,
+} from '../../lib/supplierTypes';
 
 export type ItineraryItemDetails = {
   nights?: number;
@@ -822,6 +827,7 @@ type HotelSupplierMeta = {
   name: string;
   type: string;
   place?: { id: string; name: string; kind: string } | null;
+  description?: string;
   imageUrl?: string;
   imageUrls?: string[];
   amenities?: string[];
@@ -838,14 +844,13 @@ type HotelSupplierMeta = {
 
 const hotelSupplierCache = new Map<string, HotelSupplierMeta>();
 
-const STAY_SUPPLIER_TYPES = new Set(['hotel', 'homestay', 'farmstay']);
-
 function supplierProfileExtras(profile: unknown): Omit<
   HotelSupplierMeta,
   'id' | 'name' | 'type' | 'place'
 > {
   if (!profile || typeof profile !== 'object') return {};
   const p = profile as {
+    description?: string;
     imageUrl?: string;
     imageUrls?: string[];
     amenities?: string[];
@@ -869,6 +874,7 @@ function supplierProfileExtras(profile: unknown): Omit<
     ? p.roomHints.find((h): h is string => typeof h === 'string' && Boolean(h.trim()))
     : undefined;
   return {
+    description: p.description?.trim() || undefined,
     imageUrl: p.imageUrl?.trim() || imageUrls?.[0],
     imageUrls,
     amenities,
@@ -902,6 +908,7 @@ function applyHotelSupplierToDraft(
     ...draft,
     type: 'hotel',
     title: supplier.name,
+    description: supplier.description || draft.description,
     location: location ?? draft.location,
     details: {
       ...draft.details,
@@ -932,7 +939,7 @@ async function searchHotelSuppliers(
 ): Promise<ComboboxOption[]> {
   const params = new URLSearchParams();
   if (q) params.set('q', q);
-  params.set('type', 'hotel,homestay,farmstay');
+  params.set('type', STAY_SUPPLIER_TYPE_QUERY);
   if (placeId) params.set('placeId', placeId);
   let items = await api<
     Array<{
@@ -947,11 +954,11 @@ async function searchHotelSuppliers(
   if (placeId && items.length === 0) {
     const fallback = new URLSearchParams();
     if (q) fallback.set('q', q);
-    fallback.set('type', 'hotel,homestay,farmstay');
+    fallback.set('type', STAY_SUPPLIER_TYPE_QUERY);
     items = await api(`/suppliers?${fallback.toString()}`);
   }
   return items
-    .filter((s) => STAY_SUPPLIER_TYPES.has(s.type))
+    .filter((s) => isStaySupplierType(s.type))
     .map((s) => {
       const extras = supplierProfileExtras(s.profileJson);
       hotelSupplierCache.set(s.id, {
@@ -964,7 +971,7 @@ async function searchHotelSuppliers(
       return {
         value: s.id,
         label: s.name,
-        description: [s.type.replace(/_/g, ' '), s.place?.name].filter(Boolean).join(' · '),
+        description: [supplierTypeLabel(s.type), s.place?.name].filter(Boolean).join(' · '),
       };
     });
 }
@@ -1300,7 +1307,7 @@ function HotelSupplierField({
         }
         const total = res.products.reduce((s, p) => s + p.remaining, 0);
         if (total <= 0) {
-          setAvailNote('Soft warning: no remaining allotment for these nights.');
+          setAvailNote('Insufficient allotment: no rooms remaining for these nights.');
         } else {
           setAvailNote(
             `${total} room(s) remaining across ${res.products.length} product(s) for these nights.`,
@@ -1428,10 +1435,12 @@ export function ItineraryBuilder({
     name: '',
     type: 'hotel',
     place: null as PlaceRef | null,
+    description: '',
     imageUrl: '',
     imageUrls: '',
     amenities: '',
     roomHints: '',
+    capacityHint: '',
     stars: '',
     googleRating: '',
     googleReviewCount: '',
@@ -1615,10 +1624,12 @@ export function ItineraryBuilder({
         toPlaceRef(editing?.draft.location) ||
         toPlaceRef(dayForHotel?.destination) ||
         null,
+      description: '',
       imageUrl: '',
       imageUrls: '',
       amenities: '',
       roomHints: '',
+      capacityHint: '',
       stars: '',
       googleRating: '',
       googleReviewCount: '',
@@ -1633,6 +1644,9 @@ export function ItineraryBuilder({
 
   async function createHotelSupplier() {
     const profileJson: Record<string, unknown> = {};
+    if (hotelForm.description.trim()) {
+      profileJson.description = hotelForm.description.trim();
+    }
     if (hotelForm.imageUrl.trim()) profileJson.imageUrl = hotelForm.imageUrl.trim();
     const gallery = hotelForm.imageUrls
       .split(/\r?\n/)
@@ -1649,6 +1663,9 @@ export function ItineraryBuilder({
       .map((s) => s.trim())
       .filter(Boolean);
     if (roomHints.length) profileJson.roomHints = roomHints;
+    if (hotelForm.capacityHint.trim()) {
+      profileJson.capacityHint = hotelForm.capacityHint.trim();
+    }
     if (hotelForm.stars.trim()) {
       const stars = Number(hotelForm.stars);
       if (Number.isFinite(stars)) profileJson.stars = stars;
@@ -3432,12 +3449,18 @@ function openAdd(dayId: string, type = 'sightseeing') {
                   onCreateNew={(q) => openCreateHotel(q)}
                 />
                 <p className="text-[11px] text-muted-foreground">
-                  Pick a hotel supplier — title, photos, ratings, maps and amenities come from that
-                  record. Only nights and room are set on this trip item.
+                  Pick a hotel supplier — title, description, photos, ratings, maps and
+                  amenities come from that record. Only nights and room are set on this trip
+                  item.
                 </p>
                 {details.supplierId ? (
                   <div className="rounded-lg border border-border/60 bg-card/70 px-2.5 py-2 text-[11px] text-muted-foreground">
                     {[
+                      draft.description
+                        ? draft.description.length > 90
+                          ? `${draft.description.slice(0, 90)}…`
+                          : draft.description
+                        : null,
                       details.stars != null ? `${details.stars}★` : null,
                       details.googleRating != null
                         ? `${details.googleRating}${
@@ -3450,6 +3473,7 @@ function openAdd(dayId: string, type = 'sightseeing') {
                         ? `In ${details.checkIn || '—'} · Out ${details.checkOut || '—'}`
                         : null,
                       details.distanceHint || null,
+                      details.googleMapsUrl ? 'Maps linked' : null,
                       details.amenities?.length
                         ? details.amenities.slice(0, 4).join(', ')
                         : null,
@@ -3822,6 +3846,14 @@ function openAdd(dayId: string, type = 'sightseeing') {
           placeholder="City / area"
           onCreateNew={(q) => openCreatePlace(q)}
         />
+        <FormField label="Property description">
+          <textarea
+            className="flex min-h-[64px] w-full rounded-xl border border-border/80 bg-card/85 px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            value={hotelForm.description}
+            onChange={(e) => setHotelForm({ ...hotelForm, description: e.target.value })}
+            placeholder="Boutique mountain rooms with views that make evenings feel special."
+          />
+        </FormField>
         <FormField label="Cover photo URL">
           <Input
             value={hotelForm.imageUrl}
@@ -3851,18 +3883,31 @@ function openAdd(dayId: string, type = 'sightseeing') {
             placeholder="Deluxe, Suite"
           />
         </FormField>
+        <FormField label="Capacity hint">
+          <Input
+            value={hotelForm.capacityHint}
+            onChange={(e) => setHotelForm({ ...hotelForm, capacityHint: e.target.value })}
+            placeholder="24 rooms · groups OK"
+          />
+        </FormField>
         <FormGrid>
-          <FormField label="Stars">
+          <FormField
+            label="Hotel category (★)"
+            description="Official class — e.g. 3★ hotel, not Google score."
+          >
             <Input
               type="number"
               min={1}
               max={5}
               value={hotelForm.stars}
               onChange={(e) => setHotelForm({ ...hotelForm, stars: e.target.value })}
-              placeholder="4"
+              placeholder="3"
             />
           </FormField>
-          <FormField label="Google rating">
+          <FormField
+            label="Google score"
+            description="Guest average out of 5 (e.g. 4.4)."
+          >
             <Input
               type="number"
               step="0.1"

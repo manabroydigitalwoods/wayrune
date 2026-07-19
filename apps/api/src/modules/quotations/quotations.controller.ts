@@ -3,14 +3,24 @@ import {
   ApplyQuoteTemplateSchema,
   CloneQuotationSchema,
   CreateQuoteTemplateSchema,
+  CreateTripFromPackageSchema,
+  LockQuoteFxSchema,
+  MarkQuoteSentSchema,
+  RecordQuoteFitTimingSchema,
+  RecordQuoteInventoryRiskAcksSchema,
   RecordQuoteMarginOverridesSchema,
+  RecordQuoteRateDriftAcksSchema,
+  RequestQuoteApprovalSchema,
+  RestoreQuoteTemplateSchema,
   SaveQuotationVersionSchema,
+  SendQuoteEmailSchema,
   SendQuoteWhatsappSchema,
   UpdateQuoteTemplateSchema,
 } from '@wayrune/contracts';
 import {
   CurrentUser,
   RequireAgencyOrg,
+  RequireAllPermissions,
   RequirePermissions,
   type AuthUser,
 } from '../../common/helpers';
@@ -47,6 +57,35 @@ export class QuotationsController {
   @RequirePermissions('quote.write')
   deleteTemplate(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.quotations.deleteTemplate(user, id);
+  }
+
+  @Get('quote-templates/:id/versions')
+  @RequirePermissions('quote.read')
+  listTemplateVersions(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.quotations.listTemplateVersions(user, id);
+  }
+
+  @Post('quote-templates/:id/restore')
+  @RequirePermissions('quote.write')
+  restoreTemplate(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    return this.quotations.restoreTemplate(
+      user,
+      id,
+      RestoreQuoteTemplateSchema.parse(body),
+    );
+  }
+
+  @Post('trips/from-package')
+  @RequireAllPermissions('trip.write', 'quote.write')
+  createTripFromPackage(@CurrentUser() user: AuthUser, @Body() body: unknown) {
+    return this.quotations.createTripFromPackage(
+      user,
+      CreateTripFromPackageSchema.parse(body),
+    );
   }
 
   @Post('trips/:tripId/quotations')
@@ -126,6 +165,29 @@ export class QuotationsController {
     });
   }
 
+  @Post('quotations/fit-timing')
+  @RequirePermissions('quote.write')
+  recordFitTiming(@CurrentUser() user: AuthUser, @Body() body: unknown) {
+    return this.quotations.recordFitTiming(
+      user,
+      RecordQuoteFitTimingSchema.parse(body ?? {}),
+    );
+  }
+
+  @Post('quotations/:versionId/fx/lock')
+  @RequirePermissions('quote.write')
+  lockFx(
+    @CurrentUser() user: AuthUser,
+    @Param('versionId') versionId: string,
+    @Body() body: unknown,
+  ) {
+    return this.quotations.lockFx(
+      user,
+      versionId,
+      LockQuoteFxSchema.parse(body ?? {}),
+    );
+  }
+
   @Post('quotations/:versionId/margin-overrides')
   @RequirePermissions('below_margin.approve')
   recordMarginOverrides(
@@ -140,10 +202,45 @@ export class QuotationsController {
     );
   }
 
+  @Post('quotations/:versionId/inventory-risk-acks')
+  @RequirePermissions('inventory_risk.approve')
+  recordInventoryRiskAcks(
+    @CurrentUser() user: AuthUser,
+    @Param('versionId') versionId: string,
+    @Body() body: unknown,
+  ) {
+    return this.quotations.recordInventoryRiskAcks(
+      user,
+      versionId,
+      RecordQuoteInventoryRiskAcksSchema.parse(body),
+    );
+  }
+
+  @Post('quotations/:versionId/rate-drift-acks')
+  @RequirePermissions('rate_drift.approve')
+  recordRateDriftAcks(
+    @CurrentUser() user: AuthUser,
+    @Param('versionId') versionId: string,
+    @Body() body: unknown,
+  ) {
+    return this.quotations.recordRateDriftAcks(
+      user,
+      versionId,
+      RecordQuoteRateDriftAcksSchema.parse(body),
+    );
+  }
+
   @Post('quotations/:versionId/request-approval')
   @RequirePermissions('quote.write')
-  requestApproval(@CurrentUser() user: AuthUser, @Param('versionId') versionId: string) {
-    return this.quotations.transition(user, versionId, 'request_approval');
+  requestApproval(
+    @CurrentUser() user: AuthUser,
+    @Param('versionId') versionId: string,
+    @Body() body: unknown,
+  ) {
+    const parsed = RequestQuoteApprovalSchema.parse(body ?? {});
+    return this.quotations.transition(user, versionId, 'request_approval', {
+      extendValidity: parsed.extendValidity === true,
+    });
   }
 
   @Post('quotations/:versionId/approve')
@@ -175,9 +272,10 @@ export class QuotationsController {
   send(
     @CurrentUser() user: AuthUser,
     @Param('versionId') versionId: string,
-    @Body() body: { toEmail: string },
+    @Body() body: unknown,
   ) {
-    return this.quotations.sendEmail(user, versionId, body.toEmail);
+    const parsed = SendQuoteEmailSchema.parse(body ?? {});
+    return this.quotations.sendEmail(user, versionId, parsed);
   }
 
   @Post('quotations/:versionId/send-whatsapp')
@@ -191,6 +289,20 @@ export class QuotationsController {
       user,
       versionId,
       SendQuoteWhatsappSchema.parse(body),
+    );
+  }
+
+  @Post('quotations/:versionId/mark-sent')
+  @RequirePermissions('quote.write')
+  markSent(
+    @CurrentUser() user: AuthUser,
+    @Param('versionId') versionId: string,
+    @Body() body: unknown,
+  ) {
+    return this.quotations.markSent(
+      user,
+      versionId,
+      MarkQuoteSentSchema.parse(body ?? {}),
     );
   }
 

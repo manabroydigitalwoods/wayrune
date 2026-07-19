@@ -112,7 +112,7 @@ export {
 export { Combobox, EntityCombobox, type ComboboxOption } from './components/ui/combobox';
 export { MultiEntityCombobox } from './components/ui/multi-combobox';
 export { Calendar } from './components/ui/calendar';
-export { DatePicker } from './components/ui/date-picker';
+export { DatePicker, type DatePickerProps } from './components/ui/date-picker';
 export { TimePicker } from './components/ui/time-picker';
 export { Pagination } from './components/ui/pagination';
 export {
@@ -151,6 +151,7 @@ export {
   DataTable,
   DataTableColumnHeader,
   FilterBar,
+  dataTablePageIndexForRowId,
   type DataTableFacet,
 } from './components/data-table';
 export { RecordSheet } from './components/record-sheet';
@@ -160,6 +161,11 @@ export { SuggestionChips, type SuggestionOption } from './components/suggestion-
 export { EmailInput, COMMON_EMAIL_DOMAINS } from './components/email-input';
 export { PhoneInput, COMMON_PHONE_CODES, splitPhone, joinPhone, NATIONAL_PHONE_LENGTH, isPhoneFormatOk } from './components/phone-input';
 export { PriceField, type PriceFieldProps } from './components/price-field';
+export {
+  NumberField,
+  QuickPicks,
+  type NumberFieldProps,
+} from './components/number-field';
 export {
   HOTEL_CATEGORY_OPTIONS,
   MEAL_PLAN_OPTIONS,

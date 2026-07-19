@@ -103,7 +103,23 @@ export class ItinerariesService {
     organizationId: string,
     tripId: string,
     allowDraft: boolean,
+    quotationVersionId?: string | null,
   ) {
+    if (quotationVersionId) {
+      const bound = await this.prisma.quotationVersion.findFirst({
+        where: {
+          id: quotationVersionId,
+          quotation: { tripId, organizationId },
+        },
+        include: { quotation: { select: { quoteNumber: true } } },
+      });
+      if (bound) {
+        const allowed = new Set<string>(customerQuoteStatuses(allowDraft));
+        if (allowed.has(bound.status) || bound.status === 'accepted') {
+          return presentCustomerQuote(bound);
+        }
+      }
+    }
     for (const status of customerQuoteStatuses(allowDraft)) {
       const version = await this.prisma.quotationVersion.findFirst({
         where: {
@@ -123,7 +139,7 @@ export class ItinerariesService {
     organizationId: string,
     versionId?: string,
     createdBy?: string,
-    opts?: { allowDraftQuote?: boolean },
+    opts?: { allowDraftQuote?: boolean; quotationVersionId?: string | null },
   ) {
     const trip = await this.prisma.trip.findFirst({
       where: { id: tripId, organizationId, deletedAt: null },
@@ -159,6 +175,7 @@ export class ItinerariesService {
       organizationId,
       tripId,
       opts?.allowDraftQuote ?? false,
+      opts?.quotationVersionId,
     );
     const days = customerItineraryDays(version.contentJson);
     let story = parseItineraryStory(version.contentJson);
@@ -339,16 +356,24 @@ export class ItinerariesService {
 
   async getPublicPreview(token: string) {
     const link = await this.requireActiveShareByToken(token);
-    return this.buildPreviewPayload(link.tripId, link.organizationId, link.itineraryVersionId);
+    return this.buildPreviewPayload(
+      link.tripId,
+      link.organizationId,
+      link.itineraryVersionId,
+      undefined,
+      { quotationVersionId: link.quotationVersionId },
+    );
   }
 
-  async acceptPublicQuote(token: string) {
+  async acceptPublicQuote(token: string, pin?: string, clientId = 'unknown') {
     const link = await this.requireActiveShareByToken(token);
     assertRateLimit(`quote-accept:${link.token}`, 8, 15 * 60 * 1000);
+    await this.assertFamilyPin(link, pin, clientId);
     const result = await this.quotations.acceptFromPublicShare(
       link.organizationId,
       link.tripId,
       link.createdBy,
+      { quotationVersionId: link.quotationVersionId },
     );
     return {
       ...result,
@@ -494,7 +519,7 @@ export class ItinerariesService {
     if (!link.familyPinHash) return;
     assertRateLimit(`family-pin:${link.token}:${clientId}`, 12, 15 * 60 * 1000);
     if (!pin) {
-      throw new UnauthorizedException('Family PIN required to join or post');
+      throw new UnauthorizedException('Family PIN required to accept or join this proposal');
     }
     const ok = await verifyPassword(pin, link.familyPinHash);
     if (!ok) {

@@ -27,7 +27,7 @@ type DayInput = {
 type RateResolveRow = {
   itemId: string;
   matched: boolean;
-  rateKind: 'hotel' | 'transfer' | null;
+  rateKind: 'hotel' | 'transfer' | 'activity' | null;
   rateId: string | null;
   unitCost: number;
   unitSell: number;
@@ -181,6 +181,7 @@ export function QuoteImportReviewDialog({
   partyAdults,
   partyChildren,
   partyInfants,
+  partyId,
   onConfirm,
 }: {
   open: boolean;
@@ -191,6 +192,7 @@ export function QuoteImportReviewDialog({
   partyAdults?: number;
   partyChildren?: number;
   partyInfants?: number;
+  partyId?: string | null;
   onConfirm: (selected: QuoteImportCandidate[]) => void | Promise<void>;
 }) {
   const initial = useMemo(
@@ -240,6 +242,7 @@ export function QuoteImportReviewDialog({
             adults: partyAdults || undefined,
             children: partyChildren || undefined,
             infants: partyInfants || undefined,
+            partyId: partyId || undefined,
             items: resolvable.map((r) => r.resolveItem!),
           }),
         });
@@ -307,7 +310,7 @@ export function QuoteImportReviewDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, initial, tripStartDate, partyAdults, partyChildren, partyInfants]);
+  }, [open, initial, tripStartDate, partyAdults, partyChildren, partyInfants, partyId]);
 
   const selectedCount = rows.filter((r) => r.selected).length;
   const commercial = rows.filter((r) => r.disposition === 'import_as_service');

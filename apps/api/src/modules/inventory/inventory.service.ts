@@ -22,6 +22,23 @@ import type {
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import type { AuthUser } from '../../common/helpers';
+import {
+  allocationAssetNeedsRebind,
+  allocationDatesNeedResync,
+  allocationFleetWindowNeedsResync,
+  allocationNeedsOrphanRelease,
+  allocationQuantityNeedsResync,
+  allocationRoomProductNeedsRematch,
+  bookingFleetUnitId,
+  bookingRoomProductId,
+  bookingRoomTypeLabel,
+  canResyncAllocationAsset,
+  canResyncAllocationDates,
+  canResyncAllocationQuantity,
+  hotelAllocationQuantity,
+  matchRoomProductIdByTypeName,
+  shouldUpgradeAllotmentHoldOnConfirm,
+} from './hotel-allocation-quantity';
 
 const STAY_KINDS = new Set(['hotel', 'homestay', 'farmstay']);
 const FLEET_KINDS = new Set(['vehicle', 'car_rental']);
@@ -166,6 +183,7 @@ export class InventoryService {
       data: {
         assetId: input.assetId,
         name: input.name.trim(),
+        customerFacingName: input.customerFacingName?.trim() || null,
         roomTypeKey: input.roomTypeKey || null,
         maxOccupancy: input.maxOccupancy ?? 2,
         bedConfig: input.bedConfig || null,
@@ -192,6 +210,11 @@ export class InventoryService {
       where: { id },
       data: {
         ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+        ...(input.customerFacingName !== undefined
+          ? {
+              customerFacingName: input.customerFacingName?.trim() || null,
+            }
+          : {}),
         ...(input.roomTypeKey !== undefined ? { roomTypeKey: input.roomTypeKey } : {}),
         ...(input.maxOccupancy !== undefined ? { maxOccupancy: input.maxOccupancy } : {}),
         ...(input.bedConfig !== undefined ? { bedConfig: input.bedConfig } : {}),
@@ -216,6 +239,11 @@ export class InventoryService {
     if (endDate <= startDate) {
       throw new BadRequestException('endDate must be after startDate');
     }
+    if (input.availableCount > product.baseQuantity) {
+      throw new BadRequestException(
+        `Available count cannot exceed physical units (${product.baseQuantity})`,
+      );
+    }
     return this.prisma.assetAllotment.create({
       data: {
         roomProductId: product.id,
@@ -238,6 +266,15 @@ export class InventoryService {
     const endDate = input.endDate ? dayStart(input.endDate) : allotment.endDate;
     if (endDate <= startDate) {
       throw new BadRequestException('endDate must be after startDate');
+    }
+    const nextAvailable =
+      input.availableCount !== undefined
+        ? input.availableCount
+        : allotment.availableCount;
+    if (nextAvailable > allotment.roomProduct.baseQuantity) {
+      throw new BadRequestException(
+        `Available count cannot exceed physical units (${allotment.roomProduct.baseQuantity})`,
+      );
     }
     return this.prisma.assetAllotment.update({
       where: { id },
@@ -495,13 +532,21 @@ export class InventoryService {
     return allocation;
   }
 
-  private async hasFleetConflict(fleetUnitId: string, startAt: Date, endAt: Date) {
+  private async hasFleetConflict(
+    fleetUnitId: string,
+    startAt: Date,
+    endAt: Date,
+    excludeAllocationId?: string | null,
+  ) {
     const blocks = await this.prisma.assetCalendarBlock.findMany({
       where: {
         fleetUnitId,
         kind: { in: ['blocked', 'booked'] },
         startAt: { lt: endAt },
         endAt: { gt: startAt },
+        ...(excludeAllocationId
+          ? { allocationId: { not: excludeAllocationId } }
+          : {}),
       },
       take: 1,
     });
@@ -542,8 +587,608 @@ export class InventoryService {
   }
 
   /**
+   * Soft conflict check + release/reallocate transfer onto a new fleet asset.
+   * Does not carry fleetUnitId across assets unless booking stamps one.
+   */
+  private async resyncFleetAllocationAsset(
+    user: AuthUser,
+    booking: {
+      id: string;
+      type: string;
+      status: string;
+      startAt: Date | null;
+      endAt: Date | null;
+    },
+    existing: {
+      id: string;
+      status: string;
+      assetId: string;
+      fleetUnitId: string | null;
+      startAt: Date | null;
+      endAt: Date | null;
+    },
+    targetAssetId: string,
+    fleetUnitId: string | null,
+  ): Promise<
+    | {
+        ok: true;
+        allocationId: string;
+        assetRebound: true;
+        fleetWindowResynced?: boolean;
+        upgraded?: boolean;
+      }
+    | { ok: false; failed: string }
+  > {
+    if (!booking.startAt || !booking.endAt) {
+      return {
+        ok: false,
+        failed: 'Booking dates required to rebind transfer inventory',
+      };
+    }
+    const startAt = booking.startAt;
+    const endAt = booking.endAt;
+    if (!(endAt > startAt)) {
+      return { ok: false, failed: 'Transfer end must be after start' };
+    }
+
+    try {
+      if (fleetUnitId) {
+        const unit = await this.prisma.assetFleetUnit.findFirst({
+          where: {
+            id: fleetUnitId,
+            assetId: targetAssetId,
+            deletedAt: null,
+            isActive: true,
+          },
+          select: { id: true },
+        });
+        if (!unit) {
+          return {
+            ok: false,
+            failed: 'Fleet unit is not on the new driver/fleet asset',
+          };
+        }
+        const conflict = await this.hasFleetConflict(
+          fleetUnitId,
+          startAt,
+          endAt,
+          existing.id,
+        );
+        if (conflict) {
+          return {
+            ok: false,
+            failed: 'Fleet unit is not available on the new asset for this window',
+          };
+        }
+      }
+
+      await this.releaseForBooking(booking.id);
+      const row = await this.allocate(user, {
+        assetId: targetAssetId,
+        bookingComponentId: booking.id,
+        ...(fleetUnitId ? { fleetUnitId } : {}),
+        startAt: startAt.toISOString(),
+        endAt: endAt.toISOString(),
+        status: booking.status === 'confirmed' ? 'confirmed' : 'hold',
+        allowOverride: false,
+      });
+      const windowMoved = allocationFleetWindowNeedsResync({
+        allocationStartAt: existing.startAt,
+        allocationEndAt: existing.endAt,
+        allocationFleetUnitId: existing.fleetUnitId,
+        bookingStartAt: booking.startAt,
+        bookingEndAt: booking.endAt,
+        bookingFleetUnitId: fleetUnitId,
+      });
+      return {
+        ok: true,
+        allocationId: row.id,
+        assetRebound: true,
+        ...(windowMoved ? { fleetWindowResynced: true } : {}),
+        ...(booking.status === 'confirmed' && existing.status === 'hold'
+          ? { upgraded: true }
+          : {}),
+      };
+    } catch (e) {
+      return {
+        ok: false,
+        failed:
+          e instanceof Error
+            ? e.message
+            : 'Could not rebind transfer inventory to new fleet',
+      };
+    }
+  }
+
+  /**
+   * Soft capacity + release/reallocate onto a stamped room product (same asset).
+   */
+  private async resyncStayAllocationRoomProduct(
+    user: AuthUser,
+    booking: {
+      id: string;
+      type: string;
+      status: string;
+      startAt: Date | null;
+      endAt: Date | null;
+      requiredQuantity?: number | string | { toString(): string } | null;
+      travellerRequirementsJson?: unknown;
+    },
+    existing: {
+      id: string;
+      status: string;
+      quantity: number;
+      assetId: string;
+      roomProductId: string | null;
+      checkIn: Date | null;
+      checkOut: Date | null;
+    },
+    wantedProductId?: string | null,
+  ): Promise<
+    | {
+        ok: true;
+        allocationId: string;
+        roomProductRematched: true;
+        quantityResynced?: boolean;
+        upgraded?: boolean;
+      }
+    | { ok: false; failed: string }
+  > {
+    const wanted =
+      (typeof wantedProductId === 'string' && wantedProductId.trim()
+        ? wantedProductId.trim()
+        : null) || bookingRoomProductId(booking.travellerRequirementsJson);
+    if (!wanted) {
+      return { ok: false, failed: 'Booking room product required to rematch' };
+    }
+    if (!booking.startAt || !booking.endAt) {
+      return {
+        ok: false,
+        failed: 'Booking dates required to rematch room product',
+      };
+    }
+    const checkIn = booking.startAt.toISOString().slice(0, 10);
+    const checkOut = booking.endAt.toISOString().slice(0, 10);
+    const roomsQty = hotelAllocationQuantity({
+      requiredQuantity: booking.requiredQuantity,
+      travellerRequirementsJson: booking.travellerRequirementsJson,
+    });
+
+    try {
+      const avail = await this.availability(user, {
+        assetId: existing.assetId,
+        from: checkIn,
+        to: checkOut,
+      });
+      const row = avail.products.find((p) => p.roomProductId === wanted);
+      const remaining = row?.remaining ?? 0;
+      const sameProduct = existing.roomProductId === wanted;
+      if (
+        !canResyncAllocationDates({
+          remaining,
+          allocationQuantity: existing.quantity,
+          neededQuantity: roomsQty,
+          allocationOverlapsNewWindow: sameProduct,
+        })
+      ) {
+        return {
+          ok: false,
+          failed: `Insufficient room availability to rematch allotment to selected room product`,
+        };
+      }
+
+      await this.releaseForBooking(booking.id);
+      const created = await this.allocate(user, {
+        assetId: existing.assetId,
+        bookingComponentId: booking.id,
+        roomProductId: wanted,
+        checkIn,
+        checkOut,
+        quantity: roomsQty,
+        status: booking.status === 'confirmed' ? 'confirmed' : 'hold',
+        allowOverride: false,
+      });
+      return {
+        ok: true,
+        allocationId: created.id,
+        roomProductRematched: true,
+        ...(roomsQty !== existing.quantity ? { quantityResynced: true } : {}),
+        ...(booking.status === 'confirmed' && existing.status === 'hold'
+          ? { upgraded: true }
+          : {}),
+      };
+    } catch (e) {
+      return {
+        ok: false,
+        failed:
+          e instanceof Error ? e.message : 'Could not rematch room product',
+      };
+    }
+  }
+
+  /**
+   * Soft conflict check + release/reallocate transfer fleet window / unit.
+   */
+  private async resyncFleetAllocationWindow(
+    user: AuthUser,
+    booking: {
+      id: string;
+      type: string;
+      status: string;
+      startAt: Date | null;
+      endAt: Date | null;
+    },
+    existing: {
+      id: string;
+      status: string;
+      assetId: string;
+      fleetUnitId: string | null;
+      startAt: Date | null;
+      endAt: Date | null;
+    },
+    targetAssetId: string,
+    fleetUnitId: string | null,
+  ): Promise<
+    | {
+        ok: true;
+        allocationId: string;
+        fleetWindowResynced: true;
+        upgraded?: boolean;
+      }
+    | { ok: false; failed: string }
+  > {
+    if (!booking.startAt || !booking.endAt) {
+      return { ok: false, failed: 'Booking dates required to move transfer window' };
+    }
+    const startAt = booking.startAt;
+    const endAt = booking.endAt;
+    if (!(endAt > startAt)) {
+      return { ok: false, failed: 'Transfer end must be after start' };
+    }
+
+    try {
+      if (fleetUnitId) {
+        const conflict = await this.hasFleetConflict(
+          fleetUnitId,
+          startAt,
+          endAt,
+          existing.id,
+        );
+        if (conflict) {
+          return {
+            ok: false,
+            failed: 'Fleet unit is not available for the new transfer window',
+          };
+        }
+      }
+
+      await this.releaseForBooking(booking.id);
+      const row = await this.allocate(user, {
+        assetId: targetAssetId,
+        bookingComponentId: booking.id,
+        ...(fleetUnitId ? { fleetUnitId } : {}),
+        startAt: startAt.toISOString(),
+        endAt: endAt.toISOString(),
+        status: booking.status === 'confirmed' ? 'confirmed' : 'hold',
+        allowOverride: false,
+      });
+      return {
+        ok: true,
+        allocationId: row.id,
+        fleetWindowResynced: true,
+        ...(booking.status === 'confirmed' && existing.status === 'hold'
+          ? { upgraded: true }
+          : {}),
+      };
+    } catch (e) {
+      return {
+        ok: false,
+        failed:
+          e instanceof Error
+            ? e.message
+            : 'Could not move transfer inventory window',
+      };
+    }
+  }
+
+  /**
+   * Soft capacity + release/reallocate onto a new stay asset (supplier rebind).
+   * Leaves existing allotment untouched when capacity soft-fails.
+   * Does not carry roomProductId across assets — allocate picks product on target.
+   */
+  private async resyncStayAllocationAsset(
+    user: AuthUser,
+    booking: {
+      id: string;
+      type: string;
+      status: string;
+      startAt: Date | null;
+      endAt: Date | null;
+      requiredQuantity?: number | string | { toString(): string } | null;
+      travellerRequirementsJson?: unknown;
+    },
+    existing: {
+      id: string;
+      status: string;
+      quantity: number;
+      assetId: string;
+      roomProductId: string | null;
+      checkIn: Date | null;
+      checkOut: Date | null;
+    },
+    targetAssetId: string,
+  ): Promise<
+    | {
+        ok: true;
+        allocationId: string;
+        assetRebound: true;
+        datesResynced?: boolean;
+        quantityResynced?: boolean;
+        upgraded?: boolean;
+      }
+    | { ok: false; failed: string }
+  > {
+    if (!booking.startAt || !booking.endAt) {
+      return { ok: false, failed: 'Booking dates required to rebind allotment' };
+    }
+    const checkIn = booking.startAt.toISOString().slice(0, 10);
+    const checkOut = booking.endAt.toISOString().slice(0, 10);
+    if (checkOut <= checkIn) {
+      return { ok: false, failed: 'checkOut must be after checkIn' };
+    }
+    const roomsQty = hotelAllocationQuantity({
+      requiredQuantity: booking.requiredQuantity,
+      travellerRequirementsJson: booking.travellerRequirementsJson,
+    });
+
+    try {
+      const avail = await this.availability(user, {
+        assetId: targetAssetId,
+        from: checkIn,
+        to: checkOut,
+      });
+      const remaining = avail.products.reduce(
+        (m, p) => Math.max(m, p.remaining),
+        0,
+      );
+      if (
+        !canResyncAllocationAsset({
+          remaining,
+          neededQuantity: roomsQty,
+        })
+      ) {
+        return {
+          ok: false,
+          failed: `Insufficient room availability on new property for ${checkIn} → ${checkOut}`,
+        };
+      }
+
+      await this.releaseForBooking(booking.id);
+      const row = await this.allocate(user, {
+        assetId: targetAssetId,
+        bookingComponentId: booking.id,
+        checkIn,
+        checkOut,
+        quantity: roomsQty,
+        status: booking.status === 'confirmed' ? 'confirmed' : 'hold',
+        allowOverride: false,
+      });
+      const datesMoved = allocationDatesNeedResync({
+        allocationCheckIn: existing.checkIn,
+        allocationCheckOut: existing.checkOut,
+        bookingStartAt: booking.startAt,
+        bookingEndAt: booking.endAt,
+      });
+      return {
+        ok: true,
+        allocationId: row.id,
+        assetRebound: true,
+        ...(datesMoved ? { datesResynced: true } : {}),
+        ...(roomsQty !== existing.quantity ? { quantityResynced: true } : {}),
+        ...(booking.status === 'confirmed' && existing.status === 'hold'
+          ? { upgraded: true }
+          : {}),
+      };
+    } catch (e) {
+      return {
+        ok: false,
+        failed:
+          e instanceof Error ? e.message : 'Could not rebind allotment to new property',
+      };
+    }
+  }
+
+  /**
+   * Soft capacity + release/reallocate when stay dates no longer match booking.
+   * Leaves existing allotment untouched when capacity soft-fails.
+   */
+  private async resyncStayAllocationDates(
+    user: AuthUser,
+    booking: {
+      id: string;
+      type: string;
+      status: string;
+      startAt: Date | null;
+      endAt: Date | null;
+      requiredQuantity?: number | string | { toString(): string } | null;
+      travellerRequirementsJson?: unknown;
+    },
+    existing: {
+      id: string;
+      status: string;
+      quantity: number;
+      assetId: string;
+      roomProductId: string | null;
+      checkIn: Date | null;
+      checkOut: Date | null;
+    },
+  ): Promise<
+    | {
+        ok: true;
+        allocationId: string;
+        datesResynced: true;
+        quantityResynced?: boolean;
+        upgraded?: boolean;
+      }
+    | { ok: false; failed: string }
+  > {
+    if (!booking.startAt || !booking.endAt) {
+      return { ok: false, failed: 'Booking dates required to move allotment' };
+    }
+    const checkIn = booking.startAt.toISOString().slice(0, 10);
+    const checkOut = booking.endAt.toISOString().slice(0, 10);
+    if (checkOut <= checkIn) {
+      return { ok: false, failed: 'checkOut must be after checkIn' };
+    }
+    const roomsQty = hotelAllocationQuantity({
+      requiredQuantity: booking.requiredQuantity,
+      travellerRequirementsJson: booking.travellerRequirementsJson,
+    });
+    const newFrom = dayStart(checkIn);
+    const newTo = dayStart(checkOut);
+    const overlaps =
+      Boolean(existing.checkIn && existing.checkOut) &&
+      datesOverlap(newFrom, newTo, existing.checkIn!, existing.checkOut!);
+
+    try {
+      const avail = await this.availability(user, {
+        assetId: existing.assetId,
+        from: checkIn,
+        to: checkOut,
+      });
+      let remaining = 0;
+      if (existing.roomProductId) {
+        const row = avail.products.find(
+          (p) => p.roomProductId === existing.roomProductId,
+        );
+        remaining = row?.remaining ?? 0;
+      } else {
+        remaining = avail.products.reduce((m, p) => Math.max(m, p.remaining), 0);
+      }
+      if (
+        !canResyncAllocationDates({
+          remaining,
+          allocationQuantity: existing.quantity,
+          neededQuantity: roomsQty,
+          allocationOverlapsNewWindow: overlaps,
+        })
+      ) {
+        return {
+          ok: false,
+          failed: `Insufficient room availability to move allotment to ${checkIn} → ${checkOut}`,
+        };
+      }
+
+      await this.releaseForBooking(booking.id);
+      const row = await this.allocate(user, {
+        assetId: existing.assetId,
+        bookingComponentId: booking.id,
+        ...(existing.roomProductId
+          ? { roomProductId: existing.roomProductId }
+          : {}),
+        checkIn,
+        checkOut,
+        quantity: roomsQty,
+        status: booking.status === 'confirmed' ? 'confirmed' : 'hold',
+        allowOverride: false,
+      });
+      return {
+        ok: true,
+        allocationId: row.id,
+        datesResynced: true,
+        ...(roomsQty !== existing.quantity ? { quantityResynced: true } : {}),
+        ...(booking.status === 'confirmed' && existing.status === 'hold'
+          ? { upgraded: true }
+          : {}),
+      };
+    } catch (e) {
+      return {
+        ok: false,
+        failed:
+          e instanceof Error ? e.message : 'Could not move allotment dates',
+      };
+    }
+  }
+
+  /**
+   * Soft capacity check + whether stay allotment qty should bump to booking rooms.
+   * Does not write — caller updates allocation.
+   */
+  private async resyncStayAllocationQuantity(
+    user: AuthUser,
+    booking: {
+      type: string;
+      requiredQuantity?: number | string | { toString(): string } | null;
+      travellerRequirementsJson?: unknown;
+    },
+    existing: {
+      quantity: number;
+      assetId: string;
+      roomProductId: string | null;
+      checkIn: Date | null;
+      checkOut: Date | null;
+    },
+  ): Promise<
+    | { ok: true; quantityResynced: boolean; roomsQty: number }
+    | { ok: false; failed: string }
+  > {
+    const isStay =
+      booking.type === 'hotel' || Boolean(existing.checkIn && existing.checkOut);
+    const roomsQty = hotelAllocationQuantity({
+      requiredQuantity: booking.requiredQuantity,
+      travellerRequirementsJson: booking.travellerRequirementsJson,
+    });
+    if (
+      !isStay ||
+      !allocationQuantityNeedsResync({
+        allocationQuantity: existing.quantity,
+        requiredQuantity: booking.requiredQuantity,
+        travellerRequirementsJson: booking.travellerRequirementsJson,
+      })
+    ) {
+      return { ok: true, quantityResynced: false, roomsQty };
+    }
+
+    if (existing.roomProductId && existing.checkIn && existing.checkOut) {
+      try {
+        const avail = await this.availability(user, {
+          assetId: existing.assetId,
+          from: existing.checkIn.toISOString().slice(0, 10),
+          to: existing.checkOut.toISOString().slice(0, 10),
+        });
+        const row = avail.products.find(
+          (p) => p.roomProductId === existing.roomProductId,
+        );
+        const remaining = row?.remaining ?? 0;
+        if (
+          !canResyncAllocationQuantity({
+            remaining,
+            allocationQuantity: existing.quantity,
+            neededQuantity: roomsQty,
+          })
+        ) {
+          return {
+            ok: false,
+            failed: `Insufficient room availability to sync allotment to ${roomsQty} room${roomsQty === 1 ? '' : 's'}`,
+          };
+        }
+      } catch (e) {
+        return {
+          ok: false,
+          failed:
+            e instanceof Error
+              ? e.message
+              : 'Could not check allotment capacity for qty sync',
+        };
+      }
+    }
+
+    return { ok: true, quantityResynced: true, roomsQty };
+  }
+
+  /**
    * Best-effort allocate when a booking is confirmed.
-   * Soft-skip if no dates / no linked asset / no products.
+   * Returns status for UI honesty (never throws).
    */
   async syncBookingInventory(
     user: AuthUser,
@@ -555,68 +1200,340 @@ export class InventoryService {
       partnerAssetId: string | null;
       startAt: Date | null;
       endAt: Date | null;
+      requiredQuantity?: number | string | { toString(): string } | null;
+      travellerRequirementsJson?: unknown;
     },
-  ) {
+  ): Promise<
+    | {
+        ok: true;
+        allocationId?: string;
+        released?: number;
+        upgraded?: boolean;
+        quantityResynced?: boolean;
+        datesResynced?: boolean;
+        assetRebound?: boolean;
+        roomProductRematched?: boolean;
+        fleetWindowResynced?: boolean;
+        orphanReleased?: boolean;
+      }
+    | { ok: false; skipped?: string; failed?: string }
+    | null
+  > {
     if (booking.status === 'cancelled') {
-      return this.releaseForBooking(booking.id);
+      const released = await this.releaseForBooking(booking.id);
+      return { ok: true, released: released.released };
     }
     if (booking.status !== 'confirmed' && booking.status !== 'requested') {
-      return null;
+      return { ok: false, skipped: 'status_not_allocatable' };
     }
 
-    const existing = await this.prisma.inventoryAllocation.count({
+    const existing = await this.prisma.inventoryAllocation.findFirst({
       where: {
         bookingComponentId: booking.id,
         status: { in: [...ACTIVE_ALLOC] },
       },
+      select: {
+        id: true,
+        status: true,
+        quantity: true,
+        assetId: true,
+        roomProductId: true,
+        fleetUnitId: true,
+        checkIn: true,
+        checkOut: true,
+        startAt: true,
+        endAt: true,
+      },
     });
-    if (existing > 0) return null;
+    if (existing) {
+      const isStay =
+        booking.type === 'hotel' ||
+        Boolean(existing.checkIn && existing.checkOut);
+      const isFleet =
+        booking.type === 'transfer' ||
+        Boolean(existing.startAt && existing.endAt && !existing.checkIn);
+      const target = await this.resolveBookingTargetAsset(booking);
 
-    let assetId = booking.partnerAssetId;
-    if (!assetId && booking.supplierId) {
-      const supplier = await this.prisma.supplier.findFirst({
-        where: { id: booking.supplierId },
-      });
-      assetId = supplier?.linkedAssetId || null;
+      if (
+        allocationNeedsOrphanRelease({
+          allocationAssetId: existing.assetId,
+          targetAssetId: target.assetId,
+        })
+      ) {
+        const released = await this.releaseForBooking(booking.id);
+        return {
+          ok: true,
+          released: released.released,
+          orphanReleased: true,
+        };
+      }
+
+      if (
+        isStay &&
+        target.assetId &&
+        allocationAssetNeedsRebind({
+          allocationAssetId: existing.assetId,
+          targetAssetId: target.assetId,
+        })
+      ) {
+        return this.resyncStayAllocationAsset(
+          user,
+          booking,
+          existing,
+          target.assetId,
+        );
+      }
+
+      if (
+        isFleet &&
+        target.assetId &&
+        booking.startAt &&
+        booking.endAt &&
+        allocationAssetNeedsRebind({
+          allocationAssetId: existing.assetId,
+          targetAssetId: target.assetId,
+        })
+      ) {
+        return this.resyncFleetAllocationAsset(
+          user,
+          booking,
+          existing,
+          target.assetId,
+          target.fleetUnitId ||
+            bookingFleetUnitId(booking.travellerRequirementsJson),
+        );
+      }
+
+      if (
+        isStay &&
+        booking.startAt &&
+        booking.endAt &&
+        allocationDatesNeedResync({
+          allocationCheckIn: existing.checkIn,
+          allocationCheckOut: existing.checkOut,
+          bookingStartAt: booking.startAt,
+          bookingEndAt: booking.endAt,
+        })
+      ) {
+        return this.resyncStayAllocationDates(user, booking, existing);
+      }
+
+      if (isStay) {
+        let wantedProductId = bookingRoomProductId(
+          booking.travellerRequirementsJson,
+        );
+        if (!wantedProductId) {
+          const roomType = bookingRoomTypeLabel(
+            booking.travellerRequirementsJson,
+          );
+          if (roomType) {
+            const products = await this.prisma.assetRoomProduct.findMany({
+              where: {
+                assetId: existing.assetId,
+                deletedAt: null,
+                isActive: true,
+              },
+              select: { id: true, name: true },
+            });
+            wantedProductId = matchRoomProductIdByTypeName({
+              roomType,
+              products,
+            });
+          }
+        }
+        if (
+          allocationRoomProductNeedsRematch({
+            allocationRoomProductId: existing.roomProductId,
+            bookingRoomProductId: wantedProductId,
+          })
+        ) {
+          return this.resyncStayAllocationRoomProduct(
+            user,
+            booking,
+            existing,
+            wantedProductId!,
+          );
+        }
+      }
+
+      if (
+        isFleet &&
+        booking.startAt &&
+        booking.endAt &&
+        target.assetId &&
+        allocationFleetWindowNeedsResync({
+          allocationStartAt: existing.startAt,
+          allocationEndAt: existing.endAt,
+          allocationFleetUnitId: existing.fleetUnitId,
+          bookingStartAt: booking.startAt,
+          bookingEndAt: booking.endAt,
+          bookingFleetUnitId:
+            target.fleetUnitId ||
+            bookingFleetUnitId(booking.travellerRequirementsJson),
+        })
+      ) {
+        return this.resyncFleetAllocationWindow(
+          user,
+          booking,
+          existing,
+          target.assetId,
+          target.fleetUnitId ||
+            bookingFleetUnitId(booking.travellerRequirementsJson) ||
+            existing.fleetUnitId,
+        );
+      }
+
+      if (
+        shouldUpgradeAllotmentHoldOnConfirm({
+          allocationStatus: existing.status,
+          bookingStatus: booking.status,
+        })
+      ) {
+        const resync = await this.resyncStayAllocationQuantity(user, booking, existing);
+        if (!resync.ok) return resync;
+        try {
+          await this.prisma.inventoryAllocation.update({
+            where: { id: existing.id },
+            data: {
+              status: 'confirmed',
+              ...(resync.quantityResynced ? { quantity: resync.roomsQty } : {}),
+            },
+          });
+          return {
+            ok: true,
+            allocationId: existing.id,
+            upgraded: true,
+            ...(resync.quantityResynced ? { quantityResynced: true } : {}),
+          };
+        } catch (e) {
+          return {
+            ok: false,
+            failed: e instanceof Error ? e.message : 'Could not confirm allotment hold',
+          };
+        }
+      }
+
+      // Already-confirmed: qty-only resync when booking rooms changed.
+      if (existing.status === 'confirmed' && booking.status === 'confirmed') {
+        const resync = await this.resyncStayAllocationQuantity(user, booking, existing);
+        if (!resync.ok) return resync;
+        if (resync.quantityResynced) {
+          try {
+            await this.prisma.inventoryAllocation.update({
+              where: { id: existing.id },
+              data: { quantity: resync.roomsQty },
+            });
+            return {
+              ok: true,
+              allocationId: existing.id,
+              quantityResynced: true,
+            };
+          } catch (e) {
+            return {
+              ok: false,
+              failed:
+                e instanceof Error ? e.message : 'Could not sync allotment quantity',
+            };
+          }
+        }
+      }
+
+      return { ok: true, allocationId: existing.id };
     }
-    if (!assetId || !booking.startAt || !booking.endAt) return null;
+
+    const target = await this.resolveBookingTargetAsset(booking);
+    const assetId = target.assetId;
+    const fleetUnitId = target.fleetUnitId;
+    if (!assetId || !booking.startAt || !booking.endAt) {
+      return { ok: false, skipped: 'missing_asset_or_dates' };
+    }
 
     const asset = await this.prisma.partnerAsset.findFirst({
       where: { id: assetId, deletedAt: null },
     });
-    if (!asset) return null;
+    if (!asset) return { ok: false, skipped: 'asset_missing' };
+
+    const roomsQty = hotelAllocationQuantity({
+      requiredQuantity: booking.requiredQuantity,
+      travellerRequirementsJson: booking.travellerRequirementsJson,
+    });
 
     try {
       if (STAY_KINDS.has(asset.assetKind) || booking.type === 'hotel') {
-        return await this.allocate(user, {
+        const row = await this.allocate(user, {
           assetId,
           bookingComponentId: booking.id,
           checkIn: booking.startAt.toISOString().slice(0, 10),
           checkOut: booking.endAt.toISOString().slice(0, 10),
-          quantity: 1,
+          quantity: roomsQty,
           status: booking.status === 'confirmed' ? 'confirmed' : 'hold',
           allowOverride: false,
         });
+        return { ok: true, allocationId: row.id };
       }
       if (
         asset.assetKind === 'vehicle' ||
         asset.assetKind === 'driver' ||
         booking.type === 'transfer'
       ) {
-        return await this.allocate(user, {
+        const row = await this.allocate(user, {
           assetId,
           bookingComponentId: booking.id,
+          fleetUnitId: fleetUnitId || undefined,
           startAt: booking.startAt.toISOString(),
           endAt: booking.endAt.toISOString(),
           status: booking.status === 'confirmed' ? 'confirmed' : 'hold',
           allowOverride: false,
         });
+        return { ok: true, allocationId: row.id };
       }
-    } catch {
-      // Soft: confirmation still succeeds; ops can override later
-      return null;
+    } catch (e) {
+      return {
+        ok: false,
+        failed: e instanceof Error ? e.message : 'Inventory allocate failed',
+      };
     }
-    return null;
+    return { ok: false, skipped: 'asset_kind_unsupported' };
+  }
+
+  /** Resolve partner asset (+ optional fleet unit) for a booking inventory sync. */
+  private async resolveBookingTargetAsset(booking: {
+    type: string;
+    supplierId: string | null;
+    partnerAssetId: string | null;
+    travellerRequirementsJson?: unknown;
+  }): Promise<{ assetId: string | null; fleetUnitId: string | null }> {
+    let assetId = booking.partnerAssetId;
+    let fleetUnitId: string | null = null;
+    if (booking.type === 'transfer' && booking.travellerRequirementsJson) {
+      const root =
+        booking.travellerRequirementsJson &&
+        typeof booking.travellerRequirementsJson === 'object' &&
+        !Array.isArray(booking.travellerRequirementsJson)
+          ? (booking.travellerRequirementsJson as Record<string, unknown>)
+          : {};
+      if (typeof root.fleetUnitId === 'string' && root.fleetUnitId.trim()) {
+        fleetUnitId = root.fleetUnitId.trim();
+      }
+      // Prefer assigned driver/fleet supplier link over booking.partnerAssetId
+      // (Ops can reassign driver without changing booking.supplierId).
+      if (typeof root.driverSupplierId === 'string' && root.driverSupplierId.trim()) {
+        const supplier = await this.prisma.supplier.findFirst({
+          where: { id: root.driverSupplierId.trim(), deletedAt: null },
+          select: { linkedAssetId: true },
+        });
+        if (supplier?.linkedAssetId) {
+          assetId = supplier.linkedAssetId;
+        }
+      }
+    }
+    if (!assetId && booking.supplierId) {
+      const supplier = await this.prisma.supplier.findFirst({
+        where: { id: booking.supplierId },
+      });
+      assetId = supplier?.linkedAssetId || null;
+    }
+    return { assetId, fleetUnitId };
   }
 
   // ── Fleet ───────────────────────────────────────────────────────────
@@ -800,10 +1717,81 @@ export class InventoryService {
       where: { assetId },
       include: {
         roomProduct: { select: { id: true, name: true } },
-        fleetUnit: { select: { id: true, name: true } },
+        fleetUnit: { select: { id: true, name: true, plateNumber: true } },
+        bookingComponent: {
+          select: {
+            id: true,
+            title: true,
+            type: true,
+            status: true,
+            trip: { select: { tripNumber: true, title: true } },
+          },
+        },
       },
       orderBy: { createdAt: 'desc' },
       take: 100,
+    });
+  }
+
+  /**
+   * Confirm or release an allocation. Release clears linked calendar blocks.
+   */
+  async updateAllocation(
+    user: AuthUser,
+    allocationId: string,
+    input: { status: 'confirmed' | 'released'; notes?: string | null },
+  ) {
+    const existing = await this.prisma.inventoryAllocation.findFirst({
+      where: { id: allocationId },
+    });
+    if (!existing) throw new NotFoundException('Allocation not found');
+    await this.resolveAssetAccess(user, existing.assetId, 'allocate');
+
+    if (existing.status === 'released') {
+      throw new BadRequestException('Allocation is already released');
+    }
+    if (input.status === 'confirmed' && existing.status === 'confirmed') {
+      return this.prisma.inventoryAllocation.findFirstOrThrow({
+        where: { id: allocationId },
+        include: {
+          roomProduct: { select: { id: true, name: true } },
+          fleetUnit: { select: { id: true, name: true, plateNumber: true } },
+        },
+      });
+    }
+    if (input.status === 'confirmed' && existing.status !== 'hold') {
+      throw new BadRequestException('Only holds can be confirmed');
+    }
+
+    if (input.status === 'released') {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.inventoryAllocation.update({
+          where: { id: allocationId },
+          data: {
+            status: 'released',
+            ...(input.notes !== undefined ? { notes: input.notes } : {}),
+          },
+        });
+        await tx.assetCalendarBlock.deleteMany({
+          where: { allocationId },
+        });
+      });
+    } else {
+      await this.prisma.inventoryAllocation.update({
+        where: { id: allocationId },
+        data: {
+          status: 'confirmed',
+          ...(input.notes !== undefined ? { notes: input.notes } : {}),
+        },
+      });
+    }
+
+    return this.prisma.inventoryAllocation.findFirstOrThrow({
+      where: { id: allocationId },
+      include: {
+        roomProduct: { select: { id: true, name: true } },
+        fleetUnit: { select: { id: true, name: true, plateNumber: true } },
+      },
     });
   }
 }

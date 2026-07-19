@@ -72,6 +72,7 @@ export class InteractionsController {
     const extra = query as {
       channel?: string;
       unread?: string;
+      aging?: string;
       ownership?: string;
       queue?: string;
     };
@@ -92,6 +93,7 @@ export class InteractionsController {
       ownership,
       queue,
       unread: extra.unread === '1' || extra.unread === 'true' ? true : undefined,
+      aging: extra.aging === '1' || extra.aging === 'true' ? true : undefined,
     });
   }
 

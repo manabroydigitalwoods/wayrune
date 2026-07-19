@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common';
 import {
+  AcceptPublicQuoteSchema,
   CreateItineraryShareSchema,
   ProposalFamilyAgencyReplySchema,
   ProposalFamilyJoinSchema,
@@ -109,8 +110,17 @@ export class ItinerariesController {
 
   @Public()
   @Post('public/itinerary/:token/accept-quote')
-  publicAcceptQuote(@Param('token') token: string) {
-    return this.itineraries.acceptPublicQuote(token);
+  publicAcceptQuote(
+    @Param('token') token: string,
+    @Body() body: unknown,
+    @Req() req?: { ip?: string; headers?: Record<string, unknown> },
+  ) {
+    const parsed = AcceptPublicQuoteSchema.parse(body ?? {});
+    return this.itineraries.acceptPublicQuote(
+      token,
+      parsed.pin ?? undefined,
+      clientKey(req),
+    );
   }
 
   @Public()

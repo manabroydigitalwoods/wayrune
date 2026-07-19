@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE `supplier_contracts` ADD COLUMN `cancellation_policy_json` JSON NULL;

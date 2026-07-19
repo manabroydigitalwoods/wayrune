@@ -9,6 +9,8 @@ export type IntegrationsSettings = {
     verifyToken: string;
     appSecret: string;
     appSecretConfigured: boolean;
+    /** WhatsAppTemplate.id for cold quote Cloud sends. */
+    quoteProposalTemplateId: string;
   };
   facebook: {
     enabled: boolean;
@@ -56,6 +58,7 @@ export const EMPTY_INTEGRATIONS: IntegrationsSettings = {
     verifyToken: '',
     appSecret: '',
     appSecretConfigured: false,
+    quoteProposalTemplateId: '',
   },
   facebook: {
     enabled: false,
@@ -158,6 +161,7 @@ export function parseIntegrationsSettings(settingsJson: unknown): IntegrationsSe
       verifyToken: str(wa.verifyToken),
       appSecret: '',
       appSecretConfigured: Boolean(waSecrets.appSecretConfigured),
+      quoteProposalTemplateId: str(wa.quoteProposalTemplateId),
     },
     facebook: {
       enabled: bool(fb.enabled, false),

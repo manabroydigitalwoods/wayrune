@@ -9,6 +9,7 @@ import {
   isValidPhone,
 } from './fields';
 import { InboxChatSettingsSchema } from './inbox-chat-settings';
+import { tripTravelEndOnOrAfterStart } from './trip-travel-dates';
 
 export {
   OptionalEmail,
@@ -92,9 +93,10 @@ export const SupplierTypeSchema = z.enum([
   'restaurant',
   'dmc',
   'other',
+  'activity',
+  'guide',
   // legacy itinerary-ish labels still accepted
   'transfer',
-  'activity',
   'flight_ref',
   'transport',
 ]);
@@ -139,10 +141,53 @@ export const OrgSettingsPayloadSchema = z
     /** Applied as sell = cost × (1 + markup/100) when resolving rate cards. */
     defaultMarkupPercent: z.number().min(0).max(500).optional(),
     /**
+     * Trade / agent B2B markup % (travel_agency, reseller, dmc parties).
+     * Omit → use defaultMarkupPercent for everyone.
+     */
+    agentMarkupPercent: z.number().min(0).max(500).optional(),
+    /** Days from today for new / cloned / revised draft `validUntil` (1–365). */
+    defaultQuoteValidityDays: z.number().int().min(1).max(365).optional(),
+    /**
+ * Hours after calendar expiry during which send keeps the existing validUntil
+ * (no silent auto-extend). Past grace blocks send until the date is reset.
+ * 0 = no grace (expired always blocks). Omit → 24.
+ */
+quoteValidityGraceHours: z.number().int().min(0).max(72).optional(),
+    /**
+     * Hours before an unread inbox thread counts as aging (dashboard strip + `/inbox?aging=1`).
+     * Omit → 4.
+     */
+    inboxAgingHours: z.number().int().min(1).max(72).optional(),
+    /**
+     * Sales response SLA targets (optional). When set, dashboard Sales response
+     * strip tones medians against these. Omit → no target tone (neutral).
+     */
+    /** Null clears a previously saved target (deep-merge). */
+    firstTouchTargetHours: z.number().positive().max(168).nullable().optional(),
+    leadToQuoteTargetHours: z.number().positive().max(720).nullable().optional(),
+    fitBuildTargetMinutes: z.number().positive().max(1440).nullable().optional(),
+    /**
      * Minimum acceptable margin % on sell for each priced line (0 = only block sell-below-cost).
      * Lines below this floor need `below_margin.approve` before send / approval request.
      */
     minMarginPercent: z.number().min(0).max(100).optional(),
+    /**
+     * Org FX table for quote lock: units of org book currency per 1 unit of foreign.
+     * Keys are ISO 4217 codes (USD, EUR, AED, GBP, …). Used when Lock FX has no
+     * manual rate. Refresh via POST /organizations/current/fx/refresh (Frankfurter).
+     */
+    fxRates: z.record(z.string(), z.number().positive()).optional(),
+    /** Last live FX refresh metadata (Settings cue). */
+    fxRatesMeta: z
+      .object({
+        fetchedAt: z.string(),
+        source: z.literal('frankfurter'),
+        asOf: z.string().optional(),
+        baseCurrency: z.string().length(3).optional(),
+        refreshed: z.array(z.string()).optional(),
+        skipped: z.array(z.string()).optional(),
+      })
+      .optional(),
     business: z
       .object({
         legalName: z.string().optional(),
@@ -178,6 +223,12 @@ export const OrgSettingsPayloadSchema = z
             accessToken: z.string().optional(),
             verifyToken: z.string().optional(),
             appSecret: z.string().optional(),
+            /**
+             * WhatsAppTemplate.id used for cold quote Cloud sends when outside
+             * the 24h session window. Falls back to name “Quote proposal” /
+             * meta `quote_proposal` when unset.
+             */
+            quoteProposalTemplateId: z.string().optional(),
           })
           .partial()
           .optional(),
@@ -420,12 +471,22 @@ export const ClaimSupplierInviteSchema = z.object({
   assetId: z.string().min(1).optional(),
 });
 
-export const ConfirmInboundBookingSchema = z.object({
-  status: z.enum(['confirmed', 'requested']),
-  confirmationRef: z.preprocess(blankToNull, z.string().nullable()).optional(),
-  /** Optional partner asset that fulfilled this inbound booking. */
-  assetId: z.string().min(1).optional(),
-});
+export const ConfirmInboundBookingSchema = z
+  .object({
+    status: z.enum(['confirmed', 'requested']),
+    confirmationRef: z.preprocess(blankToNull, z.string().nullable()).optional(),
+    /** Optional partner asset that fulfilled this inbound booking. */
+    assetId: z.string().min(1).optional(),
+  })
+  .superRefine((v, ctx) => {
+    if (v.status === 'confirmed' && !String(v.confirmationRef || '').trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Confirmation reference is required',
+        path: ['confirmationRef'],
+      });
+    }
+  });
 
 export const CreatePartySchema = z.object({
   type: z.enum(['individual', 'organization']),
@@ -660,6 +721,18 @@ export const CreateSupplierSchema = z.object({
   profileJson: z.record(z.string(), z.unknown()).optional(),
 });
 
+export const UpdateSupplierSchema = z.object({
+  name: z.string().min(1).optional(),
+  type: SupplierTypeSchema.optional(),
+  email: OptionalEmail,
+  phone: OptionalPhone,
+  notes: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  placeId: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  linkedAssetId: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  /** Replaces profileJson when provided (full profile save from type-specific UI). */
+  profileJson: z.record(z.string(), z.unknown()).optional(),
+});
+
 export const CreatePartnerAssetSchema = z.object({
   name: RequiredText('Asset name'),
   assetKind: PartnerAssetKindSchema,
@@ -679,6 +752,7 @@ export const UpdatePartnerAssetSchema = z.object({
 export const CreateAssetRoomProductSchema = z.object({
   assetId: z.string().min(1),
   name: RequiredText('Room name'),
+  customerFacingName: z.preprocess(blankToNull, z.string().nullable()).optional(),
   roomTypeKey: z.preprocess(blankToNull, z.string().nullable()).optional(),
   maxOccupancy: z.number().int().min(1).max(50).optional(),
   bedConfig: z.preprocess(blankToNull, z.string().nullable()).optional(),
@@ -944,6 +1018,11 @@ export const AllocateInventorySchema = z.object({
   notes: z.preprocess(blankToNull, z.string().nullable()).optional(),
 });
 
+export const UpdateInventoryAllocationSchema = z.object({
+  status: z.enum(['confirmed', 'released']),
+  notes: z.preprocess(blankToNull, z.string().nullable()).optional(),
+});
+
 export const EnsureShadowAssetSchema = z.object({
   supplierId: z.string().min(1),
 });
@@ -1028,14 +1107,56 @@ export const UpdateInquiryStatusSchema = z
     path: ['reason'],
   });
 
-export const CreateTripSchema = z.object({
-  title: RequiredText('Trip title'),
-  inquiryId: z.preprocess(blankToNull, z.string().nullable()).optional(),
-  partyId: z.preprocess(blankToNull, z.string().nullable()).optional(),
-  startDate: z.preprocess(blankToNull, z.string().nullable()).optional(),
-  endDate: z.preprocess(blankToNull, z.string().nullable()).optional(),
-  destinations: z.array(PlaceRefInputSchema).optional(),
-});
+export const CreateTripSchema = z
+  .object({
+    title: RequiredText('Trip title'),
+    inquiryId: z.preprocess(blankToNull, z.string().nullable()).optional(),
+    partyId: z.preprocess(blankToNull, z.string().nullable()).optional(),
+    startDate: z.preprocess(blankToNull, z.string().nullable()).optional(),
+    endDate: z.preprocess(blankToNull, z.string().nullable()).optional(),
+    destinations: z.array(PlaceRefInputSchema).optional(),
+  })
+  .refine((v) => tripTravelEndOnOrAfterStart(v.startDate, v.endDate), {
+    message: 'Travel end must be on or after travel start',
+    path: ['endDate'],
+  });
+
+/**
+ * Atomic New-trip + package apply (`POST /trips/from-package`).
+ * Rolls back the trip when template apply fails.
+ */
+export const CreateTripFromPackageSchema = z
+  .object({
+    title: RequiredText('Trip title'),
+    partyId: z.preprocess(blankToNull, z.string().nullable()).optional(),
+    startDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'Travel start must be YYYY-MM-DD'),
+    endDate: z.preprocess(blankToNull, z.string().nullable()).optional(),
+    destinations: z.array(PlaceRefInputSchema).optional(),
+    templateId: RequiredText('Template'),
+    adults: z.number().int().min(1, 'At least 1 adult').max(99).optional(),
+    children: z.number().int().min(0).max(99).optional(),
+    childAges: z.array(z.number().int().min(0).max(17)).max(99).optional(),
+    childrenWithoutBed: z.number().int().min(0).max(99).optional(),
+  })
+  .refine((v) => tripTravelEndOnOrAfterStart(v.startDate, v.endDate), {
+    message: 'Travel end must be on or after travel start',
+    path: ['endDate'],
+  });
+
+/** Patch trip travel window (dates stay optional; end ≥ start when both set). */
+export const UpdateTripDatesSchema = z
+  .object({
+    startDate: z.preprocess(blankToNull, z.string().nullable()).optional(),
+    endDate: z.preprocess(blankToNull, z.string().nullable()).optional(),
+    /** When travel start changes, shift draft quote lines + story onto the new start (default on). */
+    shiftQuoteDates: z.boolean().optional().default(true),
+  })
+  .refine((v) => tripTravelEndOnOrAfterStart(v.startDate, v.endDate), {
+    message: 'Travel end must be on or after travel start',
+    path: ['endDate'],
+  });
 
 /**
  * Unified "Travel Request" intake: capture a customer contact + trip basics in
@@ -2229,11 +2350,99 @@ export const ReplyWhatsappSchema = z.object({
   to: z.preprocess(blankToNull, z.string().nullable()).optional(),
 });
 
+
+/** Send a hotel room enquiry to the supplier via WhatsApp (Cloud or wa.me fallback). */
+export const SendHotelEnquiryWhatsappSchema = z.object({
+  /** Defaults to the booking supplier phone when omitted. */
+  toPhone: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  message: z.preprocess(blankToNull, z.string().nullable()).optional(),
+});
+
+/** Send a customer payment link via WhatsApp (Cloud or wa.me fallback). */
+export const SendTripPaymentLinkWhatsappSchema = z.object({
+  /** Defaults to the trip party phone when omitted. */
+  toPhone: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  message: z.preprocess(blankToNull, z.string().nullable()).optional(),
+});
+
+/** Create or reuse a public payment-link token for a customer instalment. */
+export const CreateTripPaymentLinkSchema = z.object({
+  /** Force a new token even if an unexpired link already exists. */
+  regenerate: z.boolean().optional().default(false),
+});
+
+/** Staff confirm after manual wa.me payment-link chase. */
+export const MarkTripPaymentLinkSentSchema = z.object({
+  channel: z.enum(['whatsapp']).default('whatsapp'),
+});
+
+/** Staff confirm after manual wa.me voucher summary send. */
+export const MarkTripVouchersWhatsappSentSchema = z.object({
+  channel: z.enum(['whatsapp']).default('whatsapp'),
+  /** Optional subset from the fallback response; defaults to all eligible on the trip. */
+  bookingIds: z.array(z.string().min(1)).optional(),
+});
+
+/** Send hotel voucher summaries for a trip via WhatsApp (Cloud or wa.me fallback). */
+export const SendTripVouchersWhatsappSchema = z.object({
+  /** Defaults to the trip party phone when omitted. */
+  toPhone: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  message: z.preprocess(blankToNull, z.string().nullable()).optional(),
+});
+
+/** Email hotel voucher PDF pack for a trip (outbox → SMTP). */
+export const SendTripVouchersEmailSchema = z.object({
+  /** Defaults to the trip party email when omitted. */
+  toEmail: z.preprocess(
+    blankToNull,
+    z.string().email('Enter a valid email').nullable(),
+  ).optional(),
+  message: z.preprocess(blankToNull, z.string().nullable()).optional(),
+});
+
+/** Send a quotation proposal by email (PDF attachment via outbox). */
+export const SendQuoteEmailSchema = z.object({
+  toEmail: z.string().trim().email('Enter a valid email'),
+  /**
+   * When true and the quote is near-expiry or in post-expiry grace, refresh validUntil
+   * to org default. Omit / false → keep the current date. Past grace still blocks.
+   */
+  extendValidity: z.boolean().optional().default(false),
+});
+
 /** Send a quotation proposal via WhatsApp Cloud (session text + public share link). */
 export const SendQuoteWhatsappSchema = z.object({
   toPhone: RequiredText('WhatsApp number'),
   /** Optional custom message; default includes trip title + proposal link. */
   message: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  /** Same as email: opt-in extend while near-expiry or in post-expiry grace. */
+  extendValidity: z.boolean().optional().default(false),
+});
+
+/** Staff confirms a manual WhatsApp (wa.me) send after Cloud was unavailable. */
+export const MarkQuoteSentSchema = z.object({
+  channel: z.enum(['whatsapp']).default('whatsapp'),
+  /** Opt-in extend while near-expiry or in post-expiry grace (same as send). */
+  extendValidity: z.boolean().optional().default(false),
+});
+
+/** Request manager approval for a draft quote. */
+export const RequestQuoteApprovalSchema = z.object({
+  /** Opt-in extend while near-expiry or in post-expiry grace (same as send). */
+  extendValidity: z.boolean().optional().default(false),
+});
+
+/** Public client accept of a shared proposal (PIN required when share has one). */
+export const AcceptPublicQuoteSchema = z.object({
+  pin: z.preprocess(blankToNull, z.string().nullable()).optional(),
+});
+
+/** Client-reported FIT quote build time (workspace open → first send). */
+export const RecordQuoteFitTimingSchema = z.object({
+  quotationVersionId: RequiredText('Quotation version'),
+  /** Epoch ms when the quotations workspace was opened for this attempt. */
+  openedAtMs: z.number().int().positive(),
+  milestone: z.enum(['first_send']).default('first_send'),
 });
 
 /** Send an approved Meta WhatsApp template (required for first outbound msg / after the 24h session window). */
@@ -2579,6 +2788,8 @@ export const QuotationItemDetailsSchema = z
     supplierId: z.string().optional(),
     supplierName: z.string().optional(),
     roomType: z.string().optional(),
+    /** Canonical AssetRoomProduct id when known. */
+    roomProductId: z.string().optional(),
     mealPlan: z.string().optional(),
     nights: z.number().optional(),
     rooms: z.number().optional(),
@@ -2586,6 +2797,8 @@ export const QuotationItemDetailsSchema = z
     checkOut: z.string().optional(),
     adults: z.number().optional(),
     children: z.number().optional(),
+    /** Infants on transfer per_adult (and party stamp). */
+    infants: z.number().optional(),
     childAges: z.array(z.number()).optional(),
     extraBeds: z.number().optional(),
     childrenWithoutBed: z.number().optional(),
@@ -2630,6 +2843,101 @@ export const QuotationItemDetailsSchema = z
   })
   .partial();
 
+/** Snapshot of the directory rate that priced a quote line (survives rematch/manual edits of sell). */
+export const QuoteRateProvenanceSchema = z.object({
+  rateId: z.string().optional(),
+  rateKind: z.enum(['hotel', 'transfer', 'activity']).optional(),
+  matchedAt: z.string().optional(),
+  unitCostAtMatch: z.number().optional(),
+  isSystem: z.boolean().optional(),
+  supplierId: z.string().optional(),
+  placeId: z.string().optional(),
+  roomType: z.string().optional(),
+  roomProductId: z.string().optional(),
+  mealPlan: z.string().optional(),
+  pricingMode: z.string().optional(),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+  rateUpdatedAt: z.string().optional(),
+  /**
+   * Chart `updatedAt` the editor acknowledged without rematching.
+   * Send / approval is blocked while live chart is newer and this stamp does not match.
+   */
+  rateDriftAckForUpdatedAt: z.string().optional(),
+  /** Editor reason recorded with Keep-buy acknowledge for chart drift. */
+  rateDriftAckReason: z.string().optional(),
+  /** Allotment cue from last Match / availability check (hotel). */
+  allotmentNote: z.string().optional(),
+  /** True when allotment is insufficient (zero or shortfall) — blocks send unless acked. */
+  allotmentWarn: z.boolean().optional(),
+  /** `allotmentNote` fingerprint acknowledged to allow send despite shortfall. */
+  allotmentRiskAckForNote: z.string().optional(),
+  /** Editor reason recorded with allotment shortfall acknowledge. */
+  allotmentRiskAckReason: z.string().optional(),
+  /** Capacity cue from last Match (transfer — party vs seats × vehicles). */
+  capacityNote: z.string().optional(),
+  /** True when capacity is insufficient (party over seats × vehicles) — blocks send unless acked. */
+  capacityWarn: z.boolean().optional(),
+  /** `capacityNote` fingerprint acknowledged to allow send despite shortfall. */
+  capacityRiskAckForNote: z.string().optional(),
+  /** Editor reason recorded with capacity shortfall acknowledge. */
+  capacityRiskAckReason: z.string().optional(),
+  /** Seats per vehicle from last Match — used to restamp capacity when Vehicles change without rematch. */
+  vehicleSeats: z.number().optional(),
+  currency: z.string().optional(),
+  weekendUnitCost: z.number().nullable().optional(),
+  fromPlaceId: z.string().optional(),
+  toPlaceId: z.string().optional(),
+  vehicleTypeId: z.string().optional(),
+  contractId: z.string().optional(),
+  contractTitle: z.string().optional(),
+  contractVersionNumber: z.number().optional(),
+  calculation: z
+    .object({
+      weekdayNights: z.number().optional(),
+      weekendNights: z.number().optional(),
+      weekdayUnit: z.number().optional(),
+      weekendUnit: z.number().nullable().optional(),
+      rooms: z.number().optional(),
+      totalBuy: z.number().optional(),
+      baseRoomTotal: z.number().optional(),
+      occupancyExtraTotal: z.number().optional(),
+      extraAdultCount: z.number().optional(),
+      childWithBedCount: z.number().optional(),
+      childWithoutBedCount: z.number().optional(),
+      dateSupplementTotal: z.number().optional(),
+      dateSupplements: z
+        .array(
+          z.object({
+            night: z.string().optional(),
+            label: z.string().optional(),
+            amount: z.number().optional(),
+            rooms: z.number().optional(),
+          }),
+        )
+        .optional(),
+      cancellationSummary: z.string().optional(),
+      adultUnit: z.number().optional(),
+      childUnit: z.number().optional(),
+      infantUnit: z.number().optional(),
+      adults: z.number().optional(),
+      children: z.number().optional(),
+      infants: z.number().optional(),
+      adultsCharged: z.number().optional(),
+      childrenCharged: z.number().optional(),
+      infantsCharged: z.number().optional(),
+      partyAdults: z.number().optional(),
+      partyChildren: z.number().optional(),
+      partyInfants: z.number().optional(),
+      childAgeMin: z.number().optional(),
+      childAgeMax: z.number().optional(),
+      usedChildAges: z.boolean().optional(),
+    })
+    .passthrough()
+    .optional(),
+  matchSummary: z.string().optional(),
+});
+
 export const QuotationItemSchema = z.object({
   id: z.string(),
   description: RequiredText('Description'),
@@ -2642,10 +2950,14 @@ export const QuotationItemSchema = z.object({
   pricingUnit: z.enum(['per_person', 'per_room', 'per_service', 'package']).default('per_service'),
   serviceType: QuoteServiceTypeSchema.optional(),
   /** Provenance when priced from agency rate directory. */
-  rateKind: z.enum(['hotel', 'transfer']).optional(),
+  rateKind: z.enum(['hotel', 'transfer', 'activity']).optional(),
   rateId: z.string().optional(),
-  /** True when hotel/transfer had no matching rate card. */
+  /** True when hotel/transfer/activity had no matching rate card. */
   rateUnmatched: z.boolean().optional(),
+  /** Why resolve blocked the match (blackout / stop-sell). */
+  rateBlockReason: z.enum(['blackout', 'stop_sell']).optional(),
+  /** Durable snapshot of the matched rate card (not rewritten by sell overrides). */
+  rateProvenance: QuoteRateProvenanceSchema.optional(),
   /** Type-specific commercial details (hotel stay, transfer route, activity). */
   details: QuotationItemDetailsSchema.optional(),
   /** Audit when a line was marked included / non-billable at ₹0. */
@@ -2670,13 +2982,28 @@ export const QuotationItemSchema = z.object({
     .optional(),
 });
 
+export const HotelOccupancyPricingSchema = z
+  .object({
+    baseAdults: z.number().int().min(1).max(12).optional(),
+    baseChildren: z.number().int().min(0).max(12).optional(),
+    childAgeMax: z.number().int().min(0).max(17).optional(),
+    extraAdultPerNight: z.number().nonnegative().optional(),
+    childWithBedPerNight: z.number().nonnegative().optional(),
+    childWithoutBedPerNight: z.number().nonnegative().optional(),
+  })
+  .nullable()
+  .optional();
+
 export const CreateSupplierHotelRateSchema = z.object({
   supplierId: z.preprocess(blankToNull, z.string().nullable()).optional(),
   placeId: z.preprocess(blankToNull, z.string().nullable()).optional(),
   roomType: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  roomProductId: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  contractId: z.preprocess(blankToNull, z.string().nullable()).optional(),
   mealPlan: z.preprocess(blankToNull, z.string().nullable()).optional(),
   unitCost: z.number().nonnegative(),
   weekendUnitCost: z.number().nonnegative().nullable().optional(),
+  occupancyPricing: HotelOccupancyPricingSchema,
   currency: z.string().length(3).optional(),
   startDate: z.preprocess(blankToNull, z.string().nullable()).optional(),
   endDate: z.preprocess(blankToNull, z.string().nullable()).optional(),
@@ -2687,9 +3014,43 @@ export const UpdateSupplierHotelRateSchema = z.object({
   supplierId: z.preprocess(blankToNull, z.string().nullable()).optional(),
   placeId: z.preprocess(blankToNull, z.string().nullable()).optional(),
   roomType: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  roomProductId: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  contractId: z.preprocess(blankToNull, z.string().nullable()).optional(),
   mealPlan: z.preprocess(blankToNull, z.string().nullable()).optional(),
   unitCost: z.number().nonnegative().optional(),
   weekendUnitCost: z.number().nonnegative().nullable().optional(),
+  occupancyPricing: HotelOccupancyPricingSchema,
+  currency: z.string().length(3).optional(),
+  startDate: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  endDate: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  isActive: z.boolean().optional(),
+});
+
+export const ActivityPrivateOrSicSchema = z.enum(['private', 'sic']);
+
+export const CreateSupplierActivityRateSchema = z.object({
+  supplierId: RequiredText('Supplier'),
+  placeId: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  activityName: RequiredText('Activity name'),
+  privateOrSic: ActivityPrivateOrSicSchema.nullable().optional(),
+  adultUnitCost: z.number().nonnegative(),
+  childUnitCost: z.number().nonnegative().nullable().optional(),
+  childAgeMin: z.number().int().min(0).max(17).nullable().optional(),
+  childAgeMax: z.number().int().min(0).max(17).nullable().optional(),
+  currency: z.string().length(3).optional(),
+  startDate: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  endDate: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  isActive: z.boolean().optional(),
+});
+
+export const UpdateSupplierActivityRateSchema = z.object({
+  placeId: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  activityName: z.string().min(1).optional(),
+  privateOrSic: ActivityPrivateOrSicSchema.nullable().optional(),
+  adultUnitCost: z.number().nonnegative().optional(),
+  childUnitCost: z.number().nonnegative().nullable().optional(),
+  childAgeMin: z.number().int().min(0).max(17).nullable().optional(),
+  childAgeMax: z.number().int().min(0).max(17).nullable().optional(),
   currency: z.string().length(3).optional(),
   startDate: z.preprocess(blankToNull, z.string().nullable()).optional(),
   endDate: z.preprocess(blankToNull, z.string().nullable()).optional(),
@@ -2702,9 +3063,13 @@ export const CreateTransferFareSchema = z.object({
   fromPlaceId: RequiredText('From place'),
   toPlaceId: RequiredText('To place'),
   vehicleTypeId: RequiredText('Vehicle type'),
+  /** Transport supplier chart row; omit for org/system catalog. */
+  supplierId: z.string().min(1).optional(),
   unitCost: z.number().nonnegative(),
   childUnitCost: z.number().nonnegative().nullable().optional(),
   infantUnitCost: z.number().nonnegative().nullable().optional(),
+  childAgeMin: z.number().int().min(0).max(17).nullable().optional(),
+  childAgeMax: z.number().int().min(0).max(17).nullable().optional(),
   pricingMode: TransferFarePricingModeSchema.optional(),
   currency: z.string().length(3).optional(),
   startDate: z.preprocess(blankToNull, z.string().nullable()).optional(),
@@ -2716,9 +3081,12 @@ export const UpdateTransferFareSchema = z.object({
   fromPlaceId: z.string().min(1).optional(),
   toPlaceId: z.string().min(1).optional(),
   vehicleTypeId: z.string().min(1).optional(),
+  supplierId: z.preprocess(blankToNull, z.string().nullable()).optional(),
   unitCost: z.number().nonnegative().optional(),
   childUnitCost: z.number().nonnegative().nullable().optional(),
   infantUnitCost: z.number().nonnegative().nullable().optional(),
+  childAgeMin: z.number().int().min(0).max(17).nullable().optional(),
+  childAgeMax: z.number().int().min(0).max(17).nullable().optional(),
   pricingMode: TransferFarePricingModeSchema.optional(),
   currency: z.string().length(3).optional(),
   startDate: z.preprocess(blankToNull, z.string().nullable()).optional(),
@@ -2744,15 +3112,44 @@ export const ImportHotelRateCsvSchema = z.object({
   rows: z.array(ImportHotelRateCsvRowSchema).min(1).max(500),
   /** false = validation preview only; true = create rates. */
   commit: z.boolean().optional().default(false),
+  fileName: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  lockedSupplierName: z.preprocess(blankToNull, z.string().nullable()).optional(),
+});
+
+/** One activity rate sheet row (names/keys resolved server-side). */
+export const ImportActivityRateCsvRowSchema = z.object({
+  supplierName: RequiredText('Supplier name'),
+  placeName: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  placeKey: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  activityName: RequiredText('Activity name'),
+  privateOrSic: ActivityPrivateOrSicSchema.nullable().optional(),
+  adultUnitCost: z.number().nonnegative(),
+  childUnitCost: z.number().nonnegative().nullable().optional(),
+  childAgeMin: z.number().int().min(0).max(17).nullable().optional(),
+  childAgeMax: z.number().int().min(0).max(17).nullable().optional(),
+  currency: z.string().length(3).optional(),
+  startDate: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  endDate: z.preprocess(blankToNull, z.string().nullable()).optional(),
+});
+
+export const ImportActivityRateCsvSchema = z.object({
+  rows: z.array(ImportActivityRateCsvRowSchema).min(1).max(500),
+  commit: z.boolean().optional().default(false),
+  fileName: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  lockedSupplierName: z.preprocess(blankToNull, z.string().nullable()).optional(),
 });
 
 /** One transfer fare sheet row. */
 export const ImportTransferFareCsvRowSchema = z.object({
+  supplierName: z.preprocess(blankToNull, z.string().nullable()).optional(),
   fromPlace: RequiredText('From place'),
   toPlace: RequiredText('To place'),
   vehicleType: RequiredText('Vehicle type'),
   unitCost: z.number().nonnegative(),
   childUnitCost: z.number().nonnegative().nullable().optional(),
+  infantUnitCost: z.number().nonnegative().nullable().optional(),
+  childAgeMin: z.number().int().min(0).max(17).nullable().optional(),
+  childAgeMax: z.number().int().min(0).max(17).nullable().optional(),
   pricingMode: TransferFarePricingModeSchema.optional(),
   currency: z.string().length(3).optional(),
   startDate: z.preprocess(blankToNull, z.string().nullable()).optional(),
@@ -2762,6 +3159,8 @@ export const ImportTransferFareCsvRowSchema = z.object({
 export const ImportTransferFareCsvSchema = z.object({
   rows: z.array(ImportTransferFareCsvRowSchema).min(1).max(500),
   commit: z.boolean().optional().default(false),
+  fileName: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  lockedSupplierName: z.preprocess(blankToNull, z.string().nullable()).optional(),
 });
 
 export const SuggestTransferFareSchema = z.object({
@@ -2789,11 +3188,22 @@ export const ResolveRatesItemSchema = z.object({
       supplierId: z.string().optional(),
       placeId: z.string().optional(),
       roomType: z.string().optional(),
+      roomProductId: z.string().optional(),
       mealPlan: z.string().optional(),
       nights: z.number().optional(),
+      rooms: z.number().optional(),
+      adults: z.number().optional(),
+      children: z.number().optional(),
+      infants: z.number().optional(),
+      childrenWithoutBed: z.number().optional(),
+      childAges: z.array(z.number()).optional(),
       vehicleTypeId: z.string().optional(),
       fromPlaceId: z.string().optional(),
       toPlaceId: z.string().optional(),
+      /** Activity / sightseeing match keys. */
+      propertyName: z.string().optional(),
+      activityName: z.string().optional(),
+      privateOrSic: z.enum(['private', 'sic']).optional(),
     })
     .partial()
     .optional(),
@@ -2804,11 +3214,23 @@ export const ResolveRatesSchema = z.object({
   adults: z.number().int().nonnegative().optional(),
   children: z.number().int().nonnegative().optional(),
   infants: z.number().int().nonnegative().optional(),
+  /** When set, resolve may use agentMarkupPercent for trade/B2B parties. */
+  partyId: z.preprocess(blankToNull, z.string().nullable()).optional(),
   items: z.array(ResolveRatesItemSchema).min(1).max(200),
 });
 
+/** Batch chart `updatedAt` lookup for quote rate-drift preflight. */
+export const ChartFreshnessItemSchema = z.object({
+  rateId: z.string().min(1),
+  rateKind: z.enum(['hotel', 'transfer', 'activity']).optional().nullable(),
+});
+
+export const ChartFreshnessSchema = z.object({
+  items: z.array(ChartFreshnessItemSchema).min(1).max(200),
+});
+
 export const SaveQuotationVersionSchema = z.object({
-  label: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  label: z.preprocess(blankToNull, z.string().max(80).nullable()).optional(),
   currency: z.string().length(3).default('INR'),
   validUntil: z.preprocess(blankToNull, z.string().nullable()).optional(),
   items: z.array(QuotationItemSchema),
@@ -2819,12 +3241,55 @@ export const SaveQuotationVersionSchema = z.object({
   expectedLock: z.number().int().optional(),
 });
 
+/** Lock FX for a draft quotation version (INR book → quote currency). */
+export const LockQuoteFxSchema = z.object({
+  quoteCurrency: z.string().length(3),
+  /** Units of org/base currency per 1 quote unit (e.g. 83.25 INR per USD). */
+  rate: z.number().positive().optional(),
+  /** When true, convert existing INR line buy/sell into quote currency. */
+  convertLines: z.boolean().optional().default(true),
+});
+export type LockQuoteFxInput = z.infer<typeof LockQuoteFxSchema>;
+
 /** Authorise below-cost / below-floor margin on selected quotation lines. */
 export const RecordQuoteMarginOverridesSchema = z.object({
   reason: RequiredText('Override reason'),
   lineIds: z.array(z.string().min(1)).min(1).max(200),
 });
 export type RecordQuoteMarginOverridesInput = z.infer<typeof RecordQuoteMarginOverridesSchema>;
+
+/**
+ * Manager-gated allotment / capacity send-anyway (`inventory_risk.approve`).
+ * Stamps note fingerprint + reason on selected lines that currently block send.
+ */
+export const RecordQuoteInventoryRiskAcksSchema = z.object({
+  reason: RequiredText('Override reason'),
+  lineIds: z.array(z.string().min(1)).min(1).max(200),
+});
+export type RecordQuoteInventoryRiskAcksInput = z.infer<
+  typeof RecordQuoteInventoryRiskAcksSchema
+>;
+
+/**
+ * Manager-gated Keep-buy for rate-chart drift (`rate_drift.approve`).
+ * Server stamps live chart `updatedAt` + reason on selected lines that currently block send.
+ */
+export const RecordQuoteRateDriftAcksSchema = z.object({
+  reason: RequiredText('Override reason'),
+  lineIds: z.array(z.string().min(1)).min(1).max(200),
+});
+export type RecordQuoteRateDriftAcksInput = z.infer<
+  typeof RecordQuoteRateDriftAcksSchema
+>;
+
+/**
+ * Story itinerary snapshot inside a quote template (days + optional story meta).
+ * Days are stored loosely so imperfect legacy rows do not invalidate the whole template.
+ */
+export const QuoteTemplateItinerarySchema = z.object({
+  days: z.array(z.record(z.string(), z.unknown())).max(90).optional(),
+  story: z.record(z.string(), z.unknown()).optional(),
+});
 
 /** Reusable quote skeleton stored in QuoteTemplate.contentJson (legacy array checklists allowed). */
 export const QuoteTemplateContentSchema = z.object({
@@ -2834,6 +3299,12 @@ export const QuoteTemplateContentSchema = z.object({
   exclusions: z.union([z.string(), z.array(z.string())]).optional(),
   terms: z.preprocess(blankToNull, z.string().nullable()).optional(),
   destinationHint: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  /** Lightweight organize labels (no folders) — max 12 × 40 chars. */
+  tags: z.array(z.string().min(1).max(40)).max(12).optional(),
+  /** Optional folder path (`Hill stations/Darjeeling`) — max 80 chars. */
+  folder: z.preprocess(blankToNull, z.string().max(80).nullable()).optional(),
+  /** Trip Story days/meta captured at save-as-template time. */
+  itinerary: QuoteTemplateItinerarySchema.optional(),
 });
 
 export const CreateQuoteTemplateSchema = z
@@ -2842,6 +3313,12 @@ export const CreateQuoteTemplateSchema = z
     contentJson: QuoteTemplateContentSchema.optional(),
     /** When set, copy items/meta from this quotation version (org-scoped). */
     versionId: z.string().min(1).optional(),
+    /** When set, embed the trip’s latest story itinerary into the template. */
+    tripId: z.string().min(1).optional(),
+    /** Explicitly supersede this active template (creates next version). */
+    supersedeTemplateId: z.string().min(1).optional(),
+    /** Force a new template family even when the name matches an active one. */
+    asNew: z.boolean().optional(),
   })
   .refine((v) => Boolean(v.contentJson || v.versionId), {
     message: 'Provide contentJson or versionId',
@@ -2852,8 +3329,29 @@ export const UpdateQuoteTemplateSchema = z.object({
   contentJson: QuoteTemplateContentSchema.optional(),
 });
 
+/** Restore a prior (usually superseded) template version as a new active tip. */
+export const RestoreQuoteTemplateSchema = z.object({
+  /** Template row to copy content from (must be in the same supersedes chain). */
+  fromTemplateId: RequiredText('Template version'),
+});
+
 export const ApplyQuoteTemplateSchema = z.object({
   templateId: RequiredText('Template'),
+  /**
+   * Travel start (YYYY-MM-DD). Required when the trip has no startDate —
+   * stamps the trip then shifts template line dates.
+   */
+  startDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Travel start must be YYYY-MM-DD')
+    .optional(),
+  /** Party size stamped onto hotel/transfer/activity lines before rematch. */
+  adults: z.number().int().min(1, 'At least 1 adult').max(99).optional(),
+  children: z.number().int().min(0).max(99).optional(),
+  /** Child ages (years) — length padded/truncated to `children` on apply. */
+  childAges: z.array(z.number().int().min(0).max(17)).max(99).optional(),
+  /** Hotel occupancy: children priced without bed (≤ children). */
+  childrenWithoutBed: z.number().int().min(0).max(99).optional(),
 });
 
 export const CloneQuotationSchema = z.object({
@@ -2908,6 +3406,13 @@ export const MarkPaymentPaidSchema = z.object({
   amountPaid: z.number().positive().optional(),
   method: PaymentMethodSchema.optional().nullable(),
   reference: z.preprocess(blankToNull, z.string().nullable()).optional(),
+});
+
+export const ConfirmTripPaymentLinkSchema = z.object({
+  mock: z.boolean().optional(),
+  razorpayPaymentId: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  razorpayOrderId: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  razorpaySignature: z.preprocess(blankToNull, z.string().nullable()).optional(),
 });
 
 export const CreateSupplierInvoiceSchema = z.object({
@@ -3068,7 +3573,23 @@ export type CreateCampaignInput = z.infer<typeof CreateCampaignSchema>;
 export type UpdateCampaignInput = z.infer<typeof UpdateCampaignSchema>;
 export type AssignInteractionInput = z.infer<typeof AssignInteractionSchema>;
 export type ReplyWhatsappInput = z.infer<typeof ReplyWhatsappSchema>;
+export type SendHotelEnquiryWhatsappInput = z.infer<typeof SendHotelEnquiryWhatsappSchema>;
+export type SendTripPaymentLinkWhatsappInput = z.infer<
+  typeof SendTripPaymentLinkWhatsappSchema
+>;
+export type CreateTripPaymentLinkInput = z.infer<typeof CreateTripPaymentLinkSchema>;
+export type MarkTripPaymentLinkSentInput = z.infer<typeof MarkTripPaymentLinkSentSchema>;
+export type MarkTripVouchersWhatsappSentInput = z.infer<
+  typeof MarkTripVouchersWhatsappSentSchema
+>;
+export type SendTripVouchersWhatsappInput = z.infer<typeof SendTripVouchersWhatsappSchema>;
+export type SendTripVouchersEmailInput = z.infer<typeof SendTripVouchersEmailSchema>;
+export type SendQuoteEmailInput = z.infer<typeof SendQuoteEmailSchema>;
 export type SendQuoteWhatsappInput = z.infer<typeof SendQuoteWhatsappSchema>;
+export type MarkQuoteSentInput = z.infer<typeof MarkQuoteSentSchema>;
+export type RequestQuoteApprovalInput = z.infer<typeof RequestQuoteApprovalSchema>;
+export type AcceptPublicQuoteInput = z.infer<typeof AcceptPublicQuoteSchema>;
+export type RecordQuoteFitTimingInput = z.infer<typeof RecordQuoteFitTimingSchema>;
 export type ReplyWhatsappTemplateInput = z.infer<typeof ReplyWhatsappTemplateSchema>;
 export type CreateWhatsAppTemplateInput = z.infer<typeof CreateWhatsAppTemplateSchema>;
 export type UpdateWhatsAppTemplateInput = z.infer<typeof UpdateWhatsAppTemplateSchema>;
@@ -3111,6 +3632,9 @@ export type CreateAssetServiceOfferInput = z.infer<typeof CreateAssetServiceOffe
 export type UpdateAssetServiceOfferInput = z.infer<typeof UpdateAssetServiceOfferSchema>;
 export type InventoryAvailabilityQuery = z.infer<typeof InventoryAvailabilityQuerySchema>;
 export type AllocateInventoryInput = z.infer<typeof AllocateInventorySchema>;
+export type UpdateInventoryAllocationInput = z.infer<
+  typeof UpdateInventoryAllocationSchema
+>;
 export type CreateAssetRoomUnitInput = z.infer<typeof CreateAssetRoomUnitSchema>;
 export type UpdateAssetRoomUnitInput = z.infer<typeof UpdateAssetRoomUnitSchema>;
 export type CreateAssetRatePlanInput = z.infer<typeof CreateAssetRatePlanSchema>;
@@ -3134,6 +3658,7 @@ export type StayAvailabilityCalendarQuery = z.infer<
 >;
 export type EnsureShadowAssetInput = z.infer<typeof EnsureShadowAssetSchema>;
 export type CreateSupplierInput = z.infer<typeof CreateSupplierSchema>;
+export type UpdateSupplierInput = z.infer<typeof UpdateSupplierSchema>;
 export type UpdateTripDestinationsInput = z.infer<typeof UpdateTripDestinationsSchema>;
 export type CreateRoomTypeInput = z.infer<typeof CreateRoomTypeSchema>;
 export type CreateVehicleTypeInput = z.infer<typeof CreateVehicleTypeSchema>;
@@ -3141,6 +3666,8 @@ export type CreateInquiryInput = z.infer<typeof CreateInquirySchema>;
 export type UpdateInquiryInput = z.infer<typeof UpdateInquirySchema>;
 export type UpdateInquiryStatusInput = z.infer<typeof UpdateInquiryStatusSchema>;
 export type CreateTripInput = z.infer<typeof CreateTripSchema>;
+export type CreateTripFromPackageInput = z.infer<typeof CreateTripFromPackageSchema>;
+export type UpdateTripDatesInput = z.infer<typeof UpdateTripDatesSchema>;
 export type SaveItineraryVersionInput = z.infer<typeof SaveItineraryVersionSchema>;
 export type CreateItineraryShareInput = z.infer<typeof CreateItineraryShareSchema>;
 export type ProposalFamilyJoinInput = z.infer<typeof ProposalFamilyJoinSchema>;
@@ -3157,18 +3684,25 @@ export type AcceptInviteInput = z.infer<typeof AcceptInviteSchema>;
 export type SaveQuotationVersionInput = z.infer<typeof SaveQuotationVersionSchema>;
 export type QuotationItem = z.infer<typeof QuotationItemSchema>;
 export type QuotationItemDetails = z.infer<typeof QuotationItemDetailsSchema>;
+export type QuoteRateProvenance = z.infer<typeof QuoteRateProvenanceSchema>;
 export type QuoteServiceType = z.infer<typeof QuoteServiceTypeSchema>;
 export type QuoteTemplateContent = z.infer<typeof QuoteTemplateContentSchema>;
 export type CreateQuoteTemplateInput = z.infer<typeof CreateQuoteTemplateSchema>;
 export type UpdateQuoteTemplateInput = z.infer<typeof UpdateQuoteTemplateSchema>;
+export type RestoreQuoteTemplateInput = z.infer<typeof RestoreQuoteTemplateSchema>;
 export type ApplyQuoteTemplateInput = z.infer<typeof ApplyQuoteTemplateSchema>;
 export type CloneQuotationInput = z.infer<typeof CloneQuotationSchema>;
+export type HotelOccupancyPricing = NonNullable<z.infer<typeof HotelOccupancyPricingSchema>>;
 export type CreateSupplierHotelRateInput = z.infer<typeof CreateSupplierHotelRateSchema>;
 export type UpdateSupplierHotelRateInput = z.infer<typeof UpdateSupplierHotelRateSchema>;
+export type CreateSupplierActivityRateInput = z.infer<typeof CreateSupplierActivityRateSchema>;
+export type UpdateSupplierActivityRateInput = z.infer<typeof UpdateSupplierActivityRateSchema>;
 export type CreateTransferFareInput = z.infer<typeof CreateTransferFareSchema>;
 export type UpdateTransferFareInput = z.infer<typeof UpdateTransferFareSchema>;
 export type ImportHotelRateCsvInput = z.infer<typeof ImportHotelRateCsvSchema>;
 export type ImportHotelRateCsvRowInput = z.infer<typeof ImportHotelRateCsvRowSchema>;
+export type ImportActivityRateCsvInput = z.infer<typeof ImportActivityRateCsvSchema>;
+export type ImportActivityRateCsvRowInput = z.infer<typeof ImportActivityRateCsvRowSchema>;
 export type ImportTransferFareCsvInput = z.infer<typeof ImportTransferFareCsvSchema>;
 export type ImportTransferFareCsvRowInput = z.infer<typeof ImportTransferFareCsvRowSchema>;
 export type SuggestTransferFareInput = z.infer<typeof SuggestTransferFareSchema>;
@@ -3177,9 +3711,12 @@ export type GenerateTransferFareMatrixInput = z.infer<
 >;
 export type ResolveRatesInput = z.infer<typeof ResolveRatesSchema>;
 export type ResolveRatesItemInput = z.infer<typeof ResolveRatesItemSchema>;
+export type ChartFreshnessInput = z.infer<typeof ChartFreshnessSchema>;
+export type ChartFreshnessItemInput = z.infer<typeof ChartFreshnessItemSchema>;
 export type CreateTripPaymentInput = z.infer<typeof CreateTripPaymentSchema>;
 export type UpdateTripPaymentInput = z.infer<typeof UpdateTripPaymentSchema>;
 export type MarkPaymentPaidInput = z.infer<typeof MarkPaymentPaidSchema>;
+export type ConfirmTripPaymentLinkInput = z.infer<typeof ConfirmTripPaymentLinkSchema>;
 export type CreateSupplierInvoiceInput = z.infer<typeof CreateSupplierInvoiceSchema>;
 export type UpdateSupplierInvoiceInput = z.infer<typeof UpdateSupplierInvoiceSchema>;
 export type RecordTripFeedbackInput = z.infer<typeof RecordTripFeedbackSchema>;
@@ -3199,7 +3736,10 @@ export {
   type SeasonalKnowledgeItem,
 } from './trip-season';
 
+export { tripTravelEndOnOrAfterStart } from './trip-travel-dates';
+
 export * from './commerce-foundation';
+export * from './org-markup';
 
 export {
   extraModulesCss,
@@ -3290,3 +3830,29 @@ export {
   parseMinMarginPercent,
   type MarginPolicyKind,
 } from './quote-margin-policy';
+
+export {
+  rateChartChangedSinceMatch,
+  lineNeedsRateDriftAck,
+} from './quote-rate-drift';
+export {
+  lineNeedsAllotmentRiskAck,
+  lineNeedsCapacityRiskAck,
+} from './quote-inventory-risk-ack';
+
+export {
+  FinanceReportPackSchema,
+  FinanceReportPackAgingSchema,
+  FinanceReportPackPortfolioSchema,
+  FinanceReportPackDeliverySchema,
+  CreateFinanceReportPackSchema,
+  UpdateFinanceReportPackSchema,
+  FINANCE_REPORT_PACKS_SETTINGS_KEY,
+  FINANCE_REPORT_PACKS_MAX,
+  parseFinanceReportPacks,
+  financeReportPackDeliveryDue,
+  type FinanceReportPack,
+  type FinanceReportPackDelivery,
+  type CreateFinanceReportPackInput,
+  type UpdateFinanceReportPackInput,
+} from './finance-report-packs';

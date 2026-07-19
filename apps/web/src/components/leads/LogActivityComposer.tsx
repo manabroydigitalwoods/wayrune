@@ -205,7 +205,7 @@ export function LogActivityComposer({
               onChange={(e) => setFollowUpTitle(e.target.value)}
               placeholder="Task title"
             />
-            <DatePicker value={followUpDue} onChange={setFollowUpDue} />
+            <DatePicker value={followUpDue} onChange={setFollowUpDue} placeholder="Due date" />
           </div>
         ) : null}
       </form>

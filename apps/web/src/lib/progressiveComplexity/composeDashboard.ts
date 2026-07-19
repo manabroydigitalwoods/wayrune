@@ -1,8 +1,15 @@
 import { hasAnyPermission } from '@wayrune/rbac';
 import type { AgencyWorkspace, WorkspaceWidget } from './types';
 
-/** Shared dashboard widgets — composed per workspace in WorkspaceHomePage. */
+/** Shared dashboard widgets — composed per workspace in DashboardPage. */
 export const WORKSPACE_WIDGETS: readonly WorkspaceWidget[] = [
+  {
+    key: 'sales_sla',
+    title: 'Sales response',
+    requiredAnyPermissions: ['lead.read.own', 'lead.read', 'report.sales.read'],
+    allowedWorkspaces: ['sales_executive', 'sales_manager', 'owner'],
+    priority: 8,
+  },
   {
     key: 'followups_today',
     title: 'Follow-ups due',
@@ -102,6 +109,13 @@ export const WORKSPACE_WIDGETS: readonly WorkspaceWidget[] = [
     priority: 40,
   },
   {
+    key: 'movement_window',
+    title: 'Movement window',
+    requiredAnyPermissions: ['ops.read', 'trip.read'],
+    allowedWorkspaces: ['operations', 'owner'],
+    priority: 15,
+  },
+  {
     key: 'due_today',
     title: 'Due today',
     requiredAnyPermissions: ['finance.cost.read'],
@@ -121,6 +135,13 @@ export const WORKSPACE_WIDGETS: readonly WorkspaceWidget[] = [
     requiredAnyPermissions: ['finance.settlement.read', 'finance.cost.read'],
     allowedWorkspaces: ['finance', 'owner'],
     priority: 30,
+  },
+  {
+    key: 'portfolio_margin',
+    title: 'Portfolio margin',
+    requiredAnyPermissions: ['finance.margin.read', 'finance.cost.read'],
+    allowedWorkspaces: ['finance', 'owner'],
+    priority: 35,
   },
   {
     key: 'unallocated_payments',

@@ -8,6 +8,7 @@ import {
   DatePicker,
   FormGrid,
   Input,
+  NumberField,
   RecordSheet,
   SimpleFormField as FormField,
   StatusBadge,
@@ -625,21 +626,25 @@ export function StayRoomsPanel({ assetId }: { assetId: string }) {
         </FormField>
         <FormGrid>
           <FormField label="Max occupancy">
-            <Input
-              type="number"
+            <NumberField
+              aria-label="Max occupancy"
+              min={1}
               value={roomForm.maxOccupancy}
-              onChange={(e) =>
-                setRoomForm((f) => ({ ...f, maxOccupancy: e.target.value }))
+              onChange={(maxOccupancy) =>
+                setRoomForm((f) => ({ ...f, maxOccupancy }))
               }
+              quickPicks={[1, 2, 3, 4, 5, 6]}
             />
           </FormField>
           <FormField label="Base quantity">
-            <Input
-              type="number"
+            <NumberField
+              aria-label="Base quantity"
+              min={1}
               value={roomForm.baseQuantity}
-              onChange={(e) =>
-                setRoomForm((f) => ({ ...f, baseQuantity: e.target.value }))
+              onChange={(baseQuantity) =>
+                setRoomForm((f) => ({ ...f, baseQuantity }))
               }
+              quickPicks={[1, 2, 3, 4, 6, 8, 10]}
             />
           </FormField>
         </FormGrid>

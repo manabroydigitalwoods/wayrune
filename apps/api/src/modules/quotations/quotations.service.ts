@@ -12,16 +12,26 @@ import { buildAbility, hasPermission, redactFields } from '@wayrune/auth';
 import { Prisma } from '@prisma/client';
 import type {
   ApplyQuoteTemplateInput,
+  CreateTripFromPackageInput,
   CloneQuotationInput,
   CreateQuoteTemplateInput,
+  LockQuoteFxInput,
+  MarkQuoteSentInput,
   QuotationItem,
+  RecordQuoteFitTimingInput,
+  RecordQuoteInventoryRiskAcksInput,
   RecordQuoteMarginOverridesInput,
+  RecordQuoteRateDriftAcksInput,
+  RestoreQuoteTemplateInput,
   SaveQuotationVersionInput,
   SendQuoteWhatsappInput,
   UpdateQuoteTemplateInput,
 } from '@wayrune/contracts';
 import {
   lineMarginPolicyViolation,
+  lineNeedsAllotmentRiskAck,
+  lineNeedsCapacityRiskAck,
+  lineNeedsRateDriftAck,
   parseMinMarginPercent,
   resolveTripWindowDisplay,
 } from '@wayrune/contracts';
@@ -37,6 +47,8 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { GoogleService } from '../google/google.service';
 import { MetaCloudMessagingProvider } from '../messaging/meta-cloud.messaging';
 import { InteractionsService } from '../interactions/interactions.service';
+import { OperationsService } from '../operations/operations.service';
+import { TripsService } from '../trips/trips.service';
 import {
   computePackageSummary,
   customerItineraryDays,
@@ -55,10 +67,55 @@ import { calcQuoteTotals, escapeHtml, formatCurrency, type AuthUser } from '../.
 import { buildBrandedProposalPdf } from './branded-proposal-pdf';
 import {
   checklistToText,
+  buildItineraryDaysFromHotelItems,
   contentFromVersionFields,
   parseQuoteTemplateContent,
+  reanchorItineraryDaysToTripStart,
   remintQuoteItems,
+  remintTemplateItineraryDays,
+  resolveApplyPax,
+  resolveTemplateApplyTravelStart,
+  shiftQuoteItemsToTripStart,
+  stampApplyPaxOntoQuoteItems,
+  templateItineraryDays,
 } from './quote-template-content';
+import { rematchQuoteItemsFromRates } from './quote-rate-rematch';
+import { RatesService } from '../rates/rates.service';
+import { diffQuoteTemplateContent } from './quote-template-diff';
+import {
+  normalizeTemplateName,
+  orderTemplateVersionChain,
+  planQuoteTemplateCreate,
+  planQuoteTemplateRestore,
+  templateApplyBlockedReason,
+  type TemplateChainRow,
+} from './quote-template-version';
+import {
+  defaultValidUntilDate,
+  isQuoteValidUntilExpired,
+  isQuoteWithinPostExpiryGrace,
+  quoteValidityDaysFromSettings,
+  quoteValidityGraceHoursFromSettings,
+  shouldAutoExtendQuoteValidity,
+  shouldBlockSendPastGrace,
+  shouldExtendValidityOnSend,
+  syncTermsWithValidUntil,
+} from './quote-validity';
+import {
+  buildQuoteFxLock,
+  convertBuyToQuoteCurrency,
+  fxLockCoversQuote,
+  normalizeCurrency,
+  parseOrgFxRates,
+  parseQuoteFxLock,
+  quoteFxLockToJson,
+  sameCurrencyLock,
+} from './quote-fx';
+import { pickQuoteProposalTemplate } from './quote-whatsapp-template';
+import {
+  evaluateWhatsappCustomerSession,
+  WHATSAPP_CUSTOMER_SESSION_MS,
+} from '../messaging/whatsapp-customer-session';
 
 const IMMUTABLE = new Set(['accepted']);
 const AUTOSAVEABLE = new Set(['draft', 'pending_approval']);
@@ -90,28 +147,88 @@ export class QuotationsService {
     private interactions: InteractionsService,
     @Optional()
     @Inject(forwardRef(() => GoogleService))
-    private google?: GoogleService,
+    private google: GoogleService | undefined,
+    private operations: OperationsService,
+    private trips: TripsService,
+    private rates: RatesService,
   ) {}
 
-  private async ensureTrip(organizationId: string, tripId: string) {
-    const trip = await this.prisma.trip.findFirst({
+  private async ensureTrip(
+    organizationId: string,
+    tripId: string,
+    db: PrismaService | Prisma.TransactionClient = this.prisma,
+  ) {
+    const trip = await db.trip.findFirst({
       where: { id: tripId, organizationId, deletedAt: null },
     });
     if (!trip) throw new NotFoundException('Trip not found');
     return trip;
   }
 
-  /** Hard-block send / approval request until sell prices and validity are complete. */
+  private async orgQuoteValidityDays(organizationId: string): Promise<number> {
+    const org = await this.prisma.organization.findFirst({
+      where: { id: organizationId },
+      select: { settingsJson: true },
+    });
+    return quoteValidityDaysFromSettings(org?.settingsJson);
+  }
+
+  private async freshQuoteValidity(organizationId: string): Promise<{
+    validUntil: Date;
+    termsWithValidity: (terms: string | null | undefined) => string;
+  }> {
+    const days = await this.orgQuoteValidityDays(organizationId);
+    const validUntil = defaultValidUntilDate(days);
+    return {
+      validUntil,
+      termsWithValidity: (terms) => syncTermsWithValidUntil(terms, validUntil),
+    };
+  }
+
+  /**
+   * Commercial readiness for send / request-approval / approve.
+   * Margin floor applies to all senders (not only quote.view_cost).
+   * Missing validUntil blocks; expired past grace blocks; in-grace keeps date;
+   * near-expiry auto-extends to org default only after other gates pass.
+   */
   private async assertQuoteReadyForCustomer(
     user: AuthUser,
     version: {
+      id: string;
+      currency?: string;
+      exchangeRatesJson?: unknown;
       itemsJson: unknown;
       validUntil: Date | null;
-      quotation: { tripId: string };
+      terms: string | null;
+      quotation: { tripId: string; organizationId: string };
     },
-  ) {
+    opts?: { autoExtendValidity?: boolean; extendValidity?: boolean },
+  ): Promise<{ validityExtendedTo: string | null; validityGraceUsed: boolean }> {
+    const autoExtend = opts?.autoExtendValidity !== false;
+    const extendValidity = opts?.extendValidity === true;
     const items = Array.isArray(version.itemsJson)
-      ? (version.itemsJson as Array<{ unitSell?: number | null; unitCost?: number | null }>)
+      ? (version.itemsJson as Array<{
+          description?: string;
+          unitSell?: number | null;
+          unitCost?: number | null;
+          rateId?: string | null;
+          rateKind?: string | null;
+          rateProvenance?: {
+            rateId?: string;
+            rateKind?: string;
+            matchedAt?: string;
+            rateUpdatedAt?: string;
+            rateDriftAckForUpdatedAt?: string;
+            rateDriftAckReason?: string;
+            allotmentWarn?: boolean;
+            allotmentNote?: string;
+            allotmentRiskAckForNote?: string;
+            capacityWarn?: boolean;
+            capacityNote?: string;
+            capacityRiskAckForNote?: string;
+          } | null;
+          marginOverride?: { reason?: string };
+        }>)
       : [];
     if (!items.length) {
       throw new BadRequestException('Add at least one service before sending');
@@ -125,59 +242,258 @@ export class QuotationsService {
     if (!version.validUntil) {
       throw new BadRequestException('Set a validity date before sending');
     }
-    if (hasPermission(user.permissions, 'quote.view_cost')) {
-      const missingCost = items.filter((i) => i.unitCost == null).length;
-      if (missingCost > 0) {
-        throw new BadRequestException(
-          `${missingCost} service${missingCost === 1 ? '' : 's'} missing buy rate`,
-        );
-      }
-      const org = await this.prisma.organization.findFirst({
-        where: { id: user.organizationId },
-        select: { settingsJson: true },
-      });
-      const minMarginPercent = parseMinMarginPercent(org?.settingsJson);
-      const unauthorised = items.filter((i) => {
-        const violation = lineMarginPolicyViolation(
-          i.unitCost,
-          i.unitSell,
-          minMarginPercent,
-        );
-        if (!violation) return false;
-        const override = (i as { marginOverride?: { reason?: string } }).marginOverride;
-        return !override?.reason?.trim();
-      });
-      if (unauthorised.length > 0) {
-        const lossCount = unauthorised.filter((i) =>
-          lineMarginPolicyViolation(i.unitCost, i.unitSell, minMarginPercent)?.kind === 'loss',
-        ).length;
-        const floorCount = unauthorised.length - lossCount;
-        const parts: string[] = [];
-        if (lossCount > 0) {
-          parts.push(
-            `${lossCount} sell below cost`,
-          );
-        }
-        if (floorCount > 0) {
-          parts.push(
-            `${floorCount} below ${minMarginPercent}% margin floor`,
-          );
-        }
-        throw new BadRequestException(
-          `${unauthorised.length} service${unauthorised.length === 1 ? '' : 's'} need a below-margin override (${parts.join('; ')}) — a manager with below_margin.approve must authorise selected lines`,
-        );
-      }
+
+    const missingCost = items.filter((i) => i.unitCost == null).length;
+    if (missingCost > 0) {
+      throw new BadRequestException(
+        `${missingCost} service${missingCost === 1 ? '' : 's'} missing buy rate`,
+      );
     }
+    const org = await this.prisma.organization.findFirst({
+      where: { id: user.organizationId },
+      select: { settingsJson: true, currency: true },
+    });
+    const minMarginPercent = parseMinMarginPercent(org?.settingsJson);
+    const unauthorised = items.filter((i) => {
+      const violation = lineMarginPolicyViolation(
+        i.unitCost,
+        i.unitSell,
+        minMarginPercent,
+      );
+      if (!violation) return false;
+      const override = (i as { marginOverride?: { reason?: string } }).marginOverride;
+      return !override?.reason?.trim();
+    });
+    if (unauthorised.length > 0) {
+      const lossCount = unauthorised.filter(
+        (i) =>
+          lineMarginPolicyViolation(i.unitCost, i.unitSell, minMarginPercent)?.kind ===
+          'loss',
+      ).length;
+      const floorCount = unauthorised.length - lossCount;
+      const parts: string[] = [];
+      if (lossCount > 0) {
+        parts.push(`${lossCount} sell below cost`);
+      }
+      if (floorCount > 0) {
+        parts.push(`${floorCount} below ${minMarginPercent}% margin floor`);
+      }
+      throw new BadRequestException(
+        `${unauthorised.length} service${unauthorised.length === 1 ? '' : 's'} need a below-margin override (${parts.join('; ')}) — a manager with below_margin.approve must authorise selected lines`,
+      );
+    }
+
+    await this.assertNoBlockingRateDrift(user.organizationId, items);
+    this.assertNoBlockingAllotment(items);
+    this.assertNoBlockingCapacity(items);
+    this.assertFxReadyForSend(version, org?.currency || 'INR');
     const travellers = await this.prisma.tripTraveller.count({
       where: { tripId: version.quotation.tripId },
     });
     if (travellers <= 0) {
       throw new BadRequestException('Add at least one traveller before sending');
     }
+
+    const graceHours = quoteValidityGraceHoursFromSettings(org?.settingsJson);
+    if (shouldBlockSendPastGrace(version.validUntil, graceHours)) {
+      throw new BadRequestException(
+        'Validity expired — reset the date before sending',
+      );
+    }
+    const validityGraceUsed = isQuoteWithinPostExpiryGrace(
+      version.validUntil,
+      graceHours,
+    );
+    let validityExtendedTo: string | null = null;
+    if (
+      autoExtend &&
+      shouldExtendValidityOnSend(version.validUntil, {
+        graceHours,
+        extendValidity,
+      })
+    ) {
+      const { validUntil, termsWithValidity } = await this.freshQuoteValidity(
+        version.quotation.organizationId,
+      );
+      await this.prisma.quotationVersion.update({
+        where: { id: version.id },
+        data: {
+          validUntil,
+          terms: termsWithValidity(version.terms),
+        },
+      });
+      validityExtendedTo = validUntil.toISOString().slice(0, 10);
+    }
+
+    return {
+      validityExtendedTo,
+      validityGraceUsed: validityGraceUsed && !validityExtendedTo,
+    };
+  }
+
+  private assertFxReadyForSend(
+    version: { currency?: string; exchangeRatesJson?: unknown },
+    orgCurrency: string,
+  ) {
+    const quote = normalizeCurrency(version.currency || orgCurrency);
+    const base = normalizeCurrency(orgCurrency);
+    if (quote === base) return;
+    const lock = parseQuoteFxLock(version.exchangeRatesJson);
+    if (!fxLockCoversQuote(lock, quote, base)) {
+      throw new BadRequestException(
+        `Lock an FX rate for ${quote} before sending (org books in ${base})`,
+      );
+    }
+  }
+
+  /** Block send/approve when hotel lines stamped with insufficient allotment (unless acked). */
+  private assertNoBlockingAllotment(
+    items: Array<{
+      rateProvenance?: {
+        allotmentWarn?: boolean;
+        allotmentNote?: string;
+        allotmentRiskAckForNote?: string;
+        allotmentRiskAckReason?: string;
+      } | null;
+    }>,
+  ) {
+    const blocked = items.filter((i) =>
+      lineNeedsAllotmentRiskAck({
+        allotmentWarn: i.rateProvenance?.allotmentWarn,
+        allotmentNote: i.rateProvenance?.allotmentNote,
+        allotmentRiskAckForNote: i.rateProvenance?.allotmentRiskAckForNote,
+        allotmentRiskAckReason: i.rateProvenance?.allotmentRiskAckReason,
+      }),
+    );
+    if (!blocked.length) return;
+    throw new BadRequestException(
+      `${blocked.length} hotel service${blocked.length === 1 ? '' : 's'} ${
+        blocked.length === 1 ? 'has' : 'have'
+      } insufficient allotment — reduce rooms, pick another property, or acknowledge the shortfall with a reason before sending`,
+    );
+  }
+
+  /** Block send/approve when transfer lines stamped with over-capacity (unless acked). */
+  private assertNoBlockingCapacity(
+    items: Array<{
+      rateProvenance?: {
+        capacityWarn?: boolean;
+        capacityNote?: string;
+        capacityRiskAckForNote?: string;
+        capacityRiskAckReason?: string;
+      } | null;
+    }>,
+  ) {
+    const blocked = items.filter((i) =>
+      lineNeedsCapacityRiskAck({
+        capacityWarn: i.rateProvenance?.capacityWarn,
+        capacityNote: i.rateProvenance?.capacityNote,
+        capacityRiskAckForNote: i.rateProvenance?.capacityRiskAckForNote,
+        capacityRiskAckReason: i.rateProvenance?.capacityRiskAckReason,
+      }),
+    );
+    if (!blocked.length) return;
+    throw new BadRequestException(
+      `${blocked.length} transfer service${blocked.length === 1 ? '' : 's'} ${
+        blocked.length === 1 ? 'has' : 'have'
+      } insufficient vehicle capacity — add vehicles, reduce party, or acknowledge the shortfall with a reason before sending`,
+    );
+  }
+
+  /**
+   * Accept-time readiness: no auto-extend; reject expired quotes.
+   */
+  private async assertQuoteReadyForAccept(
+    user: AuthUser,
+    version: {
+      id: string;
+      itemsJson: unknown;
+      validUntil: Date | null;
+      terms: string | null;
+      quotation: { tripId: string; organizationId: string };
+    },
+  ) {
+    if (!version.validUntil) {
+      throw new BadRequestException('This proposal has no validity date and cannot be accepted');
+    }
+    if (isQuoteValidUntilExpired(version.validUntil)) {
+      throw new BadRequestException(
+        'This proposal has expired — ask your agency for an updated quotation',
+      );
+    }
+    await this.assertQuoteReadyForCustomer(user, version, { autoExtendValidity: false });
+  }
+
+  /** Block send/approve when matched chart rows are newer than the line snapshot (unless ack'd). */
+  private async assertNoBlockingRateDrift(
+    organizationId: string,
+    items: Array<{
+      description?: string;
+      rateId?: string | null;
+      rateKind?: string | null;
+      rateProvenance?: {
+        rateId?: string;
+        rateKind?: string;
+        matchedAt?: string;
+        rateUpdatedAt?: string;
+        rateDriftAckForUpdatedAt?: string;
+        rateDriftAckReason?: string;
+      } | null;
+    }>,
+  ) {
+    const candidates = items
+      .map((item, index) => {
+        const rateId =
+          item.rateProvenance?.rateId?.trim() || item.rateId?.trim() || '';
+        if (!rateId) return null;
+        return { item, index, rateId };
+      })
+      .filter(Boolean) as Array<{
+      item: (typeof items)[number];
+      index: number;
+      rateId: string;
+    }>;
+    if (!candidates.length) return;
+
+    const updatedAtById = await this.loadRateChartUpdatedAtById(
+      organizationId,
+      candidates.map((c) => c.item),
+    );
+
+    const blocking = candidates.filter(({ item, rateId }) => {
+      const currentUpdatedAt = updatedAtById.get(rateId);
+      if (!currentUpdatedAt) return false;
+      return lineNeedsRateDriftAck({
+        matchedAt: item.rateProvenance?.matchedAt,
+        rateUpdatedAtAtMatch: item.rateProvenance?.rateUpdatedAt,
+        currentUpdatedAt,
+        ackForUpdatedAt: item.rateProvenance?.rateDriftAckForUpdatedAt,
+        ackReason: item.rateProvenance?.rateDriftAckReason,
+      });
+    });
+
+    if (!blocking.length) return;
+    const labels = blocking
+      .slice(0, 3)
+      .map((b) => b.item.description?.trim() || `Line ${b.index + 1}`)
+      .join(', ');
+    const more =
+      blocking.length > 3 ? ` (+${blocking.length - 3} more)` : '';
+    throw new BadRequestException(
+      `${blocking.length} service${blocking.length === 1 ? '' : 's'} have a newer rate chart since match (${labels}${more}) — rematch or acknowledge the chart change with a reason before sending`,
+    );
   }
 
   async createQuotation(user: AuthUser, tripId: string) {
     await this.ensureTrip(user.organizationId, tripId);
+    const { validUntil, termsWithValidity } = await this.freshQuoteValidity(
+      user.organizationId,
+    );
+    const org = await this.prisma.organization.findFirst({
+      where: { id: user.organizationId },
+      select: { currency: true },
+    });
+    const currency = normalizeCurrency(org?.currency || 'INR');
     const count = await this.prisma.quotation.count({
       where: { organizationId: user.organizationId },
     });
@@ -192,7 +508,10 @@ export class QuotationsService {
             label: 'v1',
             status: 'draft',
             itemsJson: [],
-            currency: 'INR',
+            currency,
+            exchangeRatesJson: quoteFxLockToJson(sameCurrencyLock(currency)) as Prisma.InputJsonValue,
+            validUntil,
+            terms: termsWithValidity(null),
             createdBy: user.sub,
           },
         },
@@ -247,6 +566,9 @@ export class QuotationsService {
     const count = await this.prisma.quotation.count({
       where: { organizationId: user.organizationId },
     });
+    const { validUntil, termsWithValidity } = await this.freshQuoteValidity(
+      user.organizationId,
+    );
     const quotation = await this.prisma.quotation.create({
       data: {
         organizationId: user.organizationId,
@@ -258,12 +580,16 @@ export class QuotationsService {
             label: 'v1 (from accepted)',
             status: 'draft',
             currency: accepted.currency,
-            validUntil: accepted.validUntil,
+            validUntil,
             itemsJson: accepted.itemsJson as Prisma.InputJsonValue,
             inclusions: accepted.inclusions,
             exclusions: accepted.exclusions,
-            terms: accepted.terms,
-            exchangeRatesJson: accepted.exchangeRatesJson ?? { INR: 1, USD: 0.012 },
+            terms: termsWithValidity(accepted.terms),
+            exchangeRatesJson: (parseQuoteFxLock(accepted.exchangeRatesJson) != null
+              ? accepted.exchangeRatesJson
+              : quoteFxLockToJson(
+                  sameCurrencyLock(normalizeCurrency(accepted.currency)),
+                )) as Prisma.InputJsonValue,
             costTotal: accepted.costTotal,
             sellTotal: accepted.sellTotal,
             taxTotal: accepted.taxTotal,
@@ -291,7 +617,7 @@ export class QuotationsService {
 
   async listTemplates(user: AuthUser) {
     const items = await this.prisma.quoteTemplate.findMany({
-      where: { organizationId: user.organizationId },
+      where: { organizationId: user.organizationId, status: 'active' },
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
@@ -299,14 +625,41 @@ export class QuotationsService {
       items: items.map((t) => ({
         id: t.id,
         name: t.name,
+        versionNumber: t.versionNumber,
+        status: t.status,
         createdAt: t.createdAt,
         content: parseQuoteTemplateContent(t.contentJson),
       })),
     };
   }
 
+  /** Embed trip Story days/meta into a save-as-template payload when missing. */
+  private async loadTripItinerarySnapshot(
+    organizationId: string,
+    tripId: string,
+  ): Promise<{ days?: Record<string, unknown>[]; story?: Record<string, unknown> } | null> {
+    const itinerary = await this.prisma.itinerary.findFirst({
+      where: { tripId, organizationId },
+      include: { versions: { orderBy: { versionNumber: 'desc' }, take: 1 } },
+    });
+    const version = itinerary?.versions[0];
+    if (!version?.contentJson || typeof version.contentJson !== 'object') return null;
+    const content = version.contentJson as Record<string, unknown>;
+    const days = Array.isArray(content.days) ? (content.days as Record<string, unknown>[]) : [];
+    const story =
+      content.story && typeof content.story === 'object' && !Array.isArray(content.story)
+        ? (content.story as Record<string, unknown>)
+        : undefined;
+    if (!days.length && !story) return null;
+    return {
+      ...(days.length ? { days } : {}),
+      ...(story ? { story } : {}),
+    };
+  }
+
   async createTemplate(user: AuthUser, input: CreateQuoteTemplateInput) {
     let content = input.contentJson ? parseQuoteTemplateContent(input.contentJson) : null;
+    let tripIdForEmbed = input.tripId ?? null;
 
     if (input.versionId) {
       const version = await this.prisma.quotationVersion.findFirst({
@@ -314,6 +667,7 @@ export class QuotationsService {
           id: input.versionId,
           quotation: { organizationId: user.organizationId },
         },
+        include: { quotation: { select: { tripId: true } } },
       });
       if (!version) throw new NotFoundException('Quotation version not found');
       content = contentFromVersionFields({
@@ -323,19 +677,63 @@ export class QuotationsService {
         exclusions: version.exclusions,
         terms: version.terms,
         destinationHint: content?.destinationHint,
+        tags: content?.tags,
+        folder: content?.folder,
+        itinerary: content?.itinerary,
       });
+      if (!tripIdForEmbed) tripIdForEmbed = version.quotation.tripId;
     }
 
     if (!content) {
       throw new BadRequestException('Provide contentJson or versionId');
     }
 
-    const template = await this.prisma.quoteTemplate.create({
-      data: {
-        organizationId: user.organizationId,
-        name: input.name.trim(),
-        contentJson: content as unknown as Prisma.InputJsonValue,
-      },
+    if (tripIdForEmbed && !content.itinerary?.days?.length && !content.itinerary?.story) {
+      const embedded = await this.loadTripItinerarySnapshot(
+        user.organizationId,
+        tripIdForEmbed,
+      );
+      if (embedded) {
+        content = { ...content, itinerary: embedded };
+      }
+    }
+
+    const name = normalizeTemplateName(input.name);
+    const actives = await this.prisma.quoteTemplate.findMany({
+      where: { organizationId: user.organizationId, status: 'active' },
+      select: { id: true, name: true, versionNumber: true },
+      take: 200,
+    });
+
+    let plan;
+    try {
+      plan = planQuoteTemplateCreate({
+        name,
+        activeTemplates: actives,
+        supersedeTemplateId: input.supersedeTemplateId,
+        asNew: input.asNew,
+      });
+    } catch (e) {
+      throw new BadRequestException(e instanceof Error ? e.message : 'Invalid template create');
+    }
+
+    const template = await this.prisma.$transaction(async (tx) => {
+      if (plan.kind === 'supersede') {
+        await tx.quoteTemplate.update({
+          where: { id: plan.supersedesId },
+          data: { status: 'superseded' },
+        });
+      }
+      return tx.quoteTemplate.create({
+        data: {
+          organizationId: user.organizationId,
+          name,
+          contentJson: content as unknown as Prisma.InputJsonValue,
+          versionNumber: plan.versionNumber,
+          status: 'active',
+          supersedesId: plan.supersedesId,
+        },
+      });
     });
 
     await this.audit.record({
@@ -344,13 +742,21 @@ export class QuotationsService {
       action: 'quote.template_create',
       entityType: 'quote_template',
       entityId: template.id,
+      metadata: {
+        hasItineraryDays: Boolean(content.itinerary?.days?.length),
+        versionNumber: template.versionNumber,
+        supersededTemplateId: plan.supersedesId,
+      },
     });
 
     return {
       id: template.id,
       name: template.name,
+      versionNumber: template.versionNumber,
+      status: template.status,
       createdAt: template.createdAt,
       content: parseQuoteTemplateContent(template.contentJson),
+      supersededTemplateId: plan.supersedesId,
     };
   }
 
@@ -359,20 +765,66 @@ export class QuotationsService {
       where: { id: templateId, organizationId: user.organizationId },
     });
     if (!existing) throw new NotFoundException('Quote template not found');
+    if (existing.status !== 'active') {
+      throw new BadRequestException('Only active templates can be updated');
+    }
+
+    // Content changes create a new version (immutable history); rename stays in place.
+    if (input.contentJson != null) {
+      const content = parseQuoteTemplateContent(input.contentJson);
+      const name =
+        input.name != null ? normalizeTemplateName(input.name) : existing.name;
+      const template = await this.prisma.$transaction(async (tx) => {
+        await tx.quoteTemplate.update({
+          where: { id: existing.id },
+          data: { status: 'superseded' },
+        });
+        return tx.quoteTemplate.create({
+          data: {
+            organizationId: user.organizationId,
+            name,
+            contentJson: content as unknown as Prisma.InputJsonValue,
+            versionNumber: existing.versionNumber + 1,
+            status: 'active',
+            supersedesId: existing.id,
+          },
+        });
+      });
+      await this.audit.record({
+        organizationId: user.organizationId,
+        actorUserId: user.sub,
+        action: 'quote.template_create',
+        entityType: 'quote_template',
+        entityId: template.id,
+        metadata: {
+          versionNumber: template.versionNumber,
+          supersededTemplateId: existing.id,
+          via: 'update',
+        },
+      });
+      return {
+        id: template.id,
+        name: template.name,
+        versionNumber: template.versionNumber,
+        status: template.status,
+        createdAt: template.createdAt,
+        content: parseQuoteTemplateContent(template.contentJson),
+        supersededTemplateId: existing.id,
+      };
+    }
 
     const template = await this.prisma.quoteTemplate.update({
       where: { id: existing.id },
       data: {
-        ...(input.name != null ? { name: input.name.trim() } : {}),
-        ...(input.contentJson != null
-          ? { contentJson: parseQuoteTemplateContent(input.contentJson) as unknown as Prisma.InputJsonValue }
-          : {}),
+        ...(input.name != null ? { name: normalizeTemplateName(input.name) } : {}),
       },
     });
 
     return {
       id: template.id,
       name: template.name,
+      versionNumber: template.versionNumber,
+      status: template.status,
       createdAt: template.createdAt,
       content: parseQuoteTemplateContent(template.contentJson),
     };
@@ -383,32 +835,278 @@ export class QuotationsService {
       where: { id: templateId, organizationId: user.organizationId },
     });
     if (!existing) throw new NotFoundException('Quote template not found');
-    await this.prisma.quoteTemplate.delete({ where: { id: existing.id } });
+    if (existing.status !== 'active') {
+      throw new BadRequestException('Only active templates can be deleted');
+    }
+    // Soft-retire so version history (supersedes chain) stays intact.
+    await this.prisma.quoteTemplate.update({
+      where: { id: existing.id },
+      data: { status: 'superseded' },
+    });
     await this.audit.record({
       organizationId: user.organizationId,
       actorUserId: user.sub,
       action: 'quote.template_delete',
       entityType: 'quote_template',
       entityId: existing.id,
+      metadata: { versionNumber: existing.versionNumber },
     });
     return { ok: true as const };
   }
 
-  async createFromTemplate(user: AuthUser, tripId: string, input: ApplyQuoteTemplateInput) {
-    await this.ensureTrip(user.organizationId, tripId);
-    const template = await this.prisma.quoteTemplate.findFirst({
+  /** Walk supersedes chain for any template id (active or superseded). */
+  private async loadTemplateVersionChain(
+    organizationId: string,
+    templateId: string,
+  ): Promise<Array<{
+    id: string;
+    name: string;
+    versionNumber: number;
+    status: string;
+    supersedesId: string | null;
+    createdAt: Date;
+    contentJson: unknown;
+  }>> {
+    const seed = await this.prisma.quoteTemplate.findFirst({
+      where: { id: templateId, organizationId },
+    });
+    if (!seed) throw new NotFoundException('Quote template not found');
+
+    const byId = new Map<string, TemplateChainRow & { createdAt: Date; contentJson: unknown }>();
+    const queue = [seed];
+    while (queue.length) {
+      const row = queue.shift()!;
+      if (byId.has(row.id)) continue;
+      byId.set(row.id, {
+        id: row.id,
+        name: row.name,
+        versionNumber: row.versionNumber,
+        status: row.status,
+        supersedesId: row.supersedesId,
+        createdAt: row.createdAt,
+        contentJson: row.contentJson,
+      });
+      if (row.supersedesId && !byId.has(row.supersedesId)) {
+        const prev = await this.prisma.quoteTemplate.findFirst({
+          where: { id: row.supersedesId, organizationId },
+        });
+        if (prev) queue.push(prev);
+      }
+      const next = await this.prisma.quoteTemplate.findFirst({
+        where: { organizationId, supersedesId: row.id },
+      });
+      if (next && !byId.has(next.id)) queue.push(next);
+    }
+
+    const chainRows = new Map<string, TemplateChainRow>();
+    const childByParentId = new Map<string, TemplateChainRow>();
+    for (const row of byId.values()) {
+      const slim: TemplateChainRow = {
+        id: row.id,
+        name: row.name,
+        versionNumber: row.versionNumber,
+        status: row.status,
+        supersedesId: row.supersedesId,
+      };
+      chainRows.set(row.id, slim);
+      if (row.supersedesId) childByParentId.set(row.supersedesId, slim);
+    }
+
+    const ordered = orderTemplateVersionChain(seed.id, chainRows, childByParentId);
+    return ordered.map((r) => {
+      const full = byId.get(r.id)!;
+      return {
+        id: full.id,
+        name: full.name,
+        versionNumber: full.versionNumber,
+        status: full.status,
+        supersedesId: full.supersedesId,
+        createdAt: full.createdAt,
+        contentJson: full.contentJson,
+      };
+    });
+  }
+
+  async listTemplateVersions(user: AuthUser, templateId: string) {
+    const chain = await this.loadTemplateVersionChain(user.organizationId, templateId);
+    const activeTip = [...chain].reverse().find((t) => t.status === 'active') ?? null;
+    const activeContent = activeTip
+      ? parseQuoteTemplateContent(activeTip.contentJson)
+      : null;
+    // Newest first for History UI.
+    const items = [...chain].reverse().map((t) => {
+      const content = parseQuoteTemplateContent(t.contentJson);
+      const lineCount = Array.isArray(content.items) ? content.items.length : 0;
+      const diffVsActive =
+        activeContent && t.status !== 'active'
+          ? (() => {
+              const diff = diffQuoteTemplateContent(content, activeContent);
+              if (!diff.summary) return { summary: null as string | null };
+              return {
+                summary: diff.summary,
+                addedTitles: diff.addedTitles.slice(0, 5),
+                removedTitles: diff.removedTitles.slice(0, 5),
+                changedTitles: diff.changedTitles.slice(0, 5),
+                metaChanges: diff.metaChanges,
+              };
+            })()
+          : undefined;
+      return {
+        id: t.id,
+        name: t.name,
+        versionNumber: t.versionNumber,
+        status: t.status,
+        createdAt: t.createdAt,
+        lineCount,
+        destinationHint: content.destinationHint ?? null,
+        ...(diffVsActive ? { diffVsActive } : {}),
+      };
+    });
+    return { items };
+  }
+
+  async restoreTemplate(user: AuthUser, templateId: string, input: RestoreQuoteTemplateInput) {
+    const chain = await this.loadTemplateVersionChain(user.organizationId, templateId);
+    const source = chain.find((t) => t.id === input.fromTemplateId);
+    if (!source) {
+      throw new BadRequestException('Restore source is not in this template version chain');
+    }
+
+    const activeTip = chain.find((t) => t.status === 'active') ?? null;
+    let plan;
+    try {
+      plan = planQuoteTemplateRestore({
+        sourceId: source.id,
+        sourceStatus: source.status,
+        sourceVersionNumber: source.versionNumber,
+        activeTip: activeTip
+          ? { id: activeTip.id, versionNumber: activeTip.versionNumber }
+          : null,
+      });
+    } catch (e) {
+      throw new BadRequestException(e instanceof Error ? e.message : 'Cannot restore template');
+    }
+
+    const content = parseQuoteTemplateContent(source.contentJson);
+    const name = normalizeTemplateName(source.name);
+
+    const template = await this.prisma.$transaction(async (tx) => {
+      if (plan.supersedesId) {
+        await tx.quoteTemplate.update({
+          where: { id: plan.supersedesId },
+          data: { status: 'superseded' },
+        });
+      }
+      return tx.quoteTemplate.create({
+        data: {
+          organizationId: user.organizationId,
+          name,
+          contentJson: content as unknown as Prisma.InputJsonValue,
+          versionNumber: plan.versionNumber,
+          status: 'active',
+          supersedesId: plan.supersedesId,
+        },
+      });
+    });
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorUserId: user.sub,
+      action: 'quote.template_restore',
+      entityType: 'quote_template',
+      entityId: template.id,
+      metadata: {
+        fromTemplateId: source.id,
+        fromVersionNumber: source.versionNumber,
+        versionNumber: template.versionNumber,
+        supersededTemplateId: plan.supersedesId,
+      },
+    });
+
+    return {
+      id: template.id,
+      name: template.name,
+      versionNumber: template.versionNumber,
+      status: template.status,
+      createdAt: template.createdAt,
+      content: parseQuoteTemplateContent(template.contentJson),
+      restoredFromTemplateId: source.id,
+      supersededTemplateId: plan.supersedesId,
+    };
+  }
+
+  async createFromTemplate(
+    user: AuthUser,
+    tripId: string,
+    input: ApplyQuoteTemplateInput,
+    tx?: Prisma.TransactionClient,
+  ) {
+    const db = tx ?? this.prisma;
+    let trip = await this.ensureTrip(user.organizationId, tripId, db);
+    const template = await db.quoteTemplate.findFirst({
       where: { id: input.templateId, organizationId: user.organizationId },
     });
     if (!template) throw new NotFoundException('Quote template not found');
+    const applyBlock = templateApplyBlockedReason(template.status);
+    if (applyBlock) {
+      throw new BadRequestException(applyBlock);
+    }
+
+    let travelStart: { isoDay: string; shouldStampTrip: boolean };
+    try {
+      travelStart = resolveTemplateApplyTravelStart({
+        tripStartDate: trip.startDate,
+        requestedStartDate: input.startDate,
+      });
+    } catch (e) {
+      throw new BadRequestException(
+        e instanceof Error ? e.message : 'Travel start date is required to apply a template',
+      );
+    }
+
+    if (travelStart.shouldStampTrip) {
+      trip = await db.trip.update({
+        where: { id: trip.id },
+        data: { startDate: new Date(travelStart.isoDay) },
+      });
+    }
 
     const content = parseQuoteTemplateContent(template.contentJson);
-    const items = remintQuoteItems((content.items ?? []) as QuotationItem[]);
+    const reminted = remintQuoteItems((content.items ?? []) as QuotationItem[]);
+    const { items: shifted, shiftDays, anchorDay } = shiftQuoteItemsToTripStart(
+      reminted,
+      travelStart.isoDay,
+    );
+    const applyPax = resolveApplyPax({
+      adults: input.adults,
+      children: input.children,
+      childAges: input.childAges,
+      childrenWithoutBed: input.childrenWithoutBed,
+    });
+    const { items: stampedItems, stampedCount: paxStampedCount } = applyPax
+      ? stampApplyPaxOntoQuoteItems(shifted, applyPax)
+      : { items: shifted, stampedCount: 0 };
+    const rematch = await rematchQuoteItemsFromRates(
+      this.rates,
+      user.organizationId,
+      stampedItems,
+      {
+        startDate: travelStart.isoDay,
+        adults: applyPax?.adults,
+        children: applyPax?.children,
+        partyId: trip.partyId ?? null,
+      },
+    );
+    const items = rematch.items;
     const totals = calcQuoteTotals(items, 0);
-    const count = await this.prisma.quotation.count({
+    const count = await db.quotation.count({
       where: { organizationId: user.organizationId },
     });
+    const { validUntil, termsWithValidity } = await this.freshQuoteValidity(
+      user.organizationId,
+    );
 
-    const quotation = await this.prisma.quotation.create({
+    const quotation = await db.quotation.create({
       data: {
         organizationId: user.organizationId,
         tripId,
@@ -416,14 +1114,17 @@ export class QuotationsService {
         versions: {
           create: {
             versionNumber: 1,
-            label: `v1 (from ${template.name})`,
+            label: `v1 (from ${template.name} v${template.versionNumber})`,
             status: 'draft',
             currency: content.currency || 'INR',
+            validUntil,
             itemsJson: items as unknown as Prisma.InputJsonValue,
             inclusions: checklistToText(content.inclusions),
             exclusions: checklistToText(content.exclusions),
-            terms: content.terms ?? null,
-            exchangeRatesJson: { INR: 1, USD: 0.012 },
+            terms: termsWithValidity(content.terms ?? null),
+            exchangeRatesJson: quoteFxLockToJson(
+              sameCurrencyLock(normalizeCurrency(content.currency || 'INR')),
+            ) as Prisma.InputJsonValue,
             ...totals,
             createdBy: user.sub,
           },
@@ -432,16 +1133,263 @@ export class QuotationsService {
       include: { versions: { orderBy: { versionNumber: 'desc' } } },
     });
 
+    const itineraryApply = await this.applyTemplateItineraryToTrip(
+      user.organizationId,
+      tripId,
+      travelStart.isoDay,
+      content.itinerary,
+      items,
+      db,
+    );
+
+    if (!tx) {
+      await this.audit.record({
+        organizationId: user.organizationId,
+        actorUserId: user.sub,
+        action: 'quote.create_from_template',
+        entityType: 'quotation',
+        entityId: quotation.id,
+        metadata: {
+          templateId: template.id,
+          templateName: template.name,
+          templateVersionNumber: template.versionNumber,
+          dateShiftDays: shiftDays,
+          templateAnchorDay: anchorDay,
+          tripStartDate: travelStart.isoDay,
+          tripStartStamped: travelStart.shouldStampTrip,
+          applyAdults: applyPax?.adults ?? null,
+          applyChildren: applyPax?.children ?? null,
+          applyChildAges: applyPax?.childAges ?? null,
+          applyChildrenWithoutBed: applyPax?.childrenWithoutBed ?? null,
+          paxStampedCount,
+          rematchMatched: rematch.matchedCount,
+          rematchUnmatched: rematch.unmatchedCount,
+          itineraryDaysReanchored: itineraryApply.reanchored,
+          itineraryDaysSeeded: itineraryApply.seeded,
+          itineraryDaysBuiltFromHotels: itineraryApply.builtFromHotels,
+        },
+      });
+    }
+
+    return {
+      ...quotation,
+      dateShiftDays: shiftDays,
+      tripStartDate: travelStart.isoDay,
+      tripStartStamped: travelStart.shouldStampTrip,
+      applyAdults: applyPax?.adults ?? null,
+      applyChildren: applyPax?.children ?? null,
+      applyChildAges: applyPax?.childAges ?? null,
+      applyChildrenWithoutBed: applyPax?.childrenWithoutBed ?? null,
+      paxStampedCount,
+      rematchMatched: rematch.matchedCount,
+      rematchUnmatched: rematch.unmatchedCount,
+      itineraryDaysReanchored: itineraryApply.reanchored,
+      itineraryDaysSeeded: itineraryApply.seeded,
+      itineraryDaysBuiltFromHotels: itineraryApply.builtFromHotels,
+      templateId: template.id,
+      templateName: template.name,
+      templateVersionNumber: template.versionNumber,
+      templateAnchorDay: anchorDay,
+    };
+  }
+
+  /** Create trip + apply package in one transaction (no orphan trip on apply failure). */
+  async createTripFromPackage(user: AuthUser, input: CreateTripFromPackageInput) {
+    const startDate = input.startDate.slice(0, 10);
+    const result = await this.prisma.$transaction(async (tx) => {
+      const trip = await this.trips.create(
+        user,
+        {
+          title: input.title,
+          partyId: input.partyId ?? null,
+          startDate,
+          endDate: input.endDate ?? null,
+          destinations: input.destinations,
+        },
+        tx,
+      );
+      const quotation = await this.createFromTemplate(
+        user,
+        trip.id,
+        {
+          templateId: input.templateId,
+          startDate,
+          adults: input.adults,
+          children: input.children,
+          childAges: input.childAges,
+          childrenWithoutBed: input.childrenWithoutBed,
+        },
+        tx,
+      );
+      return { trip, quotation };
+    });
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorUserId: user.sub,
+      action: 'trip.create',
+      entityType: 'trip',
+      entityId: result.trip.id,
+      metadata: { fromPackage: true, templateId: input.templateId },
+    });
     await this.audit.record({
       organizationId: user.organizationId,
       actorUserId: user.sub,
       action: 'quote.create_from_template',
       entityType: 'quotation',
-      entityId: quotation.id,
-      metadata: { templateId: template.id, templateName: template.name },
+      entityId: result.quotation.id,
+      metadata: {
+        templateId: result.quotation.templateId,
+        templateName: result.quotation.templateName,
+        templateVersionNumber: result.quotation.templateVersionNumber,
+        dateShiftDays: result.quotation.dateShiftDays,
+        templateAnchorDay: result.quotation.templateAnchorDay,
+        tripStartDate: result.quotation.tripStartDate,
+        tripStartStamped: result.quotation.tripStartStamped,
+        applyAdults: result.quotation.applyAdults,
+        applyChildren: result.quotation.applyChildren,
+        applyChildAges: result.quotation.applyChildAges,
+        applyChildrenWithoutBed: result.quotation.applyChildrenWithoutBed,
+        paxStampedCount: result.quotation.paxStampedCount,
+        rematchMatched: result.quotation.rematchMatched,
+        rematchUnmatched: result.quotation.rematchUnmatched,
+        itineraryDaysReanchored: result.quotation.itineraryDaysReanchored,
+        itineraryDaysSeeded: result.quotation.itineraryDaysSeeded,
+        itineraryDaysBuiltFromHotels: result.quotation.itineraryDaysBuiltFromHotels,
+        fromPackage: true,
+      },
     });
 
-    return quotation;
+    return {
+      id: result.trip.id,
+      tripNumber: result.trip.tripNumber,
+      title: result.trip.title,
+      quoteNumber: result.quotation.quoteNumber,
+      quotationId: result.quotation.id,
+      dateShiftDays: result.quotation.dateShiftDays,
+      tripStartDate: result.quotation.tripStartDate,
+      applyAdults: result.quotation.applyAdults,
+      applyChildren: result.quotation.applyChildren,
+      applyChildAges: result.quotation.applyChildAges,
+      applyChildrenWithoutBed: result.quotation.applyChildrenWithoutBed,
+      paxStampedCount: result.quotation.paxStampedCount,
+      rematchMatched: result.quotation.rematchMatched,
+      rematchUnmatched: result.quotation.rematchUnmatched,
+    };
+  }
+
+
+  /**
+   * Seed empty trip story from template itinerary, else scaffold from hotel
+   * quote lines, else reanchor existing days to trip.startDate + (dayNumber − 1).
+   */
+  private async applyTemplateItineraryToTrip(
+    organizationId: string,
+    tripId: string,
+    tripStartDate: Date | string | null,
+    templateItinerary: ReturnType<typeof parseQuoteTemplateContent>['itinerary'],
+    quoteItems: QuotationItem[],
+    db: PrismaService | Prisma.TransactionClient = this.prisma,
+  ): Promise<{ seeded: boolean; reanchored: boolean; builtFromHotels: boolean }> {
+    const templateDays = templateItineraryDays(templateItinerary);
+    const itinerary = await db.itinerary.findFirst({
+      where: { tripId, organizationId },
+      include: { versions: { orderBy: { versionNumber: 'desc' }, take: 1 } },
+    });
+    const version = itinerary?.versions[0];
+    if (!version) return { seeded: false, reanchored: false, builtFromHotels: false };
+
+    const content =
+      version.contentJson &&
+      typeof version.contentJson === 'object' &&
+      !Array.isArray(version.contentJson)
+        ? { ...(version.contentJson as Record<string, unknown>) }
+        : {};
+    const existingDays = Array.isArray(content.days) ? content.days : [];
+    const existingStory = content.story;
+
+    if (!existingDays.length && templateDays.length) {
+      const reminted = remintTemplateItineraryDays(templateDays);
+      const { days } = reanchorItineraryDaysToTripStart(
+        reminted as Array<Record<string, unknown> & { dayNumber?: number; date?: string | null }>,
+        tripStartDate,
+      );
+      const nextContent: Record<string, unknown> = { ...content, days };
+      if (
+        templateItinerary?.story &&
+        typeof templateItinerary.story === 'object' &&
+        !existingStory
+      ) {
+        nextContent.story = templateItinerary.story;
+      }
+      await db.itineraryVersion.update({
+        where: { id: version.id },
+        data: {
+          contentJson: nextContent as Prisma.InputJsonValue,
+          versionLock: { increment: 1 },
+        },
+      });
+      return { seeded: true, reanchored: false, builtFromHotels: false };
+    }
+
+    if (!existingDays.length) {
+      const fromHotels = buildItineraryDaysFromHotelItems(quoteItems);
+      if (fromHotels.length) {
+        await db.itineraryVersion.update({
+          where: { id: version.id },
+          data: {
+            contentJson: { ...content, days: fromHotels } as Prisma.InputJsonValue,
+            versionLock: { increment: 1 },
+          },
+        });
+        return { seeded: false, reanchored: false, builtFromHotels: true };
+      }
+    }
+
+    const reanchored = await this.reanchorTripItineraryDays(
+      organizationId,
+      tripId,
+      tripStartDate,
+      db,
+    );
+    return { seeded: false, reanchored, builtFromHotels: false };
+  }
+
+  /** Align trip story day dates to trip.startDate + (dayNumber − 1). */
+  private async reanchorTripItineraryDays(
+    organizationId: string,
+    tripId: string,
+    tripStartDate: Date | string | null,
+    db: PrismaService | Prisma.TransactionClient = this.prisma,
+  ): Promise<boolean> {
+    if (!tripStartDate) return false;
+    const itinerary = await db.itinerary.findFirst({
+      where: { tripId, organizationId },
+      include: { versions: { orderBy: { versionNumber: 'desc' }, take: 1 } },
+    });
+    const version = itinerary?.versions[0];
+    if (!version) return false;
+    const content =
+      version.contentJson &&
+      typeof version.contentJson === 'object' &&
+      !Array.isArray(version.contentJson)
+        ? { ...(version.contentJson as Record<string, unknown>) }
+        : {};
+    const rawDays = Array.isArray(content.days) ? content.days : [];
+    if (!rawDays.length) return false;
+    const { days, changed } = reanchorItineraryDaysToTripStart(
+      rawDays as Array<Record<string, unknown> & { dayNumber?: number; date?: string | null }>,
+      tripStartDate,
+    );
+    if (!changed) return false;
+    await db.itineraryVersion.update({
+      where: { id: version.id },
+      data: {
+        contentJson: { ...content, days } as Prisma.InputJsonValue,
+        versionLock: { increment: 1 },
+      },
+    });
+    return true;
   }
 
   async cloneQuotation(user: AuthUser, tripId: string, quotationId: string, input: CloneQuotationInput) {
@@ -470,6 +1418,9 @@ export class QuotationsService {
     const count = await this.prisma.quotation.count({
       where: { organizationId: user.organizationId },
     });
+    const { validUntil, termsWithValidity } = await this.freshQuoteValidity(
+      user.organizationId,
+    );
 
     const quotation = await this.prisma.quotation.create({
       data: {
@@ -482,12 +1433,18 @@ export class QuotationsService {
             label: `v1 (clone of ${source.quoteNumber})`,
             status: 'draft',
             currency: content.currency || version.currency || 'INR',
-            validUntil: version.validUntil,
+            validUntil,
             itemsJson: items as unknown as Prisma.InputJsonValue,
             inclusions: checklistToText(content.inclusions),
             exclusions: checklistToText(content.exclusions),
-            terms: content.terms ?? null,
-            exchangeRatesJson: version.exchangeRatesJson ?? { INR: 1, USD: 0.012 },
+            terms: termsWithValidity(content.terms ?? version.terms),
+            exchangeRatesJson: (parseQuoteFxLock(version.exchangeRatesJson) != null
+              ? version.exchangeRatesJson
+              : quoteFxLockToJson(
+                  sameCurrencyLock(
+                    normalizeCurrency(content.currency || version.currency),
+                  ),
+                )) as Prisma.InputJsonValue,
             ...totals,
             createdBy: user.sub,
           },
@@ -529,6 +1486,18 @@ export class QuotationsService {
     }
 
     const totals = calcQuoteTotals(input.items, input.discountTotal);
+    const org = await this.prisma.organization.findFirst({
+      where: { id: user.organizationId },
+      select: { currency: true },
+    });
+    const orgCurrency = normalizeCurrency(org?.currency || 'INR');
+    const currency = normalizeCurrency(input.currency || orgCurrency);
+    const priorLock = parseQuoteFxLock(latest?.exchangeRatesJson);
+    const exchangeRatesJson = fxLockCoversQuote(priorLock, currency, orgCurrency)
+      ? quoteFxLockToJson(priorLock!) as Prisma.InputJsonValue
+      : currency === orgCurrency
+        ? quoteFxLockToJson(sameCurrencyLock(currency)) as Prisma.InputJsonValue
+        : undefined;
 
     const version = await this.prisma.quotationVersion.create({
       data: {
@@ -536,13 +1505,15 @@ export class QuotationsService {
         versionNumber: (latest?.versionNumber ?? 0) + 1,
         label: input.label ?? `v${(latest?.versionNumber ?? 0) + 1}`,
         status: 'draft',
-        currency: input.currency,
+        currency,
         validUntil: input.validUntil ? new Date(input.validUntil) : null,
         itemsJson: input.items as unknown as Prisma.InputJsonValue,
         inclusions: input.inclusions ?? null,
         exclusions: input.exclusions ?? null,
         terms: input.terms ?? null,
-        exchangeRatesJson: { INR: 1, USD: 0.012 },
+        ...(exchangeRatesJson
+          ? { exchangeRatesJson: exchangeRatesJson as Prisma.InputJsonValue }
+          : { exchangeRatesJson: Prisma.DbNull }),
         ...totals,
         createdBy: user.sub,
       },
@@ -593,9 +1564,15 @@ export class QuotationsService {
       if (input.expectedLock != null && target.versionLock !== input.expectedLock) {
         throw new ConflictException('Quotation was modified by another user');
       }
-      // Margin overrides may only be created via recordMarginOverrides (audited).
-      const items = this.preserveExistingMarginOverrides(
-        input.items as QuotationItem[],
+      // Margin / inventory-risk / rate-drift acks may only be created via gated endpoints.
+      const items = this.preserveExistingRateDriftAcks(
+        this.preserveExistingInventoryRiskAcks(
+          this.preserveExistingMarginOverrides(
+            input.items as QuotationItem[],
+            target.itemsJson,
+          ),
+          target.itemsJson,
+        ),
         target.itemsJson,
       );
       const totals = calcQuoteTotals(items, input.discountTotal ?? Number(target.discountTotal));
@@ -607,6 +1584,7 @@ export class QuotationsService {
           exclusions: input.exclusions ?? target.exclusions,
           terms: input.terms ?? target.terms,
           currency: input.currency || target.currency,
+          ...(input.label !== undefined ? { label: input.label } : {}),
           ...(input.validUntil !== undefined
             ? { validUntil: input.validUntil ? new Date(input.validUntil) : null }
             : {}),
@@ -775,16 +1753,482 @@ export class QuotationsService {
     return this.presentVersion(user, updated);
   }
 
+  /**
+   * Autosave must not invent allotment/capacity risk acks — only
+   * {@link recordInventoryRiskAcks} may. Clearing an ack is allowed.
+   */
+  private preserveExistingInventoryRiskAcks(
+    incoming: QuotationItem[],
+    existingJson: unknown,
+  ): QuotationItem[] {
+    const existing = Array.isArray(existingJson)
+      ? (existingJson as QuotationItem[])
+      : [];
+    const byId = new Map(existing.map((row) => [row.id, row]));
+    return incoming.map((item) => {
+      const prev = byId.get(item.id);
+      const prevProv = prev?.rateProvenance;
+      const nextProv = item.rateProvenance;
+      if (!nextProv && !prevProv) return item;
+
+      const nextAllotmentAck = nextProv?.allotmentRiskAckForNote?.trim() || '';
+      const nextAllotmentReason = nextProv?.allotmentRiskAckReason?.trim() || '';
+      const prevAllotmentAck = prevProv?.allotmentRiskAckForNote?.trim() || '';
+      const prevAllotmentReason = prevProv?.allotmentRiskAckReason?.trim() || '';
+
+      const nextCapacityAck = nextProv?.capacityRiskAckForNote?.trim() || '';
+      const nextCapacityReason = nextProv?.capacityRiskAckReason?.trim() || '';
+      const prevCapacityAck = prevProv?.capacityRiskAckForNote?.trim() || '';
+      const prevCapacityReason = prevProv?.capacityRiskAckReason?.trim() || '';
+
+      let rateProvenance = nextProv ? { ...nextProv } : undefined;
+
+      const allotmentCleared = !nextAllotmentAck || !nextAllotmentReason;
+      const allotmentSame =
+        nextAllotmentAck === prevAllotmentAck &&
+        nextAllotmentReason === prevAllotmentReason;
+      if (rateProvenance) {
+        if (allotmentCleared) {
+          delete rateProvenance.allotmentRiskAckForNote;
+          delete rateProvenance.allotmentRiskAckReason;
+        } else if (!allotmentSame) {
+          if (prevAllotmentAck && prevAllotmentReason) {
+            rateProvenance.allotmentRiskAckForNote = prevProv!.allotmentRiskAckForNote;
+            rateProvenance.allotmentRiskAckReason = prevProv!.allotmentRiskAckReason;
+          } else {
+            delete rateProvenance.allotmentRiskAckForNote;
+            delete rateProvenance.allotmentRiskAckReason;
+          }
+        }
+      }
+
+      const capacityCleared = !nextCapacityAck || !nextCapacityReason;
+      const capacitySame =
+        nextCapacityAck === prevCapacityAck &&
+        nextCapacityReason === prevCapacityReason;
+      if (rateProvenance) {
+        if (capacityCleared) {
+          delete rateProvenance.capacityRiskAckForNote;
+          delete rateProvenance.capacityRiskAckReason;
+        } else if (!capacitySame) {
+          if (prevCapacityAck && prevCapacityReason) {
+            rateProvenance.capacityRiskAckForNote = prevProv!.capacityRiskAckForNote;
+            rateProvenance.capacityRiskAckReason = prevProv!.capacityRiskAckReason;
+          } else {
+            delete rateProvenance.capacityRiskAckForNote;
+            delete rateProvenance.capacityRiskAckReason;
+          }
+        }
+      }
+
+      return { ...item, rateProvenance };
+    });
+  }
+
+  /** Permission-gated, audited allotment / capacity send-anyway on selected lines. */
+  async recordInventoryRiskAcks(
+    user: AuthUser,
+    versionId: string,
+    input: RecordQuoteInventoryRiskAcksInput,
+  ) {
+    if (!hasPermission(user.permissions, 'inventory_risk.approve')) {
+      throw new ForbiddenException('Missing inventory_risk.approve');
+    }
+    const version = await this.prisma.quotationVersion.findFirst({
+      where: { id: versionId },
+      include: { quotation: true },
+    });
+    if (!version || version.quotation.organizationId !== user.organizationId) {
+      throw new NotFoundException('Version not found');
+    }
+    if (!AUTOSAVEABLE.has(version.status)) {
+      throw new BadRequestException(
+        'Only draft quotations can record inventory risk acknowledgements',
+      );
+    }
+    const items = Array.isArray(version.itemsJson)
+      ? ([...(version.itemsJson as QuotationItem[])] as QuotationItem[])
+      : [];
+    const selected = new Set(input.lineIds);
+    const reason = input.reason.trim();
+    const applied: Array<{
+      id: string;
+      description: string;
+      kind: 'allotment' | 'capacity';
+      note: string;
+    }> = [];
+
+    const nextItems = items.map((item) => {
+      if (!selected.has(item.id)) return item;
+      const prov = item.rateProvenance ? { ...item.rateProvenance } : undefined;
+      if (!prov) {
+        throw new BadRequestException(
+          `Line “${item.description}” has no rate provenance to acknowledge`,
+        );
+      }
+      let touched = false;
+      if (
+        lineNeedsAllotmentRiskAck({
+          allotmentWarn: prov.allotmentWarn,
+          allotmentNote: prov.allotmentNote,
+          allotmentRiskAckForNote: prov.allotmentRiskAckForNote,
+          allotmentRiskAckReason: prov.allotmentRiskAckReason,
+        })
+      ) {
+        const note = prov.allotmentNote?.trim() || '';
+        if (!note) {
+          throw new BadRequestException(
+            `Line “${item.description}” is missing an allotment shortfall note`,
+          );
+        }
+        prov.allotmentNote = note;
+        prov.allotmentWarn = true;
+        prov.allotmentRiskAckForNote = note;
+        prov.allotmentRiskAckReason = reason;
+        applied.push({
+          id: item.id,
+          description: item.description,
+          kind: 'allotment',
+          note,
+        });
+        touched = true;
+      }
+      if (
+        lineNeedsCapacityRiskAck({
+          capacityWarn: prov.capacityWarn,
+          capacityNote: prov.capacityNote,
+          capacityRiskAckForNote: prov.capacityRiskAckForNote,
+          capacityRiskAckReason: prov.capacityRiskAckReason,
+        })
+      ) {
+        const note = prov.capacityNote?.trim() || '';
+        if (!note) {
+          throw new BadRequestException(
+            `Line “${item.description}” is missing a capacity shortfall note`,
+          );
+        }
+        prov.capacityNote = note;
+        prov.capacityWarn = true;
+        prov.capacityRiskAckForNote = note;
+        prov.capacityRiskAckReason = reason;
+        applied.push({
+          id: item.id,
+          description: item.description,
+          kind: 'capacity',
+          note,
+        });
+        touched = true;
+      }
+      if (!touched) {
+        throw new BadRequestException(
+          `Line “${item.description}” does not need an inventory risk acknowledgement`,
+        );
+      }
+      return { ...item, rateProvenance: prov };
+    });
+
+    if (!applied.length) {
+      throw new BadRequestException(
+        'Select at least one service with an allotment or capacity shortfall',
+      );
+    }
+    const missing = input.lineIds.filter((id) => !items.some((i) => i.id === id));
+    if (missing.length) {
+      throw new BadRequestException(
+        'One or more selected services were not found on this quotation',
+      );
+    }
+
+    const totals = calcQuoteTotals(nextItems, Number(version.discountTotal) || 0);
+    const updated = await this.prisma.quotationVersion.update({
+      where: { id: versionId },
+      data: {
+        itemsJson: nextItems as unknown as Prisma.InputJsonValue,
+        versionLock: version.versionLock + 1,
+        ...totals,
+      },
+    });
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorUserId: user.sub,
+      action: 'quote.inventory_risk_ack',
+      entityType: 'quotation_version',
+      entityId: versionId,
+      metadata: {
+        reason,
+        approvedByUserId: user.sub,
+        at: new Date().toISOString(),
+        lines: applied,
+      },
+    });
+
+    return this.presentVersion(user, updated);
+  }
+
+  /**
+   * Autosave must not invent rate-drift Keep-buy acks — only
+   * {@link recordRateDriftAcks} may. Clearing an ack is allowed.
+   */
+  private preserveExistingRateDriftAcks(
+    incoming: QuotationItem[],
+    existingJson: unknown,
+  ): QuotationItem[] {
+    const existing = Array.isArray(existingJson)
+      ? (existingJson as QuotationItem[])
+      : [];
+    const byId = new Map(existing.map((row) => [row.id, row]));
+    return incoming.map((item) => {
+      const prev = byId.get(item.id);
+      const prevProv = prev?.rateProvenance;
+      const nextProv = item.rateProvenance;
+      if (!nextProv && !prevProv) return item;
+
+      const nextAck = nextProv?.rateDriftAckForUpdatedAt?.trim() || '';
+      const nextReason = nextProv?.rateDriftAckReason?.trim() || '';
+      const prevAck = prevProv?.rateDriftAckForUpdatedAt?.trim() || '';
+      const prevReason = prevProv?.rateDriftAckReason?.trim() || '';
+
+      const rateProvenance = nextProv ? { ...nextProv } : undefined;
+      if (!rateProvenance) return { ...item, rateProvenance };
+
+      const cleared = !nextAck || !nextReason;
+      const same = nextAck === prevAck && nextReason === prevReason;
+      if (cleared) {
+        delete rateProvenance.rateDriftAckForUpdatedAt;
+        delete rateProvenance.rateDriftAckReason;
+      } else if (!same) {
+        if (prevAck && prevReason) {
+          rateProvenance.rateDriftAckForUpdatedAt =
+            prevProv!.rateDriftAckForUpdatedAt;
+          rateProvenance.rateDriftAckReason = prevProv!.rateDriftAckReason;
+        } else {
+          delete rateProvenance.rateDriftAckForUpdatedAt;
+          delete rateProvenance.rateDriftAckReason;
+        }
+      }
+
+      return { ...item, rateProvenance };
+    });
+  }
+
+  /** Permission-gated, audited Keep-buy when chart drifted since match. */
+  async recordRateDriftAcks(
+    user: AuthUser,
+    versionId: string,
+    input: RecordQuoteRateDriftAcksInput,
+  ) {
+    if (!hasPermission(user.permissions, 'rate_drift.approve')) {
+      throw new ForbiddenException('Missing rate_drift.approve');
+    }
+    const version = await this.prisma.quotationVersion.findFirst({
+      where: { id: versionId },
+      include: { quotation: true },
+    });
+    if (!version || version.quotation.organizationId !== user.organizationId) {
+      throw new NotFoundException('Version not found');
+    }
+    if (!AUTOSAVEABLE.has(version.status)) {
+      throw new BadRequestException(
+        'Only draft quotations can record rate-drift acknowledgements',
+      );
+    }
+    const items = Array.isArray(version.itemsJson)
+      ? ([...(version.itemsJson as QuotationItem[])] as QuotationItem[])
+      : [];
+    const selected = new Set(input.lineIds);
+    const reason = input.reason.trim();
+    const selectedItems = items.filter((item) => selected.has(item.id));
+    if (!selectedItems.length) {
+      throw new BadRequestException(
+        'Select at least one service with a rate-chart change',
+      );
+    }
+    const missing = input.lineIds.filter((id) => !items.some((i) => i.id === id));
+    if (missing.length) {
+      throw new BadRequestException(
+        'One or more selected services were not found on this quotation',
+      );
+    }
+
+    const updatedAtById = await this.loadRateChartUpdatedAtById(
+      user.organizationId,
+      selectedItems,
+    );
+
+    const applied: Array<{
+      id: string;
+      description: string;
+      rateId: string;
+      chartUpdatedAt: string;
+    }> = [];
+
+    const nextItems = items.map((item) => {
+      if (!selected.has(item.id)) return item;
+      const rateId =
+        item.rateProvenance?.rateId?.trim() || item.rateId?.trim() || '';
+      if (!rateId) {
+        throw new BadRequestException(
+          `Line “${item.description}” has no matched rate to acknowledge`,
+        );
+      }
+      const currentUpdatedAt = updatedAtById.get(rateId);
+      if (!currentUpdatedAt) {
+        throw new BadRequestException(
+          `Line “${item.description}” rate chart could not be loaded`,
+        );
+      }
+      const prov = item.rateProvenance ? { ...item.rateProvenance } : {};
+      if (
+        !lineNeedsRateDriftAck({
+          matchedAt: prov.matchedAt,
+          rateUpdatedAtAtMatch: prov.rateUpdatedAt,
+          currentUpdatedAt,
+          ackForUpdatedAt: prov.rateDriftAckForUpdatedAt,
+          ackReason: prov.rateDriftAckReason,
+        })
+      ) {
+        throw new BadRequestException(
+          `Line “${item.description}” does not need a rate-drift acknowledgement`,
+        );
+      }
+      prov.rateDriftAckForUpdatedAt = currentUpdatedAt;
+      prov.rateDriftAckReason = reason;
+      applied.push({
+        id: item.id,
+        description: item.description,
+        rateId,
+        chartUpdatedAt: currentUpdatedAt,
+      });
+      return { ...item, rateProvenance: prov };
+    });
+
+    if (!applied.length) {
+      throw new BadRequestException(
+        'Select at least one service with a rate-chart change',
+      );
+    }
+
+    const totals = calcQuoteTotals(nextItems, Number(version.discountTotal) || 0);
+    const updated = await this.prisma.quotationVersion.update({
+      where: { id: versionId },
+      data: {
+        itemsJson: nextItems as unknown as Prisma.InputJsonValue,
+        versionLock: version.versionLock + 1,
+        ...totals,
+      },
+    });
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorUserId: user.sub,
+      action: 'quote.rate_drift_ack',
+      entityType: 'quotation_version',
+      entityId: versionId,
+      metadata: {
+        reason,
+        approvedByUserId: user.sub,
+        at: new Date().toISOString(),
+        lines: applied,
+      },
+    });
+
+    return this.presentVersion(user, updated);
+  }
+
+  /** Live chart `updatedAt` keyed by rate id (hotel / transfer / activity). */
+  private async loadRateChartUpdatedAtById(
+    organizationId: string,
+    items: Array<{
+      rateId?: string | null;
+      rateKind?: string | null;
+      rateProvenance?: {
+        rateId?: string;
+        rateKind?: string;
+      } | null;
+    }>,
+  ): Promise<Map<string, string>> {
+    const candidates = items
+      .map((item) => {
+        const rateId =
+          item.rateProvenance?.rateId?.trim() || item.rateId?.trim() || '';
+        const rateKind =
+          item.rateProvenance?.rateKind || item.rateKind || null;
+        if (!rateId) return null;
+        return { rateId, rateKind };
+      })
+      .filter(Boolean) as Array<{ rateId: string; rateKind: string | null }>;
+
+    const updatedAtById = new Map<string, string>();
+    if (!candidates.length) return updatedAtById;
+
+    const hotelIds = [
+      ...new Set(
+        candidates
+          .filter((c) => !c.rateKind || c.rateKind === 'hotel')
+          .map((c) => c.rateId),
+      ),
+    ];
+    const transferIds = [
+      ...new Set(
+        candidates
+          .filter((c) => !c.rateKind || c.rateKind === 'transfer')
+          .map((c) => c.rateId),
+      ),
+    ];
+    const activityIds = [
+      ...new Set(
+        candidates
+          .filter((c) => !c.rateKind || c.rateKind === 'activity')
+          .map((c) => c.rateId),
+      ),
+    ];
+
+    const [hotels, transfers, activities] = await Promise.all([
+      hotelIds.length
+        ? this.prisma.supplierHotelRate.findMany({
+            where: { organizationId, id: { in: hotelIds } },
+            select: { id: true, updatedAt: true },
+          })
+        : Promise.resolve([]),
+      transferIds.length
+        ? this.prisma.transferFare.findMany({
+            where: {
+              id: { in: transferIds },
+              OR: [{ organizationId }, { organizationId: null }],
+            },
+            select: { id: true, updatedAt: true },
+          })
+        : Promise.resolve([]),
+      activityIds.length
+        ? this.prisma.supplierActivityRate.findMany({
+            where: { organizationId, id: { in: activityIds } },
+            select: { id: true, updatedAt: true },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    for (const row of [...hotels, ...transfers, ...activities]) {
+      updatedAtById.set(row.id, row.updatedAt.toISOString());
+    }
+    return updatedAtById;
+  }
+
   presentVersion(user: AuthUser, version: {
     id: string;
     costTotal: Prisma.Decimal | number;
     marginAmount: Prisma.Decimal | number;
     marginPercent: Prisma.Decimal | number;
     itemsJson: Prisma.JsonValue;
+    currency?: string;
+    exchangeRatesJson?: unknown;
     [key: string]: unknown;
   }) {
+    const fx = parseQuoteFxLock(version.exchangeRatesJson);
     const ability = buildAbility(user.permissions);
-    if (ability.can('quote.view_cost')) return version;
+    if (ability.can('quote.view_cost')) {
+      return { ...version, fx };
+    }
     // Field-level redaction (RBAC Integrity 1.0 / P1-5): cost is gated by
     // `quote.view_cost`; margin also unlocks for `finance.margin.read`. Nested
     // per-line unit costs are stripped from itemsJson.
@@ -797,10 +2241,131 @@ export class QuotationsService {
       marginAmount: ['quote.view_cost', 'finance.margin.read'],
       marginPercent: ['quote.view_cost', 'finance.margin.read'],
     });
-    return { ...redacted, itemsJson: items, costHidden: true };
+    return { ...redacted, itemsJson: items, costHidden: true, fx };
   }
 
-  async transition(user: AuthUser, versionId: string, action: 'request_approval' | 'approve' | 'send' | 'accept' | 'reject' | 'expire') {
+  /** Lock FX for a draft version and optionally convert INR line amounts. */
+  async lockFx(user: AuthUser, versionId: string, input: LockQuoteFxInput) {
+    const version = await this.prisma.quotationVersion.findFirst({
+      where: { id: versionId },
+      include: { quotation: true },
+    });
+    if (!version || version.quotation.organizationId !== user.organizationId) {
+      throw new NotFoundException('Version not found');
+    }
+    if (!AUTOSAVEABLE.has(version.status)) {
+      throw new BadRequestException('Only draft quotes can lock FX');
+    }
+
+    const org = await this.prisma.organization.findFirst({
+      where: { id: user.organizationId },
+      select: { currency: true, settingsJson: true },
+    });
+    const baseCurrency = normalizeCurrency(org?.currency || 'INR');
+    const quoteCurrency = normalizeCurrency(input.quoteCurrency);
+    let lock;
+    try {
+      lock = buildQuoteFxLock({
+        baseCurrency,
+        quoteCurrency,
+        rate: input.rate,
+        orgFxRates: parseOrgFxRates(org?.settingsJson),
+        source: input.rate != null ? 'manual' : 'org_default',
+      });
+    } catch (e) {
+      throw new BadRequestException(
+        e instanceof Error ? e.message : 'Could not build FX lock',
+      );
+    }
+
+    let itemsJson = version.itemsJson;
+    let convertCount = 0;
+    if (input.convertLines !== false && Array.isArray(version.itemsJson)) {
+      const prevCurrency = normalizeCurrency(version.currency);
+      const items = (version.itemsJson as Array<Record<string, unknown>>).map(
+        (item) => {
+          const next = { ...item };
+          let lineConverted = false;
+          for (const key of ['unitCost', 'unitSell'] as const) {
+            const raw = next[key];
+            const n = typeof raw === 'number' ? raw : Number(raw);
+            if (!Number.isFinite(n)) continue;
+            const converted = convertBuyToQuoteCurrency(
+              n,
+              prevCurrency,
+              lock,
+              quoteCurrency,
+            );
+            if (converted.error) continue;
+            if (converted.fx) {
+              next[key] = converted.unitCost;
+              lineConverted = true;
+              convertCount += 1;
+            }
+          }
+          if (
+            lineConverted &&
+            next.rateProvenance &&
+            typeof next.rateProvenance === 'object'
+          ) {
+            next.rateProvenance = {
+              ...(next.rateProvenance as Record<string, unknown>),
+              fx: {
+                from: prevCurrency,
+                to: quoteCurrency,
+                rate: lock.rate,
+                source: lock.source,
+              },
+            };
+          }
+          return next;
+        },
+      );
+      itemsJson = items as unknown as Prisma.JsonValue;
+    }
+
+    const items = Array.isArray(itemsJson)
+      ? (itemsJson as QuotationItem[])
+      : [];
+    const totals = calcQuoteTotals(items, Number(version.discountTotal) || 0);
+
+    const updated = await this.prisma.quotationVersion.update({
+      where: { id: versionId },
+      data: {
+        currency: quoteCurrency,
+        exchangeRatesJson: quoteFxLockToJson(lock) as Prisma.InputJsonValue,
+        itemsJson: itemsJson as Prisma.InputJsonValue,
+        ...totals,
+        versionLock: { increment: 1 },
+      },
+    });
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorUserId: user.sub,
+      action: 'quote.fx_lock',
+      entityType: 'quotation_version',
+      entityId: versionId,
+      metadata: {
+        quoteCurrency,
+        rate: lock.rate,
+        source: lock.source,
+        convertCount,
+      },
+    });
+
+    return {
+      ...this.presentVersion(user, updated),
+      convertCount,
+    };
+  }
+
+  async transition(
+    user: AuthUser,
+    versionId: string,
+    action: 'request_approval' | 'approve' | 'send' | 'accept' | 'reject' | 'expire',
+    opts?: { extendValidity?: boolean },
+  ) {
     const version = await this.prisma.quotationVersion.findFirst({
       where: { id: versionId },
       include: { quotation: true },
@@ -835,29 +2400,44 @@ export class QuotationsService {
       throw new ForbiddenException('Missing quote.approve');
     }
 
-    if (action === 'send' || action === 'request_approval') {
-      await this.assertQuoteReadyForCustomer(user, version);
-    }
+    if (action === 'send' || action === 'request_approval' || action === 'approve') {
+      const ready = await this.assertQuoteReadyForCustomer(user, version, {
+        extendValidity: opts?.extendValidity === true,
+      });
+      if (action === 'approve') {
+        const updated = await this.prisma.quotationVersion.update({
+          where: { id: versionId },
+          data: { status: 'approved' },
+        });
+        const trip = await this.prisma.trip.findFirst({
+          where: { id: version.quotation.tripId },
+        });
+        if (trip && trip.status !== 'confirmed') {
+          await this.prisma.trip.update({
+            where: { id: trip.id },
+            data: { status: 'quoted' },
+          });
+        }
+        await this.audit.record({
+          organizationId: user.organizationId,
+          actorUserId: user.sub,
+          action: 'quote.approve',
+          entityType: 'quotation_version',
+          entityId: versionId,
+        });
+        return {
+          ...this.presentVersion(user, updated),
+          validityExtendedTo: ready.validityExtendedTo,
+          validityGraceUsed: ready.validityGraceUsed,
+        };
+      }
+      const updated = await this.prisma.quotationVersion.update({
+        where: { id: versionId },
+        data: {
+          status: map[action],
+        },
+      });
 
-    if (action === 'accept') {
-      const result = await this.finalizeAccept(
-        user.organizationId,
-        version,
-        user.sub,
-        user,
-      );
-      return { ...this.presentVersion(user, result.version), leadOutcome: result.leadOutcome };
-    }
-
-    const updated = await this.prisma.quotationVersion.update({
-      where: { id: versionId },
-      data: {
-        status: map[action],
-      },
-    });
-
-    // Trip status progression for earlier quote actions
-    if (action === 'send' || action === 'request_approval') {
       const trip = await this.prisma.trip.findFirst({
         where: { id: version.quotation.tripId },
       });
@@ -887,18 +2467,35 @@ export class QuotationsService {
           /* non-blocking */
         }
       }
+
+      return {
+        ...this.presentVersion(user, updated),
+        validityExtendedTo: ready.validityExtendedTo,
+        validityGraceUsed: ready.validityGraceUsed,
+      };
     }
-    if (action === 'approve') {
-      const trip = await this.prisma.trip.findFirst({
-        where: { id: version.quotation.tripId },
-      });
-      if (trip && trip.status !== 'confirmed') {
-        await this.prisma.trip.update({
-          where: { id: trip.id },
-          data: { status: 'quoted' },
-        });
-      }
+
+    if (action === 'accept') {
+      const result = await this.finalizeAccept(
+        user.organizationId,
+        version,
+        user.sub,
+        user,
+      );
+      return {
+        ...this.presentVersion(user, result.version),
+        leadOutcome: result.leadOutcome,
+        hotelBookings: result.hotelBookings,
+        materializeFailures: result.materializeFailures,
+      };
     }
+
+    const updated = await this.prisma.quotationVersion.update({
+      where: { id: versionId },
+      data: {
+        status: map[action],
+      },
+    });
 
     await this.audit.record({
       organizationId: user.organizationId,
@@ -919,14 +2516,55 @@ export class QuotationsService {
     organizationId: string,
     tripId: string,
     actorUserId: string | null,
+    opts?: { quotationVersionId?: string | null },
   ) {
+    const actor = this.publicShareActor(organizationId, actorUserId);
+    const boundId = opts?.quotationVersionId?.trim() || null;
+
+    if (boundId) {
+      const bound = await this.prisma.quotationVersion.findFirst({
+        where: {
+          id: boundId,
+          quotation: { tripId, organizationId },
+        },
+        include: {
+          quotation: { select: { quoteNumber: true, tripId: true, organizationId: true } },
+        },
+      });
+      if (!bound) {
+        throw new BadRequestException('The shared quotation is no longer available');
+      }
+      if (bound.status === 'accepted') {
+        return {
+          alreadyAccepted: true as const,
+          quotation: presentCustomerQuote(bound),
+        };
+      }
+      if (bound.status !== 'sent' && bound.status !== 'approved') {
+        throw new BadRequestException('No approved or sent quotation is available to accept');
+      }
+      const result = await this.finalizeAccept(organizationId, bound, actorUserId, actor);
+      return {
+        alreadyAccepted: false as const,
+        quotation: presentCustomerQuote({
+          ...result.version,
+          quotation: { quoteNumber: bound.quotation.quoteNumber },
+        }),
+        leadOutcome: result.leadOutcome,
+        hotelBookings: result.hotelBookings,
+        materializeFailures: result.materializeFailures,
+      };
+    }
+
     for (const status of ['sent', 'approved'] as const) {
       const version = await this.prisma.quotationVersion.findFirst({
         where: {
           status,
           quotation: { tripId, organizationId },
         },
-        include: { quotation: { select: { quoteNumber: true, tripId: true, organizationId: true } } },
+        include: {
+          quotation: { select: { quoteNumber: true, tripId: true, organizationId: true } },
+        },
         orderBy: [{ versionNumber: 'desc' }, { updatedAt: 'desc' }],
       });
       if (version) {
@@ -934,7 +2572,7 @@ export class QuotationsService {
           organizationId,
           version,
           actorUserId,
-          this.publicShareActor(organizationId, actorUserId),
+          actor,
         );
         return {
           alreadyAccepted: false as const,
@@ -943,6 +2581,8 @@ export class QuotationsService {
             quotation: { quoteNumber: version.quotation.quoteNumber },
           }),
           leadOutcome: result.leadOutcome,
+          hotelBookings: result.hotelBookings,
+          materializeFailures: result.materializeFailures,
         };
       }
     }
@@ -981,7 +2621,10 @@ export class QuotationsService {
       id: string;
       status: string;
       acceptedAt: Date | null;
-      quotation: { tripId: string; organizationId?: string };
+      itemsJson?: unknown;
+      validUntil?: Date | null;
+      terms?: string | null;
+      quotation: { tripId: string; organizationId?: string; quoteNumber?: string };
     },
     actorUserId: string | null,
     leadUser: AuthUser,
@@ -990,13 +2633,43 @@ export class QuotationsService {
       const current = await this.prisma.quotationVersion.findUniqueOrThrow({
         where: { id: version.id },
       });
-      return { version: current, leadOutcome: { markedWon: false, skippedReason: 'already_accepted' } };
+      return {
+        version: current,
+        leadOutcome: { markedWon: false, skippedReason: 'already_accepted' },
+        hotelBookings: null,
+        transferBookings: null,
+        activityBookings: null,
+        materializeFailures: [] as string[],
+      };
     }
     if (!ALLOWED_TRANSITIONS.accept.has(version.status)) {
       throw new BadRequestException(
         `Cannot accept from status “${version.status.replace(/_/g, ' ')}”`,
       );
     }
+
+    const full =
+      version.itemsJson !== undefined && version.validUntil !== undefined
+        ? version
+        : await this.prisma.quotationVersion.findFirstOrThrow({
+            where: { id: version.id },
+            include: {
+              quotation: {
+                select: { tripId: true, organizationId: true, quoteNumber: true },
+              },
+            },
+          });
+
+    await this.assertQuoteReadyForAccept(leadUser, {
+      id: full.id,
+      itemsJson: full.itemsJson,
+      validUntil: full.validUntil ?? null,
+      terms: full.terms ?? null,
+      quotation: {
+        tripId: full.quotation.tripId,
+        organizationId: full.quotation.organizationId ?? organizationId,
+      },
+    });
 
     const siblings = await this.prisma.quotation.findMany({
       where: { tripId: version.quotation.tripId },
@@ -1013,12 +2686,37 @@ export class QuotationsService {
       }
     }
 
-    const updated = await this.prisma.quotationVersion.update({
-      where: { id: version.id },
+    const cas = await this.prisma.quotationVersion.updateMany({
+      where: {
+        id: version.id,
+        status: { in: ['sent', 'approved'] },
+      },
       data: {
         status: 'accepted',
         acceptedAt: new Date(),
       },
+    });
+    if (cas.count === 0) {
+      const current = await this.prisma.quotationVersion.findUniqueOrThrow({
+        where: { id: version.id },
+      });
+      if (current.status === 'accepted') {
+        return {
+          version: current,
+          leadOutcome: { markedWon: false, skippedReason: 'already_accepted' },
+          hotelBookings: null,
+          transferBookings: null,
+          activityBookings: null,
+          materializeFailures: [] as string[],
+        };
+      }
+      throw new ConflictException(
+        `Cannot accept from status “${current.status.replace(/_/g, ' ')}”`,
+      );
+    }
+
+    const updated = await this.prisma.quotationVersion.findUniqueOrThrow({
+      where: { id: version.id },
     });
 
     const tripBefore = await this.prisma.trip.findFirst({
@@ -1085,9 +2783,102 @@ export class QuotationsService {
       }
     }
 
+    let hotelBookings: {
+      created: number;
+      skipped: number;
+      bookingIds: string[];
+      warnings?: string[];
+    } | null = null;
+    let transferBookings: {
+      created: number;
+      skipped: number;
+      bookingIds: string[];
+    } | null = null;
+    let activityBookings: {
+      created: number;
+      skipped: number;
+      bookingIds: string[];
+    } | null = null;
+    const materializeFailures: string[] = [];
+    try {
+      hotelBookings = await this.operations.materializeHotelBookingsFromAcceptedQuote(
+        organizationId,
+        actorUserId,
+        version.quotation.tripId,
+        { versionId: updated.id },
+      );
+      for (const w of hotelBookings.warnings || []) {
+        materializeFailures.push(`hotel: ${w}`);
+      }
+    } catch (e) {
+      materializeFailures.push(
+        `hotel: ${e instanceof Error ? e.message : 'materialize failed'}`,
+      );
+    }
+    try {
+      transferBookings =
+        await this.operations.materializeTransferBookingsFromAcceptedQuote(
+          organizationId,
+          actorUserId,
+          version.quotation.tripId,
+          { versionId: updated.id },
+        );
+    } catch (e) {
+      materializeFailures.push(
+        `transfer: ${e instanceof Error ? e.message : 'materialize failed'}`,
+      );
+    }
+    try {
+      activityBookings =
+        await this.operations.materializeActivityBookingsFromAcceptedQuote(
+          organizationId,
+          actorUserId,
+          version.quotation.tripId,
+          { versionId: updated.id },
+        );
+    } catch (e) {
+      materializeFailures.push(
+        `activity: ${e instanceof Error ? e.message : 'materialize failed'}`,
+      );
+    }
+
+    if (materializeFailures.length) {
+      try {
+        await this.audit.record({
+          organizationId,
+          actorUserId,
+          action: 'quote.accept_materialize_partial',
+          entityType: 'quotation_version',
+          entityId: version.id,
+          metadata: {
+            tripId: version.quotation.tripId,
+            failures: materializeFailures,
+          },
+        });
+        const ownerId = tripBefore?.ownerId;
+        if (ownerId) {
+          const flags = await this.notifications.orgNotifyFlags(organizationId);
+          await this.notifications.notify({
+            organizationId,
+            userId: ownerId,
+            title: 'Bookings need attention',
+            body: `Quote accepted but ${materializeFailures.length} booking step(s) failed for ${tripBefore?.tripNumber || 'trip'}`,
+            linkPath: `/trips/${version.quotation.tripId}`,
+            channel: flags.notifyOnQuoteAccept ? 'both' : 'in_app',
+          });
+        }
+      } catch {
+        /* non-blocking */
+      }
+    }
+
     return {
       version: updated,
       leadOutcome,
+      hotelBookings,
+      transferBookings,
+      activityBookings,
+      materializeFailures,
     };
   }
 
@@ -1702,7 +3493,22 @@ export class QuotationsService {
     };
   }
 
-  async sendEmail(user: AuthUser, versionId: string, toEmail: string) {
+  async sendEmail(
+    user: AuthUser,
+    versionId: string,
+    input: { toEmail: string; extendValidity?: boolean },
+  ) {
+    const version = await this.prisma.quotationVersion.findFirst({
+      where: { id: versionId },
+      include: { quotation: true },
+    });
+    if (!version || version.quotation.organizationId !== user.organizationId) {
+      throw new NotFoundException('Version not found');
+    }
+    // Extend before PDF so the attachment shows the refreshed validity.
+    const ready = await this.assertQuoteReadyForCustomer(user, version, {
+      extendValidity: input.extendValidity === true,
+    });
     const pdf = await this.generatePdf(user, versionId);
     const quoteRef = pdf.versionLabel
       ? `${pdf.quoteNumber} (${pdf.versionLabel})`
@@ -1716,12 +3522,17 @@ export class QuotationsService {
       `If you have any questions, reply to this email and we will be happy to help.`,
     ].join('\n');
 
+    // Status CAS before outbox so a failed transition cannot leave a queued email as draft.
+    const sent = await this.transition(user, versionId, 'send', {
+      extendValidity: input.extendValidity === true,
+    });
+    await this.ensureTripProposalShare(user, version.quotation.tripId, versionId);
     await this.outbox.enqueue({
       organizationId: user.organizationId,
       eventType: 'quote.email',
       payload: {
         quotationVersionId: versionId,
-        toEmail,
+        toEmail: input.toEmail,
         documentId: pdf.documentId,
         storageKey: pdf.storageKey,
         fileName: pdf.fileName,
@@ -1730,13 +3541,99 @@ export class QuotationsService {
         body,
       },
     });
-    await this.transition(user, versionId, 'send');
-    return { queued: true, ...pdf };
+    return {
+      queued: true,
+      ...pdf,
+      validityExtendedTo:
+        (sent as { validityExtendedTo?: string | null }).validityExtendedTo ??
+        ready.validityExtendedTo,
+      validityGraceUsed:
+        (sent as { validityGraceUsed?: boolean }).validityGraceUsed ??
+        ready.validityGraceUsed,
+    };
   }
 
   /**
-   * Send proposal via WhatsApp Cloud (session text + public itinerary link).
-   * When Cloud is not configured, returns a wa.me fallback URL without marking sent.
+   * Staff confirms a manual WhatsApp send (wa.me fallback) — runs readiness + marks sent.
+   */
+  async markSent(
+    user: AuthUser,
+    versionId: string,
+    input: MarkQuoteSentInput = { channel: 'whatsapp', extendValidity: false },
+  ) {
+    const version = await this.prisma.quotationVersion.findFirst({
+      where: { id: versionId },
+      include: { quotation: true },
+    });
+    if (!version || version.quotation.organizationId !== user.organizationId) {
+      throw new NotFoundException('Version not found');
+    }
+    await this.ensureTripProposalShare(user, version.quotation.tripId, versionId);
+    const sent = await this.transition(user, versionId, 'send', {
+      extendValidity: input.extendValidity === true,
+    });
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorUserId: user.sub,
+      action: 'quote.mark_sent_whatsapp',
+      entityType: 'quotation_version',
+      entityId: versionId,
+      metadata: { channel: 'whatsapp', via: 'manual_wa_me' },
+    });
+    return sent;
+  }
+
+  async recordFitTiming(user: AuthUser, input: RecordQuoteFitTimingInput) {
+    const version = await this.prisma.quotationVersion.findFirst({
+      where: { id: input.quotationVersionId },
+      include: { quotation: true },
+    });
+    if (!version || version.quotation.organizationId !== user.organizationId) {
+      throw new NotFoundException('Version not found');
+    }
+    const openedAtMs = input.openedAtMs;
+    const now = Date.now();
+    if (openedAtMs > now + 60_000) {
+      throw new BadRequestException('Invalid openedAtMs');
+    }
+    const minutes = Math.max(0, (now - openedAtMs) / 60_000);
+    // Cap absurd clients (left tab open overnight)
+    if (minutes > 24 * 60) {
+      return { recorded: false as const, reason: 'stale' as const };
+    }
+    const existing = await this.prisma.auditEvent.findFirst({
+      where: {
+        organizationId: user.organizationId,
+        action: 'quote.fit_build',
+        entityId: version.id,
+      },
+      select: { id: true },
+    });
+    if (existing) {
+      return { recorded: false as const, reason: 'already_recorded' as const, minutes };
+    }
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorUserId: user.sub,
+      action: 'quote.fit_build',
+      entityType: 'quotation_version',
+      entityId: version.id,
+      metadata: {
+        milestone: input.milestone ?? 'first_send',
+        minutes,
+        openedAtMs,
+        tripId: version.quotation.tripId,
+      },
+    });
+    return { recorded: true as const, minutes };
+  }
+
+  /**
+   * Send proposal via WhatsApp Cloud.
+   * Cold outreach requires an approved Meta template (org WhatsApp templates /
+   * settings.integrations.whatsapp.quoteProposalTemplateId). Session text is
+   * allowed only inside a 24h customer window. When Cloud is not configured,
+   * returns a wa.me fallback URL without marking sent.
    */
   async sendWhatsapp(user: AuthUser, versionId: string, input: SendQuoteWhatsappInput) {
     const version = await this.prisma.quotationVersion.findFirst({
@@ -1760,17 +3657,54 @@ export class QuotationsService {
     const digits = normalizeQuoteWhatsappPhone(input.toPhone);
     if (!digits) throw new BadRequestException('Enter a valid WhatsApp mobile number');
 
-    const pdf = await this.generatePdf(user, versionId);
     const share = await this.ensureTripProposalShare(
       user,
       version.quotation.tripId,
+      versionId,
     );
     const webOrigin = loadEnv().webOrigin.replace(/\/$/, '');
     const proposalUrl = `${webOrigin}${share.path}`;
+    const guestName = version.quotation.trip.party?.displayName?.trim() || 'there';
+
+    const cfg = await this.whatsappCloudConfig(user.organizationId);
+    const cloudReady = Boolean(cfg.enabled && cfg.accessToken && cfg.phoneNumberId);
+    if (!cloudReady) {
+      const pdf = await this.generatePdf(user, versionId);
+      const quoteRef = pdf.versionLabel
+        ? `${pdf.quoteNumber} (${pdf.versionLabel})`
+        : pdf.quoteNumber;
+      const defaultText = [
+        `Hi ${guestName},`,
+        ``,
+        `Here is our travel proposal for ${pdf.tripTitle} (${quoteRef}):`,
+        proposalUrl,
+        ``,
+        `Happy to adjust anything — just reply here.`,
+      ].join('\n');
+      const text = (input.message?.trim() || defaultText).slice(0, 3500);
+      const waMeUrl = `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
+      return {
+        sent: false,
+        cloudConfigured: false,
+        fallbackWaMeUrl: waMeUrl,
+        proposalUrl,
+        toPhone: digits,
+        quoteNumber: pdf.quoteNumber,
+        tripTitle: pdf.tripTitle,
+        requiresMarkSent: true,
+        message:
+          'WhatsApp Cloud API is not configured — open WhatsApp to send manually, then mark as sent.',
+      };
+    }
+
+    // Extend before PDF so the proposal reflects refreshed validity.
+    const ready = await this.assertQuoteReadyForCustomer(user, version, {
+      extendValidity: input.extendValidity === true,
+    });
+    const pdf = await this.generatePdf(user, versionId);
     const quoteRef = pdf.versionLabel
       ? `${pdf.quoteNumber} (${pdf.versionLabel})`
       : pdf.quoteNumber;
-    const guestName = version.quotation.trip.party?.displayName?.trim() || 'there';
     const defaultText = [
       `Hi ${guestName},`,
       ``,
@@ -1780,39 +3714,57 @@ export class QuotationsService {
       `Happy to adjust anything — just reply here.`,
     ].join('\n');
     const text = (input.message?.trim() || defaultText).slice(0, 3500);
-    const waMeUrl = `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
-
-    const cfg = await this.whatsappCloudConfig(user.organizationId);
-    const cloudReady = Boolean(cfg.enabled && cfg.accessToken && cfg.phoneNumberId);
-    if (!cloudReady) {
-      return {
-        sent: false,
-        cloudConfigured: false,
-        fallbackWaMeUrl: waMeUrl,
-        proposalUrl,
-        toPhone: digits,
-        quoteNumber: pdf.quoteNumber,
-        tripTitle: pdf.tripTitle,
-        message:
-          'WhatsApp Cloud API is not configured — open WhatsApp to send manually, or enable WhatsApp under Integrations.',
-      };
-    }
 
     const demo = cfg.accessToken.startsWith('seed-demo-');
+    const partyId = version.quotation.trip.party?.id ?? null;
+    const inSession = await this.hasWhatsappCustomerSession(
+      user.organizationId,
+      partyId,
+      digits,
+    );
     let providerMessageId: string | undefined;
+    let sendMode: 'demo' | 'session' | 'template' = 'demo';
+
     if (!demo) {
-      const result = await this.messaging.sendText({
-        to: digits,
-        text,
-        phoneNumberId: cfg.phoneNumberId,
-        accessToken: cfg.accessToken,
-      });
-      providerMessageId = result.providerMessageId;
+      if (inSession) {
+        const result = await this.messaging.sendText({
+          to: digits,
+          text,
+          phoneNumberId: cfg.phoneNumberId,
+          accessToken: cfg.accessToken,
+        });
+        providerMessageId = result.providerMessageId;
+        sendMode = 'session';
+      } else {
+        const template = await this.resolveQuoteProposalTemplate(user.organizationId);
+        if (!template) {
+          throw new BadRequestException(
+            'WhatsApp cold send requires an approved Meta template — set Quote proposal template under Integrations → WhatsApp, or wait for a customer reply (24h session).',
+          );
+        }
+        const bodyParameters = [
+          guestName,
+          pdf.tripTitle,
+          quoteRef,
+          proposalUrl,
+        ].slice(0, Math.max(0, template.variableCount));
+        const result = await this.messaging.sendTemplate({
+          to: digits,
+          phoneNumberId: cfg.phoneNumberId,
+          accessToken: cfg.accessToken,
+          templateName: template.metaTemplateName,
+          languageCode: template.languageCode,
+          bodyParameters: bodyParameters.length ? bodyParameters : undefined,
+        });
+        providerMessageId = result.providerMessageId;
+        sendMode = 'template';
+      }
     }
 
-    await this.transition(user, versionId, 'send');
+    const sent = await this.transition(user, versionId, 'send', {
+      extendValidity: input.extendValidity === true,
+    });
 
-    const partyId = version.quotation.trip.party?.id ?? null;
     try {
       await this.interactions.create(user, {
         channel: 'whatsapp',
@@ -1831,6 +3783,7 @@ export class QuotationsService {
           documentId: pdf.documentId,
           providerMessageId,
           demo,
+          sendMode,
         },
       });
     } catch {
@@ -1846,9 +3799,8 @@ export class QuotationsService {
       metadata: {
         to: digits,
         demo,
+        sendMode,
         providerMessageId,
-        proposalUrl,
-        documentId: pdf.documentId,
       },
     });
 
@@ -1856,24 +3808,85 @@ export class QuotationsService {
       sent: true,
       cloudConfigured: true,
       demo,
-      providerMessageId,
+      sendMode,
       proposalUrl,
       toPhone: digits,
       quoteNumber: pdf.quoteNumber,
       tripTitle: pdf.tripTitle,
       documentId: pdf.documentId,
+      validityExtendedTo:
+        (sent as { validityExtendedTo?: string | null }).validityExtendedTo ??
+        ready.validityExtendedTo,
+      validityGraceUsed:
+        (sent as { validityGraceUsed?: boolean }).validityGraceUsed ??
+        ready.validityGraceUsed,
     };
   }
 
-  private async whatsappCloudConfig(organizationId: string) {
-    const org = await this.prisma.organization.findUnique({
+  private async hasWhatsappCustomerSession(
+    organizationId: string,
+    partyId: string | null,
+    digits: string,
+  ): Promise<boolean> {
+    const session = await this.resolveWhatsappCustomerSession(
+      organizationId,
+      partyId,
+      digits,
+    );
+    return session.open;
+  }
+
+  private async resolveWhatsappCustomerSession(
+    organizationId: string,
+    partyId: string | null,
+    digits: string,
+    now: Date = new Date(),
+  ) {
+    const since = new Date(now.getTime() - WHATSAPP_CUSTOMER_SESSION_MS);
+    const rows = await this.prisma.interaction.findMany({
+      where: {
+        organizationId,
+        channel: 'whatsapp',
+        createdAt: { gte: since },
+        ...(partyId ? { partyId } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 40,
+      select: { createdAt: true, rawPayloadJson: true },
+    });
+    return evaluateWhatsappCustomerSession(rows, digits, now);
+  }
+
+  private async resolveQuoteProposalTemplate(organizationId: string) {
+    const org = await this.prisma.organization.findFirst({
       where: { id: organizationId },
       select: { settingsJson: true },
     });
-    if (!org) throw new NotFoundException('Organization not found');
-    const settings = (org.settingsJson ?? {}) as Record<string, unknown>;
-    const integrations = (settings.integrations ?? {}) as Record<string, unknown>;
-    const wa = (integrations.whatsapp ?? {}) as Record<string, unknown>;
+    const candidates = await this.prisma.whatsAppTemplate.findMany({
+      where: { organizationId, isActive: true },
+      orderBy: { updatedAt: 'desc' },
+      take: 50,
+    });
+    return pickQuoteProposalTemplate(candidates, org?.settingsJson);
+  }
+
+  private async whatsappCloudConfig(organizationId: string) {
+    const org = await this.prisma.organization.findFirst({
+      where: { id: organizationId },
+      select: { settingsJson: true },
+    });
+    const settings =
+      org?.settingsJson && typeof org.settingsJson === 'object'
+        ? (org.settingsJson as Record<string, unknown>)
+        : {};
+    const integrations =
+      settings.integrations && typeof settings.integrations === 'object'
+        ? (settings.integrations as Record<string, unknown>)
+        : {};
+    const wa =
+      integrations.whatsapp && typeof integrations.whatsapp === 'object'
+        ? (integrations.whatsapp as Record<string, unknown>)
+        : {};
     return {
       enabled: Boolean(wa.enabled),
       phoneNumberId: typeof wa.phoneNumberId === 'string' ? wa.phoneNumberId : '',
@@ -1882,7 +3895,11 @@ export class QuotationsService {
   }
 
   /** Reuse an active share link or create one so WhatsApp can deep-link the proposal. */
-  private async ensureTripProposalShare(user: AuthUser, tripId: string) {
+  private async ensureTripProposalShare(
+    user: AuthUser,
+    tripId: string,
+    quotationVersionId?: string | null,
+  ) {
     const existing = await this.prisma.itineraryShareLink.findFirst({
       where: {
         organizationId: user.organizationId,
@@ -1893,7 +3910,21 @@ export class QuotationsService {
       orderBy: { createdAt: 'desc' },
     });
     if (existing) {
-      return { id: existing.id, token: existing.token, path: `/p/itinerary/${existing.token}` };
+      if (
+        quotationVersionId &&
+        existing.quotationVersionId !== quotationVersionId
+      ) {
+        await this.prisma.itineraryShareLink.update({
+          where: { id: existing.id },
+          data: { quotationVersionId },
+        });
+      }
+      return {
+        id: existing.id,
+        token: existing.token,
+        path: `/p/itinerary/${existing.token}`,
+        familyPin: undefined as string | undefined,
+      };
     }
 
     const itinerary = await this.prisma.itinerary.findFirst({
@@ -1915,12 +3946,18 @@ export class QuotationsService {
         organizationId: user.organizationId,
         tripId,
         itineraryVersionId: version.id,
+        quotationVersionId: quotationVersionId || null,
         token,
         familyPinHash,
         createdBy: user.sub,
       },
     });
-    return { id: link.id, token: link.token, path: `/p/itinerary/${link.token}`, familyPin };
+    return {
+      id: link.id,
+      token: link.token,
+      path: `/p/itinerary/${link.token}`,
+      familyPin,
+    };
   }
 
   async savePdfToDrive(user: AuthUser, versionId: string) {

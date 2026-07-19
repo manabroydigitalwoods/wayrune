@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE `supplier_hotel_rates` ADD COLUMN `occupancy_pricing_json` JSON NULL;

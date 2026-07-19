@@ -37,6 +37,12 @@ import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useTravelRequestLauncher } from '../lib/travelRequestLauncher';
 import { AGENCY_ROUTES } from '../lib/agencyRoutes';
 import { reportError } from '../lib/errors';
+import { formatWhatsappSessionCue } from '../lib/whatsappSessionCue';
+import {
+  inboxWhatsappCloudBanner,
+  type InboxWhatsappCloudBanner,
+} from '../lib/inboxWhatsappCloudBanner';
+import { isWhatsappCloudConfigured } from '../lib/quoteWhatsappTemplate';
 
 type InboxRow = {
   id: string;
@@ -304,7 +310,10 @@ export function InboxPage() {
   const channelFromUrl = searchParams.get('channel') || '';
   const [channel, setChannel] = useState(channelFromUrl);
   const [ownership, setOwnership] = useState<'all' | 'mine' | 'unassigned'>('all');
-  const [unreadOnly, setUnreadOnly] = useState(false);
+  const [unreadOnly, setUnreadOnly] = useState(
+    () => searchParams.get('unread') === '1' || searchParams.get('aging') === '1',
+  );
+  const [agingOnly, setAgingOnly] = useState(() => searchParams.get('aging') === '1');
   const [pendingOnly, setPendingOnly] = useState(true);
   const [items, setItems] = useState<InboxRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -317,6 +326,9 @@ export function InboxPage() {
   const [replySaving, setReplySaving] = useState(false);
   const [assignRow, setAssignRow] = useState<InboxRow | null>(null);
   const [whatsappEnabled, setWhatsappEnabled] = useState(false);
+  const [waCloudBanner, setWaCloudBanner] = useState<InboxWhatsappCloudBanner | null>(
+    null,
+  );
   const [instagramEnabled, setInstagramEnabled] = useState(false);
   const [analytics, setAnalytics] = useState<{
     total: number;
@@ -375,6 +387,15 @@ export function InboxPage() {
   const [followUpAt, setFollowUpAt] = useState<Date | undefined>(undefined);
   const [followNote, setFollowNote] = useState('');
   const [composerText, setComposerText] = useState('');
+  const [waSession, setWaSession] = useState<{
+    open: boolean;
+    remainingMs: number;
+    demo?: boolean;
+  } | null>(null);
+  const [waTemplates, setWaTemplates] = useState<
+    Array<{ id: string; name: string; metaTemplateName?: string }>
+  >([]);
+  const [replyTemplateId, setReplyTemplateId] = useState('');
   const messagesScrollRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const activeThreadKeyRef = useRef<string | null>(null);
@@ -422,6 +443,10 @@ export function InboxPage() {
   useEffect(() => {
     const next = searchParams.get('channel') || '';
     setChannel(next);
+    const unread = searchParams.get('unread') === '1' || searchParams.get('aging') === '1';
+    const aging = searchParams.get('aging') === '1';
+    setUnreadOnly(unread);
+    setAgingOnly(aging);
   }, [searchParams]);
 
   function selectChannel(value: string) {
@@ -429,6 +454,31 @@ export function InboxPage() {
     const next = new URLSearchParams(searchParams);
     if (value) next.set('channel', value);
     else next.delete('channel');
+    setSearchParams(next, { replace: true });
+  }
+
+  function setUnreadFilter(nextUnread: boolean) {
+    setUnreadOnly(nextUnread);
+    if (!nextUnread) setAgingOnly(false);
+    const next = new URLSearchParams(searchParams);
+    if (nextUnread) next.set('unread', '1');
+    else {
+      next.delete('unread');
+      next.delete('aging');
+    }
+    setSearchParams(next, { replace: true });
+  }
+
+  function setAgingFilter(nextAging: boolean) {
+    setAgingOnly(nextAging);
+    if (nextAging) setUnreadOnly(true);
+    const next = new URLSearchParams(searchParams);
+    if (nextAging) {
+      next.set('unread', '1');
+      next.set('aging', '1');
+    } else {
+      next.delete('aging');
+    }
     setSearchParams(next, { replace: true });
   }
 
@@ -482,19 +532,17 @@ export function InboxPage() {
           settings.integrations && typeof settings.integrations === 'object'
             ? (settings.integrations as Record<string, unknown>)
             : {};
-        const wa =
-          integrations.whatsapp && typeof integrations.whatsapp === 'object'
-            ? (integrations.whatsapp as Record<string, unknown>)
-            : {};
         const fb =
           integrations.facebook && typeof integrations.facebook === 'object'
             ? (integrations.facebook as Record<string, unknown>)
             : {};
-        setWhatsappEnabled(wa.enabled === true);
+        setWhatsappEnabled(isWhatsappCloudConfigured(org.settingsJson));
+        setWaCloudBanner(inboxWhatsappCloudBanner(org.settingsJson));
         setInstagramEnabled(fb.enabled === true && Boolean(fb.instagramBusinessAccountId));
       })
       .catch(() => {
         setWhatsappEnabled(false);
+        setWaCloudBanner(inboxWhatsappCloudBanner(null));
         setInstagramEnabled(false);
       });
     api<{ channels: Array<{ channel: string; unread: number }> }>('/interactions/channel-unread')
@@ -513,6 +561,7 @@ export function InboxPage() {
       const params = new URLSearchParams({ pageSize: '50' });
       if (channel) params.set('channel', channel);
       if (unreadOnly) params.set('unread', '1');
+      if (agingOnly) params.set('aging', '1');
       if (ownership !== 'all') params.set('ownership', ownership);
       if (queue !== 'all') params.set('queue', queue);
       const res = await api<{ items: ThreadRow[] }>(`/interactions/threads?${params}`);
@@ -523,7 +572,7 @@ export function InboxPage() {
     } finally {
       if (!opts?.quiet) setThreadsLoading(false);
     }
-  }, [channel, unreadOnly, ownership, queue]);
+  }, [channel, unreadOnly, agingOnly, ownership, queue]);
 
   useEffect(() => {
     if (view === 'threads') void loadThreads();
@@ -579,7 +628,7 @@ export function InboxPage() {
     }, 3000);
     void tick();
     return () => window.clearInterval(id);
-  }, [view, loadThreads, channel, unreadOnly, ownership, queue]);
+  }, [view, loadThreads, channel, unreadOnly, agingOnly, ownership, queue]);
 
   useEffect(() => {
     // Reset sound priming when switching conversations so we don't ding for history.
@@ -785,6 +834,7 @@ export function InboxPage() {
     Boolean(channel) ||
     ownership !== 'all' ||
     unreadOnly ||
+    agingOnly ||
     (view === 'inbox' && !pendingOnly) ||
     (view === 'threads' && queue !== 'all');
 
@@ -792,8 +842,14 @@ export function InboxPage() {
     selectChannel('');
     setOwnership('all');
     setUnreadOnly(false);
+    setAgingOnly(false);
     setPendingOnly(true);
     setQueue('all');
+    const next = new URLSearchParams(searchParams);
+    next.delete('unread');
+    next.delete('aging');
+    next.delete('channel');
+    setSearchParams(next, { replace: true });
   }
 
   function startTravelRequest(row?: InboxRow) {
@@ -1055,10 +1111,70 @@ export function InboxPage() {
     );
   }, [threadMessages, connectorCaps, whatsappEnabled, instagramEnabled]);
 
+  const lastMessageId = threadMessages[threadMessages.length - 1]?.id;
+
+  const waSessionCue = useMemo(() => {
+    if (!waSession || replyTarget?.channel !== 'whatsapp') return null;
+    return formatWhatsappSessionCue(waSession);
+  }, [waSession, replyTarget?.channel]);
+
+  const waNeedsTemplate =
+    replyTarget?.channel === 'whatsapp' &&
+    waSession != null &&
+    !waSession.demo &&
+    (!waSession.open || waSession.remainingMs <= 0);
+
+  useEffect(() => {
+    if (!replyTarget || replyTarget.channel !== 'whatsapp' || !whatsappEnabled) {
+      setWaSession(null);
+      setReplyTemplateId('');
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [session, templates] = await Promise.all([
+          api<{ open: boolean; remainingMs: number; demo?: boolean }>(
+            `/leads/whatsapp/session/${replyTarget.id}`,
+          ),
+          api<Array<{ id: string; name: string; metaTemplateName?: string; isActive?: boolean }>>(
+            '/lead-sources/whatsapp-templates',
+          ).catch(() => []),
+        ]);
+        if (cancelled) return;
+        setWaSession({
+          open: session.open,
+          remainingMs: session.remainingMs,
+          demo: session.demo,
+        });
+        const active = templates.filter((t) => t.isActive !== false);
+        setWaTemplates(active);
+        setReplyTemplateId((prev) =>
+          prev && active.some((t) => t.id === prev) ? prev : active[0]?.id || '',
+        );
+      } catch {
+        if (!cancelled) setWaSession(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [replyTarget?.id, replyTarget?.channel, whatsappEnabled, lastMessageId]);
+
+  useEffect(() => {
+    if (!waSession?.open || waSession.demo || replyTarget?.channel !== 'whatsapp') return;
+    const timer = window.setInterval(() => {
+      setWaSession((prev) => {
+        if (!prev || prev.demo) return prev;
+        const remainingMs = Math.max(0, prev.remainingMs - 30_000);
+        return { ...prev, open: remainingMs > 0, remainingMs };
+      });
+    }, 30_000);
+    return () => window.clearInterval(timer);
+  }, [waSession?.open, waSession?.demo, replyTarget?.id, replyTarget?.channel]);
+
   const chatTitle =
     conversationDetail?.party?.displayName || activeThread?.label || 'Conversation';
-
-  const lastMessageId = threadMessages[threadMessages.length - 1]?.id;
 
   function scrollMessagesToBottom() {
     const el = messagesScrollRef.current;
@@ -1137,6 +1253,10 @@ export function InboxPage() {
   async function sendComposerReply() {
     const text = composerText.trim();
     if (!text || !replyTarget) return;
+    if (waNeedsTemplate) {
+      toastError('Session closed — send a Meta template instead of free text');
+      return;
+    }
 
     const tempId = `local-${Date.now()}`;
     const optimistic: ThreadMessage = {
@@ -1185,6 +1305,37 @@ export function InboxPage() {
     } finally {
       setReplySaving(false);
       focusComposer();
+    }
+  }
+
+  async function sendComposerTemplate() {
+    if (!replyTarget || replyTarget.channel !== 'whatsapp') return;
+    if (!replyTemplateId) {
+      toastError('Pick a WhatsApp template');
+      return;
+    }
+    setReplySaving(true);
+    try {
+      await api(`/leads/whatsapp/reply-template/${replyTarget.id}`, {
+        method: 'POST',
+        body: JSON.stringify({ templateId: replyTemplateId }),
+      });
+      toastSuccess('Template sent');
+      await refreshActiveThreadQuietly();
+      const session = await api<{ open: boolean; remainingMs: number; demo?: boolean }>(
+        `/leads/whatsapp/session/${replyTarget.id}`,
+      ).catch(() => null);
+      if (session) {
+        setWaSession({
+          open: session.open,
+          remainingMs: session.remainingMs,
+          demo: session.demo,
+        });
+      }
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not send template');
+    } finally {
+      setReplySaving(false);
     }
   }
 
@@ -1286,6 +1437,26 @@ export function InboxPage() {
         }
       />
 
+      {waCloudBanner ? (
+        <p
+          className={cn(
+            'rounded-md px-3 py-2 text-sm',
+            waCloudBanner.tone === 'warn'
+              ? 'border border-amber-500/40 bg-amber-500/10 text-amber-950 dark:text-amber-100'
+              : 'border border-border/60 bg-muted/30 text-muted-foreground',
+          )}
+        >
+          {waCloudBanner.message}{' '}
+          <button
+            type="button"
+            className="font-medium text-foreground underline underline-offset-2"
+            onClick={() => navigate(AGENCY_ROUTES.settingsIntegrations)}
+          >
+            Open Integrations
+          </button>
+        </p>
+      ) : null}
+
       <div className="space-y-3">
         <div
           className="inline-flex rounded-xl border border-border/70 bg-muted/20 p-1"
@@ -1349,7 +1520,7 @@ export function InboxPage() {
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => setUnreadOnly((v) => !v)}
+              onClick={() => setUnreadFilter(!unreadOnly)}
               className={cn(
                 'rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors',
                 unreadOnly
@@ -1359,6 +1530,20 @@ export function InboxPage() {
             >
               Unread only
             </button>
+            {view === 'threads' ? (
+              <button
+                type="button"
+                onClick={() => setAgingFilter(!agingOnly)}
+                className={cn(
+                  'rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors',
+                  agingOnly
+                    ? 'border-primary/40 bg-primary/10 text-primary'
+                    : 'border-border/70 bg-background text-muted-foreground hover:text-foreground',
+                )}
+              >
+                Aging 4h+
+              </button>
+            ) : null}
             {view === 'inbox' ? (
               <button
                 type="button"
@@ -1650,37 +1835,96 @@ export function InboxPage() {
 
                   <div className="shrink-0 border-t border-border/60 bg-background px-3 py-2.5">
                     {replyTarget ? (
-                      <form
-                        className="flex items-end gap-2"
-                        onSubmit={(e) => {
-                          e.preventDefault();
-                          void sendComposerReply();
-                        }}
-                      >
-                        <Textarea
-                          ref={composerRef}
-                          value={composerText}
-                          onChange={(e) => setComposerText(e.target.value)}
-                          placeholder={`Reply on ${channelLabel(replyTarget.channel)}…`}
-                          rows={1}
-                          className="min-h-11 max-h-28 flex-1 resize-none rounded-2xl"
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.shiftKey) {
+                      <div className="space-y-2">
+                        {waSessionCue ? (
+                          <p
+                            className={cn(
+                              'rounded-md px-2.5 py-1.5 text-xs',
+                              waSessionCue.tone === 'closed'
+                                ? 'border border-amber-500/40 bg-amber-500/10 text-amber-950 dark:text-amber-100'
+                                : 'border border-border/60 bg-muted/30 text-muted-foreground',
+                            )}
+                          >
+                            {waSessionCue.label}
+                            {waNeedsTemplate && !waTemplates.length ? (
+                              <>
+                                {' '}
+                                ·{' '}
+                                <button
+                                  type="button"
+                                  className="font-medium underline underline-offset-2"
+                                  onClick={() => navigate(AGENCY_ROUTES.settingsIntegrations)}
+                                >
+                                  Add templates
+                                </button>
+                              </>
+                            ) : null}
+                          </p>
+                        ) : null}
+                        {waNeedsTemplate ? (
+                          <form
+                            className="flex items-end gap-2"
+                            onSubmit={(e) => {
+                              e.preventDefault();
+                              void sendComposerTemplate();
+                            }}
+                          >
+                            <div className="min-w-0 flex-1">
+                              <Combobox
+                                value={replyTemplateId}
+                                onChange={(id) => setReplyTemplateId(id || '')}
+                                placeholder="Pick Meta template…"
+                                options={waTemplates.map((t) => ({
+                                  value: t.id,
+                                  label: t.name,
+                                  description: t.metaTemplateName,
+                                }))}
+                              />
+                            </div>
+                            <Button
+                              type="submit"
+                              size="icon"
+                              className="size-11 shrink-0 rounded-full"
+                              disabled={replySaving || !replyTemplateId}
+                              aria-label="Send template"
+                            >
+                              <Send className="size-4" />
+                            </Button>
+                          </form>
+                        ) : (
+                          <form
+                            className="flex items-end gap-2"
+                            onSubmit={(e) => {
                               e.preventDefault();
                               void sendComposerReply();
-                            }
-                          }}
-                        />
-                        <Button
-                          type="submit"
-                          size="icon"
-                          className="size-11 shrink-0 rounded-full"
-                          disabled={replySaving || !composerText.trim()}
-                          aria-label="Send"
-                        >
-                          <Send className="size-4" />
-                        </Button>
-                      </form>
+                            }}
+                          >
+                            <Textarea
+                              ref={composerRef}
+                              value={composerText}
+                              onChange={(e) => setComposerText(e.target.value)}
+                              placeholder={`Reply on ${channelLabel(replyTarget.channel)}…`}
+                              rows={1}
+                              className="min-h-11 max-h-28 flex-1 resize-none rounded-2xl"
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                  e.preventDefault();
+                                  void sendComposerReply();
+                                }
+                              }}
+                            />
+                            <Button
+                              type="submit"
+                              size="icon"
+                              className="size-11 shrink-0 rounded-full"
+                              disabled={replySaving || !composerText.trim()}
+                              aria-label="Send"
+                            >
+                              <Send className="size-4" />
+                            </Button>
+                          </form>
+                        )}
+                      </div>
                     ) : (
                       <p className="px-1 py-2 text-sm text-muted-foreground">
                         Replies aren&apos;t available on{' '}
@@ -2175,7 +2419,11 @@ export function InboxPage() {
         ) : (
           <div className="space-y-4">
             <FormField label="Follow up on">
-              <DatePicker value={followUpAt} onChange={setFollowUpAt} />
+              <DatePicker
+                value={followUpAt}
+                onChange={setFollowUpAt}
+                disablePast
+              />
             </FormField>
             <FormField label="Note">
               <Input

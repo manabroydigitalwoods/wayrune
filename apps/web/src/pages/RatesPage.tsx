@@ -10,7 +10,7 @@ import {
   Pencil,
   Plus,
   Trash2,
-  Upload,
+  Import,
 } from 'lucide-react';
 import {
   Button,
@@ -48,6 +48,7 @@ import { PlaceSinglePicker } from '../components/places/PlacePicker';
 import { RatesCsvImportDialog } from '../components/rates/RatesCsvImportDialog';
 import { type PlaceRef } from '../lib/placeRefs';
 import { formatDateInput, parseDateInput } from '../lib/dateInput';
+import { STAY_SUPPLIER_TYPE_QUERY, supplierTypeLabel } from '../lib/supplierTypes';
 
 type RatesTab = 'hotel' | 'transfer';
 
@@ -82,6 +83,7 @@ type TransferFare = {
   vehicleTypeId: string;
   unitCost: number | string;
   childUnitCost?: number | string | null;
+  infantUnitCost?: number | string | null;
   pricingMode?: string;
   currency: string;
   startDate?: string | null;
@@ -120,6 +122,7 @@ function emptyTransferForm() {
     vehicleLabel: '',
     unitCost: '',
     childUnitCost: '',
+    infantUnitCost: '',
     pricingMode: 'per_vehicle' as 'per_vehicle' | 'per_adult',
     startDate: '',
     endDate: '',
@@ -129,14 +132,14 @@ function emptyTransferForm() {
 async function searchStaySuppliers(q: string) {
   const params = new URLSearchParams();
   if (q) params.set('q', q);
-  params.set('type', 'hotel,homestay,farmstay');
+  params.set('type', STAY_SUPPLIER_TYPE_QUERY);
   const items = await api<
     Array<{ id: string; name: string; type: string }>
   >(`/suppliers?${params.toString()}`);
   return items.map((s) => ({
     value: s.id,
     label: s.name,
-    description: s.type.replace(/_/g, ' '),
+    description: supplierTypeLabel(s.type),
   }));
 }
 
@@ -274,6 +277,8 @@ export function RatesPage() {
       unitCost: String(Number(fare.unitCost)),
       childUnitCost:
         fare.childUnitCost != null ? String(Number(fare.childUnitCost)) : '',
+      infantUnitCost:
+        fare.infantUnitCost != null ? String(Number(fare.infantUnitCost)) : '',
       pricingMode:
         fare.pricingMode === 'per_adult' ? 'per_adult' : 'per_vehicle',
       startDate: isoDate(fare.startDate),
@@ -463,6 +468,12 @@ export function RatesPage() {
       toastError('Enter a valid child cost');
       return;
     }
+    const infantRaw = transferForm.infantUnitCost.trim();
+    const infantUnitCost = infantRaw === '' ? null : Number(infantRaw);
+    if (infantUnitCost != null && (!Number.isFinite(infantUnitCost) || infantUnitCost < 0)) {
+      toastError('Enter a valid infant cost');
+      return;
+    }
     setSaving(true);
     try {
       const body = {
@@ -471,6 +482,7 @@ export function RatesPage() {
         vehicleTypeId: transferForm.vehicleTypeId,
         unitCost,
         childUnitCost,
+        infantUnitCost,
         pricingMode: transferForm.pricingMode,
         startDate: transferForm.startDate || null,
         endDate: transferForm.endDate || null,
@@ -854,8 +866,8 @@ export function RatesPage() {
             </div>
             <Can anyOf={CAP.ratesWrite}>
               <Button variant="outline" onClick={() => setImportOpen(true)}>
-                <Upload className="size-4" />
-                Import CSV
+                <Import className="size-4" />
+                Import CSV / Excel
               </Button>
               <Button
                 onClick={tab === 'hotel' ? openCreateHotel : openCreateTransfer}
@@ -1154,10 +1166,23 @@ export function RatesPage() {
                 placeholder="Optional"
               />
             </FormField>
+            <FormField label="Infant" htmlFor="transfer-infant-cost">
+              <PriceField
+                id="transfer-infant-cost"
+                value={transferForm.infantUnitCost}
+                onChange={(infantUnitCost) =>
+                  setTransferForm({ ...transferForm, infantUnitCost })
+                }
+                placeholder="Optional"
+              />
+            </FormField>
           </FormGrid>
         </FormSection>
 
-        <FormSection title="Season" description="Optional validity window.">
+        <FormSection
+          title="Season / closing window"
+          description="Optional validity. Outside this window the corridor will not match — use for seasonal closing."
+        >
           <FormGrid>
             <FormField label="From">
               <DatePicker

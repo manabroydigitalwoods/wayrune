@@ -1,4 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PERMISSIONS, PARTNER_ROLE_PERMISSION_MAP, ROLE_PERMISSION_MAP } from '@wayrune/config';
 import { permissionAllowedForOrgKind, roleAllowedForOrgKind } from '@wayrune/rbac';
 import type {
@@ -7,7 +12,7 @@ import type {
 } from '@wayrune/contracts';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { slugify, type AuthUser } from '../../common/helpers';
+import { calcQuoteTotals, slugify, type AuthUser } from '../../common/helpers';
 import { PartnerAssetsService } from '../partner-assets/partner-assets.service';
 import {
   isPartnerOrgKind,
@@ -20,6 +25,23 @@ import {
   ensureSystemPresenceTemplates,
   ensureSystemPresenceThemes,
 } from '../presence/presence-seed';
+import { buildOnboardingStatus } from './onboarding-status';
+import {
+  DEMO_TRIP_SPEC,
+  demoTripDateRange,
+  FIT_TEMPLATES_PACK_ID,
+  listStarterPackCatalog,
+  resolveStarterPackTemplates,
+  summarizeStarterPackInstall,
+} from './agency-starter-pack';
+import {
+  fetchFrankfurterOrgFxRates,
+  mergeOrgFxRatesAfterRefresh,
+} from './org-fx-refresh';
+import {
+  defaultValidUntilDate,
+  syncTermsWithValidUntil,
+} from '../quotations/quote-validity';
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -319,7 +341,7 @@ export class OrganizationsService {
 
   async listMembers(organizationId: string) {
     const memberships = await this.prisma.organizationMembership.findMany({
-      where: { organizationId },
+      where: { organizationId, isActive: true, deletedAt: null },
       include: {
         user: { select: { id: true, fullName: true, email: true } },
       },
@@ -373,6 +395,345 @@ export class OrganizationsService {
     return {
       ...updated,
       settingsJson: maskIntegrationSecretsInSettings(updated.settingsJson),
+    };
+  }
+
+  /**
+   * Pull Frankfurter/ECB rates into settingsJson.fxRates (org book per 1 foreign).
+   * Skips codes Frankfurter does not publish (e.g. AED) — prior values kept.
+   */
+  async refreshFxRates(organizationId: string) {
+    const org = await this.prisma.organization.findUniqueOrThrow({
+      where: { id: organizationId },
+      select: { currency: true, settingsJson: true },
+    });
+    const baseCurrency = String(org.currency || 'INR').trim().toUpperCase() || 'INR';
+
+    let fetched: Awaited<ReturnType<typeof fetchFrankfurterOrgFxRates>>;
+    try {
+      fetched = await fetchFrankfurterOrgFxRates({ baseCurrency });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'FX refresh failed';
+      throw new BadRequestException(message);
+    }
+
+    const settings = asRecord(org.settingsJson);
+    const priorFx = asRecord(settings.fxRates);
+    const fxRates = mergeOrgFxRatesAfterRefresh(priorFx, fetched.rates);
+    const nextSettings = {
+      ...settings,
+      fxRates,
+      fxRatesMeta: fetched.meta,
+    };
+
+    const updated = await this.prisma.organization.update({
+      where: { id: organizationId },
+      data: { settingsJson: nextSettings as Prisma.InputJsonValue },
+      select: { currency: true, settingsJson: true },
+    });
+
+    return {
+      currency: updated.currency,
+      fxRates,
+      fxRatesMeta: fetched.meta,
+      settingsJson: maskIntegrationSecretsInSettings(updated.settingsJson),
+    };
+  }
+
+  /** Agency setup checklist — counts + branding/WhatsApp flags (no new tables). */
+  async getOnboardingStatus(organizationId: string) {
+    const org = await this.prisma.organization.findUniqueOrThrow({
+      where: { id: organizationId },
+      select: { brandingJson: true, settingsJson: true },
+    });
+    const branding = asRecord(org.brandingJson);
+    const settings = asRecord(org.settingsJson);
+    const integrations = asRecord(settings.integrations);
+    const wa = asRecord(integrations.whatsapp);
+
+    const [
+      supplierCount,
+      hotelRateCount,
+      transferFareCount,
+      quoteTemplateCount,
+      quotationCount,
+      acceptedQuoteCount,
+    ] = await Promise.all([
+      this.prisma.supplier.count({
+        where: { organizationId, deletedAt: null },
+      }),
+      this.prisma.supplierHotelRate.count({ where: { organizationId } }),
+      this.prisma.transferFare.count({ where: { organizationId } }),
+      this.prisma.quoteTemplate.count({ where: { organizationId } }),
+      this.prisma.quotation.count({ where: { organizationId } }),
+      this.prisma.quotationVersion.count({
+        where: {
+          status: 'accepted',
+          quotation: { organizationId },
+        },
+      }),
+    ]);
+
+    const status = buildOnboardingStatus({
+      hasLogo:
+        typeof branding.logoUrl === 'string' && Boolean(branding.logoUrl.trim()),
+      hasPrimaryColor:
+        typeof branding.primaryColor === 'string' &&
+        Boolean(branding.primaryColor.trim()) &&
+        branding.primaryColor.trim().toLowerCase() !== '#0f6e56',
+      supplierCount,
+      hotelRateCount,
+      transferFareCount,
+      quoteTemplateCount,
+      quotationCount,
+      acceptedQuoteCount,
+      whatsappEnabled: Boolean(wa.enabled),
+    });
+
+    return {
+      ...status,
+      generatedAt: new Date().toISOString(),
+    };
+  }
+
+  listStarterPacks() {
+    return { items: listStarterPackCatalog() };
+  }
+
+  async installStarterPack(user: AuthUser, packId: string) {
+    const org = await this.prisma.organization.findFirst({
+      where: { id: user.organizationId },
+      select: { id: true, kind: true },
+    });
+    if (!org) throw new NotFoundException('Organization not found');
+    if (org.kind !== 'travel_agency' && org.kind !== 'dmc') {
+      throw new ForbiddenException('Starter packs are only for travel agencies and DMCs');
+    }
+
+    const specs = resolveStarterPackTemplates(packId);
+    if (!specs) {
+      throw new BadRequestException(`Unknown starter pack: ${packId}`);
+    }
+
+    const createdNames: string[] = [];
+    const skippedNames: string[] = [];
+    for (const spec of specs) {
+      const existing = await this.prisma.quoteTemplate.findFirst({
+        where: { organizationId: user.organizationId, name: spec.name },
+        select: { id: true },
+      });
+      if (existing) {
+        skippedNames.push(spec.name);
+        continue;
+      }
+      await this.prisma.quoteTemplate.create({
+        data: {
+          organizationId: user.organizationId,
+          name: spec.name,
+          contentJson: spec.contentJson as Prisma.InputJsonValue,
+        },
+      });
+      createdNames.push(spec.name);
+    }
+
+    const demo = await this.ensureDemoTrip(user, specs);
+    const summary = summarizeStarterPackInstall({
+      createdNames,
+      skippedNames,
+      createdTrips: demo.created ? [demo.tripNumber] : [],
+      skippedTrips: demo.created ? [] : [demo.tripNumber],
+    });
+
+    return {
+      packId,
+      ...summary,
+      tripId: demo.tripId,
+      walkthroughHref: demo.tripId
+        ? `/trips/${demo.tripId}?tab=quotations`
+        : '/work/quotation-drafts?walkthrough=1',
+    };
+  }
+
+  /** Idempotent sample planning trip + draft quote from the Darjeeling FIT template. */
+  private async ensureDemoTrip(
+    user: AuthUser,
+    specs: Array<{ name: string; contentJson: Record<string, unknown> }>,
+  ): Promise<{ tripId: string; tripNumber: string; created: boolean }> {
+    const existing = await this.prisma.trip.findUnique({
+      where: {
+        organizationId_tripNumber: {
+          organizationId: user.organizationId,
+          tripNumber: DEMO_TRIP_SPEC.tripNumber,
+        },
+      },
+      select: { id: true },
+    });
+    if (existing) {
+      return {
+        tripId: existing.id,
+        tripNumber: DEMO_TRIP_SPEC.tripNumber,
+        created: false,
+      };
+    }
+
+    let party = await this.prisma.party.findFirst({
+      where: {
+        organizationId: user.organizationId,
+        displayName: DEMO_TRIP_SPEC.partyDisplayName,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    if (!party) {
+      party = await this.prisma.party.create({
+        data: {
+          organizationId: user.organizationId,
+          type: 'individual',
+          displayName: DEMO_TRIP_SPEC.partyDisplayName,
+          email: 'demo.guest@example.com',
+          phone: '+919900001111',
+          notes: 'Starter-pack sample guest — safe to edit or delete.',
+          metadataJson: { starterPack: FIT_TEMPLATES_PACK_ID },
+          createdBy: user.sub,
+          updatedBy: user.sub,
+        },
+        select: { id: true },
+      });
+    }
+
+    const { startDate, endDate } = demoTripDateRange();
+    const template =
+      specs.find((s) => s.name === DEMO_TRIP_SPEC.templateName) || specs[0];
+    const content = template?.contentJson || {};
+    const rawItems = Array.isArray(content.items) ? content.items : [];
+    const items: Record<string, unknown>[] = rawItems.map((row, i) => {
+      const item =
+        row && typeof row === 'object' && !Array.isArray(row)
+          ? (row as Record<string, unknown>)
+          : {};
+      return {
+        ...item,
+        id:
+          typeof item.id === 'string' && item.id.trim()
+            ? `demo-${item.id}`
+            : `demo-line-${i + 1}`,
+      };
+    });
+    const totals = calcQuoteTotals(
+      items.map((item) => ({
+        quantity: Number(item.quantity) || 1,
+        unitCost:
+          item.unitCost == null || item.unitCost === ''
+            ? null
+            : Number(item.unitCost),
+        unitSell:
+          item.unitSell == null || item.unitSell === ''
+            ? null
+            : Number(item.unitSell),
+        taxPercent: Number(item.taxPercent) || 0,
+      })),
+    );
+    const validUntil = defaultValidUntilDate(7);
+    const termsBase =
+      typeof content.terms === 'string'
+        ? content.terms
+        : Array.isArray(content.terms)
+          ? content.terms.filter((t): t is string => typeof t === 'string').join('\n')
+          : null;
+    const terms = syncTermsWithValidUntil(termsBase, validUntil);
+    const inclusions = Array.isArray(content.inclusions)
+      ? content.inclusions.filter((x): x is string => typeof x === 'string').join('\n')
+      : typeof content.inclusions === 'string'
+        ? content.inclusions
+        : null;
+    const exclusions = Array.isArray(content.exclusions)
+      ? content.exclusions.filter((x): x is string => typeof x === 'string').join('\n')
+      : typeof content.exclusions === 'string'
+        ? content.exclusions
+        : null;
+    const currency =
+      typeof content.currency === 'string' && content.currency.length === 3
+        ? content.currency
+        : 'INR';
+
+    const quoteCount = await this.prisma.quotation.count({
+      where: { organizationId: user.organizationId },
+    });
+
+    const trip = await this.prisma.trip.create({
+      data: {
+        organizationId: user.organizationId,
+        tripNumber: DEMO_TRIP_SPEC.tripNumber,
+        title: DEMO_TRIP_SPEC.title,
+        status: 'planning',
+        partyId: party.id,
+        ownerId: user.sub,
+        startDate: new Date(`${startDate}T12:00:00.000Z`),
+        endDate: new Date(`${endDate}T12:00:00.000Z`),
+        destinationsJson: [
+          { placeId: null, name: DEMO_TRIP_SPEC.destinationName, kind: 'city' },
+        ],
+        createdBy: user.sub,
+        updatedBy: user.sub,
+        travellers: {
+          create: {
+            isLead: true,
+            traveller: {
+              create: {
+                organizationId: user.organizationId,
+                fullName: DEMO_TRIP_SPEC.travellerFullName,
+                type: 'adult',
+                email: 'demo.guest@example.com',
+                createdBy: user.sub,
+                updatedBy: user.sub,
+              },
+            },
+          },
+        },
+        itineraries: {
+          create: {
+            organizationId: user.organizationId,
+            title: 'Main itinerary',
+            versions: {
+              create: {
+                versionNumber: 1,
+                label: 'v1',
+                status: 'draft',
+                contentJson: { days: [] },
+                createdBy: user.sub,
+              },
+            },
+          },
+        },
+        quotations: {
+          create: {
+            organizationId: user.organizationId,
+            quoteNumber: `QT-DEMO-${String(quoteCount + 1).padStart(3, '0')}`,
+            versions: {
+              create: {
+                versionNumber: 1,
+                label: 'v1 (sample)',
+                status: 'draft',
+                currency,
+                validUntil,
+                itemsJson: items as unknown as Prisma.InputJsonValue,
+                inclusions,
+                exclusions,
+                terms,
+                ...totals,
+                createdBy: user.sub,
+              },
+            },
+          },
+        },
+      },
+      select: { id: true },
+    });
+
+    return {
+      tripId: trip.id,
+      tripNumber: DEMO_TRIP_SPEC.tripNumber,
+      created: true,
     };
   }
 }

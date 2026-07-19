@@ -9,12 +9,16 @@ import {
   Query,
 } from '@nestjs/common';
 import {
+  CreateSupplierActivityRateSchema,
   CreateSupplierHotelRateSchema,
   CreateTransferFareSchema,
+  ChartFreshnessSchema,
+  ImportActivityRateCsvSchema,
   ImportHotelRateCsvSchema,
   ImportTransferFareCsvSchema,
   ResolveRatesSchema,
   SuggestTransferFareSchema,
+  UpdateSupplierActivityRateSchema,
   UpdateSupplierHotelRateSchema,
   UpdateTransferFareSchema,
 } from '@wayrune/contracts';
@@ -77,6 +81,61 @@ export class RatesController {
     return this.rates.deleteHotelRate(user.organizationId, id);
   }
 
+  @Get('activity-rates')
+  @RequirePermissions('quote.read', 'quote.write')
+  listActivity(
+    @CurrentUser() user: AuthUser,
+    @Query('supplierId') supplierId?: string,
+    @Query('placeId') placeId?: string,
+    @Query('q') q?: string,
+  ) {
+    return this.rates.listActivityRates(user.organizationId, {
+      supplierId,
+      placeId,
+      q,
+    });
+  }
+
+  @Post('activity-rates')
+  @RequirePermissions('quote.write')
+  createActivity(@CurrentUser() user: AuthUser, @Body() body: unknown) {
+    return this.rates.createActivityRate(
+      user.organizationId,
+      user.sub,
+      CreateSupplierActivityRateSchema.parse(body),
+    );
+  }
+
+  @Patch('activity-rates/:id')
+  @RequirePermissions('quote.write')
+  updateActivity(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    return this.rates.updateActivityRate(
+      user.organizationId,
+      id,
+      UpdateSupplierActivityRateSchema.parse(body),
+    );
+  }
+
+  @Delete('activity-rates/:id')
+  @RequirePermissions('quote.write')
+  deleteActivity(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.rates.deleteActivityRate(user.organizationId, id);
+  }
+
+  @Post('activity-rates/import/csv')
+  @RequirePermissions('quote.write')
+  importActivityCsv(@CurrentUser() user: AuthUser, @Body() body: unknown) {
+    return this.rates.importActivityRatesCsv(
+      user.organizationId,
+      user.sub,
+      ImportActivityRateCsvSchema.parse(body),
+    );
+  }
+
   @Get('transfer-fares')
   @RequirePermissions('quote.read', 'quote.write')
   listTransfer(
@@ -84,12 +143,14 @@ export class RatesController {
     @Query('fromPlaceId') fromPlaceId?: string,
     @Query('toPlaceId') toPlaceId?: string,
     @Query('vehicleTypeId') vehicleTypeId?: string,
+    @Query('supplierId') supplierId?: string,
     @Query('q') q?: string,
   ) {
     return this.rates.listTransferFares(user.organizationId, {
       fromPlaceId,
       toPlaceId,
       vehicleTypeId,
+      supplierId,
       q,
     });
   }
@@ -163,6 +224,24 @@ export class RatesController {
     );
   }
 
+  @Get('rates/import-batches')
+  @RequirePermissions('quote.read', 'quote.write')
+  listImportBatches(
+    @CurrentUser() user: AuthUser,
+    @Query('kind') kind?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const parsedKind =
+      kind === 'hotel' || kind === 'transfer' || kind === 'activity'
+        ? kind
+        : undefined;
+    const n = limit ? Number(limit) : undefined;
+    return this.rates.listRatesImportBatches(user.organizationId, {
+      kind: parsedKind,
+      limit: Number.isFinite(n) ? n : undefined,
+    });
+  }
+
   @Post('transfer-fares/import/csv')
   @RequirePermissions('quote.write')
   importTransferCsv(@CurrentUser() user: AuthUser, @Body() body: unknown) {
@@ -180,5 +259,12 @@ export class RatesController {
       user.organizationId,
       ResolveRatesSchema.parse(body),
     );
+  }
+
+  @Post('rates/chart-freshness')
+  @RequirePermissions('quote.write', 'quote.read')
+  chartFreshness(@CurrentUser() user: AuthUser, @Body() body: unknown) {
+    const input = ChartFreshnessSchema.parse(body);
+    return this.rates.chartFreshness(user.organizationId, input.items);
   }
 }

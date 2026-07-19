@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Plus, Upload } from 'lucide-react';
+import { Import, Plus } from 'lucide-react';
 import {
   Button,
   Card,
@@ -284,7 +284,7 @@ export function NetworkCommercePanel({ relationships }: { relationships: Relatio
                 disabled={importing}
                 onClick={() => void importRatesCsv()}
               >
-                <Upload className="size-4" />
+                <Import className="size-4" />
                 {importing ? 'Importing…' : 'Import CSV'}
               </Button>
             </CardContent>

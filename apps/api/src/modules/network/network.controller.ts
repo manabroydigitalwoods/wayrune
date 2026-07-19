@@ -1,4 +1,17 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import {
   AddNetworkSupplierSchema,
   ClaimSupplierInviteSchema,
@@ -140,5 +153,16 @@ export class NetworkController {
       id,
       ConfirmInboundBookingSchema.parse(body),
     );
+  }
+
+  @Post('inbound-bookings/:id/confirmation-document')
+  @RequirePermissions('network.write')
+  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage() }))
+  uploadConfirmationDocument(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.network.uploadInboundConfirmationDocument(user, id, file);
   }
 }

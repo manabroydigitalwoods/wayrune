@@ -1978,6 +1978,10 @@ export class GuestServicesService {
         tipAmount,
         currency: bill.currency,
         sessionId: bill.sessionId,
+        name: bill.locationLabel || 'Guest bill',
+        description: tipAmount
+          ? `Table bill + tip · ${bill.locationLabel || 'session'}`
+          : `Table bill · ${bill.locationLabel || 'session'}`,
         message: 'Razorpay keys not set — use mock confirm',
       };
     }
@@ -2008,6 +2012,10 @@ export class GuestServicesService {
       tipAmount,
       currency: order.currency,
       sessionId: bill.sessionId,
+      name: bill.locationLabel || 'Guest bill',
+      description: tipAmount
+        ? `Table bill + tip · ${bill.locationLabel || 'session'}`
+        : `Table bill · ${bill.locationLabel || 'session'}`,
     };
   }
 

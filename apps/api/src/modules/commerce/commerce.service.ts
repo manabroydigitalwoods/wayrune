@@ -31,6 +31,7 @@ import type {
   CreateServiceIncidentSchema,
   CreateServiceRequestItemSchema,
   CreateServiceRequestSchema,
+  CloneSupplierContractVersionSchema,
   CreateSupplierContractSchema,
   UpdateSupplierContractSchema,
   CreateTripChangeCaseSchema,
@@ -56,6 +57,12 @@ import {
   type TxClient,
 } from './inventory-adapters';
 import { assertTransition, resolveCancellationExecutionOutcome } from './lifecycle-transitions';
+import {
+  buildBookingCancellationPreview,
+  pickBookingBaseAmount,
+  policyFromQuoteProvenance,
+} from './booking-cancellation-preview';
+import { cancellationApplyCreditNotePlan } from './cancellation-credit-note';
 import {
   evaluateCancellationPolicy,
   mealFulfilmentPayload,
@@ -864,24 +871,41 @@ export class CommerceService {
     userId: string,
     input: z.infer<typeof CreateSupplierContractSchema>,
   ) {
-    return this.prisma.supplierContract.create({
+    const created = await this.prisma.supplierContract.create({
       data: {
         organizationId,
         supplierId: input.supplierId,
         title: input.title,
         status: input.status,
+        versionNumber: input.versionNumber ?? 1,
+        supersedesId: input.supersedesId ?? null,
         effectiveFrom: input.effectiveFrom ? new Date(input.effectiveFrom) : null,
         effectiveUntil: input.effectiveUntil ? new Date(input.effectiveUntil) : null,
         creditLimit: input.creditLimit ?? null,
         paymentTerms: input.paymentTerms ?? null,
         cancellationTerms: input.cancellationTerms ?? null,
+        cancellationPolicyJson:
+          input.cancellationPolicyJson === undefined
+            ? undefined
+            : input.cancellationPolicyJson == null
+              ? Prisma.JsonNull
+              : (input.cancellationPolicyJson as Prisma.InputJsonValue),
         commissionPercent: input.commissionPercent ?? null,
         preferred: input.preferred ?? false,
         blackoutJson: (input.blackoutJson ?? undefined) as Prisma.InputJsonValue | undefined,
+        stopSaleJson: (input.stopSaleJson ?? undefined) as Prisma.InputJsonValue | undefined,
         notes: input.notes ?? null,
         createdBy: userId,
       },
     });
+    if (created.status === 'active') {
+      await this.supersedeOtherActiveContracts(
+        organizationId,
+        created.supplierId,
+        created.id,
+      );
+    }
+    return created;
   }
 
   async updateSupplierContract(
@@ -894,11 +918,17 @@ export class CommerceService {
     });
     if (!existing) throw new NotFoundException('Contract not found');
 
-    return this.prisma.supplierContract.update({
+    const updated = await this.prisma.supplierContract.update({
       where: { id: contractId },
       data: {
         ...(input.title !== undefined ? { title: input.title } : {}),
         ...(input.status !== undefined ? { status: input.status } : {}),
+        ...(input.versionNumber !== undefined
+          ? { versionNumber: input.versionNumber }
+          : {}),
+        ...(input.supersedesId !== undefined
+          ? { supersedesId: input.supersedesId }
+          : {}),
         ...(input.effectiveFrom !== undefined
           ? { effectiveFrom: input.effectiveFrom ? new Date(input.effectiveFrom) : null }
           : {}),
@@ -912,6 +942,14 @@ export class CommerceService {
         ...(input.cancellationTerms !== undefined
           ? { cancellationTerms: input.cancellationTerms }
           : {}),
+        ...(input.cancellationPolicyJson !== undefined
+          ? {
+              cancellationPolicyJson:
+                input.cancellationPolicyJson == null
+                  ? Prisma.JsonNull
+                  : (input.cancellationPolicyJson as Prisma.InputJsonValue),
+            }
+          : {}),
         ...(input.commissionPercent !== undefined
           ? { commissionPercent: input.commissionPercent }
           : {}),
@@ -919,9 +957,123 @@ export class CommerceService {
         ...(input.blackoutJson !== undefined
           ? { blackoutJson: input.blackoutJson as Prisma.InputJsonValue }
           : {}),
+        ...(input.stopSaleJson !== undefined
+          ? { stopSaleJson: input.stopSaleJson as Prisma.InputJsonValue }
+          : {}),
         ...(input.notes !== undefined ? { notes: input.notes } : {}),
       },
       include: { supplier: { select: { id: true, name: true, type: true } } },
+    });
+
+    if (input.status === 'active') {
+      await this.supersedeOtherActiveContracts(
+        organizationId,
+        updated.supplierId,
+        updated.id,
+      );
+    }
+
+    return updated;
+  }
+
+  /**
+   * Clone an active (or any) contract as a new draft version.
+   * Prior rates stay on the superseded contract; optional copy onto the draft.
+   */
+  async cloneSupplierContractVersion(
+    organizationId: string,
+    userId: string,
+    contractId: string,
+    input?: { copyRates?: boolean },
+  ) {
+    const source = await this.prisma.supplierContract.findFirst({
+      where: { id: contractId, organizationId, deletedAt: null },
+    });
+    if (!source) throw new NotFoundException('Contract not found');
+
+    const maxVersion = await this.prisma.supplierContract.aggregate({
+      where: {
+        organizationId,
+        supplierId: source.supplierId,
+        deletedAt: null,
+      },
+      _max: { versionNumber: true },
+    });
+    const nextVersion = (maxVersion._max.versionNumber ?? source.versionNumber) + 1;
+
+    const draft = await this.prisma.supplierContract.create({
+      data: {
+        organizationId,
+        supplierId: source.supplierId,
+        title: source.title,
+        status: 'draft',
+        versionNumber: nextVersion,
+        supersedesId: source.id,
+        effectiveFrom: source.effectiveFrom,
+        effectiveUntil: source.effectiveUntil,
+        creditLimit: source.creditLimit,
+        paymentTerms: source.paymentTerms,
+        cancellationTerms: source.cancellationTerms,
+        cancellationPolicyJson: source.cancellationPolicyJson ?? undefined,
+        commissionPercent: source.commissionPercent,
+        preferred: source.preferred,
+        blackoutJson: source.blackoutJson ?? undefined,
+        stopSaleJson: source.stopSaleJson ?? undefined,
+        notes: source.notes,
+        createdBy: userId,
+      },
+      include: { supplier: { select: { id: true, name: true, type: true } } },
+    });
+
+    const copyRates = input?.copyRates !== false;
+    if (copyRates) {
+      const rates = await this.prisma.supplierHotelRate.findMany({
+        where: {
+          organizationId,
+          contractId: source.id,
+          deletedAt: null,
+        },
+      });
+      if (rates.length) {
+        await this.prisma.supplierHotelRate.createMany({
+          data: rates.map((r) => ({
+            organizationId: r.organizationId,
+            supplierId: r.supplierId,
+            placeId: r.placeId,
+            isSystem: false,
+            roomType: r.roomType,
+            roomProductId: r.roomProductId,
+            contractId: draft.id,
+            mealPlan: r.mealPlan,
+            unitCost: r.unitCost,
+            weekendUnitCost: r.weekendUnitCost,
+            currency: r.currency,
+            startDate: r.startDate,
+            endDate: r.endDate,
+            isActive: r.isActive,
+            createdBy: userId,
+          })),
+        });
+      }
+    }
+
+    return draft;
+  }
+
+  private async supersedeOtherActiveContracts(
+    organizationId: string,
+    supplierId: string,
+    keepActiveId: string,
+  ) {
+    await this.prisma.supplierContract.updateMany({
+      where: {
+        organizationId,
+        supplierId,
+        deletedAt: null,
+        status: 'active',
+        id: { not: keepActiveId },
+      },
+      data: { status: 'superseded' },
     });
   }
 
@@ -2479,8 +2631,165 @@ export class CommerceService {
         approvalStatus: 'draft',
         executionStatus: 'pending',
         createdBy: userId,
+        requestedBy: userId,
       },
     });
+  }
+
+  /**
+   * Ops cancel sheet: fee preview from quote-line stamp or supplier contract.
+   */
+  async previewBookingCancellation(
+    organizationId: string,
+    tripId: string,
+    bookingId: string,
+  ) {
+    const booking = await this.prisma.bookingComponent.findFirst({
+      where: { id: bookingId, tripId, organizationId },
+    });
+    if (!booking) throw new NotFoundException('Booking not found');
+
+    let quoteLinePolicy: unknown | null = null;
+    if (booking.quotationLineId) {
+      const versions = await this.prisma.quotationVersion.findMany({
+        where: {
+          status: 'accepted',
+          quotation: { organizationId, tripId },
+        },
+        orderBy: [{ acceptedAt: 'desc' }, { versionNumber: 'desc' }],
+        take: 8,
+        select: { itemsJson: true },
+      });
+      for (const version of versions) {
+        const items = Array.isArray(version.itemsJson)
+          ? (version.itemsJson as Array<Record<string, unknown>>)
+          : [];
+        const line = items.find(
+          (row) =>
+            row &&
+            typeof row === 'object' &&
+            String(row.id ?? '') === booking.quotationLineId,
+        );
+        if (line) {
+          quoteLinePolicy = policyFromQuoteProvenance(line.rateProvenance);
+          break;
+        }
+      }
+    }
+
+    let contractPolicy: unknown | null = null;
+    if (booking.supplierId) {
+      const contract = await this.prisma.supplierContract.findFirst({
+        where: {
+          organizationId,
+          supplierId: booking.supplierId,
+          status: 'active',
+          deletedAt: null,
+        },
+        orderBy: [{ preferred: 'desc' }, { versionNumber: 'desc' }],
+        select: { cancellationPolicyJson: true },
+      });
+      contractPolicy = contract?.cancellationPolicyJson ?? null;
+    }
+
+    const preview = buildBookingCancellationPreview({
+      bookingId: booking.id,
+      tripId: booking.tripId,
+      title: booking.title,
+      baseAmount: pickBookingBaseAmount(booking),
+      currency: booking.currency,
+      serviceStartAt: booking.startAt,
+      endAt: booking.endAt,
+      quoteLinePolicy,
+      contractPolicy,
+    });
+
+    const openCase = await this.findOpenCancellationForBooking(
+      organizationId,
+      tripId,
+      bookingId,
+    );
+
+    return { ...preview, openCase };
+  }
+
+  async listTripCancellationCases(organizationId: string, tripId: string) {
+    return this.prisma.cancellationCase.findMany({
+      where: { organizationId, tripId },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+  }
+
+  async requestCancellationCase(
+    organizationId: string,
+    userId: string,
+    id: string,
+  ) {
+    const c = await this.prisma.cancellationCase.findFirst({
+      where: { id, organizationId },
+    });
+    if (!c) throw new NotFoundException('Cancellation case not found');
+    assertTransition(
+      'cancellation_approval',
+      c.approvalStatus,
+      'awaiting_approval',
+    );
+    return this.prisma.cancellationCase.update({
+      where: { id },
+      data: {
+        approvalStatus: 'awaiting_approval',
+        requestedBy: userId,
+      },
+    });
+  }
+
+  async approveCancellationCase(
+    organizationId: string,
+    _userId: string,
+    id: string,
+  ) {
+    const c = await this.prisma.cancellationCase.findFirst({
+      where: { id, organizationId },
+    });
+    if (!c) throw new NotFoundException('Cancellation case not found');
+    assertTransition('cancellation_approval', c.approvalStatus, 'approved');
+    return this.prisma.cancellationCase.update({
+      where: { id },
+      data: { approvalStatus: 'approved' },
+    });
+  }
+
+  private async findOpenCancellationForBooking(
+    organizationId: string,
+    tripId: string,
+    bookingId: string,
+  ) {
+    const rows = await this.prisma.cancellationCase.findMany({
+      where: {
+        organizationId,
+        tripId,
+        approvalStatus: { in: ['draft', 'awaiting_approval', 'approved'] },
+        executionStatus: { in: ['pending', 'applying', 'failed'] },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+    });
+    return (
+      rows.find((row) => {
+        const affected = row.affectedEntitiesJson;
+        if (!Array.isArray(affected)) return false;
+        return affected.some(
+          (ent) =>
+            ent &&
+            typeof ent === 'object' &&
+            !Array.isArray(ent) &&
+            (ent as { type?: string; id?: string }).type ===
+              'booking_component' &&
+            (ent as { type?: string; id?: string }).id === bookingId,
+        );
+      }) ?? null
+    );
   }
 
   async applyCancellationCase(
@@ -2492,7 +2801,23 @@ export class CommerceService {
       where: { id, organizationId },
     });
     if (!c) throw new NotFoundException('Cancellation case not found');
-    if (c.executionStatus === 'applied') return c;
+    if (c.executionStatus === 'applied') {
+      const evalJson =
+        c.evaluationJson &&
+        typeof c.evaluationJson === 'object' &&
+        !Array.isArray(c.evaluationJson)
+          ? (c.evaluationJson as Record<string, unknown>)
+          : {};
+      return {
+        ...c,
+        creditNoteId:
+          typeof evalJson.creditNoteId === 'string' ? evalJson.creditNoteId : null,
+        creditNoteAmount:
+          typeof evalJson.creditNoteAmount === 'number'
+            ? evalJson.creditNoteAmount
+            : Number(c.expectedRefund ?? 0) || null,
+      };
+    }
 
     if (c.approvalStatus !== 'approved') {
       assertTransition('cancellation_approval', c.approvalStatus, 'approved');
@@ -2626,6 +2951,48 @@ export class CommerceService {
         }
       }
 
+      // Auto draft credit note when policy expects a guest refund (idempotent).
+      let creditNoteId: string | null = null;
+      const creditPlan = cancellationApplyCreditNotePlan({
+        expectedRefund:
+          c.expectedRefund != null ? Number(c.expectedRefund) : null,
+        applyFailed: failed,
+      });
+      const refundAmount = creditPlan?.amount ?? 0;
+      if (creditPlan) {
+        const existingNote = await tx.commercialDocument.findFirst({
+          where: {
+            organizationId,
+            docType: 'credit_note',
+            linkedEntityType: 'cancellation_case',
+            linkedEntityId: id,
+          },
+          select: { id: true },
+        });
+        if (existingNote) {
+          creditNoteId = existingNote.id;
+        } else {
+          const note = await tx.commercialDocument.create({
+            data: {
+              organizationId,
+              docType: 'credit_note',
+              direction: 'payable',
+              linkedEntityType: 'cancellation_case',
+              linkedEntityId: id,
+              tripId: c.tripId,
+              label: `Credit note · cancellation ${id.slice(-8).toUpperCase()}`,
+              amount: creditPlan.amount,
+              currency: c.currency,
+              status: 'open',
+              notes:
+                'Draft credit note from cancellation policy — settle / allocate manually',
+              createdBy: userId,
+            },
+          });
+          creditNoteId = note.id;
+        }
+      }
+
       const executionStatus = resolveCancellationExecutionOutcome({
         affectedCount: affected.length,
         applied,
@@ -2643,6 +3010,7 @@ export class CommerceService {
             applyErrors: errors,
             applied,
             failed,
+            ...(creditNoteId ? { creditNoteId, creditNoteAmount: refundAmount } : {}),
           } as Prisma.InputJsonValue,
         },
       });
@@ -2656,7 +3024,22 @@ export class CommerceService {
       c.scope,
       userId,
     );
-    return this.prisma.cancellationCase.findUnique({ where: { id } });
+    const updated = await this.prisma.cancellationCase.findUnique({ where: { id } });
+    const evalJson =
+      updated?.evaluationJson &&
+      typeof updated.evaluationJson === 'object' &&
+      !Array.isArray(updated.evaluationJson)
+        ? (updated.evaluationJson as Record<string, unknown>)
+        : {};
+    return {
+      ...updated,
+      creditNoteId:
+        typeof evalJson.creditNoteId === 'string' ? evalJson.creditNoteId : null,
+      creditNoteAmount:
+        typeof evalJson.creditNoteAmount === 'number'
+          ? evalJson.creditNoteAmount
+          : Number(updated?.expectedRefund ?? 0) || null,
+    };
   }
 
   async applyTripChangeCase(

@@ -18,7 +18,19 @@ import { PartiesService } from '../parties/parties.service';
 import { InteractionsService } from '../interactions/interactions.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { MetaCloudMessagingProvider } from '../messaging/meta-cloud.messaging';
+import {
+  evaluateWhatsappCustomerSession,
+  WHATSAPP_CUSTOMER_SESSION_MS,
+} from '../messaging/whatsapp-customer-session';
 import { OrgIdentityService } from '../organizations/org-identity.service';
+import {
+  pickRoundRobinSlot,
+  resolveActivePool,
+} from './round-robin-assign';
+import {
+  parseFollowUpAtDate,
+  shouldSyncTaskDueFromLeadFollowUp,
+} from '../tasks/lead-follow-up-sync';
 import type { AuthUser } from '../../common/helpers';
 import type {
   CreateCampaignInput,
@@ -179,6 +191,9 @@ export class LeadsService {
           },
         },
       },
+      include: {
+        owner: { select: { id: true, fullName: true } },
+      },
     });
 
     // Skip the audit (and downstream sync) when composed inside a caller's
@@ -204,6 +219,8 @@ export class LeadsService {
     stageKey?: string,
     q?: string,
     priority?: string,
+    followUp?: string,
+    owner?: string,
   ) {
     const ownOnly =
       hasPermission(user.permissions, 'lead.read.own') &&
@@ -212,9 +229,15 @@ export class LeadsService {
     const where: Prisma.LeadWhereInput = {
       organizationId: user.organizationId,
       deletedAt: null,
-      ...(ownOnly ? { ownerId: user.sub } : {}),
+      ...(ownOnly || owner === 'me' ? { ownerId: user.sub } : {}),
       ...(stageKey ? { stage: { key: stageKey } } : {}),
       ...(priority ? { priority } : {}),
+      ...(followUp === 'overdue'
+        ? {
+            followUpAt: { lt: new Date() },
+            stage: { isWon: false, isLost: false },
+          }
+        : {}),
       ...(q
         ? {
             OR: [
@@ -618,6 +641,10 @@ export class LeadsService {
         activities: { orderBy: { createdAt: 'desc' }, take: 50 },
       },
     });
+    await this.syncOpenLeadTaskDueFromFollowUp(user.organizationId, id, {
+      followUpAtProvided: input.followUpAt !== undefined,
+      followUpAt: input.followUpAt,
+    });
     await this.audit.record({
       organizationId: user.organizationId,
       actorUserId: user.sub,
@@ -626,6 +653,42 @@ export class LeadsService {
       entityId: id,
     });
     return updated;
+  }
+
+  /** Push Lead.followUpAt onto the newest open lead-linked task (reverse of task→lead). */
+  private async syncOpenLeadTaskDueFromFollowUp(
+    organizationId: string,
+    leadId: string,
+    input: { followUpAtProvided: boolean; followUpAt?: string | null },
+  ) {
+    if (
+      !shouldSyncTaskDueFromLeadFollowUp({
+        followUpAtProvided: input.followUpAtProvided,
+        followUpAt: input.followUpAt,
+      })
+    ) {
+      return;
+    }
+    const dueAt = parseFollowUpAtDate(input.followUpAt);
+    if (!dueAt) return;
+
+    const openTask = await this.prisma.task.findFirst({
+      where: {
+        organizationId,
+        entityType: 'lead',
+        entityId: leadId,
+        deletedAt: null,
+        status: { not: 'done' },
+      },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+      select: { id: true },
+    });
+    if (!openTask) return;
+
+    await this.prisma.task.update({
+      where: { id: openTask.id },
+      data: { dueAt },
+    });
   }
 
   /**
@@ -1724,21 +1787,18 @@ export class LeadsService {
       ? auto.memberIds.filter((id): id is string => typeof id === 'string')
       : [];
 
-    let memberIds = configuredIds;
-    if (!memberIds.length) {
-      const memberships = await db.organizationMembership.findMany({
-        where: { organizationId, isActive: true },
-        select: { userId: true },
-        orderBy: { createdAt: 'asc' },
-      });
-      memberIds = memberships.map((m) => m.userId);
-    }
+    const memberships = await db.organizationMembership.findMany({
+      where: { organizationId, isActive: true, deletedAt: null },
+      select: { userId: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    const activeUserIds = memberships.map((m) => m.userId);
+    const memberIds = resolveActivePool(configuredIds, activeUserIds);
     if (!memberIds.length) return null;
 
     const cursor = typeof auto.cursor === 'number' && auto.cursor >= 0 ? auto.cursor : 0;
-    const index = cursor % memberIds.length;
-    const ownerId = memberIds[index]!;
-    const nextCursor = (index + 1) % memberIds.length;
+    const pick = pickRoundRobinSlot({ memberIds, cursor });
+    if (!pick) return null;
 
     await db.organization.update({
       where: { id: organizationId },
@@ -1751,14 +1811,15 @@ export class LeadsService {
               ...auto,
               mode: 'round_robin',
               memberIds: configuredIds.length ? configuredIds : undefined,
-              cursor: nextCursor,
+              cursor: pick.nextCursor,
+              lastAssignedUserId: pick.ownerId,
             },
           },
         } as Prisma.InputJsonValue,
       },
     });
 
-    return ownerId;
+    return pick.ownerId;
   }
 
   /**
@@ -1788,17 +1849,29 @@ export class LeadsService {
     if (ruleIndex === -1) return null;
 
     const rule = rules[ruleIndex]!;
-    const memberIds = Array.isArray(rule.memberIds)
+    const configuredIds = Array.isArray(rule.memberIds)
       ? rule.memberIds.filter((id): id is string => typeof id === 'string')
       : [];
+    if (!configuredIds.length) return null;
+
+    const memberships = await db.organizationMembership.findMany({
+      where: { organizationId, isActive: true, deletedAt: null },
+      select: { userId: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    const activeUserIds = memberships.map((m) => m.userId);
+    const memberIds = resolveActivePool(configuredIds, activeUserIds);
     if (!memberIds.length) return null;
 
     const cursor = typeof rule.cursor === 'number' && rule.cursor >= 0 ? rule.cursor : 0;
-    const index = cursor % memberIds.length;
-    const ownerId = memberIds[index]!;
-    const nextCursor = (index + 1) % memberIds.length;
+    const pick = pickRoundRobinSlot({ memberIds, cursor });
+    if (!pick) return null;
 
-    const nextRules = rules.map((r, i) => (i === ruleIndex ? { ...r, cursor: nextCursor } : r));
+    const nextRules = rules.map((r, i) =>
+      i === ruleIndex
+        ? { ...r, cursor: pick.nextCursor, lastAssignedUserId: pick.ownerId }
+        : r,
+    );
 
     await db.organization.update({
       where: { id: organizationId },
@@ -1817,7 +1890,7 @@ export class LeadsService {
       },
     });
 
-    return ownerId;
+    return pick.ownerId;
   }
 
   async replyWhatsapp(user: AuthUser, interactionId: string, input: ReplyWhatsappInput) {
@@ -1843,6 +1916,16 @@ export class LeadsService {
     const digits = to.replace(/\D/g, '');
     const demo = cfg.accessToken.startsWith('seed-demo-');
     if (!demo) {
+      const session = await this.resolveWhatsappCustomerSession(
+        user.organizationId,
+        interaction.partyId,
+        digits,
+      );
+      if (!session.open) {
+        throw new BadRequestException(
+          'WhatsApp free-text replies need an open 24h customer session — send an approved template, or wait for the customer to message you.',
+        );
+      }
       await this.messaging.sendText({
         to: digits,
         text: input.text.trim(),
@@ -1874,6 +1957,84 @@ export class LeadsService {
     });
 
     return { ok: true, outbound, demo, interactionId };
+  }
+
+  /** 24h Meta customer-service window for Inbox clock + fail-closed text reply. */
+  async whatsappCustomerSession(user: AuthUser, interactionId: string) {
+    const interaction = await this.interactions.get(user, interactionId);
+    if (interaction.channel !== 'whatsapp') {
+      throw new BadRequestException('Session applies only to WhatsApp touches');
+    }
+
+    const cfg = await this.whatsappConfig(user.organizationId);
+    const demo = Boolean(
+      cfg.enabled && cfg.accessToken?.startsWith('seed-demo-'),
+    );
+
+    const toRaw =
+      interaction.party?.phone ||
+      (typeof (interaction.rawPayloadJson as Record<string, unknown> | null)?.from === 'string'
+        ? String((interaction.rawPayloadJson as Record<string, unknown>).from)
+        : '') ||
+      (typeof (interaction.rawPayloadJson as Record<string, unknown> | null)?.to === 'string'
+        ? String((interaction.rawPayloadJson as Record<string, unknown>).to)
+        : '');
+    const to = normalizeWhatsappPhone(toRaw);
+    if (!to) {
+      return {
+        open: demo,
+        remainingMs: demo ? WHATSAPP_CUSTOMER_SESSION_MS : 0,
+        expiresAt: null as string | null,
+        lastInboundAt: null as string | null,
+        digits: null as string | null,
+        demo,
+      };
+    }
+    const digits = to.replace(/\D/g, '');
+    const session = await this.resolveWhatsappCustomerSession(
+      user.organizationId,
+      interaction.partyId,
+      digits,
+    );
+    if (demo) {
+      return {
+        open: true,
+        remainingMs: Math.max(session.remainingMs, WHATSAPP_CUSTOMER_SESSION_MS),
+        expiresAt: session.expiresAt?.toISOString() ?? null,
+        lastInboundAt: session.lastInboundAt?.toISOString() ?? null,
+        digits,
+        demo: true,
+      };
+    }
+    return {
+      open: session.open,
+      remainingMs: session.remainingMs,
+      expiresAt: session.expiresAt?.toISOString() ?? null,
+      lastInboundAt: session.lastInboundAt?.toISOString() ?? null,
+      digits,
+      demo: false,
+    };
+  }
+
+  private async resolveWhatsappCustomerSession(
+    organizationId: string,
+    partyId: string | null | undefined,
+    digits: string,
+    now: Date = new Date(),
+  ) {
+    const since = new Date(now.getTime() - WHATSAPP_CUSTOMER_SESSION_MS);
+    const rows = await this.prisma.interaction.findMany({
+      where: {
+        organizationId,
+        channel: 'whatsapp',
+        createdAt: { gte: since },
+        ...(partyId ? { partyId } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 40,
+      select: { createdAt: true, rawPayloadJson: true },
+    });
+    return evaluateWhatsappCustomerSession(rows, digits, now);
   }
 
   /**

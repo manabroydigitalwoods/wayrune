@@ -19,6 +19,20 @@ import { usePermissions } from '../../lib/permissions';
 
 type TripChange = { id: string; changeType: string; summary: string; status: string };
 type Incident = { id: string; title: string; category: string; severity: string; status: string };
+type CancellationCase = {
+  id: string;
+  scope: string;
+  reason?: string | null;
+  approvalStatus: string;
+  executionStatus: string;
+  calculatedCharges?: string | number | null;
+  expectedRefund?: string | number | null;
+  currency: string;
+  evaluationJson?: {
+    creditNoteId?: string;
+    creditNoteAmount?: number;
+  } | null;
+};
 type Reconciliation = {
   quoted: number;
   agreed: number;
@@ -58,6 +72,7 @@ export function TripClosurePanel({
 }) {
   const [changes, setChanges] = useState<TripChange[]>([]);
   const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [cancellations, setCancellations] = useState<CancellationCase[]>([]);
   const [recon, setRecon] = useState<Reconciliation | null>(null);
   const [changeType, setChangeType] = useState('other');
   const [summary, setSummary] = useState('');
@@ -71,12 +86,16 @@ export function TripClosurePanel({
 
   const load = useCallback(async () => {
     try {
-      const [c, r] = await Promise.all([
+      const [c, r, cancelRows] = await Promise.all([
         api<TripChange[]>(`/commerce/trip-changes?tripId=${tripId}`),
         api<Reconciliation>(`/commerce/trips/${tripId}/reconciliation`).catch(() => null),
+        api<CancellationCase[]>(`/commerce/trips/${tripId}/cancellations`).catch(
+          () => [] as CancellationCase[],
+        ),
       ]);
       setChanges(c);
       setRecon(r);
+      setCancellations(Array.isArray(cancelRows) ? cancelRows : []);
       if (canIncidents) {
         const i = await api<Incident[]>(`/commerce/incidents?tripId=${tripId}`).catch(
           () => [] as Incident[],
@@ -318,6 +337,55 @@ export function TripClosurePanel({
         </Card>
         ) : null}
       </div>
+
+      <Card>
+        <CardContent className="space-y-3 pt-4">
+          <div className="flex items-center gap-2">
+            <ShieldAlert className="size-4 text-primary" />
+            <h3 className="text-sm font-semibold">Cancellation cases</h3>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Policy fees and refunds from Ops Cancel. Open credit notes appear under Commerce when a
+            refund was expected.
+          </p>
+          <ul className="space-y-2">
+            {cancellations.map((row) => {
+              const fee = Number(row.calculatedCharges ?? 0);
+              const refund = Number(row.expectedRefund ?? 0);
+              const creditNoteId = row.evaluationJson?.creditNoteId;
+              return (
+                <li
+                  key={row.id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2 text-sm glass-row"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium">
+                      {row.reason?.trim() || `Cancellation · ${row.scope}`}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      Fee {formatCurrency(fee, { currency: row.currency, maximumFractionDigits: 0 })}
+                      {refund > 0
+                        ? ` · refund ${formatCurrency(refund, {
+                            currency: row.currency,
+                            maximumFractionDigits: 0,
+                          })}`
+                        : ''}
+                      {creditNoteId ? ' · credit note drafted' : ''}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+                    <StatusBadge value={row.approvalStatus} showIcon={false} />
+                    <StatusBadge value={row.executionStatus} showIcon={false} />
+                  </div>
+                </li>
+              );
+            })}
+            {!cancellations.length ? (
+              <li className="text-sm text-muted-foreground">No cancellation cases yet.</li>
+            ) : null}
+          </ul>
+        </CardContent>
+      </Card>
 
       {canClose ? (
         <Card>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   Button,
+  Combobox,
   FormGrid,
   FormSection,
   Input,
@@ -9,6 +10,7 @@ import {
   StatusBadge,
   toastError,
   toastSuccess,
+  type ComboboxOption,
 } from '@wayrune/ui';
 import { api } from '../../../api';
 import { ToggleRow } from '../ToggleRow';
@@ -47,6 +49,15 @@ export function WhatsAppPanel({
       .catch(() => setTemplates([]));
   }, []);
 
+  const activeTemplates = templates.filter((t) => t.isActive);
+  const templateOptions: ComboboxOption[] = [
+    { value: '', label: 'Auto — match “Quote proposal” / quote_proposal' },
+    ...activeTemplates.map((t) => ({
+      value: t.id,
+      label: `${t.name} · ${t.metaTemplateName} (${t.languageCode})`,
+    })),
+  ];
+
   async function addTemplate() {
     if (!tplName.trim() || !tplMeta.trim()) {
       toastError('Name and Meta template name are required');
@@ -66,6 +77,12 @@ export function WhatsAppPanel({
       setTemplates((prev) => [...prev, row]);
       setTplName('');
       setTplMeta('');
+      const looksLikeQuote =
+        row.name.trim().toLowerCase() === 'quote proposal' ||
+        row.metaTemplateName.trim().toLowerCase() === 'quote_proposal';
+      if (looksLikeQuote && !value.quoteProposalTemplateId.trim()) {
+        onChange({ ...value, quoteProposalTemplateId: row.id });
+      }
       toastSuccess('Template saved');
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Could not save template');
@@ -229,6 +246,21 @@ export function WhatsAppPanel({
         title="Message templates"
         description="Approved Meta templates for first outbound / outside the 24h window."
       >
+        <FormField
+          className="mb-3"
+          label="Quote proposal template"
+          description="Used for cold Send quotation on WhatsApp when Cloud is on. Save Integrations after changing."
+        >
+          <Combobox
+            options={templateOptions}
+            value={value.quoteProposalTemplateId}
+            onChange={(id) =>
+              onChange({ ...value, quoteProposalTemplateId: id || '' })
+            }
+            placeholder="Choose template…"
+            searchable={activeTemplates.length > 6}
+          />
+        </FormField>
         <ul className="mb-3 space-y-1 text-sm">
           {templates.map((t) => (
             <li
@@ -241,6 +273,9 @@ export function WhatsAppPanel({
                   {' '}
                   · {t.metaTemplateName} ({t.languageCode})
                 </span>
+                {value.quoteProposalTemplateId === t.id ? (
+                  <span className="ml-2 text-xs text-primary">· Quote send</span>
+                ) : null}
               </span>
               <StatusBadge
                 value={t.isActive ? 'active' : 'pending'}
@@ -250,7 +285,10 @@ export function WhatsAppPanel({
             </li>
           ))}
           {!templates.length ? (
-            <li className="text-xs text-muted-foreground">No templates yet.</li>
+            <li className="text-xs text-muted-foreground">
+              No templates yet — add one named “Quote proposal” (meta{' '}
+              <code className="text-[11px]">quote_proposal</code>) or pick after adding.
+            </li>
           ) : null}
         </ul>
         <FormGrid>

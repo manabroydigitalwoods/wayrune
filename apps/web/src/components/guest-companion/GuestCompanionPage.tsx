@@ -21,6 +21,10 @@ import { toastError, toastSuccess } from '@wayrune/ui';
 import { api } from '../../api';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 import {
+  isRazorpayCheckoutCancelled,
+  openRazorpayCheckout,
+} from '../../lib/razorpayCheckout';
+import {
   type CartLine,
   type ExperienceProduct,
   type JourneyPhase,
@@ -1037,23 +1041,72 @@ export function GuestCompanionPage() {
     if (!token || !bill) return;
     setPaying(true);
     try {
-      const intent = await api<{ mode: string; sessionId: string }>(
-        `/public/guest/${encodeURIComponent(token)}/pay-intent`,
-        {
+      const intent = await api<{
+        mode: string;
+        sessionId: string;
+        amount: number;
+        currency: string;
+        keyId?: string;
+        razorpayOrderId?: string;
+        name?: string;
+        description?: string;
+        message?: string;
+      }>(`/public/guest/${encodeURIComponent(token)}/pay-intent`, {
+        method: 'POST',
+        skipAuthRefresh: true,
+        body: JSON.stringify({ tipAmount }),
+      });
+
+      if (intent.mode === 'mock') {
+        await api(`/public/guest/sessions/${intent.sessionId}/pay-confirm`, {
           method: 'POST',
           skipAuthRefresh: true,
-          body: JSON.stringify({ tipAmount }),
-        },
-      );
+          body: JSON.stringify({ mock: true, tipAmount }),
+        });
+        setCheckoutOpen(false);
+        setThankYouOpen(true);
+        await load();
+        return;
+      }
+
+      if (
+        intent.mode !== 'razorpay' ||
+        !intent.keyId ||
+        !intent.razorpayOrderId
+      ) {
+        toastError(intent.message || 'Payment checkout is unavailable');
+        return;
+      }
+
+      const checkout = await openRazorpayCheckout({
+        keyId: intent.keyId,
+        orderId: intent.razorpayOrderId,
+        amount: intent.amount,
+        currency: intent.currency || bill.currency || 'INR',
+        name: intent.name || bill.locationLabel || 'Guest bill',
+        description:
+          intent.description ||
+          (tipAmount
+            ? `Table bill + tip · ${bill.locationLabel || 'session'}`
+            : `Table bill · ${bill.locationLabel || 'session'}`),
+      });
+
       await api(`/public/guest/sessions/${intent.sessionId}/pay-confirm`, {
         method: 'POST',
         skipAuthRefresh: true,
-        body: JSON.stringify({ mock: intent.mode === 'mock', tipAmount }),
+        body: JSON.stringify({
+          mock: false,
+          tipAmount,
+          razorpayPaymentId: checkout.razorpayPaymentId,
+          razorpayOrderId: checkout.razorpayOrderId,
+          razorpaySignature: checkout.razorpaySignature,
+        }),
       });
       setCheckoutOpen(false);
       setThankYouOpen(true);
       await load();
     } catch (e) {
+      if (isRazorpayCheckoutCancelled(e)) return;
       toastError(e instanceof Error ? e.message : 'Payment failed');
     } finally {
       setPaying(false);

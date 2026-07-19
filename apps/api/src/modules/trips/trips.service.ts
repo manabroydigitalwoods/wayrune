@@ -4,13 +4,40 @@ import { buildAbility, hasPermission } from '@wayrune/auth';
 import type {
   CreateTravellerSchema,
   CreateTripInput,
+  QuotationItem,
+  UpdateTripDatesInput,
   UpdateTripDestinationsInput,
 } from '@wayrune/contracts';
+import { QuotationItemSchema } from '@wayrune/contracts';
 import { z } from 'zod';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
-import type { AuthUser } from '../../common/helpers';
+import { calcQuoteTotals, type AuthUser } from '../../common/helpers';
 import { resolvePlaceRefs } from '../../common/place-refs';
+import {
+  reanchorItineraryDaysToTripStart,
+  remintQuoteItems,
+  shiftQuoteItemsToTripStart,
+} from '../quotations/quote-template-content';
+import { rematchQuoteItemsFromRates } from '../quotations/quote-rate-rematch';
+import {
+  normalizeCurrency,
+  parseQuoteFxLock,
+  quoteFxLockToJson,
+  sameCurrencyLock,
+} from '../quotations/quote-fx';
+import {
+  defaultValidUntilDate,
+  quoteValidityDaysFromSettings,
+  syncTermsWithValidUntil,
+} from '../quotations/quote-validity';
+import { RatesService } from '../rates/rates.service';
+import {
+  pickCommercialQuoteSourceForRewrite,
+  shouldShiftQuoteDatesOnTripEdit,
+  tripStartIso,
+  type CommercialQuoteRewriteStatus,
+} from './trip-date-shift';
 
 type CreateTravellerInput = z.infer<typeof CreateTravellerSchema>;
 
@@ -19,6 +46,7 @@ export class TripsService {
   constructor(
     private prisma: PrismaService,
     private audit: AuditService,
+    private rates: RatesService,
   ) {}
 
   private async nextNumber(
@@ -111,6 +139,335 @@ export class TripsService {
       entityId: tripId,
     });
     return updated;
+  }
+
+  async updateDates(user: AuthUser, tripId: string, input: UpdateTripDatesInput) {
+    const trip = await this.prisma.trip.findFirst({
+      where: { id: tripId, organizationId: user.organizationId, deletedAt: null },
+    });
+    if (!trip) throw new NotFoundException('Trip not found');
+
+    const previousStartIso = tripStartIso(trip.startDate);
+    const nextStart =
+      input.startDate !== undefined
+        ? input.startDate
+          ? new Date(input.startDate)
+          : null
+        : trip.startDate;
+    const nextEnd =
+      input.endDate !== undefined
+        ? input.endDate
+          ? new Date(input.endDate)
+          : null
+        : trip.endDate;
+
+    const startIso = tripStartIso(nextStart);
+    const endIso = tripStartIso(nextEnd);
+    if (startIso && endIso && endIso < startIso) {
+      throw new BadRequestException('Travel end must be on or after travel start');
+    }
+
+    const shiftQuoteDates = input.shiftQuoteDates !== false;
+    const doShift = shouldShiftQuoteDatesOnTripEdit({
+      previousStartIso,
+      nextStartIso: startIso,
+      shiftQuoteDates,
+    });
+
+    const updated = await this.prisma.trip.update({
+      where: { id: tripId },
+      data: {
+        ...(input.startDate !== undefined ? { startDate: nextStart } : {}),
+        ...(input.endDate !== undefined ? { endDate: nextEnd } : {}),
+        updatedBy: user.sub,
+      },
+    });
+
+    let dateShiftDays = 0;
+    let quoteVersionsShifted = 0;
+    let itineraryDaysReanchored = false;
+    let quoteRewriteFromStatus: CommercialQuoteRewriteStatus | null = null;
+    let quoteRewriteQuotationId: string | null = null;
+    let quoteRewriteVersionId: string | null = null;
+    let rematchMatched = 0;
+    let rematchUnmatched = 0;
+
+    if (doShift && startIso) {
+      const versions = await this.prisma.quotationVersion.findMany({
+        where: {
+          status: { in: ['draft', 'pending_approval'] },
+          quotation: {
+            tripId,
+            organizationId: user.organizationId,
+          },
+        },
+      });
+      for (const version of versions) {
+        const items: QuotationItem[] = [];
+        const raw = Array.isArray(version.itemsJson) ? version.itemsJson : [];
+        for (const row of raw) {
+          const parsed = QuotationItemSchema.safeParse(row);
+          if (parsed.success) items.push(parsed.data);
+        }
+        if (!items.length) continue;
+        const { items: shifted, shiftDays } = shiftQuoteItemsToTripStart(
+          items,
+          startIso,
+        );
+        const rematch = await rematchQuoteItemsFromRates(
+          this.rates,
+          user.organizationId,
+          shifted,
+          {
+            startDate: startIso,
+            partyId: trip.partyId ?? null,
+          },
+        );
+        const totals = calcQuoteTotals(
+          rematch.items,
+          Number(version.discountTotal) || 0,
+        );
+        await this.prisma.quotationVersion.update({
+          where: { id: version.id },
+          data: {
+            itemsJson: rematch.items as unknown as Prisma.InputJsonValue,
+            ...totals,
+            versionLock: { increment: 1 },
+          },
+        });
+        quoteVersionsShifted += 1;
+        rematchMatched += rematch.matchedCount;
+        rematchUnmatched += rematch.unmatchedCount;
+        if (Math.abs(shiftDays) > Math.abs(dateShiftDays)) {
+          dateShiftDays = shiftDays;
+        }
+      }
+
+      if (quoteVersionsShifted === 0) {
+        const rewrite = await this.createShiftedDraftFromLockedQuote(
+          user,
+          tripId,
+          startIso,
+          trip.partyId ?? null,
+        );
+        if (rewrite) {
+          quoteVersionsShifted = 1;
+          dateShiftDays = rewrite.dateShiftDays;
+          quoteRewriteFromStatus = rewrite.sourceStatus;
+          quoteRewriteQuotationId = rewrite.quotationId;
+          quoteRewriteVersionId = rewrite.versionId;
+          rematchMatched = rewrite.rematchMatched;
+          rematchUnmatched = rewrite.rematchUnmatched;
+        }
+      }
+
+      itineraryDaysReanchored = await this.reanchorTripItineraryDays(
+        user.organizationId,
+        tripId,
+        nextStart,
+      );
+    }
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorUserId: user.sub,
+      action: 'trip.dates_update',
+      entityType: 'trip',
+      entityId: tripId,
+      metadata: {
+        startDate: startIso,
+        endDate: endIso,
+        previousStartDate: previousStartIso,
+        shiftQuoteDates,
+        dateShiftDays,
+        quoteVersionsShifted,
+        itineraryDaysReanchored,
+        quoteRewriteFromStatus,
+        quoteRewriteQuotationId,
+        quoteRewriteVersionId,
+        rematchMatched,
+        rematchUnmatched,
+      },
+    });
+    return {
+      ...updated,
+      dateShiftDays,
+      quoteVersionsShifted,
+      itineraryDaysReanchored,
+      quoteRewriteFromStatus,
+      quoteRewriteQuotationId,
+      quoteRewriteVersionId,
+      rematchMatched,
+      rematchUnmatched,
+    };
+  }
+
+  /**
+   * When travel start shifts and no draft exists, clone the newest locked commercial
+   * quote (accepted → approved → sent) into a shifted + rematched draft.
+   */
+  private async createShiftedDraftFromLockedQuote(
+    user: AuthUser,
+    tripId: string,
+    startIso: string,
+    partyId: string | null,
+  ): Promise<{
+    quotationId: string;
+    versionId: string;
+    sourceStatus: CommercialQuoteRewriteStatus;
+    dateShiftDays: number;
+    rematchMatched: number;
+    rematchUnmatched: number;
+  } | null> {
+    const locked = await this.prisma.quotationVersion.findMany({
+      where: {
+        status: { in: ['accepted', 'approved', 'sent'] },
+        quotation: { tripId, organizationId: user.organizationId },
+      },
+      select: {
+        id: true,
+        status: true,
+        acceptedAt: true,
+        updatedAt: true,
+        currency: true,
+        itemsJson: true,
+        inclusions: true,
+        exclusions: true,
+        terms: true,
+        exchangeRatesJson: true,
+        discountTotal: true,
+        quotationId: true,
+      },
+    });
+    const pick = pickCommercialQuoteSourceForRewrite(locked);
+    if (!pick) return null;
+    const source = locked.find((v) => v.id === pick.id);
+    if (!source) return null;
+
+    const items: QuotationItem[] = [];
+    const raw = Array.isArray(source.itemsJson) ? source.itemsJson : [];
+    for (const row of raw) {
+      const parsed = QuotationItemSchema.safeParse(row);
+      if (parsed.success) items.push(parsed.data);
+    }
+    if (!items.length) return null;
+
+    const reminted = remintQuoteItems(items, 'shift');
+    const { items: shifted, shiftDays } = shiftQuoteItemsToTripStart(
+      reminted,
+      startIso,
+    );
+    const rematch = await rematchQuoteItemsFromRates(
+      this.rates,
+      user.organizationId,
+      shifted,
+      { startDate: startIso, partyId },
+    );
+    const totals = calcQuoteTotals(
+      rematch.items,
+      Number(source.discountTotal) || 0,
+    );
+
+    const org = await this.prisma.organization.findFirst({
+      where: { id: user.organizationId },
+      select: { settingsJson: true },
+    });
+    const validUntil = defaultValidUntilDate(
+      quoteValidityDaysFromSettings(org?.settingsJson),
+    );
+    const count = await this.prisma.quotation.count({
+      where: { organizationId: user.organizationId },
+    });
+    const currency = normalizeCurrency(source.currency || 'INR');
+    const quotation = await this.prisma.quotation.create({
+      data: {
+        organizationId: user.organizationId,
+        tripId,
+        quoteNumber: `QT-${String(count + 1).padStart(5, '0')}`,
+        versions: {
+          create: {
+            versionNumber: 1,
+            label: `v1 (date shift from ${pick.status})`,
+            status: 'draft',
+            currency,
+            validUntil,
+            itemsJson: rematch.items as unknown as Prisma.InputJsonValue,
+            inclusions: source.inclusions,
+            exclusions: source.exclusions,
+            terms: syncTermsWithValidUntil(source.terms, validUntil),
+            exchangeRatesJson: (parseQuoteFxLock(source.exchangeRatesJson) != null
+              ? source.exchangeRatesJson
+              : quoteFxLockToJson(sameCurrencyLock(currency))) as Prisma.InputJsonValue,
+            ...totals,
+            createdBy: user.sub,
+          },
+        },
+      },
+      include: { versions: { orderBy: { versionNumber: 'desc' }, take: 1 } },
+    });
+    const version = quotation.versions[0];
+    if (!version) return null;
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorUserId: user.sub,
+      action: 'quote.create_from_date_shift',
+      entityType: 'quotation',
+      entityId: quotation.id,
+      metadata: {
+        sourceVersionId: source.id,
+        sourceQuotationId: source.quotationId,
+        sourceStatus: pick.status,
+        dateShiftDays: shiftDays,
+        rematchMatched: rematch.matchedCount,
+        rematchUnmatched: rematch.unmatchedCount,
+      },
+    });
+
+    return {
+      quotationId: quotation.id,
+      versionId: version.id,
+      sourceStatus: pick.status,
+      dateShiftDays: shiftDays,
+      rematchMatched: rematch.matchedCount,
+      rematchUnmatched: rematch.unmatchedCount,
+    };
+  }
+
+  /** Align trip story day dates to trip.startDate + (dayNumber − 1). */
+  private async reanchorTripItineraryDays(
+    organizationId: string,
+    tripId: string,
+    tripStartDate: Date | null,
+  ): Promise<boolean> {
+    if (!tripStartDate) return false;
+    const itinerary = await this.prisma.itinerary.findFirst({
+      where: { tripId, organizationId },
+      include: { versions: { orderBy: { versionNumber: 'desc' }, take: 1 } },
+    });
+    const version = itinerary?.versions[0];
+    if (!version) return false;
+    const content =
+      version.contentJson &&
+      typeof version.contentJson === 'object' &&
+      !Array.isArray(version.contentJson)
+        ? { ...(version.contentJson as Record<string, unknown>) }
+        : {};
+    const rawDays = Array.isArray(content.days) ? content.days : [];
+    if (!rawDays.length) return false;
+    const { days, changed } = reanchorItineraryDaysToTripStart(
+      rawDays as Array<Record<string, unknown> & { dayNumber?: number; date?: string | null }>,
+      tripStartDate,
+    );
+    if (!changed) return false;
+    await this.prisma.itineraryVersion.update({
+      where: { id: version.id },
+      data: {
+        contentJson: { ...content, days } as Prisma.InputJsonValue,
+        versionLock: { increment: 1 },
+      },
+    });
+    return true;
   }
 
   async list(
