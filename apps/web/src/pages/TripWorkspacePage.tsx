@@ -532,6 +532,7 @@ function quoteSendBlockedReason(input: {
   rateDriftCount?: number;
   allotmentBlockCount?: number;
   capacityBlockCount?: number;
+  minStayBlockCount?: number;
   fxMissing?: boolean;
   quoteCurrency?: string;
   orgCurrency?: string;
@@ -581,6 +582,11 @@ function quoteSendBlockedReason(input: {
   if ((input.capacityBlockCount ?? 0) > 0) {
     parts.push(
       `${input.capacityBlockCount} capacity shortfall${input.capacityBlockCount === 1 ? '' : 's'} (add vehicles or reduce party)`,
+    );
+  }
+  if ((input.minStayBlockCount ?? 0) > 0) {
+    parts.push(
+      `${input.minStayBlockCount} min-stay shortfall${input.minStayBlockCount === 1 ? '' : 's'} (extend nights or acknowledge)`,
     );
   }
   if (input.fxMissing) {
@@ -1671,6 +1677,10 @@ export function TripWorkspacePage() {
     () => attentionLines.filter((r) => r.reasons.includes('capacity_risk')).length,
     [attentionLines],
   );
+  const minStayWarnCount = useMemo(
+    () => attentionLines.filter((r) => r.reasons.includes('min_stay')).length,
+    [attentionLines],
+  );
   const attentionIds = useMemo(
     () => attentionLines.map((r) => r.id),
     [attentionLines],
@@ -1815,6 +1825,7 @@ export function TripWorkspacePage() {
     rateDriftCount,
     allotmentBlockCount: allotmentWarnCount,
     capacityBlockCount: capacityWarnCount,
+    minStayBlockCount: minStayWarnCount,
     fxMissing,
     quoteCurrency,
     orgCurrency,
@@ -1834,6 +1845,7 @@ export function TripWorkspacePage() {
     rateDriftCount,
     allotmentBlockCount: allotmentWarnCount,
     capacityBlockCount: capacityWarnCount,
+    minStayBlockCount: minStayWarnCount,
     fxMissing,
     quoteCurrency,
     orgCurrency,
@@ -3136,6 +3148,7 @@ export function TripWorkspacePage() {
         rateDriftCount,
         allotmentBlockCount: allotmentWarnCount,
         capacityBlockCount: capacityWarnCount,
+        minStayBlockCount: minStayWarnCount,
         minMarginPercent: quoteMinMarginPercent,
         canViewCost: Boolean(canViewCost),
         hasValidUntil,
@@ -3180,6 +3193,7 @@ export function TripWorkspacePage() {
       rateDriftCount,
       allotmentBlockCount: allotmentWarnCount,
       capacityBlockCount: capacityWarnCount,
+      minStayBlockCount: minStayWarnCount,
       minMarginPercent: quoteMinMarginPercent,
       canViewCost: Boolean(canViewCost),
       hasValidUntil,

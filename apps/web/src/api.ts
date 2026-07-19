@@ -292,6 +292,13 @@ export type HotelOccupancyPricing = {
   extraAdultPerNight?: number;
   childWithBedPerNight?: number;
   childWithoutBedPerNight?: number;
+  adultBands?: Array<{
+    adults: number;
+    unitCostPerNight: number;
+    weekendUnitCostPerNight?: number;
+  }>;
+  minStayNights?: number;
+  nationality?: string;
   dateSupplements?: Array<{
     date?: string;
     from?: string;
@@ -317,6 +324,8 @@ export type SupplierHotelRateRow = {
   startDate?: string | null;
   endDate?: string | null;
   isActive: boolean;
+  versionNumber?: number | null;
+  supersedesId?: string | null;
   updatedAt?: string | null;
   place?: { id: string; name: string; kind?: string } | null;
   contract?: { id: string; title: string; versionNumber?: number | null; status?: string } | null;
@@ -338,6 +347,8 @@ export type SupplierActivityRateRow = {
   startDate?: string | null;
   endDate?: string | null;
   isActive: boolean;
+  versionNumber?: number | null;
+  supersedesId?: string | null;
   updatedAt?: string | null;
   place?: { id: string; name: string; kind?: string } | null;
   supplier?: { id: string; name: string; type?: string } | null;
@@ -360,6 +371,8 @@ export type SupplierTransferFareRow = {
   endDate?: string | null;
   isActive: boolean;
   isSystem?: boolean;
+  versionNumber?: number | null;
+  supersedesId?: string | null;
   updatedAt?: string | null;
   fromPlace?: { id: string; name: string; kind?: string } | null;
   toPlace?: { id: string; name: string; kind?: string } | null;

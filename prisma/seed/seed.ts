@@ -2699,10 +2699,67 @@ async function seedRichAgencyData(
     extraAdultPerNight: 1500,
     childWithBedPerNight: 1000,
     childWithoutBedPerNight: 500,
+    minStayNights: 2,
+    nationality: 'IN',
+    adultBands: [
+      {
+        adults: 1,
+        unitCostPerNight: 3600,
+        weekendUnitCostPerNight: 4100,
+      },
+      {
+        adults: 2,
+        unitCostPerNight: 4500,
+        weekendUnitCostPerNight: 5200,
+      },
+      {
+        adults: 3,
+        unitCostPerNight: 5800,
+        weekendUnitCostPerNight: 6700,
+      },
+    ],
+  };
+
+  const heritageAutumnOccupancy = {
+    ...heritageOccupancy,
+    adultBands: [
+      {
+        adults: 1,
+        unitCostPerNight: 4200,
+        weekendUnitCostPerNight: 4800,
+      },
+      {
+        adults: 2,
+        unitCostPerNight: 5200,
+        weekendUnitCostPerNight: 6000,
+      },
+      {
+        adults: 3,
+        unitCostPerNight: 6700,
+        weekendUnitCostPerNight: 7700,
+      },
+    ],
   };
 
   const heritageWinterOccupancy = {
     ...heritageOccupancy,
+    adultBands: [
+      {
+        adults: 1,
+        unitCostPerNight: 5200,
+        weekendUnitCostPerNight: 6000,
+      },
+      {
+        adults: 2,
+        unitCostPerNight: 6500,
+        weekendUnitCostPerNight: 7500,
+      },
+      {
+        adults: 3,
+        unitCostPerNight: 8500,
+        weekendUnitCostPerNight: 9800,
+      },
+    ],
     dateSupplements: [
       {
         date: '2026-12-24',
@@ -2729,6 +2786,109 @@ async function seedRichAgencyData(
     endDate: '2026-06-30',
     occupancyPricing: heritageOccupancy,
   });
+  /** Sister INTL MAP — same spring window, foreign market (nationality Match demo). */
+  await ensureAgencyHotelRate({
+    supplierId: darjeelingHeritageHotel.id,
+    placeId: darjeeling.placeId,
+    contractId: darjeelingHeritageContract.id,
+    roomType: 'Deluxe mountain view',
+    mealPlan: 'MAP',
+    unitCost: 5800,
+    weekendUnitCost: 6700,
+    startDate: '2026-04-01',
+    endDate: '2026-06-30',
+    occupancyPricing: {
+      ...heritageOccupancy,
+      nationality: 'INTL',
+      extraAdultPerNight: 1800,
+      adultBands: [
+        {
+          adults: 1,
+          unitCostPerNight: 4600,
+          weekendUnitCostPerNight: 5300,
+        },
+        {
+          adults: 2,
+          unitCostPerNight: 5800,
+          weekendUnitCostPerNight: 6700,
+        },
+        {
+          adults: 3,
+          unitCostPerNight: 7500,
+          weekendUnitCostPerNight: 8600,
+        },
+      ],
+    },
+  });
+  /** Sister US MAP — same spring window, country tip (per-ISO Match demo). */
+  await ensureAgencyHotelRate({
+    supplierId: darjeelingHeritageHotel.id,
+    placeId: darjeeling.placeId,
+    contractId: darjeelingHeritageContract.id,
+    roomType: 'Deluxe mountain view',
+    mealPlan: 'MAP',
+    unitCost: 6200,
+    weekendUnitCost: 7100,
+    startDate: '2026-04-01',
+    endDate: '2026-06-30',
+    occupancyPricing: {
+      ...heritageOccupancy,
+      nationality: 'US',
+      extraAdultPerNight: 2000,
+      adultBands: [
+        {
+          adults: 1,
+          unitCostPerNight: 5000,
+          weekendUnitCostPerNight: 5700,
+        },
+        {
+          adults: 2,
+          unitCostPerNight: 6200,
+          weekendUnitCostPerNight: 7100,
+        },
+        {
+          adults: 3,
+          unitCostPerNight: 8000,
+          weekendUnitCostPerNight: 9100,
+        },
+      ],
+    },
+  });
+  /** Sister CP row — same spring window + bands (meal×occupancy contracting demo). */
+  await ensureAgencyHotelRate({
+    supplierId: darjeelingHeritageHotel.id,
+    placeId: darjeeling.placeId,
+    contractId: darjeelingHeritageContract.id,
+    roomType: 'Deluxe mountain view',
+    mealPlan: 'CP',
+    unitCost: 4050,
+    weekendUnitCost: 4680,
+    startDate: '2026-04-01',
+    endDate: '2026-06-30',
+    occupancyPricing: {
+      ...heritageOccupancy,
+      extraAdultPerNight: 1350,
+      childWithBedPerNight: 900,
+      childWithoutBedPerNight: 450,
+      adultBands: [
+        {
+          adults: 1,
+          unitCostPerNight: 3240,
+          weekendUnitCostPerNight: 3690,
+        },
+        {
+          adults: 2,
+          unitCostPerNight: 4050,
+          weekendUnitCostPerNight: 4680,
+        },
+        {
+          adults: 3,
+          unitCostPerNight: 5220,
+          weekendUnitCostPerNight: 6030,
+        },
+      ],
+    },
+  });
   await ensureAgencyHotelRate({
     supplierId: darjeelingHeritageHotel.id,
     placeId: darjeeling.placeId,
@@ -2739,7 +2899,7 @@ async function seedRichAgencyData(
     weekendUnitCost: 6000,
     startDate: '2026-10-01',
     endDate: '2026-12-20',
-    occupancyPricing: heritageOccupancy,
+    occupancyPricing: heritageAutumnOccupancy,
   });
   await ensureAgencyHotelRate({
     supplierId: darjeelingHeritageHotel.id,

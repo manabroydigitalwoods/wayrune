@@ -6,6 +6,8 @@ import { formatHotelOccupancyExtraNote } from './hotelOccupancyExtraNote';
 import { formatHotelDateSupplementNote } from './hotelDateSupplementNote';
 import { formatHotelWeekendNightNote } from './hotelWeekendNightNote';
 import { formatHotelCancellationNote } from './hotelCancellationNote';
+import { hotelMinStayBlocksSend } from './hotelMinStayNote';
+import { formatHotelNationalityNote } from './hotelNationalityNote';
 import {
   activityChildAgeCalcFromProvenance,
   formatActivityChildAgeNote,
@@ -36,11 +38,17 @@ export type QuoteAttentionLineInput = {
     capacityWarn?: boolean | null;
     capacityRiskAckForNote?: string | null;
     capacityRiskAckReason?: string | null;
+    minStayNote?: string | null;
+    minStayWarn?: boolean | null;
+    minStayRiskAckForNote?: string | null;
+    minStayRiskAckReason?: string | null;
     calculation?: {
       occupancyExtraTotal?: number | null;
       extraAdultCount?: number | null;
       childWithBedCount?: number | null;
       childWithoutBedCount?: number | null;
+      adultBandAdults?: number | null;
+      adultBandUnitCost?: number | null;
       dateSupplementTotal?: number | null;
       dateSupplements?: Array<{
         night?: string | null;
@@ -50,6 +58,12 @@ export type QuoteAttentionLineInput = {
       weekendNights?: number | null;
       weekendUnit?: number | null;
       rooms?: number | null;
+      minStayNights?: number | null;
+      stayNights?: number | null;
+      minStayShort?: boolean | null;
+      minStayNote?: string | null;
+      nationality?: string | null;
+      guestNationality?: string | null;
       cancellationSummary?: string | null;
       adults?: number | null;
       children?: number | null;
@@ -78,6 +92,8 @@ export type QuoteAttentionReason =
   | 'occupancy_extra'
   | 'gala'
   | 'weekend'
+  | 'min_stay'
+  | 'nationality'
   | 'cancel_policy'
   | 'ages_as_adult';
 
@@ -114,6 +130,10 @@ export function quoteAttentionReasonLabel(reason: QuoteAttentionReason): string 
       return 'Gala';
     case 'weekend':
       return 'Weekend';
+    case 'min_stay':
+      return 'Min stay';
+    case 'nationality':
+      return 'Nationality';
     case 'cancel_policy':
       return 'Cancel';
     case 'ages_as_adult':
@@ -149,11 +169,15 @@ export function quoteAttentionReasons(
   if (transferCapacityBlocksSend(line.rateProvenance)) {
     reasons.push('capacity_risk');
   }
+  if (hotelMinStayBlocksSend(line.rateProvenance)) {
+    reasons.push('min_stay');
+  }
 
   const calc = line.rateProvenance?.calculation;
   if (formatHotelOccupancyExtraNote(calc)) reasons.push('occupancy_extra');
   if (formatHotelDateSupplementNote(calc)) reasons.push('gala');
   if (formatHotelWeekendNightNote(calc)) reasons.push('weekend');
+  if (formatHotelNationalityNote(calc)) reasons.push('nationality');
   if (formatHotelCancellationNote(calc?.cancellationSummary)) {
     reasons.push('cancel_policy');
   }

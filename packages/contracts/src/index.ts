@@ -2791,6 +2791,8 @@ export const QuotationItemDetailsSchema = z
     /** Canonical AssetRoomProduct id when known. */
     roomProductId: z.string().optional(),
     mealPlan: z.string().optional(),
+    /** Guest market for hotel Match: IN | INTL | ISO country (foreign → INTL). */
+    nationality: z.string().optional(),
     nights: z.number().optional(),
     rooms: z.number().optional(),
     checkIn: z.string().optional(),
@@ -2855,6 +2857,8 @@ export const QuoteRateProvenanceSchema = z.object({
   roomType: z.string().optional(),
   roomProductId: z.string().optional(),
   mealPlan: z.string().optional(),
+  nationality: z.string().optional(),
+  rateVersionNumber: z.number().optional(),
   pricingMode: z.string().optional(),
   startDate: z.string().optional(),
   endDate: z.string().optional(),
@@ -2882,6 +2886,14 @@ export const QuoteRateProvenanceSchema = z.object({
   capacityRiskAckForNote: z.string().optional(),
   /** Editor reason recorded with capacity shortfall acknowledge. */
   capacityRiskAckReason: z.string().optional(),
+  /** Min-stay shortfall cue from last Match (hotel). */
+  minStayNote: z.string().optional(),
+  /** True when stay nights &lt; rate min stay — blocks send unless acked. */
+  minStayWarn: z.boolean().optional(),
+  /** `minStayNote` fingerprint acknowledged to allow send despite shortfall. */
+  minStayRiskAckForNote: z.string().optional(),
+  /** Editor reason recorded with min-stay shortfall acknowledge. */
+  minStayRiskAckReason: z.string().optional(),
   /** Seats per vehicle from last Match — used to restamp capacity when Vehicles change without rematch. */
   vehicleSeats: z.number().optional(),
   currency: z.string().optional(),
@@ -2905,6 +2917,16 @@ export const QuoteRateProvenanceSchema = z.object({
       extraAdultCount: z.number().optional(),
       childWithBedCount: z.number().optional(),
       childWithoutBedCount: z.number().optional(),
+      adultBandAdults: z.number().optional(),
+      adultBandUnitCost: z.number().optional(),
+      adultBandWeekendUnitCost: z.number().optional(),
+      adultsPerRoom: z.number().optional(),
+      minStayNights: z.number().optional(),
+      stayNights: z.number().optional(),
+      minStayShort: z.boolean().optional(),
+      minStayNote: z.string().optional(),
+      nationality: z.string().nullable().optional(),
+      guestNationality: z.string().nullable().optional(),
       dateSupplementTotal: z.number().optional(),
       dateSupplements: z
         .array(
@@ -2990,6 +3012,20 @@ export const HotelOccupancyPricingSchema = z
     extraAdultPerNight: z.number().nonnegative().optional(),
     childWithBedPerNight: z.number().nonnegative().optional(),
     childWithoutBedPerNight: z.number().nonnegative().optional(),
+    /** SGL/DBL/TPL weekday bases (≤3). Meal stays on the season row. */
+    adultBands: z
+      .array(
+        z.object({
+          adults: z.number().int().min(1).max(3),
+          unitCostPerNight: z.number().nonnegative(),
+          weekendUnitCostPerNight: z.number().nonnegative().optional(),
+        }),
+      )
+      .max(3)
+      .optional(),
+    minStayNights: z.number().int().min(1).max(30).optional(),
+    /** IN | INTL — blank/omit = any nationality. */
+    nationality: z.string().max(8).optional(),
   })
   .nullable()
   .optional();
@@ -3024,6 +3060,21 @@ export const UpdateSupplierHotelRateSchema = z.object({
   startDate: z.preprocess(blankToNull, z.string().nullable()).optional(),
   endDate: z.preprocess(blankToNull, z.string().nullable()).optional(),
   isActive: z.boolean().optional(),
+});
+
+/** Restore a historical hotel rate tip as a new active version. */
+export const RestoreHotelRateVersionSchema = z.object({
+  sourceVersionId: z.string().min(1),
+});
+
+/** Restore a historical transfer fare tip as a new active version. */
+export const RestoreTransferFareVersionSchema = z.object({
+  sourceVersionId: z.string().min(1),
+});
+
+/** Restore a historical activity rate tip as a new active version. */
+export const RestoreActivityRateVersionSchema = z.object({
+  sourceVersionId: z.string().min(1),
 });
 
 export const ActivityPrivateOrSicSchema = z.enum(['private', 'sic']);
@@ -3197,6 +3248,8 @@ export const ResolveRatesItemSchema = z.object({
       infants: z.number().optional(),
       childrenWithoutBed: z.number().optional(),
       childAges: z.array(z.number()).optional(),
+      /** Guest nationality for hotel market Match (IN / INTL / ISO). */
+      nationality: z.string().optional(),
       vehicleTypeId: z.string().optional(),
       fromPlaceId: z.string().optional(),
       toPlaceId: z.string().optional(),
@@ -3214,6 +3267,8 @@ export const ResolveRatesSchema = z.object({
   adults: z.number().int().nonnegative().optional(),
   children: z.number().int().nonnegative().optional(),
   infants: z.number().int().nonnegative().optional(),
+  /** Lead / party nationality for hotel market Match (IN / INTL / ISO). */
+  nationality: z.preprocess(blankToNull, z.string().nullable()).optional(),
   /** When set, resolve may use agentMarkupPercent for trade/B2B parties. */
   partyId: z.preprocess(blankToNull, z.string().nullable()).optional(),
   items: z.array(ResolveRatesItemSchema).min(1).max(200),
@@ -3259,7 +3314,7 @@ export const RecordQuoteMarginOverridesSchema = z.object({
 export type RecordQuoteMarginOverridesInput = z.infer<typeof RecordQuoteMarginOverridesSchema>;
 
 /**
- * Manager-gated allotment / capacity send-anyway (`inventory_risk.approve`).
+ * Manager-gated allotment / capacity / min-stay send-anyway (`inventory_risk.approve`).
  * Stamps note fingerprint + reason on selected lines that currently block send.
  */
 export const RecordQuoteInventoryRiskAcksSchema = z.object({
@@ -3695,6 +3750,13 @@ export type CloneQuotationInput = z.infer<typeof CloneQuotationSchema>;
 export type HotelOccupancyPricing = NonNullable<z.infer<typeof HotelOccupancyPricingSchema>>;
 export type CreateSupplierHotelRateInput = z.infer<typeof CreateSupplierHotelRateSchema>;
 export type UpdateSupplierHotelRateInput = z.infer<typeof UpdateSupplierHotelRateSchema>;
+export type RestoreHotelRateVersionInput = z.infer<typeof RestoreHotelRateVersionSchema>;
+export type RestoreTransferFareVersionInput = z.infer<
+  typeof RestoreTransferFareVersionSchema
+>;
+export type RestoreActivityRateVersionInput = z.infer<
+  typeof RestoreActivityRateVersionSchema
+>;
 export type CreateSupplierActivityRateInput = z.infer<typeof CreateSupplierActivityRateSchema>;
 export type UpdateSupplierActivityRateInput = z.infer<typeof UpdateSupplierActivityRateSchema>;
 export type CreateTransferFareInput = z.infer<typeof CreateTransferFareSchema>;
@@ -3740,6 +3802,7 @@ export { tripTravelEndOnOrAfterStart } from './trip-travel-dates';
 
 export * from './commerce-foundation';
 export * from './org-markup';
+export * from './iso3166-alpha2';
 
 export {
   extraModulesCss,
@@ -3838,6 +3901,7 @@ export {
 export {
   lineNeedsAllotmentRiskAck,
   lineNeedsCapacityRiskAck,
+  lineNeedsMinStayRiskAck,
 } from './quote-inventory-risk-ack';
 
 export {

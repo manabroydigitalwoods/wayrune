@@ -6,7 +6,9 @@ import {
   formatHoursCompact,
   formatHoursTargetCue,
   formatMinutesTargetCue,
+  formatFitClaimProtocolCue,
   salesSlaMedianTone,
+  type FitClaimProtocolCue,
 } from './salesSlaFormat';
 
 export type SalesSlaStats = {
@@ -17,6 +19,7 @@ export type SalesSlaStats = {
   leadToQuoteSampleSize30d?: number;
   medianFitBuildMinutes30d?: number | null;
   fitBuildSampleSize30d?: number;
+  fitClaimProtocol?: FitClaimProtocolCue | null;
   firstTouchTargetHours?: number | null;
   leadToQuoteTargetHours?: number | null;
   fitBuildTargetMinutes?: number | null;
@@ -59,6 +62,8 @@ export function SalesSlaHomeStats({ data }: { data: SalesSlaStats }) {
   const firstTouchCue = formatHoursTargetCue(data.firstTouchTargetHours);
   const leadToQuoteCue = formatHoursTargetCue(data.leadToQuoteTargetHours);
   const fitBuildCue = formatMinutesTargetCue(data.fitBuildTargetMinutes);
+  const fitClaimCue = formatFitClaimProtocolCue(data.fitClaimProtocol);
+  const fitCardCue = [fitClaimCue, fitBuildCue].filter(Boolean).join(' · ') || null;
 
   return (
     <div className="mb-4 space-y-4">
@@ -67,8 +72,9 @@ export function SalesSlaHomeStats({ data }: { data: SalesSlaStats }) {
           <h2 className="text-sm font-semibold">Sales response</h2>
           <p className="text-xs text-muted-foreground">
             Lead follow-ups and turnaround (last 30 days). Creating a lead follow-up task stamps the
-            lead due date. FIT build is workspace open → first successful send. Optional targets live
-            in Settings → General.
+            lead due date. FIT build is workspace open → first successful send. Public “under 3
+            minutes” stays testing until sample size and median clear the claim gate. Optional
+            internal targets live in Settings → General.
           </p>
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
@@ -109,12 +115,18 @@ export function SalesSlaHomeStats({ data }: { data: SalesSlaStats }) {
             label="Median FIT build"
             value={medianValue(
               formatMinutesCompact(data.medianFitBuildMinutes30d),
-              fitBuildCue,
+              fitCardCue,
             )}
-            tone={salesSlaMedianTone(
-              data.medianFitBuildMinutes30d,
-              data.fitBuildTargetMinutes,
-            )}
+            tone={
+              data.fitClaimProtocol?.publicClaimAllowed
+                ? 'success'
+                : salesSlaMedianTone(
+                    data.medianFitBuildMinutes30d,
+                    data.fitBuildTargetMinutes ??
+                      data.fitClaimProtocol?.targetMinutes ??
+                      3,
+                  )
+            }
             icon={FileText}
             onClick={() => navigate(AGENCY_ROUTES.workQuotations)}
           />
@@ -132,6 +144,7 @@ export function SalesSlaHomeStats({ data }: { data: SalesSlaStats }) {
           <p className="text-[11px] text-muted-foreground">
             Samples · first touch {data.firstTouchSampleSize30d ?? 0} · quoted{' '}
             {data.leadToQuoteSampleSize30d ?? 0} · FIT build {data.fitBuildSampleSize30d ?? 0}
+            {fitClaimCue ? ` · ${fitClaimCue}` : ''}
           </p>
         )}
       </div>

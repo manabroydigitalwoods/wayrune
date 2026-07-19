@@ -1,0 +1,384 @@
+/**
+ * Compact CP/MAP/AP × SGL/DBL/TPL matrix for hotel rate charts.
+ * Meal stays on the season row; occupancy bands stay on occupancyPricingJson.
+ */
+
+import { normalizeHotelNationalityUi } from './hotelNationalityNote';
+
+export const MEAL_MATRIX_PLANS = ['EP', 'CP', 'MAP', 'AP'] as const;
+export type MealMatrixPlan = (typeof MEAL_MATRIX_PLANS)[number];
+
+export const MATRIX_ADULT_BANDS = [1, 2, 3] as const;
+export type MatrixAdultBand = (typeof MATRIX_ADULT_BANDS)[number];
+
+export type MealOccupancyMatrixCell = {
+  mealPlan: MealMatrixPlan;
+  adults: MatrixAdultBand;
+  unitCost: string;
+};
+
+export type MealOccupancyMatrixRate = {
+  id: string;
+  mealPlan?: string | null;
+  roomType?: string | null;
+  roomProductId?: string | null;
+  contractId?: string | null;
+  placeId?: string | null;
+  place?: { id: string } | null;
+  startDate?: string | Date | null;
+  endDate?: string | Date | null;
+  unitCost: number | string;
+  weekendUnitCost?: number | string | null;
+  occupancyPricingJson?: unknown;
+};
+
+export type MealOccupancyMatrixSeason = {
+  roomType: string | null;
+  roomProductId: string | null;
+  contractId: string | null;
+  placeId: string | null;
+  startDate: string;
+  endDate: string;
+};
+
+export type MealOccupancyMatrixUpsert = {
+  mealPlan: MealMatrixPlan;
+  existingId: string | null;
+  unitCost: number;
+  weekendUnitCost: number | null;
+  adultBands: Array<{ adults: number; unitCostPerNight: number }>;
+  /** True when adult bands or chart unitCost differ from existing. */
+  changed: boolean;
+};
+
+function isoDate(raw?: string | Date | null): string {
+  if (!raw) return '';
+  if (typeof raw === 'string') return raw.slice(0, 10);
+  return raw.toISOString().slice(0, 10);
+}
+
+export function normalizeMatrixMealPlan(
+  raw: string | null | undefined,
+): MealMatrixPlan | null {
+  const c = String(raw || '')
+    .trim()
+    .toUpperCase();
+  return (MEAL_MATRIX_PLANS as readonly string[]).includes(c)
+    ? (c as MealMatrixPlan)
+    : null;
+}
+
+/** Season family key — same room + contract + place + date window + nationality market. */
+export function hotelRateSeasonKey(rate: {
+  roomType?: string | null;
+  roomProductId?: string | null;
+  contractId?: string | null;
+  placeId?: string | null;
+  place?: { id: string } | null;
+  startDate?: string | Date | null;
+  endDate?: string | Date | null;
+  occupancyPricingJson?: unknown;
+}): string {
+  const placeId = rate.placeId || rate.place?.id || '';
+  const room =
+    rate.roomProductId?.trim() ||
+    (rate.roomType || '').trim().toLowerCase() ||
+    '';
+  const natRaw =
+    rate.occupancyPricingJson &&
+    typeof rate.occupancyPricingJson === 'object' &&
+    !Array.isArray(rate.occupancyPricingJson) &&
+    typeof (rate.occupancyPricingJson as { nationality?: unknown }).nationality ===
+      'string'
+      ? String(
+          (rate.occupancyPricingJson as { nationality: string }).nationality,
+        )
+      : '';
+  const nat = normalizeHotelNationalityUi(natRaw);
+  return [
+    room,
+    rate.contractId || '',
+    placeId,
+    isoDate(rate.startDate),
+    isoDate(rate.endDate),
+    nat,
+  ].join('|');
+}
+
+export function emptyMealOccupancyMatrixCells(): MealOccupancyMatrixCell[] {
+  const cells: MealOccupancyMatrixCell[] = [];
+  for (const mealPlan of MEAL_MATRIX_PLANS) {
+    for (const adults of MATRIX_ADULT_BANDS) {
+      cells.push({ mealPlan, adults, unitCost: '' });
+    }
+  }
+  return cells;
+}
+
+function adultBandsFromOccupancy(raw: unknown): Map<number, number> {
+  const map = new Map<number, number>();
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return map;
+  const bands = (raw as { adultBands?: unknown }).adultBands;
+  if (!Array.isArray(bands)) return map;
+  for (const row of bands) {
+    if (!row || typeof row !== 'object') continue;
+    const adults = Number((row as { adults?: unknown }).adults);
+    const cost = Number(
+      (row as { unitCostPerNight?: unknown; unitCost?: unknown })
+        .unitCostPerNight ?? (row as { unitCost?: unknown }).unitCost,
+    );
+    if (
+      (adults === 1 || adults === 2 || adults === 3) &&
+      Number.isFinite(cost) &&
+      cost >= 0
+    ) {
+      map.set(adults, cost);
+    }
+  }
+  return map;
+}
+
+/**
+ * Build editable cells for a season family, using the anchor rate's siblings.
+ * When a meal row has no adultBands, DBL is seeded from chart unitCost.
+ */
+export function buildMealOccupancyMatrix(
+  rates: MealOccupancyMatrixRate[],
+  anchor: MealOccupancyMatrixRate,
+): {
+  season: MealOccupancyMatrixSeason;
+  cells: MealOccupancyMatrixCell[];
+  byMeal: Partial<Record<MealMatrixPlan, MealOccupancyMatrixRate>>;
+} {
+  const key = hotelRateSeasonKey(anchor);
+  const siblings = rates.filter((r) => hotelRateSeasonKey(r) === key);
+  const byMeal: Partial<Record<MealMatrixPlan, MealOccupancyMatrixRate>> = {};
+  for (const r of siblings) {
+    const meal = normalizeMatrixMealPlan(r.mealPlan);
+    if (!meal) continue;
+    byMeal[meal] = r;
+  }
+
+  const cells = emptyMealOccupancyMatrixCells().map((cell) => {
+    const rate = byMeal[cell.mealPlan];
+    if (!rate) return cell;
+    const bands = adultBandsFromOccupancy(rate.occupancyPricingJson);
+    if (bands.has(cell.adults)) {
+      return { ...cell, unitCost: String(bands.get(cell.adults)) };
+    }
+    if (cell.adults === 2 && bands.size === 0) {
+      const n = Number(rate.unitCost);
+      if (Number.isFinite(n) && n >= 0) {
+        return { ...cell, unitCost: String(n) };
+      }
+    }
+    return cell;
+  });
+
+  return {
+    season: {
+      roomType: anchor.roomType?.trim() || null,
+      roomProductId: anchor.roomProductId || null,
+      contractId: anchor.contractId || null,
+      placeId: anchor.placeId || anchor.place?.id || null,
+      startDate: isoDate(anchor.startDate),
+      endDate: isoDate(anchor.endDate),
+    },
+    cells,
+    byMeal,
+  };
+}
+
+function parseCellCost(raw: string): number | null {
+  const t = raw.trim();
+  if (!t) return null;
+  const n = Number(t);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n;
+}
+
+function bandsEqual(
+  a: Array<{ adults: number; unitCostPerNight: number }>,
+  b: Array<{ adults: number; unitCostPerNight: number }>,
+): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (
+      a[i]!.adults !== b[i]!.adults ||
+      a[i]!.unitCostPerNight !== b[i]!.unitCostPerNight
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Diff edited cells against existing sibling rates.
+ * Empty meal rows are skipped (no delete). Invalid costs throw via caller toast.
+ */
+export function diffMealOccupancyMatrix(opts: {
+  cells: MealOccupancyMatrixCell[];
+  byMeal: Partial<Record<MealMatrixPlan, MealOccupancyMatrixRate>>;
+  /** Anchor used for weekend ratio on creates. */
+  anchor: MealOccupancyMatrixRate;
+}): { upserts: MealOccupancyMatrixUpsert[]; errors: string[] } {
+  const errors: string[] = [];
+  const upserts: MealOccupancyMatrixUpsert[] = [];
+  const anchorCost = Number(opts.anchor.unitCost);
+  const anchorWeekend =
+    opts.anchor.weekendUnitCost != null && opts.anchor.weekendUnitCost !== ''
+      ? Number(opts.anchor.weekendUnitCost)
+      : null;
+  const weekendRatio =
+    Number.isFinite(anchorCost) &&
+    anchorCost > 0 &&
+    anchorWeekend != null &&
+    Number.isFinite(anchorWeekend) &&
+    anchorWeekend >= 0
+      ? anchorWeekend / anchorCost
+      : null;
+
+  for (const meal of MEAL_MATRIX_PLANS) {
+    const mealCells = opts.cells.filter((c) => c.mealPlan === meal);
+    const adultBands: Array<{ adults: number; unitCostPerNight: number }> = [];
+    for (const cell of mealCells) {
+      const raw = cell.unitCost.trim();
+      if (!raw) continue;
+      const n = parseCellCost(raw);
+      if (n == null) {
+        errors.push(`${meal} ${cell.adults}A must be a valid cost`);
+        continue;
+      }
+      adultBands.push({ adults: cell.adults, unitCostPerNight: n });
+    }
+    if (!adultBands.length) continue;
+
+    const dbl = adultBands.find((b) => b.adults === 2)?.unitCostPerNight;
+    const unitCost = dbl ?? adultBands[0]!.unitCostPerNight;
+    const existing = opts.byMeal[meal] ?? null;
+    const weekendUnitCost =
+      weekendRatio != null
+        ? Math.round(unitCost * weekendRatio)
+        : existing?.weekendUnitCost != null && existing.weekendUnitCost !== ''
+          ? Number(existing.weekendUnitCost)
+          : null;
+
+    const existingBands = existing
+      ? [...adultBandsFromOccupancy(existing.occupancyPricingJson).entries()]
+          .sort((a, b) => a[0] - b[0])
+          .map(([adults, unitCostPerNight]) => ({ adults, unitCostPerNight }))
+      : [];
+    const existingUnit = existing != null ? Number(existing.unitCost) : null;
+    const changed =
+      !existing ||
+      !bandsEqual(adultBands, existingBands) ||
+      existingUnit !== unitCost;
+
+    upserts.push({
+      mealPlan: meal,
+      existingId: existing?.id ?? null,
+      unitCost,
+      weekendUnitCost:
+        weekendUnitCost != null && Number.isFinite(weekendUnitCost)
+          ? weekendUnitCost
+          : null,
+      adultBands,
+      changed,
+    });
+  }
+
+  return { upserts, errors };
+}
+
+/** Count cells with a cost — for empty-state / toast. */
+export function countFilledMatrixCells(cells: MealOccupancyMatrixCell[]): number {
+  return cells.filter((c) => c.unitCost.trim()).length;
+}
+
+export function setMatrixCellCost(
+  cells: MealOccupancyMatrixCell[],
+  mealPlan: MealMatrixPlan,
+  adults: MatrixAdultBand,
+  unitCost: string,
+): MealOccupancyMatrixCell[] {
+  return cells.map((c) =>
+    c.mealPlan === mealPlan && c.adults === adults ? { ...c, unitCost } : c,
+  );
+}
+
+/**
+ * Merge adultBands into existing occupancy JSON (preserve extras / gala).
+ * When weekday-only bands are supplied, keep prior weekend-per-band if present;
+ * else stamp weekend from ratio when provided.
+ */
+export function occupancyJsonWithAdultBands(
+  existing: unknown,
+  adultBands: Array<{
+    adults: number;
+    unitCostPerNight: number;
+    weekendUnitCostPerNight?: number;
+  }>,
+  opts?: { weekendRatio?: number | null },
+): Record<string, unknown> {
+  const base =
+    existing && typeof existing === 'object' && !Array.isArray(existing)
+      ? { ...(existing as Record<string, unknown>) }
+      : { baseAdults: 2, baseChildren: 0 };
+  const priorRows =
+    existing &&
+    typeof existing === 'object' &&
+    Array.isArray((existing as { adultBands?: unknown }).adultBands)
+      ? ((existing as { adultBands: Array<Record<string, unknown>> }).adultBands)
+      : [];
+  const ratio =
+    opts?.weekendRatio != null &&
+    Number.isFinite(opts.weekendRatio) &&
+    opts.weekendRatio > 0
+      ? opts.weekendRatio
+      : null;
+  const merged = adultBands.map((b) => {
+    if (b.weekendUnitCostPerNight != null) {
+      return {
+        adults: b.adults,
+        unitCostPerNight: b.unitCostPerNight,
+        weekendUnitCostPerNight: b.weekendUnitCostPerNight,
+      };
+    }
+    const priorRow = priorRows.find((r) => Number(r?.adults) === b.adults);
+    const priorWeekend = moneyField(
+      priorRow?.weekendUnitCostPerNight ?? priorRow?.weekendUnitCost,
+    );
+    if (priorWeekend != null) {
+      return {
+        adults: b.adults,
+        unitCostPerNight: b.unitCostPerNight,
+        weekendUnitCostPerNight: priorWeekend,
+      };
+    }
+    if (ratio != null) {
+      return {
+        adults: b.adults,
+        unitCostPerNight: b.unitCostPerNight,
+        weekendUnitCostPerNight: Math.round(b.unitCostPerNight * ratio),
+      };
+    }
+    return {
+      adults: b.adults,
+      unitCostPerNight: b.unitCostPerNight,
+    };
+  });
+  return {
+    ...base,
+    adultBands: merged,
+  };
+}
+
+function moneyField(v: unknown): number | undefined {
+  if (typeof v === 'number' && Number.isFinite(v) && v >= 0) return v;
+  if (typeof v === 'string' && v.trim() && Number.isFinite(Number(v))) {
+    const n = Number(v);
+    return n >= 0 ? n : undefined;
+  }
+  return undefined;
+}

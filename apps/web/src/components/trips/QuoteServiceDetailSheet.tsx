@@ -37,6 +37,16 @@ import {
 import { formatHotelOccupancyExtraNote } from '../../lib/hotelOccupancyExtraNote';
 import { formatHotelDateSupplementNote } from '../../lib/hotelDateSupplementNote';
 import { formatHotelWeekendNightNote } from '../../lib/hotelWeekendNightNote';
+import {
+  formatHotelMinStayNote,
+  hotelMinStayBlocksSend,
+  hotelMinStayTone,
+} from '../../lib/hotelMinStayNote';
+import {
+  HOTEL_NATIONALITY_OPTIONS,
+  formatHotelNationalityNote,
+  normalizeHotelNationalityUi,
+} from '../../lib/hotelNationalityNote';
 import { formatHotelCancellationNote } from '../../lib/hotelCancellationNote';
 import {
   activityChildAgeCalcFromProvenance,
@@ -492,6 +502,7 @@ export function QuoteServiceDetailSheet({
   const [capacityNote, setCapacityNote] = useState<string | null>(null);
   const [allotmentAckReason, setAllotmentAckReason] = useState('');
   const [capacityAckReason, setCapacityAckReason] = useState('');
+  const [minStayAckReason, setMinStayAckReason] = useState('');
   const [rateDriftAckReason, setRateDriftAckReason] = useState('');
   const unitCostRef = useRef(unitCost);
   unitCostRef.current = unitCost;
@@ -599,6 +610,7 @@ export function QuoteServiceDetailSheet({
     setCapacityNote(line.rateProvenance?.capacityNote?.trim() || null);
     setAllotmentAckReason(line.rateProvenance?.allotmentRiskAckReason?.trim() || '');
     setCapacityAckReason(line.rateProvenance?.capacityRiskAckReason?.trim() || '');
+    setMinStayAckReason(line.rateProvenance?.minStayRiskAckReason?.trim() || '');
     setRateDriftAckReason(line.rateProvenance?.rateDriftAckReason?.trim() || '');
     setRouteDistanceKm(null);
   }, [open, line, seedDetails, partyAdults, partyChildren, partyInfants, defaultMarkupPercent, tripStartDate]);
@@ -1378,7 +1390,7 @@ export function QuoteServiceDetailSheet({
     }
   }
 
-  async function recordInventoryRiskAck(kind: 'allotment' | 'capacity') {
+  async function recordInventoryRiskAck(kind: 'allotment' | 'capacity' | 'min_stay') {
     if (!line || readOnly || !rateProvenance) return;
     if (!canOverrideInventoryRisk) {
       toastError('A manager with inventory_risk.approve must acknowledge this shortfall');
@@ -1389,15 +1401,25 @@ export function QuoteServiceDetailSheet({
       return;
     }
     const reason =
-      kind === 'allotment' ? allotmentAckReason.trim() : capacityAckReason.trim();
+      kind === 'allotment'
+        ? allotmentAckReason.trim()
+        : kind === 'capacity'
+          ? capacityAckReason.trim()
+          : minStayAckReason.trim();
     const note =
       kind === 'allotment'
         ? allotmentNote?.trim() || rateProvenance.allotmentNote?.trim() || ''
-        : capacityNote?.trim() || rateProvenance.capacityNote?.trim() || '';
+        : kind === 'capacity'
+          ? capacityNote?.trim() || rateProvenance.capacityNote?.trim() || ''
+          : formatHotelMinStayNote(rateProvenance.calculation) ||
+            rateProvenance.minStayNote?.trim() ||
+            '';
     const blocks =
       kind === 'allotment'
         ? hotelAllotmentBlocksSend(rateProvenance)
-        : transferCapacityBlocksSend(rateProvenance);
+        : kind === 'capacity'
+          ? transferCapacityBlocksSend(rateProvenance)
+          : hotelMinStayBlocksSend(rateProvenance);
     if (!note || !reason || !blocks) return;
     try {
       const updated = await api<{
@@ -1411,7 +1433,9 @@ export function QuoteServiceDetailSheet({
       toastSuccess(
         kind === 'allotment'
           ? 'Allotment shortfall acknowledged — send is allowed'
-          : 'Capacity shortfall acknowledged — send is allowed',
+          : kind === 'capacity'
+            ? 'Capacity shortfall acknowledged — send is allowed'
+            : 'Min-stay shortfall acknowledged — send is allowed',
       );
       await onInventoryRiskAcked?.(updated);
     } catch (e) {
@@ -1506,6 +1530,10 @@ export function QuoteServiceDetailSheet({
             partyInfants ||
             baseDetails.infants ||
             withNights.infants ||
+            undefined,
+          nationality:
+            withNights.nationality ||
+            baseDetails.nationality ||
             undefined,
           partyId: partyId || undefined,
           items: [payload],
@@ -2079,6 +2107,68 @@ export function QuoteServiceDetailSheet({
                 ) : null;
               })()}
               {(() => {
+                const note =
+                  formatHotelMinStayNote(rateProvenance?.calculation) ||
+                  rateProvenance?.minStayNote?.trim() ||
+                  null;
+                if (!note) return null;
+                const blocks = hotelMinStayBlocksSend(
+                  rateProvenance ?? {
+                    minStayNote: note,
+                    minStayWarn: true,
+                  },
+                );
+                return (
+                  <div
+                    className={
+                      hotelMinStayTone(note) === 'block' && blocks
+                        ? 'space-y-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive'
+                        : hotelMinStayTone(note) === 'block'
+                          ? 'rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-900 dark:text-amber-200'
+                          : 'rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground'
+                    }
+                  >
+                    <p>Min stay · {note}</p>
+                    {!readOnly && blocks ? (
+                      <div className="space-y-2">
+                        {canOverrideInventoryRisk ? (
+                          <>
+                            <Input
+                              placeholder="Reason for sending anyway…"
+                              value={minStayAckReason}
+                              onChange={(e) => setMinStayAckReason(e.target.value)}
+                            />
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={!minStayAckReason.trim() || !quotationVersionId}
+                              onClick={() => void recordInventoryRiskAck('min_stay')}
+                            >
+                              Send anyway (acknowledge)
+                            </Button>
+                          </>
+                        ) : (
+                          <p className="text-[11px] text-destructive/90">
+                            Ask a manager with inventory_risk.approve to acknowledge this
+                            shortfall before send.
+                          </p>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })()}
+              {(() => {
+                const note = formatHotelNationalityNote(
+                  rateProvenance?.calculation,
+                );
+                return note ? (
+                  <p className="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                    Nationality · {note}
+                  </p>
+                ) : null;
+              })()}
+              {(() => {
                 const note = formatHotelDateSupplementNote(
                   rateProvenance?.calculation,
                   {
@@ -2141,6 +2231,23 @@ export function QuoteServiceDetailSheet({
                     onChange={(v) => patchDetails({ mealPlan: v || undefined })}
                     options={QUOTE_MEAL_PLAN_OPTIONS}
                     placeholder="Select…"
+                  />
+                </FormField>
+                <FormField
+                  label="Guest nationality"
+                  description="Match exact ISO or IN/INTL hotel cards (prefers country tip, then Foreign INTL, then any). Search any ISO-3166 country. Blank uses party nationality when sent."
+                >
+                  <Combobox
+                    value={normalizeHotelNationalityUi(details.nationality)}
+                    disabled={readOnly}
+                    onChange={(v) =>
+                      patchDetails({
+                        nationality: normalizeHotelNationalityUi(v) || undefined,
+                      })
+                    }
+                    options={HOTEL_NATIONALITY_OPTIONS}
+                    placeholder="Search country / Any"
+                    searchable
                   />
                 </FormField>
               </FormGrid>

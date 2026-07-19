@@ -204,6 +204,28 @@ describe('quoteAttentionLines', () => {
     ).toContain('capacity_risk');
   });
 
+  it('clears min-stay attention when shortfall is acknowledged with reason', () => {
+    const note = 'Min stay 3 nights — this stay is 2';
+    expect(
+      quoteAttentionReasons(
+        {
+          id: '1',
+          description: 'Hotel',
+          unitCost: 100,
+          unitSell: 150,
+          rateProvenance: {
+            minStayWarn: true,
+            minStayNote: note,
+            minStayRiskAckForNote: note,
+            minStayRiskAckReason: 'Surcharge agreed',
+            calculation: { minStayShort: true, minStayNote: note },
+          },
+        },
+        { canViewCost: true, minMarginPercent: 0 },
+      ),
+    ).not.toContain('min_stay');
+  });
+
   it('flags occupancy / gala / weekend / cancel / ages match cues', () => {
     expect(
       quoteAttentionReasons(
@@ -221,6 +243,10 @@ describe('quoteAttentionLines', () => {
               weekendNights: 2,
               weekendUnit: 5200,
               rooms: 1,
+              minStayShort: true,
+              minStayNote: 'Min stay 3 nights — this stay is 2',
+              nationality: 'IN',
+              guestNationality: 'IN',
               cancellationSummary: 'Free to 7d; 50% within 3d',
             },
           },
@@ -232,6 +258,8 @@ describe('quoteAttentionLines', () => {
         'occupancy_extra',
         'gala',
         'weekend',
+        'min_stay',
+        'nationality',
         'cancel_policy',
       ]),
     );

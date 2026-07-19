@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Import, Pencil, Plus, Trash2 } from 'lucide-react';
+import { GitBranch, History, Import, Pencil, Plus, Trash2 } from 'lucide-react';
 import {
   Button,
   Combobox,
@@ -21,6 +21,12 @@ import { formatDateInput, parseDateInput } from '../../lib/dateInput';
 import { PlaceSinglePicker } from '../places/PlacePicker';
 import { RatesCsvImportDialog } from '../rates/RatesCsvImportDialog';
 import { type PlaceRef } from '../../lib/placeRefs';
+import {
+  formatRateVersionHistoryLine,
+  formatRateVersionTipDiffCue,
+  rateVersionLabel,
+  type RateVersionListItem,
+} from '../../lib/rateVersion';
 
 type ActivityRate = SupplierActivityRateRow;
 
@@ -92,6 +98,14 @@ export function SupplierActivityRatesPanel({
   const [formOpen, setFormOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [form, setForm] = useState(emptyForm());
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historySaving, setHistorySaving] = useState(false);
+  const [historyAnchorId, setHistoryAnchorId] = useState<string | null>(null);
+  const [historyVersions, setHistoryVersions] = useState<RateVersionListItem[]>(
+    [],
+  );
+  const [versioningId, setVersioningId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -112,7 +126,9 @@ export function SupplierActivityRatesPanel({
   }, [load]);
 
   const sorted = useMemo(() => {
-    return [...rates].sort((a, b) => {
+    return [...rates]
+      .filter((r) => r.isActive !== false)
+      .sort((a, b) => {
       const name = a.activityName.localeCompare(b.activityName);
       if (name) return name;
       const mode = (a.privateOrSic || '').localeCompare(b.privateOrSic || '');
@@ -120,6 +136,66 @@ export function SupplierActivityRatesPanel({
       return isoDate(a.startDate).localeCompare(isoDate(b.startDate));
     });
   }, [rates]);
+
+  async function createRateVersion(rate: ActivityRate) {
+    setVersioningId(rate.id);
+    try {
+      const created = await api<
+        ActivityRate & { versionMeta?: { versionNumber?: number } }
+      >(`/activity-rates/${rate.id}/new-version`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      toastSuccess(
+        `Created ${rateVersionLabel(created.versionMeta?.versionNumber ?? created.versionNumber)} — edit costs then Save`,
+      );
+      await load();
+      startEdit(created);
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not create rate version');
+    } finally {
+      setVersioningId(null);
+    }
+  }
+
+  async function openRateHistory(rate: ActivityRate) {
+    setHistoryAnchorId(rate.id);
+    setHistoryOpen(true);
+    setHistoryLoading(true);
+    try {
+      const res = await api<{ versions: RateVersionListItem[] }>(
+        `/activity-rates/${rate.id}/versions`,
+      );
+      setHistoryVersions(res.versions || []);
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not load rate history');
+      setHistoryVersions([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  async function restoreRateVersion(sourceVersionId: string) {
+    if (!historyAnchorId) return;
+    setHistorySaving(true);
+    try {
+      const created = await api<ActivityRate>(
+        `/activity-rates/${historyAnchorId}/restore-version`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ sourceVersionId }),
+        },
+      );
+      toastSuccess(`Restored as ${rateVersionLabel(created.versionNumber)}`);
+      setHistoryOpen(false);
+      await load();
+      startEdit(created);
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not restore version');
+    } finally {
+      setHistorySaving(false);
+    }
+  }
 
   function openCreate() {
     setEditingId(null);
@@ -296,10 +372,13 @@ export function SupplierActivityRatesPanel({
                 className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
               >
                 <div className="min-w-0 space-y-0.5">
-                  <p className="truncate text-sm font-medium">
-                    {rate.activityName}
+                  <p className="flex flex-wrap items-center gap-1.5 truncate text-sm font-medium">
+                    <span className="truncate">{rate.activityName}</span>
+                    <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      {rateVersionLabel(rate.versionNumber)}
+                    </span>
                     {rate.privateOrSic ? (
-                      <span className="ml-2 text-xs font-normal uppercase text-muted-foreground">
+                      <span className="text-xs font-normal uppercase text-muted-foreground">
                         {rate.privateOrSic}
                       </span>
                     ) : null}
@@ -315,12 +394,35 @@ export function SupplierActivityRatesPanel({
                   </p>
                 </div>
                 <Can anyOf={CAP.ratesWrite}>
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-0.5">
                     <Button
                       type="button"
                       size="icon"
                       variant="ghost"
-                      className="cursor-pointer"
+                      className="size-7 cursor-pointer"
+                      aria-label="New rate version"
+                      title="New version (keeps history)"
+                      disabled={versioningId === rate.id}
+                      onClick={() => void createRateVersion(rate)}
+                    >
+                      <GitBranch className="size-3.5" />
+                    </Button>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="size-7 cursor-pointer"
+                      aria-label="Rate version history"
+                      title="Version history"
+                      onClick={() => void openRateHistory(rate)}
+                    >
+                      <History className="size-3.5" />
+                    </Button>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="size-7 cursor-pointer"
                       aria-label="Edit rate"
                       onClick={() => startEdit(rate)}
                     >
@@ -330,7 +432,7 @@ export function SupplierActivityRatesPanel({
                       type="button"
                       size="icon"
                       variant="ghost"
-                      className="cursor-pointer text-destructive"
+                      className="size-7 cursor-pointer text-destructive"
                       aria-label="Delete rate"
                       onClick={() => void remove(rate.id)}
                     >
@@ -441,6 +543,80 @@ export function SupplierActivityRatesPanel({
           value={form.place}
           onChange={(place) => setForm((f) => ({ ...f, place }))}
         />
+      </RecordSheet>
+
+      <RecordSheet
+        open={historyOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setHistoryOpen(false);
+            setHistoryAnchorId(null);
+            setHistoryVersions([]);
+          } else setHistoryOpen(true);
+        }}
+        title="Activity rate version history"
+        description="Superseded tips stay on file. Restore copies content into a new active tip."
+        submitting={historySaving}
+        footer={
+          <Button
+            type="button"
+            variant="secondary"
+            className="cursor-pointer"
+            onClick={() => {
+              setHistoryOpen(false);
+              setHistoryAnchorId(null);
+            }}
+          >
+            Close
+          </Button>
+        }
+      >
+        {historyLoading ? (
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        ) : historyVersions.length ? (
+          <ul className="divide-y divide-border/50 overflow-hidden rounded-xl border border-border/60">
+            {[...historyVersions].reverse().map((v) => (
+              <li
+                key={v.id}
+                className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 text-sm"
+              >
+                <span className="text-xs text-muted-foreground">
+                  {formatRateVersionHistoryLine(v, {
+                    kind: 'activity',
+                    formatAmount: (n) =>
+                      formatCurrency(n, { maximumFractionDigits: 0 }),
+                  })}
+                  {formatRateVersionTipDiffCue(v.diffVsActive) ? (
+                    <span className="mt-0.5 block text-[11px] text-amber-800 dark:text-amber-200">
+                      Diff vs current ·{' '}
+                      {formatRateVersionTipDiffCue(v.diffVsActive)}
+                    </span>
+                  ) : null}
+                </span>
+                <Can anyOf={CAP.ratesWrite}>
+                  {!v.isActive ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="cursor-pointer"
+                      disabled={historySaving}
+                      onClick={() => void restoreRateVersion(v.id)}
+                    >
+                      Restore as new tip
+                    </Button>
+                  ) : (
+                    <span className="text-[10px] font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
+                      Current
+                    </span>
+                  )}
+                </Can>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-muted-foreground">No versions yet.</p>
+        )}
       </RecordSheet>
 
       <RatesCsvImportDialog

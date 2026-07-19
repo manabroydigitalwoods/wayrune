@@ -11,6 +11,7 @@ import { api } from '../../api';
 import { useOrgNavigate } from '../../hooks/useOrgNavigate';
 import { reportError } from '../../lib/errors';
 import {
+  agencyFitPackWalkthroughPath,
   formatAgencyFitPackToast,
   installAgencyFitPack,
 } from '../../lib/agencyFitPack';
@@ -74,11 +75,34 @@ export function AgencyOnboardingChecklist({ hideWhenComplete = true }: Props) {
       const res = await installAgencyFitPack();
       toastSuccess(formatAgencyFitPackToast(res));
       await load();
-      if (res.walkthroughHref) {
-        navigate(res.walkthroughHref);
+      const path = agencyFitPackWalkthroughPath(res);
+      if (path) {
+        navigate(path);
       }
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Could not install sample pack');
+    } finally {
+      setInstallingPack(false);
+    }
+  }
+
+  async function openDemoTrip() {
+    setInstallingPack(true);
+    try {
+      const res = await installAgencyFitPack();
+      const path = agencyFitPackWalkthroughPath(res);
+      if (!path) {
+        toastError('Demo trip not available yet — install the sample FIT pack first');
+        return;
+      }
+      toastSuccess(
+        res.demoTrip?.title
+          ? `Opening “${res.demoTrip.title}”`
+          : 'Opening demo trip',
+      );
+      navigate(path);
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not open demo trip');
     } finally {
       setInstallingPack(false);
     }
@@ -116,19 +140,38 @@ export function AgencyOnboardingChecklist({ hideWhenComplete = true }: Props) {
       {needsTemplates ? (
         <div className="mb-3 rounded-lg border border-primary/20 bg-primary/5 p-3">
           <p className="text-xs text-muted-foreground">
-            Jump-start with priced Darjeeling and Goa templates plus a sample planning trip.
+            Jump-start with priced Darjeeling and Goa templates plus{' '}
+            <span className="font-medium text-foreground">
+              Darjeeling classic FIT — demo
+            </span>{' '}
+            (draft quote, sample guest, hotel + transfer lines).
           </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              disabled={installingPack}
+              onClick={() => void installFitPack()}
+            >
+              <PackagePlus className="size-4" />
+              {installingPack ? 'Installing…' : 'Install sample FIT pack'}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="mb-3 flex flex-wrap items-center gap-2">
           <Button
             size="sm"
-            className="mt-2"
+            variant="outline"
             disabled={installingPack}
-            onClick={() => void installFitPack()}
+            onClick={() => void openDemoTrip()}
           >
-            <PackagePlus className="size-4" />
-            {installingPack ? 'Installing…' : 'Install sample FIT pack'}
+            {installingPack ? 'Opening…' : 'Open demo trip'}
           </Button>
+          <p className="text-xs text-muted-foreground">
+            Idempotent — opens Darjeeling classic FIT — demo on Quotations.
+          </p>
         </div>
-      ) : null}
+      )}
 
       <ul className="space-y-2">
         {data.items.map((item) => (

@@ -1,5 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Copy, Import, IndianRupee, Pencil, Plus, Trash2 } from 'lucide-react';
+import {
+  Copy,
+  GitBranch,
+  Grid2x2,
+  History,
+  Import,
+  IndianRupee,
+  Pencil,
+  Plus,
+  Trash2,
+  Utensils,
+} from 'lucide-react';
 import {
   Button,
   Combobox,
@@ -28,6 +39,26 @@ import { formatDateInput, parseDateInput } from '../../lib/dateInput';
 import { PlaceSinglePicker } from '../places/PlacePicker';
 import { RatesCsvImportDialog } from '../rates/RatesCsvImportDialog';
 import { type PlaceRef } from '../../lib/placeRefs';
+import { cloneHotelRateFormForMealPlan } from '../../lib/hotelRateMealClone';
+import {
+  HOTEL_NATIONALITY_OPTIONS,
+  HOTEL_NATIONALITY_QUICK_OPTIONS,
+  normalizeHotelNationalityUi,
+} from '../../lib/hotelNationalityNote';
+import { formatHotelRateTipDiffCue, formatHotelRateVersionHistoryLine, hotelRateVersionLabel } from '../../lib/hotelRateVersion';
+import type { HotelRateVersionListItem } from '../../lib/hotelRateVersion';
+import {
+  MEAL_MATRIX_PLANS,
+  MATRIX_ADULT_BANDS,
+  buildMealOccupancyMatrix,
+  diffMealOccupancyMatrix,
+  occupancyJsonWithAdultBands,
+  setMatrixCellCost,
+  type MealMatrixPlan,
+  type MealOccupancyMatrixCell,
+  type MealOccupancyMatrixRate,
+  type MatrixAdultBand,
+} from '../../lib/hotelRateMealOccupancyMatrix';
 
 type HotelRate = SupplierHotelRateRow;
 
@@ -79,6 +110,14 @@ function emptyGalaRows() {
   ] as Array<{ date: string; amount: string; label: string }>;
 }
 
+function emptyAdultBandRows() {
+  return [
+    { adults: 1 as const, unitCost: '', weekendUnitCost: '' },
+    { adults: 2 as const, unitCost: '', weekendUnitCost: '' },
+    { adults: 3 as const, unitCost: '', weekendUnitCost: '' },
+  ];
+}
+
 function emptyForm(defaultContractId = '') {
   return {
     roomType: '',
@@ -92,8 +131,11 @@ function emptyForm(defaultContractId = '') {
     extraAdultPerNight: '',
     childWithBedPerNight: '',
     childWithoutBedPerNight: '',
+    adultBandRows: emptyAdultBandRows(),
     /** Up to 3 gala / date supplements (single night + amount). */
     galaRows: emptyGalaRows(),
+    minStayNights: '',
+    nationality: '',
     place: null as PlaceRef | null,
     startDate: '',
     endDate: '',
@@ -109,7 +151,10 @@ function occupancyFromRate(rate: HotelRate) {
       extraAdultPerNight: '',
       childWithBedPerNight: '',
       childWithoutBedPerNight: '',
+      adultBandRows: emptyAdultBandRows(),
       galaRows: emptyGalaRows(),
+      minStayNights: '',
+      nationality: '',
     };
   }
   const supplements = Array.isArray(o.dateSupplements) ? o.dateSupplements : [];
@@ -128,6 +173,31 @@ function occupancyFromRate(rate: HotelRate) {
       label: typeof s.label === 'string' ? s.label : '',
     };
   });
+  const bands = Array.isArray(o.adultBands) ? o.adultBands : [];
+  const adultBandRows = emptyAdultBandRows().map((blank) => {
+    const match = bands.find(
+      (b) =>
+        b &&
+        typeof b === 'object' &&
+        Number((b as { adults?: unknown }).adults) === blank.adults,
+    ) as
+      | {
+          unitCostPerNight?: unknown;
+          unitCost?: unknown;
+          weekendUnitCostPerNight?: unknown;
+          weekendUnitCost?: unknown;
+        }
+      | undefined;
+    const cost = match?.unitCostPerNight ?? match?.unitCost;
+    const weekend =
+      match?.weekendUnitCostPerNight ?? match?.weekendUnitCost;
+    return {
+      ...blank,
+      unitCost: cost != null && Number(cost) >= 0 ? String(cost) : '',
+      weekendUnitCost:
+        weekend != null && Number(weekend) >= 0 ? String(weekend) : '',
+    };
+  });
   return {
     baseAdults: o.baseAdults != null ? String(o.baseAdults) : '2',
     childAgeMax: o.childAgeMax != null ? String(o.childAgeMax) : '',
@@ -137,7 +207,15 @@ function occupancyFromRate(rate: HotelRate) {
       o.childWithBedPerNight != null ? String(o.childWithBedPerNight) : '',
     childWithoutBedPerNight:
       o.childWithoutBedPerNight != null ? String(o.childWithoutBedPerNight) : '',
+    adultBandRows,
     galaRows,
+    minStayNights:
+      o.minStayNights != null && Number(o.minStayNights) >= 1
+        ? String(Math.floor(Number(o.minStayNights)))
+        : '',
+    nationality: normalizeHotelNationalityUi(
+      typeof o.nationality === 'string' ? o.nationality : '',
+    ),
   };
 }
 
@@ -145,8 +223,25 @@ function occupancyHint(rate: HotelRate): string | null {
   const o = rate.occupancyPricingJson;
   if (!o || typeof o !== 'object') return null;
   const parts: string[] = [];
+  const bands = Array.isArray(o.adultBands) ? o.adultBands.length : 0;
+  if (bands > 0) {
+    const withWeekend = Array.isArray(o.adultBands)
+      ? o.adultBands.filter(
+          (b) =>
+            b &&
+            typeof b === 'object' &&
+            (b as { weekendUnitCostPerNight?: unknown }).weekendUnitCostPerNight !=
+              null,
+        ).length
+      : 0;
+    parts.push(
+      withWeekend > 0
+        ? `${bands} adult band${bands === 1 ? '' : 's'} (we)`
+        : `${bands} adult band${bands === 1 ? '' : 's'}`,
+    );
+  }
   const baseA = o.baseAdults ?? 2;
-  parts.push(`${baseA}A base`);
+  if (bands === 0) parts.push(`${baseA}A base`);
   if (o.childAgeMax != null && Number(o.childAgeMax) >= 0) {
     parts.push(`child ≤${Math.round(Number(o.childAgeMax))}`);
   }
@@ -161,10 +256,19 @@ function occupancyHint(rate: HotelRate): string | null {
   }
   const gala = Array.isArray(o.dateSupplements) ? o.dateSupplements.length : 0;
   if (gala > 0) parts.push(`${gala} gala night${gala === 1 ? '' : 's'}`);
+  if (o.minStayNights != null && Number(o.minStayNights) >= 1) {
+    parts.push(`min ${Math.floor(Number(o.minStayNights))}n`);
+  }
+  const nat = normalizeHotelNationalityUi(
+    typeof o.nationality === 'string' ? o.nationality : '',
+  );
+  if (nat === 'IN') parts.push('IN');
+  if (nat === 'INTL') parts.push('INTL');
   if (
     parts.length <= 1 &&
     !o.extraAdultPerNight &&
     !o.childWithBedPerNight &&
+    bands === 0 &&
     gala === 0
   ) {
     return null;
@@ -207,6 +311,21 @@ export function SupplierHotelRatesPanel({
   const [showPlace, setShowPlace] = useState(false);
   const [form, setForm] = useState(emptyForm());
   const [importOpen, setImportOpen] = useState(false);
+  const [matrixOpen, setMatrixOpen] = useState(false);
+  const [matrixSaving, setMatrixSaving] = useState(false);
+  const [matrixAnchor, setMatrixAnchor] = useState<HotelRate | null>(null);
+  const [matrixCells, setMatrixCells] = useState<MealOccupancyMatrixCell[]>([]);
+  const [matrixByMeal, setMatrixByMeal] = useState<
+    Partial<Record<MealMatrixPlan, MealOccupancyMatrixRate>>
+  >({});
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historySaving, setHistorySaving] = useState(false);
+  const [historyAnchorId, setHistoryAnchorId] = useState<string | null>(null);
+  const [historyVersions, setHistoryVersions] = useState<
+    HotelRateVersionListItem[]
+  >([]);
+  const [versioningId, setVersioningId] = useState<string | null>(null);
 
   const activeContract = useMemo(
     () => contracts.find((c) => c.status === 'active') ?? null,
@@ -275,14 +394,77 @@ export function SupplierHotelRatesPanel({
   }, [load]);
 
   const sorted = useMemo(() => {
-    return [...rates].sort((a, b) => {
-      const room = (a.roomType || '').localeCompare(b.roomType || '');
-      if (room) return room;
-      const meal = (a.mealPlan || '').localeCompare(b.mealPlan || '');
-      if (meal) return meal;
-      return isoDate(a.startDate).localeCompare(isoDate(b.startDate));
-    });
+    return [...rates]
+      .filter((r) => r.isActive !== false)
+      .sort((a, b) => {
+        const room = (a.roomType || '').localeCompare(b.roomType || '');
+        if (room) return room;
+        const meal = (a.mealPlan || '').localeCompare(b.mealPlan || '');
+        if (meal) return meal;
+        return isoDate(a.startDate).localeCompare(isoDate(b.startDate));
+      });
   }, [rates]);
+
+  async function createRateVersion(rate: HotelRate) {
+    setVersioningId(rate.id);
+    try {
+      const created = await api<HotelRate & { versionMeta?: { versionNumber?: number } }>(
+        `/hotel-rates/${rate.id}/new-version`,
+        { method: 'POST', body: JSON.stringify({}) },
+      );
+      toastSuccess(
+        `Created ${hotelRateVersionLabel(created.versionMeta?.versionNumber ?? created.versionNumber)} — edit costs then Save`,
+      );
+      await load();
+      startEdit(created);
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not create rate version');
+    } finally {
+      setVersioningId(null);
+    }
+  }
+
+  async function openRateHistory(rate: HotelRate) {
+    setHistoryAnchorId(rate.id);
+    setHistoryOpen(true);
+    setHistoryLoading(true);
+    try {
+      const res = await api<{
+        versions: HotelRateVersionListItem[];
+        activeRateId?: string;
+      }>(`/hotel-rates/${rate.id}/versions`);
+      setHistoryVersions(res.versions || []);
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not load rate history');
+      setHistoryVersions([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  async function restoreRateVersion(sourceVersionId: string) {
+    if (!historyAnchorId) return;
+    setHistorySaving(true);
+    try {
+      const created = await api<HotelRate>(
+        `/hotel-rates/${historyAnchorId}/restore-version`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ sourceVersionId }),
+        },
+      );
+      toastSuccess(
+        `Restored as ${hotelRateVersionLabel(created.versionNumber)}`,
+      );
+      setHistoryOpen(false);
+      await load();
+      startEdit(created);
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not restore version');
+    } finally {
+      setHistorySaving(false);
+    }
+  }
 
   function openCreate() {
     setEditingId(null);
@@ -343,6 +525,148 @@ export function SupplierHotelRatesPanel({
     });
     setShowPlace(Boolean(rate.place));
     setFormOpen(true);
+  }
+
+  function openMealOccupancyMatrix(rate: HotelRate) {
+    const built = buildMealOccupancyMatrix(rates, rate);
+    setMatrixAnchor(rate);
+    setMatrixCells(built.cells);
+    setMatrixByMeal(built.byMeal);
+    setMatrixOpen(true);
+  }
+
+  function closeMatrix() {
+    setMatrixOpen(false);
+    setMatrixAnchor(null);
+    setMatrixCells([]);
+    setMatrixByMeal({});
+  }
+
+  async function saveMealOccupancyMatrix() {
+    if (!matrixAnchor) return;
+    const { upserts, errors } = diffMealOccupancyMatrix({
+      cells: matrixCells,
+      byMeal: matrixByMeal,
+      anchor: matrixAnchor,
+    });
+    if (errors.length) {
+      toastError(errors[0]!);
+      return;
+    }
+    const changed = upserts.filter((u) => u.changed);
+    if (!changed.length) {
+      toastSuccess('Matrix unchanged');
+      closeMatrix();
+      return;
+    }
+    setMatrixSaving(true);
+    try {
+      let created = 0;
+      let updated = 0;
+      for (const row of changed) {
+        const existing = row.existingId
+          ? rates.find((r) => r.id === row.existingId) || null
+          : null;
+        const occupancyPricing = occupancyJsonWithAdultBands(
+          existing?.occupancyPricingJson ??
+            matrixAnchor.occupancyPricingJson ??
+            null,
+          row.adultBands,
+          {
+            weekendRatio:
+              row.weekendUnitCost != null && row.unitCost > 0
+                ? row.weekendUnitCost / row.unitCost
+                : null,
+          },
+        );
+        const body = {
+          supplierId,
+          placeId:
+            matrixAnchor.placeId ||
+            matrixAnchor.place?.id ||
+            null,
+          roomProductId:
+            matrixAnchor.roomProductId ||
+            matrixAnchor.roomProduct?.id ||
+            null,
+          contractId: matrixAnchor.contractId || null,
+          roomType:
+            matrixAnchor.roomType ||
+            matrixAnchor.roomProduct?.name ||
+            null,
+          mealPlan: row.mealPlan,
+          unitCost: row.unitCost,
+          weekendUnitCost: row.weekendUnitCost,
+          occupancyPricing,
+          startDate: isoDate(matrixAnchor.startDate) || null,
+          endDate: isoDate(matrixAnchor.endDate) || null,
+        };
+        if (row.existingId) {
+          await api(`/hotel-rates/${row.existingId}`, {
+            method: 'PATCH',
+            body: JSON.stringify(body),
+          });
+          updated += 1;
+        } else {
+          await api('/hotel-rates', {
+            method: 'POST',
+            body: JSON.stringify(body),
+          });
+          created += 1;
+        }
+      }
+      const parts: string[] = [];
+      if (created) parts.push(`${created} meal plan${created === 1 ? '' : 's'} added`);
+      if (updated) parts.push(`${updated} updated`);
+      toastSuccess(parts.join(' · ') || 'Matrix saved');
+      closeMatrix();
+      await load();
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not save matrix');
+    } finally {
+      setMatrixSaving(false);
+    }
+  }
+
+  /** Same season window + occupancy; next meal plan with nudged costs. */
+  function duplicateAsMealPlan(rate: HotelRate) {
+    const clone = cloneHotelRateFormForMealPlan(rate, {
+      defaultContractId: activeContract?.id || '',
+    });
+    const occ = occupancyFromRate(rate);
+    setEditingId(null);
+    setForm({
+      ...emptyForm(activeContract?.id || ''),
+      ...occ,
+      roomType: clone.roomType,
+      roomProductId: clone.roomProductId,
+      contractId: clone.contractId || activeContract?.id || '',
+      mealPlan: clone.mealPlan,
+      unitCost: clone.unitCost,
+      weekendUnitCost: clone.weekendUnitCost,
+      adultBandRows: clone.adultBandRows ?? occ.adultBandRows,
+      extraAdultPerNight:
+        clone.extraAdultPerNight !== undefined && clone.extraAdultPerNight !== ''
+          ? clone.extraAdultPerNight
+          : occ.extraAdultPerNight,
+      childWithBedPerNight:
+        clone.childWithBedPerNight !== undefined && clone.childWithBedPerNight !== ''
+          ? clone.childWithBedPerNight
+          : occ.childWithBedPerNight,
+      childWithoutBedPerNight:
+        clone.childWithoutBedPerNight !== undefined &&
+        clone.childWithoutBedPerNight !== ''
+          ? clone.childWithoutBedPerNight
+          : occ.childWithoutBedPerNight,
+      place: clone.place,
+      startDate: clone.startDate,
+      endDate: clone.endDate,
+    });
+    setShowPlace(Boolean(clone.place));
+    setFormOpen(true);
+    toastSuccess(
+      `Draft ${clone.mealPlan} copy — review costs, then Save (same season as ${rate.mealPlan || 'source'})`,
+    );
   }
 
   async function ensureRoomProduct(name: string): Promise<string | null> {
@@ -474,13 +798,66 @@ export function SupplierHotelRatesPanel({
         ...(row.label.trim() ? { label: row.label.trim().slice(0, 80) } : {}),
       });
     }
+    const adultBands: Array<{
+      adults: number;
+      unitCostPerNight: number;
+      weekendUnitCostPerNight?: number;
+    }> = [];
+    for (const row of form.adultBandRows) {
+      const raw = row.unitCost.trim();
+      if (!raw) continue;
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n < 0) {
+        toastError(`${row.adults}A band cost must be a valid number`);
+        return;
+      }
+      const weekendRaw = row.weekendUnitCost.trim();
+      let weekendUnitCostPerNight: number | undefined;
+      if (weekendRaw) {
+        const w = Number(weekendRaw);
+        if (!Number.isFinite(w) || w < 0) {
+          toastError(`${row.adults}A weekend cost must be a valid number`);
+          return;
+        }
+        weekendUnitCostPerNight = w;
+      }
+      adultBands.push({
+        adults: row.adults,
+        unitCostPerNight: n,
+        ...(weekendUnitCostPerNight != null
+          ? { weekendUnitCostPerNight }
+          : {}),
+      });
+    }
+    const minStayRaw = form.minStayNights.trim();
+    let minStayNights: number | undefined;
+    if (minStayRaw) {
+      const n = Number(minStayRaw);
+      if (!Number.isFinite(n) || n < 1 || n > 30) {
+        toastError('Min stay must be between 1 and 30 nights');
+        return;
+      }
+      minStayNights = Math.floor(n);
+    }
+    const nationality = normalizeHotelNationalityUi(form.nationality) || undefined;
+    const dblBand = adultBands.find((b) => b.adults === 2);
+    const chartWeekendFromBand =
+      dblBand?.weekendUnitCostPerNight ??
+      adultBands.find((b) => b.weekendUnitCostPerNight != null)
+        ?.weekendUnitCostPerNight;
+    const weekendUnitCostResolved =
+      weekendUnitCost ??
+      (chartWeekendFromBand != null ? chartWeekendFromBand : null);
     const hasOcc =
       extraAdult != null ||
       childBed != null ||
       childNoBed != null ||
       baseAdults !== 2 ||
       childAgeMax != null ||
-      dateSupplements.length > 0;
+      dateSupplements.length > 0 ||
+      adultBands.length > 0 ||
+      minStayNights != null ||
+      nationality != null;
     const occupancyPricing = hasOcc
       ? {
           baseAdults,
@@ -488,6 +865,9 @@ export function SupplierHotelRatesPanel({
           ...(extraAdult != null ? { extraAdultPerNight: extraAdult } : {}),
           ...(childBed != null ? { childWithBedPerNight: childBed } : {}),
           ...(childNoBed != null ? { childWithoutBedPerNight: childNoBed } : {}),
+          ...(adultBands.length ? { adultBands } : {}),
+          ...(minStayNights != null ? { minStayNights } : {}),
+          ...(nationality ? { nationality } : {}),
           ...(dateSupplements.length ? { dateSupplements } : {}),
         }
       : null;
@@ -510,7 +890,7 @@ export function SupplierHotelRatesPanel({
         roomType,
         mealPlan: form.mealPlan.trim() || null,
         unitCost,
-        weekendUnitCost,
+        weekendUnitCost: weekendUnitCostResolved,
         occupancyPricing,
         startDate: form.startDate || null,
         endDate: form.endDate || null,
@@ -636,7 +1016,9 @@ export function SupplierHotelRatesPanel({
             <h2 className="text-sm font-semibold">Rate chart</h2>
             <p className="text-xs text-muted-foreground">
               Seasonal buy rates for {supplierName}. Quotes match room + meal + dates;
-              weekend nights and occupancy extras apply when set.
+              weekend nights and occupancy extras apply when set. Use the grid for
+              EP/CP/MAP/AP × SGL/DBL/TPL, or New version to supersede a tip while keeping
+              history.
             </p>
           </div>
         </div>
@@ -676,6 +1058,21 @@ export function SupplierHotelRatesPanel({
                   <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                     {r.mealPlan?.trim() || 'Any'}
                   </span>
+                  <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    {hotelRateVersionLabel(r.versionNumber)}
+                  </span>
+                  {(() => {
+                    const nat = normalizeHotelNationalityUi(
+                      typeof r.occupancyPricingJson?.nationality === 'string'
+                        ? r.occupancyPricingJson.nationality
+                        : '',
+                    );
+                    return nat ? (
+                      <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                        {nat}
+                      </span>
+                    ) : null;
+                  })()}
                   {!r.isActive ? (
                     <span className="text-[10px] text-amber-700 dark:text-amber-400">
                       Inactive
@@ -723,6 +1120,51 @@ export function SupplierHotelRatesPanel({
                     onClick={() => duplicateAsSeason(r)}
                   >
                     <Copy className="size-3.5" />
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="size-7"
+                    aria-label="Meal × occupancy matrix"
+                    title="Edit meal × occupancy matrix (same season)"
+                    onClick={() => openMealOccupancyMatrix(r)}
+                  >
+                    <Grid2x2 className="size-3.5" />
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="size-7"
+                    aria-label="Copy as other meal plan"
+                    title="Copy as other meal plan (same dates)"
+                    onClick={() => duplicateAsMealPlan(r)}
+                  >
+                    <Utensils className="size-3.5" />
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="size-7"
+                    aria-label="New rate version"
+                    title="New version (keeps history)"
+                    disabled={versioningId === r.id}
+                    onClick={() => void createRateVersion(r)}
+                  >
+                    <GitBranch className="size-3.5" />
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="size-7"
+                    aria-label="Rate version history"
+                    title="Version history"
+                    onClick={() => void openRateHistory(r)}
+                  >
+                    <History className="size-3.5" />
                   </Button>
                   <Button
                     type="button"
@@ -879,6 +1321,38 @@ export function SupplierHotelRatesPanel({
               />
             </FormField>
 
+            <FormField
+              label="Nationality market"
+              description="IN = Indian · INTL = foreign catch-all · or search any ISO-3166 country. Sister seasons can share dates when markets differ. Match prefers exact ISO, then INTL, then any."
+            >
+              <div className="space-y-2">
+                <SuggestionChips
+                  aria-label="Nationality market quick picks"
+                  allowDeselect
+                  options={[...HOTEL_NATIONALITY_QUICK_OPTIONS]}
+                  value={form.nationality}
+                  onChange={(nationality) =>
+                    setForm({
+                      ...form,
+                      nationality: normalizeHotelNationalityUi(nationality),
+                    })
+                  }
+                />
+                <Combobox
+                  value={normalizeHotelNationalityUi(form.nationality)}
+                  onChange={(nationality) =>
+                    setForm({
+                      ...form,
+                      nationality: normalizeHotelNationalityUi(nationality),
+                    })
+                  }
+                  options={HOTEL_NATIONALITY_OPTIONS}
+                  placeholder="Search all countries…"
+                  searchable
+                />
+              </div>
+            </FormField>
+
             <FormGrid>
               <FormField label="Weekday / night" required>
                 <PriceField
@@ -903,57 +1377,127 @@ export function SupplierHotelRatesPanel({
 
             <FormField
               label="Occupancy (optional)"
-              description="Base adults included in the room rate. Extra adult / child supplements apply on Match rate. Child age max reclassifies older kids as adults."
+              description="SGL/DBL/TPL weekday bases replace chart cost on Match by adults/room. Optional weekend per band overrides chart weekend ratio. Extra adult / child apply beyond the matched band."
             >
-              <FormGrid>
-                <FormField label="Base adults / room">
-                  <Input
-                    inputMode="numeric"
-                    value={form.baseAdults}
-                    onChange={(e) =>
-                      setForm({ ...form, baseAdults: e.target.value })
-                    }
-                    placeholder="2"
-                  />
-                </FormField>
-                <FormField label="Child age max">
-                  <Input
-                    inputMode="numeric"
-                    value={form.childAgeMax}
-                    onChange={(e) =>
-                      setForm({ ...form, childAgeMax: e.target.value })
-                    }
-                    placeholder="11"
-                  />
-                </FormField>
-                <FormField label="Extra adult / night">
-                  <PriceField
-                    value={form.extraAdultPerNight}
-                    onChange={(extraAdultPerNight) =>
-                      setForm({ ...form, extraAdultPerNight })
-                    }
-                    placeholder="1500"
-                  />
-                </FormField>
-                <FormField label="Child with bed / night">
-                  <PriceField
-                    value={form.childWithBedPerNight}
-                    onChange={(childWithBedPerNight) =>
-                      setForm({ ...form, childWithBedPerNight })
-                    }
-                    placeholder="1000"
-                  />
-                </FormField>
-                <FormField label="Child without bed / night">
-                  <PriceField
-                    value={form.childWithoutBedPerNight}
-                    onChange={(childWithoutBedPerNight) =>
-                      setForm({ ...form, childWithoutBedPerNight })
-                    }
-                    placeholder="500"
-                  />
-                </FormField>
-              </FormGrid>
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  {form.adultBandRows.map((row, idx) => (
+                    <FormGrid key={row.adults}>
+                      <FormField
+                        label={
+                          row.adults === 1
+                            ? 'Single (1A) weekday'
+                            : row.adults === 2
+                              ? 'Double (2A) weekday'
+                              : 'Triple (3A) weekday'
+                        }
+                      >
+                        <PriceField
+                          value={row.unitCost}
+                          onChange={(unitCost) => {
+                            const next = [...form.adultBandRows];
+                            next[idx] = { ...row, unitCost };
+                            setForm({ ...form, adultBandRows: next });
+                          }}
+                          placeholder={
+                            row.adults === 2 ? form.unitCost || '4500' : ''
+                          }
+                        />
+                      </FormField>
+                      <FormField
+                        label={
+                          row.adults === 1
+                            ? 'Single weekend'
+                            : row.adults === 2
+                              ? 'Double weekend'
+                              : 'Triple weekend'
+                        }
+                        description={
+                          idx === 0
+                            ? 'Optional. Blank = scale from chart weekend.'
+                            : undefined
+                        }
+                      >
+                        <PriceField
+                          value={row.weekendUnitCost}
+                          onChange={(weekendUnitCost) => {
+                            const next = [...form.adultBandRows];
+                            next[idx] = { ...row, weekendUnitCost };
+                            setForm({ ...form, adultBandRows: next });
+                          }}
+                          placeholder={
+                            row.adults === 2
+                              ? form.weekendUnitCost || ''
+                              : ''
+                          }
+                        />
+                      </FormField>
+                    </FormGrid>
+                  ))}
+                </div>
+                <FormGrid>
+                  <FormField label="Base adults / room">
+                    <Input
+                      inputMode="numeric"
+                      value={form.baseAdults}
+                      onChange={(e) =>
+                        setForm({ ...form, baseAdults: e.target.value })
+                      }
+                      placeholder="2"
+                    />
+                  </FormField>
+                  <FormField label="Child age max">
+                    <Input
+                      inputMode="numeric"
+                      value={form.childAgeMax}
+                      onChange={(e) =>
+                        setForm({ ...form, childAgeMax: e.target.value })
+                      }
+                      placeholder="11"
+                    />
+                  </FormField>
+                  <FormField label="Extra adult / night">
+                    <PriceField
+                      value={form.extraAdultPerNight}
+                      onChange={(extraAdultPerNight) =>
+                        setForm({ ...form, extraAdultPerNight })
+                      }
+                      placeholder="1500"
+                    />
+                  </FormField>
+                  <FormField label="Child with bed / night">
+                    <PriceField
+                      value={form.childWithBedPerNight}
+                      onChange={(childWithBedPerNight) =>
+                        setForm({ ...form, childWithBedPerNight })
+                      }
+                      placeholder="1000"
+                    />
+                  </FormField>
+                  <FormField label="Child without bed / night">
+                    <PriceField
+                      value={form.childWithoutBedPerNight}
+                      onChange={(childWithoutBedPerNight) =>
+                        setForm({ ...form, childWithoutBedPerNight })
+                      }
+                      placeholder="500"
+                    />
+                  </FormField>
+                  <FormField
+                    label="Min stay (nights)"
+                    description="Blocks send when stay is shorter unless a manager acknowledges."
+                  >
+                    <Input
+                      inputMode="numeric"
+                      value={form.minStayNights}
+                      onChange={(e) =>
+                        setForm({ ...form, minStayNights: e.target.value })
+                      }
+                      placeholder="2"
+                    />
+                  </FormField>
+                </FormGrid>
+              </div>
             </FormField>
 
             <FormField
@@ -1069,7 +1613,158 @@ export function SupplierHotelRatesPanel({
             )}
           </div>
         </RecordSheet>
+
+        <RecordSheet
+          open={matrixOpen}
+          onOpenChange={(open) => {
+            if (!open) closeMatrix();
+            else setMatrixOpen(true);
+          }}
+          title="Meal × occupancy matrix"
+          description={
+            matrixAnchor
+              ? `${matrixAnchor.roomType?.trim() || 'Default room'} · ${seasonLabel(matrixAnchor)}. Fill EP/CP/MAP/AP × Single/Double/Triple. Empty meal rows are skipped; new meals inherit extras/gala from this season.`
+              : 'Compact buy grid for one season window.'
+          }
+          submitting={matrixSaving}
+          footer={
+            <>
+              <Button type="button" variant="outline" onClick={() => closeMatrix()}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={() => void saveMealOccupancyMatrix()}
+                disabled={matrixSaving || !matrixAnchor}
+              >
+                {matrixSaving ? 'Saving…' : 'Save matrix'}
+              </Button>
+            </>
+          }
+        >
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[20rem] border-collapse text-sm">
+              <thead>
+                <tr className="text-left text-xs text-muted-foreground">
+                  <th className="pb-2 pr-2 font-medium">Meal</th>
+                  {MATRIX_ADULT_BANDS.map((adults) => (
+                    <th key={adults} className="pb-2 px-1 font-medium">
+                      {adults === 1 ? 'SGL' : adults === 2 ? 'DBL' : 'TPL'}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {MEAL_MATRIX_PLANS.map((meal) => (
+                  <tr key={meal} className="border-t border-border/40">
+                    <td className="py-2 pr-2 align-middle">
+                      <div className="font-medium">{meal}</div>
+                      <div className="text-[10px] text-muted-foreground">
+                        {MEAL_HINT[meal] || ''}
+                        {matrixByMeal[meal] ? ' · exists' : ''}
+                      </div>
+                    </td>
+                    {MATRIX_ADULT_BANDS.map((adults) => {
+                      const cell = matrixCells.find(
+                        (c) => c.mealPlan === meal && c.adults === adults,
+                      );
+                      return (
+                        <td key={adults} className="py-2 px-1 align-middle">
+                          <PriceField
+                            value={cell?.unitCost ?? ''}
+                            onChange={(unitCost) =>
+                              setMatrixCells((prev) =>
+                                setMatrixCellCost(
+                                  prev,
+                                  meal,
+                                  adults as MatrixAdultBand,
+                                  unitCost,
+                                ),
+                              )
+                            }
+                            placeholder="—"
+                            showCurrency={false}
+                          />
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </RecordSheet>
       </Can>
+
+      <RecordSheet
+        open={historyOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setHistoryOpen(false);
+            setHistoryAnchorId(null);
+            setHistoryVersions([]);
+          } else setHistoryOpen(true);
+        }}
+        title="Rate version history"
+        description="Superseded tips stay on file. Restore copies content into a new active tip."
+        submitting={historySaving}
+        footer={
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              setHistoryOpen(false);
+              setHistoryAnchorId(null);
+            }}
+          >
+            Close
+          </Button>
+        }
+      >
+        {historyLoading ? (
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        ) : historyVersions.length ? (
+          <ul className="divide-y divide-border/50 overflow-hidden rounded-xl border border-border/60">
+            {[...historyVersions].reverse().map((v) => (
+              <li
+                key={v.id}
+                className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 text-sm"
+              >
+                <span className="text-xs text-muted-foreground">
+                  {formatHotelRateVersionHistoryLine(v, {
+                    formatAmount: (n) =>
+                      formatCurrency(n, { maximumFractionDigits: 0 }),
+                  })}
+                  {formatHotelRateTipDiffCue(v.diffVsActive) ? (
+                    <span className="mt-0.5 block text-[11px] text-amber-800 dark:text-amber-200">
+                      Diff vs current · {formatHotelRateTipDiffCue(v.diffVsActive)}
+                    </span>
+                  ) : null}
+                </span>
+                <Can anyOf={CAP.ratesWrite}>
+                  {!v.isActive ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={historySaving}
+                      onClick={() => void restoreRateVersion(v.id)}
+                    >
+                      Restore as new tip
+                    </Button>
+                  ) : (
+                    <span className="text-[10px] font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
+                      Current
+                    </span>
+                  )}
+                </Can>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-muted-foreground">No versions yet.</p>
+        )}
+      </RecordSheet>
 
       <RatesCsvImportDialog
         open={importOpen}

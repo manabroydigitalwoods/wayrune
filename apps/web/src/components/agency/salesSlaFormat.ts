@@ -43,3 +43,34 @@ export function formatMinutesTargetCue(
   const hours = Math.round((targetMinutes / 60) * 10) / 10;
   return `target ${hours}h`;
 }
+
+export type FitClaimProtocolCue = {
+  claimStatus?: 'testing' | 'ready' | null;
+  publicClaimAllowed?: boolean | null;
+  sampleSize?: number | null;
+  minSampleSize?: number | null;
+  medianMinutes?: number | null;
+  targetMinutes?: number | null;
+};
+
+/** Compact FIT &lt;3m claim gate cue for the sales strip. */
+export function formatFitClaimProtocolCue(
+  protocol: FitClaimProtocolCue | null | undefined,
+): string | null {
+  if (!protocol) return null;
+  const n = Math.max(0, Math.floor(Number(protocol.sampleSize) || 0));
+  const min = Math.max(1, Math.floor(Number(protocol.minSampleSize) || 20));
+  const target = Math.max(1, Math.round(Number(protocol.targetMinutes) || 3));
+  if (protocol.publicClaimAllowed || protocol.claimStatus === 'ready') {
+    return `claim ready · under ${target}m (n=${n})`;
+  }
+  if (n < min) {
+    return `testing · ${n}/${min} samples`;
+  }
+  const median = protocol.medianMinutes;
+  if (median != null && Number.isFinite(median) && median > target) {
+    return `testing · median ${Math.round(median)}m · do not claim`;
+  }
+  return `testing · n=${n}`;
+}
+

@@ -10,7 +10,7 @@ This memo revises the Sembark competitive analysis against the current codebase.
 
 ## Executive verdict
 
-**Sembark is currently deeper; our Travel OS is broader.**
+**Sembark remains deeper on market proof and full commercial polish; Travel OS is now competitive on the agency wedge and still broader as a platform.**
 
 Sembark concentrates on a commercially valuable agency journey:
 
@@ -22,7 +22,7 @@ Our long-term advantage:
 
 **Strategic rule:** First become indispensable to one travel agency’s daily workflow. Then connect the travel ecosystem.
 
-Customers buy relief from today’s problems (fast quotes, correct costing, follow-ups, ops coordination, supplier payables, vouchers, trip profit) — not platform architecture. Match Sembark’s depth on that wedge before leading with multi-org or Presence.
+**2026-07 re-score (after P0 thin ladders + package folders + live FX refresh):** the Priority 0 agency journey is largely **thin-complete** end-to-end (quote → hotel/transfer/activity ops → collect/chase → movement → packages → Settings FX). Remaining Sembark leads are **depth** (full occupancy×meal grids, ledger/tax regimes, consultant onboarding, public credibility) — not missing journey stages. Customers still buy relief from today’s problems; do not lead with multi-org or Presence until wedge depth and measured FIT speed are undeniable.
 
 ---
 
@@ -32,26 +32,44 @@ Maturity labels: **early** | **partial** | **mature** | **structural** (architec
 
 | Area | Sembark | Our Travel OS (today) | Current advantage |
 |------|---------|----------------------|-------------------|
-| Lead and enquiry intake | Lead APIs, round-robin, follow-ups | Parties, leads, inquiries, pipelines, custom fields, travel-request intake; **sales response strip**; **org sales SLA targets** (Settings + strip tones); **task↔followUpAt**; **inbox unread + aging (org hours)**; **unread_sla automation fire**; **round-robin polish** (skip inactive, preserve cursor, next-up / last-assigned cue, create toast with owner, `/leads?owner=me`) | **Objects near parity** |
-| Communication | WhatsApp notifications, calling add-on, email parsing | Unified inbox (WhatsApp / email / Instagram / website / Google Business), AI rewrite/summarize; Microsoft = SSO only; quote WA share = Cloud template/session + `wa.me` Mark-as-sent; **Quote proposal template picker** on Integrations | **Stronger foundation; uneven channel depth** — do not claim Microsoft messaging; **HubSpot out of scope** |
-| Itinerary creation | Productised ~60s workflow with costing | Flexible itinerary builder + public proposal | **Sembark for speed and costing** |
-| Quotation pricing | Multi-currency, tax, component markup, reusable supplier data | Versioned quotes, hotel/transfer/activity rate resolve, cost/sell/tax/margin, **fixed + % markup**, **org default tax apply**, branded PDF/email, public accept — FX stub | **Sembark** on FX/tax regime depth; markup + default-tax path thin-complete |
-| Supplier contracts | Mature rates, seasons, stop/blackout dates, bulk upload | **Supplier Directory + Profile V1 complete**; quote lines store `rateId` + `rateProvenance` (season, buy-at-match, system vs chart) from `rates/resolve`; hotel chart → match → line wired; transfer still catalog-scoped; hotel occupancy extras thin slice | **Sembark** on full occupancy×meal grid / rate-change depth; provenance path open |
-| Booking operations | Reservations, assignment, vouchers, movement charts | Booking components + readiness; hotel voucher PDF; movement board + calendar; transfer driver/fleet unit assign + conflict flags + DriverJob sync | **Near parity on movement thin slice;** partner fleet OS depth still open |
-| Payments and accounting | Receivables, payables, instalments, payment links, ledgers | Per-trip AR/AP + margin; trip payment links + Razorpay Checkout; org-wide aging/portfolio; **aging chase** (Copy link / WhatsApp from receivables & overdue); **payables Mark paid + Unmark** from aging; **home AR/AP FX excl. cue** (parity with portfolio) | **Sembark** on full ledger depth; AR chase + AP settle thin-complete |
+| Lead and enquiry intake | Lead APIs, round-robin, follow-ups | Parties, leads, inquiries, pipelines, custom fields, travel-request intake; **sales response strip**; **org sales SLA targets**; **task↔followUpAt**; **inbox unread + aging**; **unread_sla automation**; **round-robin polish** | **Near parity** (objects + SLA cues) |
+| Communication | WhatsApp notifications, calling add-on, email parsing | Unified inbox (WhatsApp / email / Instagram / website / Google Business), AI rewrite/summarize; Microsoft = SSO only; quote WA share = Cloud template/session + `wa.me` Mark-as-sent; **Quote proposal template picker** | **Stronger foundation; uneven channel depth** — no Microsoft messaging claim; **HubSpot out of scope** |
+| Itinerary creation | Productised ~60s workflow with costing | Flexible itinerary builder + public proposal; **package apply + rematch + Story seed**; FIT build minutes instrumented (do not claim 60s publicly) | **Sembark for polished speed**; we are closing via packages + telemetry |
+| Quotation pricing | Multi-currency, tax, component markup, reusable supplier data | Versioned quotes; hotel/transfer/activity resolve; cost/sell/tax/margin; **fixed + % + agent markup**; **org default tax**; branded PDF/email/WA; public accept; **Quote FX lock** + **Settings live FX refresh (Frankfurter)** | **Near parity on INR FIT path**; **Sembark** on tax regimes / cross-pair / auto FX |
+| Supplier contracts | Mature rates, seasons, stop/blackout, bulk upload, occupancy grids | **Supplier Directory + Profile V1**; hotel/transfer/activity charts; seasons/weekend/gala/occupancy extras; **SGL/DBL/TPL adultBands** + **copy-as-meal** + **meal×occupancy matrix** + **weekend-per-band** + **min stay (hard gate)** + **IN/INTL + per-ISO + full ISO-3166 nationality** + **hotel/transfer/activity rate version chains** + **hotel/transfer/activity tip diffs**; blackout vs stop-sale; CSV/XLSX + import audit; hard allotment + capacity gates; cancel policy stamp | **Sembark** on multi-guest mixed nationality / multi-approver rate inbox; **near parity** on daily contracting thin path |
+| Booking operations | Reservations, assignment, vouchers, movement charts | Booking components + readiness; hotel/transfer/activity enquiry→confirm→payable→voucher; **movement board + calendar**; driver/fleet assign + DriverJob sync; **allotment release+reallocate**; type-aware partner Confirm | **Near parity on agency ops thin slice**; partner fleet OS depth still open |
+| Payments and accounting | Receivables, payables, instalments, payment links, ledgers | Per-trip AR/AP + margin; payment links + Razorpay; org aging/portfolio; **chase + AP Mark paid/Unmark**; report packs + scheduled CSV email; **FX honesty cues** | **Sembark** on full ledger; **near parity** on collect/chase thin path |
 | Multi-brand / multi-org | Multiple brands under one login | Org kinds (agency, hotel, DMC, driver, …), multi-membership, org switcher; partner OS / Travel Exchange unfinished | **Structural advantage; productized partner network still early** |
 | Digital presence | No equivalent found | Hosted sites, themes, modules, platform hosts, forms→CRM; custom-domain TLS/verify deferred | **Ours** if framed as embedded travel site + CRM — not finished hosting ops |
-| Partner ecosystem | Primarily one company’s internal ops | Planned connected partner OSes and network | **Long-term ours** — not a current sales wedge |
+| Partner ecosystem | Primarily one company’s internal ops | Planned connected partner OSes and network; inbound confirm + docs thin | **Long-term ours** — not a current sales wedge |
 | Integrations | Lead APIs, email parsing, flights, calling, WhatsApp | Broader connector contract; channel depth uneven | **Foundation ours; depth mixed** |
-| Onboarding | Mandatory consultant-led setup + extensive guides | Register, org seed, claim invite, Presence wizard — no implementation product | **Sembark** |
-| Reporting | Extensive ops reports + saved presets | Role-composed dashboards; exportable BI early | **Sembark** |
-| Market credibility | Public release notes, docs, claimed scale | Early-stage product | **Sembark** |
+| Onboarding | Mandatory consultant-led setup + extensive guides | Register, org seed, claim invite; **checklist + first-quote walkthrough + sample FIT pack** (quote/trips empty CTAs) | **Sembark** on consultant depth; **we closed self-serve thin wedge** |
+| Reporting | Extensive ops reports + saved presets | Role dashboards; finance CSV + personal presets + **org-shared packs + weekly email**; sales/ops strips | **Sembark** on breadth of ops reports; finance packs thin-complete |
+| Market credibility | Public release notes, docs, claimed scale | Early-stage; **claim registry + in-app About + named demo trip**; no public scale claim | **Sembark** on public docs/scale; **we closed buyer-safe About + demo wedge** |
 
 ### Where we are already better (qualified)
 
 - **True multi-organization platform** — architecture differentiates; do not sell as a finished partner network.
 - **Omnichannel CRM foundation** — fair for agency inbox; qualify Microsoft messaging depth. **HubSpot discarded** (not on roadmap).
 - **Digital Presence** — strongest current differentiator among the four; secondary in sales narrative after quote/ops outcomes.
+
+### Where the gap flipped or narrowed (Jul 2026)
+
+| Gap that used to be “Sembark” | Now |
+|-------------------------------|-----|
+| FX stub / no live rates | **Quote lock + Settings Frankfurter refresh** — still no auto-cron / AED feed / cross-pair |
+| Package library depth | **Versioning + history/diff + tags + slash-path folder nav** — still no rich Diff / server folder index |
+| Onboarding “no product” | **Checklist + FIT pack + empty-state Install** — still no consultant implementation centre |
+| Movement / vouchers “missing” | **Board + vouchers + DriverJob sync thin-complete** |
+| Collect & chase | **Payment links + aging chase + AP settle thin-complete** |
+
+### Honest remaining Sembark leads (do not paper over)
+
+1. **Rate-grid depth** — multi-guest mixed nationality (full ISO-3166 picker thin-complete)
+2. **Tax / ledger depth** — place-of-supply GST regimes; full accounting ledger  
+3. **Quote speed productisation** — measured sub-3-minute FIT median + public claim gated by `fitClaimProtocol` (testing until n≥20)  
+4. **Market credibility** — release notes, docs, scale proof  
+5. **Partner fleet OS** — inventory OS beyond booking-linked holds  
 
 ---
 
@@ -118,7 +136,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Quote sidebar currency + Lock FX; send gate copy when FX missing; cost-compare excludes other-currency bookings; aging shows other-currency count |
 | **3 Proof** | **Done** | `quote-fx` unit specs; this ladder in memo |
 
-**Defer:** live provider feed, cross-pair (non-INR chart) convert.
+**Defer:** *(closed — see Live FX refresh below)* · cross-pair (non-INR chart) convert.
 
 #### Prod-ready ladder — Portfolio FX honesty (**done**)
 
@@ -272,7 +290,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Request-approval dialog with checkbox when near-expiry/grace; mark-sent POST includes flag; checkbox stays visible during wa.me Mark as sent |
 | **3 Proof** | **Done** | Schema parse specs; this ladder in memo |
 
-**Defer:** *(validity extend opt-in closed — larger leftovers: Meta sync; occupancy×meal; multi-band transfer)*
+**Defer:** *(validity extend opt-in closed — larger leftovers: Meta sync; multi-band transfer)*
 
 #### Prod-ready ladder — Guided FIT speed: template travel-start gate (**done**)
 
@@ -372,7 +390,167 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Rate chart Child age max; hotel drawer Ages · cue + child-ages copy; attention Ages chip (shared with activity) |
 | **3 Proof** | **Done** | Occupancy classify + priced reclassify specs; this ladder in memo |
 
-**Defer:** full multi-row occupancy×meal grid.
+**Defer:** *(closed — see Hotel SGL/DBL/TPL adult bands below)*
+
+#### Prod-ready ladder — Hotel SGL/DBL/TPL adult bands (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `adultBands` on `occupancyPricingJson` (≤3); Match picks band by adults/room; weekend scales with chart ratio; extras beyond band adults; Heritage seed SGL&lt;DBL&lt;TPL |
+| **2 Channels / UI** | **Done** | Rate chart Single/Double/Triple cost rows; Match Occupancy cue shows `NA band · ₹…/n` |
+| **3 Proof** | **Done** | Band parse/pick + cue specs; this ladder in memo |
+
+**Defer:** *(closed — see Copy rate as other meal plan below)*
+
+#### Prod-ready ladder — Copy rate as other meal plan (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `cloneHotelRateFormForMealPlan` keeps season window + bands/extras; nudges costs by EP/CP/MAP/AP index; Heritage spring Deluxe **CP** sister seeded |
+| **2 Channels / UI** | **Done** | Rate chart **Copy as other meal plan** (utensils) beside Duplicate season |
+| **3 Proof** | **Done** | Clone/scale helper specs; this ladder in memo |
+
+**Defer:** *(closed — see Compact meal × occupancy matrix below)*
+
+#### Prod-ready ladder — Compact meal × occupancy matrix (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | Season-family key + `buildMealOccupancyMatrix` / `diffMealOccupancyMatrix`; upserts sibling meal rows with `adultBands` (preserve extras/gala); weekend scales from anchor ratio on create |
+| **2 Channels / UI** | **Done** | Rate chart **Meal × occupancy matrix** (grid) — EP/CP/MAP/AP × SGL/DBL/TPL sheet; Save creates/patches meal rows for one season window |
+| **3 Proof** | **Done** | Matrix helper specs; this ladder in memo |
+
+**Defer:** CSV matrix columns; matrix delete of cleared meals; matrix weekend cells (season form has weekend-per-band).
+
+#### Prod-ready ladder — Weekend-per-band hotel costs (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `adultBands[].weekendUnitCostPerNight` optional; Match prefers absolute band weekend over chart ratio; provenance stamps `adultBandWeekendUnitCost`; Heritage seasons seeded with band weekends |
+| **2 Channels / UI** | **Done** | Rate chart SGL/DBL/TPL weekday + weekend fields; copy-as-meal scales band weekends; matrix save preserves/stamps band weekends |
+| **3 Proof** | **Done** | parse/pick + clone/matrix merge specs; this ladder in memo |
+
+**Defer:** matrix UI weekend columns; CSV band weekend columns.
+
+#### Prod-ready ladder — Hotel min stay on rate card (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `minStayNights` on `occupancyPricingJson`; Match stamps `minStayShort` / note on calculation when nights &lt; min; Match explain accepted line; Heritage spring min 2n |
+| **2 Channels / UI** | **Done** | Rate chart **Min stay** field; drawer Min stay cue; attention **Min stay** chip |
+| **3 Proof** | **Done** | hotel-min-stay + cue specs; this ladder in memo |
+
+**Follow-on:** hard send gate — see ladder below.
+
+#### Prod-ready ladder — Hard min-stay at quote (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | Match stamps `minStayWarn` / `minStayNote`; `assertNoBlockingMinStay` on send/approve; `inventory_risk.approve` ack fingerprints note + reason; autosave cannot forge acks |
+| **2 Channels / UI** | **Done** | Drawer Send anyway ack (same permission as allotment/capacity); attention chip clears when acked; client send preflight copy; Rate chart field copy updated |
+| **3 Proof** | **Done** | `lineNeedsMinStayRiskAck` + provenance/preserve specs; this ladder in memo |
+
+**Defer:** max stay; auto-extend nights on Match.
+
+#### Prod-ready ladder — Hotel rate version chain (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `versionNumber` + `supersedesId` on `SupplierHotelRate`; `POST …/new-version` deactivates tip + creates vN+1; History + restore-as-new-tip; contract clone `copyRates` now copies `occupancyPricingJson` + links `supersedesId`; Match stamps rate version in explain |
+| **2 Channels / UI** | **Done** | Rate chart **vN** badge, **New version** (branch) + **History**; restore opens edit on new tip |
+| **3 Proof** | **Done** | hotel-rate-version + web label specs; this ladder in memo |
+
+**Defer:** multi-approver rate inbox.
+
+#### Prod-ready ladder — Transfer + activity rate version chains (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `versionNumber` + `supersedesId` on `TransferFare` + `SupplierActivityRate`; `POST …/new-version`, `GET …/versions`, `POST …/restore-version` (mirror hotel); Match stamps `rateVersionNumber` |
+| **2 Channels / UI** | **Done** | Transfer + activity Rate chart **vN** badge, **New version** + **History** restore |
+| **3 Proof** | **Done** | Shared `rate-version-chain` specs; this ladder in memo |
+
+**Defer:** side-by-side rich Diff sheet (hotel tip diff shipped below; transfer/activity tip diff also shipped).
+
+#### Prod-ready ladder — Hotel rate tip diff (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `diffHotelRateTips` on History list (`diffVsActive` vs active tip — cost/meal/dates/occupancy) |
+| **2 Channels / UI** | **Done** | Hotel History sheet shows **Diff vs current** cue on superseded tips |
+| **3 Proof** | **Done** | hotel-rate-diff + web cue specs; this ladder in memo |
+
+**Defer:** side-by-side rich Diff sheet; multi-approver inbox.
+
+#### Prod-ready ladder — Transfer + activity tip diff (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `diffTransferFareTips` / `diffActivityRateTips` on History list (`diffVsActive` vs active tip) |
+| **2 Channels / UI** | **Done** | Transfer + activity History sheets show **Diff vs current** cue on superseded tips |
+| **3 Proof** | **Done** | transfer-activity-rate-diff + web cue specs; this ladder in memo |
+
+**Defer:** side-by-side rich Diff sheet; field-level restore.
+
+#### Prod-ready ladder — Hotel nationality markets (IN / INTL) (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `nationality` on `occupancyPricingJson` (`IN` / `INTL`); Match prefers market-specific then any; season overlap keyed by nationality; resolve accepts party/line nationality; Heritage spring MAP IN + INTL sisters |
+| **2 Channels / UI** | **Done** | Rate chart nationality chips + list badge; quote drawer guest nationality; Match cue + attention **Nationality** chip |
+| **3 Proof** | **Done** | hotel-nationality + cue specs; this ladder in memo |
+
+**Defer:** multi-guest mixed nationality; full ISO-3166 catalog UI.
+
+#### Prod-ready ladder — Hotel per-ISO nationality tips (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | Rate `nationality` stores ISO-2 (US/GB/…) without collapsing to INTL; Match prefers exact ISO → INTL catch-all → any; season overlap keyed by exact code; Heritage spring US MAP sister |
+| **2 Channels / UI** | **Done** | Rate chart + quote drawer chips include common ISO tips; cues/labels show country names |
+| **3 Proof** | **Done** | hotel-nationality + cue specs; this ladder in memo |
+
+**Defer:** *(closed — see Full ISO-3166 nationality picker below)* · multi-guest mixed nationality per room.
+
+#### Prod-ready ladder — Full ISO-3166 nationality picker (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | Shared `ISO_3166_ALPHA2_CODES` + `iso3166RegionLabel` in contracts; API/web labels resolve any ISO-2 |
+| **2 Channels / UI** | **Done** | Rate chart quick chips + searchable full-country Combobox; quote drawer searchable full catalog |
+| **3 Proof** | **Done** | Catalog + picker option specs; this ladder in memo |
+
+**Defer:** multi-guest mixed nationality per room.
+
+#### Prod-ready ladder — FIT &lt;3m claim protocol gate (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `buildFitClaimProtocol` on `GET /dashboard/sales` (`definition`, target 3m, min sample 20, `testing`/`ready`, `publicClaimAllowed`) |
+| **2 Channels / UI** | **Done** | Sales strip FIT card + samples line show testing/ready cue; copy says public claim gated |
+| **3 Proof** | **Done** | Protocol + cue specs; claim registry + 90-day scorecard in memo |
+
+**Defer:** public marketing page; help centre; Settings-configurable protocol; 60s claim.
+
+#### Prod-ready ladder — In-app release notes (About) (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `releaseNotes.ts` claim-safe filter (proven/architecture only; testing + do-not-claim hidden) |
+| **2 Channels / UI** | **Done** | Settings → **About** release notes list + Proven/Architecture badges |
+| **3 Proof** | **Done** | Filter specs; scorecard credibility row; this ladder in memo |
+
+**Defer:** public `/changelog` site; help centre; case studies.
+
+#### Prod-ready ladder — Demo-org polish (named FIT demo trip) (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | Demo trip title `Darjeeling classic FIT — demo`; install returns `demoTrip` meta (`title`, `includes`, `created`); upgrades legacy `Darjeeling hills — sample` title on re-find |
+| **2 Channels / UI** | **Done** | Install toast names demo + Open cue; onboarding **Open demo trip** (idempotent install → Quotations); About release note |
+| **3 Proof** | **Done** | Starter-pack + agencyFitPack toast/path specs; scorecard credibility row; this ladder in memo |
+
+**Defer:** public demo tenant; guided product tour video; seed rewrite beyond FIT pack.
 
 #### Prod-ready ladder — Hotel children without bed picker (**done**)
 
@@ -382,7 +560,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Hotel quote drawer **Children without bed** NumberField (when children > 0); shrinks when children decrease |
 | **3 Proof** | **Done** | `quoteServiceDetails.hotel-without-bed` specs; this ladder in memo |
 
-**Defer:** full multi-row occupancy×meal grid.
+**Defer:** *(closed — see Compact meal × occupancy matrix)* · nationality grids elsewhere.
 
 #### Prod-ready ladder — Hard allotment at quote (**done**)
 
@@ -712,7 +890,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Transfer drawer Child ages (trim on Children change); activity Children trims ages |
 | **3 Proof** | **Done** | trim/preserve/per_adult specs; this ladder in memo |
 
-**Defer:** full occupancy×meal grid.
+**Defer:** *(closed — see Compact meal × occupancy matrix)*
 
 #### Prod-ready ladder — Transfer child-age banding on fares (**done**)
 
@@ -864,7 +1042,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 
 | Work item | Build on | Notes |
 |-----------|----------|-------|
-| Reusable itinerary / quote templates + package clone | `QuoteTemplate` (seeded packages) | Seed: Darjeeling + Goa priced FIT packages; trip UI sorts by destination match; save-as-template stores `destinationHint`. **Thin slice complete:** apply (`POST …/from-template`) shifts line `checkIn`/`checkOut`/`serviceDate`/`activityDate` from template anchor → trip `startDate`, clears rate snapshots, then **server rematch** in `createFromTemplate` via `RatesService.resolve` (from-package + workspace); **reanchors existing story itinerary `day.date`** to trip start + (dayNumber−1); **save embeds trip Story days/meta** into `contentJson.itinerary` (`tripId` / `versionId`); **apply seeds empty trip Story** from template (reminted ids + date reanchor; story meta if missing); **else scaffolds days from hotel lines** (check-in→check-out span + Check-in items). **Versioning thin-complete:** supersede-on-save + active-only list. **History + restore thin-complete:** versions API + Use-template History/Restore. **Travel-start gate thin-complete:** apply requires/stamps `startDate` so undated trips still shift. **New trip dates thin-complete:** create sheet optional Travel start/end → POST. **Edit trip dates thin-complete:** `PATCH /trips/:id/dates` + workspace sheet (no auto line shift). **One-shot create+package thin-complete:** New trip optional Package → create + apply → Quotations. **Pax in apply thin-complete:** adults/children stamp hotel/transfer/activity before rematch. Defer: template folders; date-shift-on-edit; child ages on apply |
+| Reusable itinerary / quote templates + package clone | `QuoteTemplate` (seeded packages) | Seed: Darjeeling + Goa priced FIT packages; trip UI sorts by destination match; save-as-template stores `destinationHint`. **Thin slice complete:** apply (`POST …/from-template`) shifts line `checkIn`/`checkOut`/`serviceDate`/`activityDate` from template anchor → trip `startDate`, clears rate snapshots, then **server rematch** in `createFromTemplate` via `RatesService.resolve` (from-package + workspace); **reanchors existing story itinerary `day.date`** to trip start + (dayNumber−1); **save embeds trip Story days/meta** into `contentJson.itinerary` (`tripId` / `versionId`); **apply seeds empty trip Story** from template (reminted ids + date reanchor; story meta if missing); **else scaffolds days from hotel lines** (check-in→check-out span + Check-in items). **Versioning thin-complete:** supersede-on-save + active-only list. **History + restore thin-complete:** versions API + Use-template History/Restore. **Travel-start gate thin-complete:** apply requires/stamps `startDate` so undated trips still shift. **New trip dates thin-complete:** create sheet optional Travel start/end → POST. **Edit trip dates thin-complete:** `PATCH /trips/:id/dates` + workspace sheet (no auto line shift). **One-shot create+package thin-complete:** New trip optional Package → create + apply → Quotations. **Pax in apply thin-complete:** adults/children stamp hotel/transfer/activity before rematch. **Folder hierarchy thin-complete:** slash-path `contentJson.folder` + breadcrumb/prefix filter. Defer: date-shift-on-edit; rich Diff; server folder index |
 | **Sales response / quote-turnaround telemetry** | `GET /dashboard/sales`, Lead/Activity/Inquiry→Trip→Quotation | **Thin + FIT minutes:** overdue lead follow-ups + median first-touch + median lead→quote (30d) + **median FIT build minutes** (workspace open → first send via `quote.fit_build` audit). `/leads?followUp=overdue` click-through. **Task→followUpAt sync:** creating a lead (or inquiry→lead) task with `dueAt` stamps `Lead.followUpAt`. **Reverse:** editing lead `followUpAt` stamps the newest open lead-linked task `dueAt`. **Inbox unread SLA thin:** unread + aging thread counts + `/inbox?unread=1` / `?aging=1`; **org `settingsJson.inboxAgingHours` (1–72, default 4)** on Settings → General, dashboard, and aging list filter. **Org sales SLA targets thin-complete:** optional `firstTouchTargetHours` / `leadToQuoteTargetHours` / `fitBuildTargetMinutes` on Settings → General; dashboard returns targets; Sales response strip tones medians (success / warn / danger) + target cues. **`conversation.unread_sla` fire:** worker 15m tick + opportunistic on sales dashboard / aging inbox; idempotent `[unread_sla:…]` subject marker; Integrations rule UI. **`conversation.waiting` fire** when status set to waiting. **Round-robin polish:** skip inactive members, preserve cursor on save, next-up / last-assigned on Lead sources, create toast shows owner, `/leads?owner=me`. Defer: dual-source merge / task PATCH |
 | Itinerary → priced lines loop | `POST /rates/resolve`, Trip workspace quote UI | Live auto-rematch in hotel/transfer drawer when match keys change; bulk refresh uses same apply helper |
 | Markup presets (fixed + %) | Org `defaultMarkupPercent`, rate resolve | **Thin slice complete:** Fixed ₹ and % both persist on open/save/rematch (no longer force-percent); Match apply keeps Fixed; **Apply default markup** uses org `defaultMarkupPercent` (not hardcoded 20%). **Agent / B2B markup:** org `agentMarkupPercent` for travel_agency / reseller / DMC parties (Settings + Match / rematch / Apply default via `partyId`). Defer: preset libraries |
@@ -879,15 +1057,15 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 
 | Work item | Build on | Notes |
 |-----------|----------|-------|
-| Seasonal / weekend / occupancy-meal depth for hotels | `SupplierHotelRate`, supplier Rate chart | **Thin slice complete:** season windows + meal match + weekend night cost; occupancy extras (`occupancyPricingJson`: base adults + extra adult / child with|without bed) fold into resolve `unitCost` + provenance. **Gala / date supplements** (nested `dateSupplements` on same JSON) fold in after occupancy — per-room on matching stay nights; Rate chart UI (≤3 nights); demo winter Heritage Deluxe MAP (24 Dec / 31 Dec). **Drawer cues:** Match with extras shows **Occupancy · +₹…** beside Rooms/Adults; Match with gala shows **Gala · +₹…** beside stay dates (matched labels preserved on provenance); Match with weekend nights shows **Weekend · …** beside stay dates. **Attention chips:** Occupancy / Gala / Weekend from stamped `rateProvenance.calculation` (soft; does not block send). **Child-age bands thin-complete:** occupancy `childAgeMax` + quote `childAges` reclassify over-age kids as extra adults on Match (Ages cue + chip). **Children without bed thin-complete:** drawer picker + Match rematch; remaining kids priced with bed. Defer: full Sembark multi-row occupancy×meal grid |
+| Seasonal / weekend / occupancy-meal depth for hotels | `SupplierHotelRate`, supplier Rate chart | **Thin slice complete:** season windows + meal match + weekend night cost; occupancy extras (`occupancyPricingJson`: base adults + extra adult / child with|without bed) fold into resolve `unitCost` + provenance. **SGL/DBL/TPL adultBands** pick contracted base by adults/room (**weekend-per-band** absolute when set, else chart ratio). **Gala / date supplements** (nested `dateSupplements` on same JSON) fold in after occupancy — per-room on matching stay nights; Rate chart UI (≤3 nights); demo winter Heritage Deluxe MAP (24 Dec / 31 Dec). **Drawer cues:** Match with extras/bands shows **Occupancy · …** beside Rooms/Adults; Match with gala shows **Gala · +₹…** beside stay dates (matched labels preserved on provenance); Match with weekend nights shows **Weekend · …** beside stay dates. **Attention chips:** Occupancy / Gala / Weekend from stamped `rateProvenance.calculation` (soft; does not block send). **Child-age bands thin-complete:** occupancy `childAgeMax` + quote `childAges` reclassify over-age kids as extra adults on Match (Ages cue + chip). **Children without bed thin-complete:** drawer picker + Match rematch; remaining kids priced with bed. **Meal×occupancy matrix thin-complete:** Rate chart grid upserts EP/CP/MAP/AP × SGL/DBL/TPL sibling rows for one season. **Min stay thin-complete:** `minStayNights` Match cue + **hard send gate** (ack via `inventory_risk.approve`). **Nationality thin-complete:** `IN` / `INTL` + full ISO-3166 picker (quick chips + searchable Combobox); Match prefers exact → INTL → any; quote drawer guest nationality. **Rate version chains thin-complete:** hotel + transfer + activity (`versionNumber`/`supersedesId`; New version + History restore); hotel/transfer/activity tip Diff vs current; contract clone copies occupancy. Defer: multi-guest mixed nationality / rich side-by-side Diff |
 | **Activity / attraction rate cards** | `SupplierActivityRate`, quote Activity drawer Match rate | **Complete (thin):** adult + child per-person cards; `childAgeMin`/`Max` reclassify quote `childAges`; contract blackout/stop-sale soft/hard in resolve; supplier Rates CRUD + CSV/XLSX import; quote Match rate. Seed: Tiger Hill (0–11), SpiceJet cruise (3–12). **Drawer cues:** Match with ages outside card window shows **Ages · N priced as adult (card …)** beside Child ages; soft blackout / hard stop-sale Match shows same **Open contracts** banners as hotel/transfer. **Attention chip:** Ages when children reclassify to adult. Defer: full adult/child matrix everywhere |
 | Hotel supplier contracting foundations (V1 lock) | `AssetRoomProduct`, `SupplierContract`, `SupplierHotelRate.roomProductId` | **Complete:** room product link + contract-owned rates + version chain; blackout (soft) vs stop-sale (hard) in resolve; explainable match (`rateMeta.matchExplain`) + quote provenance (`matchSummary`); seeded Darjeeling Heritage Lodge alignment. **Cancellation thin slice:** contract `cancellationPolicyJson` (PolicyRules tiers) → Match explain + provenance `cancellationSummary` + quote line stamp; Contracts UI (days/% tiers); Heritage demo free-7d / 50%-3d / 100%-1d. **Drawer cue:** Match shows **Cancel · …** beside allotment (not only buried in Match explain). **Attention chip:** Cancel composes with other attention reasons (not alone — avoids perpetual strip noise). **Ops CancellationCase UI:** preview + draft→request→approve→apply from booking Cancel. **Apply drafts open credit note** when `expectedRefund > 0` (idempotent on case); Changes & incidents lists cases + credit-note cue. Defer: settle/allocate automation / agencyAbsorption / PolicyAttachment graph |
 | **Hotel Supplier, Contract, Rate & Allotment Foundation — Release 1** | Property / Rates / Contracts / Rooms & allotments / quote Match rate | **Complete:** canonical rooms + `customerFacingName`; contract versions; soft blackout vs hard stop-sale (copy + enforce); season overlap blocked; room edit/archive; rich Match rate explain in quote drawer. **Allotment remaining** on hotel quote Match (`GET /inventory/availability` banner). **Hard allotment at quote:** Match/Save stamps `rateProvenance.allotmentWarn` → attention **Allotment** chip + **blocks** send/approve when remaining &lt; rooms (no inventory linked stays non-blocking). **Allocate-on-accept:** materialize places allotment **hold** (rooms qty); confirm upgrades hold → confirmed. **Override ack + reason + manager gate:** fingerprint + reason via `POST …/inventory-risk-acks` (`inventory_risk.approve`) + **rate-drift Keep-buy RBAC** (`rate_drift.approve`) |
 | **Accepted hotel quote → enquiry → confirm → payable → voucher** | `BookingComponent.quotationLineId`, `ServiceRequest`, `SupplierInvoice`, `TripPayment` | **Complete (thin slice):** accept materializes hotel bookings + SR `sent`; Ops **Send enquiry** (WhatsApp Cloud or `wa.me` + **Mark enquiry sent**); Confirm schedules AUTO- payable + dual-writes payable `CommercialDocument` (idempotent on booking); Mark vouchered; customer hotel voucher PDF; Ops **WhatsApp vouchers** (text + Cloud PDF ≤5; wa.me + **Mark vouchers sent**) + **Email vouchers** (outbox PDF pack ≤5). Supplier TripPayment mark paid / unmark syncs CD + outbound `PaymentRecord`. Customer instalments dual-write receivable CD on create / payment-link; settle / unmark syncs inbound `PaymentRecord`. Demo: TRP-SEED-02 / TRP-SEED-03. **Transfer + activity accept→enquiry thin:** materialize lines with `supplierId` + SR `TRANSFER`/`ACTIVITY`; Ops Send enquiry for hotel/transfer/activity; Confirm/AUTO- payable type-agnostic. Seed QT-SEED-02 Bagdogra→Darjeeling + Tiger Hill sunrise. **Transfer + activity voucher PDF** download + WA/email PDF attach (≤5) shipped. **CancellationCase thin UI:** Ops Cancel sheet → fee preview (quote stamp / contract) → create+request → approve → apply (+ ops cascade); apply drafts credit note when refund expected; Changes & incidents lists cases. Bypass “without policy case” remains |
 | Blackout / stop-sale **enforced** in `rates/resolve` | `SupplierContract.blackoutJson`, inventory stop-sell | Soft blackout (manual allowed) vs hard stop-sale; room-scoped contract + allotment stop-sale; quote UI distinguishes both. **Drawer:** soft blackout Match shows amber **Blackout · …** + **Open contracts**; hard stop-sale shows destructive **Stop-sale · …** + **Open contracts** (`/suppliers/:id#contracts`) |
 | Transfer capacity / closing dates / point-to-point polish | `TransferFare`, transfer matrix, `rates/resolve` | **Thin slice complete:** supplier contract stop-sale (hard) + blackout (soft) on transfer resolve; `matchExplain` + vehicle capacity seats; reverse-corridor P2P hints; catalog season labeled as closing window; seeded North Bengal Fleet contract (Puja blackout + July stop-sale). **Supplier-owned TransferFare** (`supplierId`) + Rate chart on transport suppliers; resolve prefers supplier corridor (+40) over org/system; seed Siliguri/Bagdogra → Darjeeling Innova. **Ops fleet unit pick + vehicle_conflict + DriverJob↔unit / calendar writeback + partner create-job unit picker shipped.** **CSV supplierName on transfer import** shipped (optional; locked on supplier Rate chart). **Partner allocate holds UI** thin-shipped. **Hard capacity at quote:** Match stamps `rateProvenance.capacityWarn` (party vs seats × vehicles) → attention **Capacity** chip + drawer destructive cue + **blocks** send/approve. **Override ack + reason + manager gate** + **auto vehicle bump on Match + party edit** + **live Vehicles/party capacity restamp** shipped + **dedicated `inventory_risk.approve`** + **rate-drift Keep-buy RBAC** (`rate_drift.approve`). **Per-adult child-age banding thin-complete:** `childAgeMin`/`Max` on TransferFare + Match reclassify + Ages cue|
-| CSV/XLSX bulk import + draft preview | Negotiated-rate CSV pattern | **Thin slice complete:** hotel + transfer + activity import accepts `.xlsx`/`.xls`/`.csv` (first sheet → existing preview/commit APIs); **import batch audit** (`rates.import.commit` + Import dialog **Recent imports**). Supplier Rate chart + Catalog Rates. **Recent imports show sample skip reasons** (`sampleSkips` from audit metadata, ≤3 lines). Defer: full rate version chain / row replay |
-| Rate-change detection + effective dates | Rate date windows | **Thin slice complete:** Match rate shows chart last updated + matched-at; soft drift when live chart `updatedAt` is newer than snapshot; rematch toast when buy changes; **send/approve blocked** until rematch or **Keep buy (acknowledge)** (`rateDriftAckForUpdatedAt` + `rateDriftAckReason`). Quote Contract badge tooltip includes chart updated. **Attention Rate drift chip + send preflight:** `POST /rates/chart-freshness` feeds strip/Save&next + client send blocked copy (aligned with API gate). **Rematch drifted:** attention strip + ··· rematch only `rate_drift` lines via `/rates/resolve`. Defer: multi-approver inbox / rate version chain |
+| CSV/XLSX bulk import + draft preview | Negotiated-rate CSV pattern | **Thin slice complete:** hotel + transfer + activity import accepts `.xlsx`/`.xls`/`.csv` (first sheet → existing preview/commit APIs); **import batch audit** (`rates.import.commit` + Import dialog **Recent imports**). Supplier Rate chart + Catalog Rates. **Recent imports show sample skip reasons** (`sampleSkips` from audit metadata, ≤3 lines). Defer: row replay |
+| Rate-change detection + effective dates | Rate date windows | **Thin slice complete:** Match rate shows chart last updated + matched-at; soft drift when live chart `updatedAt` is newer than snapshot; rematch toast when buy changes; **send/approve blocked** until rematch or **Keep buy (acknowledge)** (`rateDriftAckForUpdatedAt` + `rateDriftAckReason`). Quote Contract badge tooltip includes chart updated. **Attention Rate drift chip + send preflight:** `POST /rates/chart-freshness` feeds strip/Save&next + client send blocked copy (aligned with API gate). **Rematch drifted:** attention strip + ··· rematch only `rate_drift` lines via `/rates/resolve`. **Hotel rate version chain thin-complete.** **Transfer + activity version chains thin-complete.** **Hotel tip Diff vs current thin-complete.** Defer: multi-approver inbox / rich side-by-side Diff |
 
 **Defer past P0.5 thin slices:** credit-note settle/allocate automation, agencyAbsorption, PolicyAttachment graph. (Contract cancel tiers + Match stamp + Ops cancel preview/request/approve/apply + draft credit note thin-complete.)
 
@@ -924,10 +1102,10 @@ Hosted agency websites, forms→CRM, customer portal, hotel/DMC/driver partner o
 | Capability | Maturity | Primary paths |
 |------------|----------|---------------|
 | Versioned quotations, approval, accept, revise-from-accepted | Partial → mature-leaning | `apps/api/src/modules/quotations/` · org default validity on create/clone/revise |
-| Quote templates (list/save/apply) + quotation clone | Thin complete | Apply remaps service dates to trip start + auto rematch + **itinerary day reanchor / seed from template story / scaffold from hotels**; **version supersede-on-save** + **history/restore**; clone unchanged. Defer: template folders |
+| Quote templates (list/save/apply) + quotation clone | Thin complete | Apply remaps service dates to trip start + auto rematch + **itinerary day reanchor / seed from template story / scaffold from hotels**; **version supersede-on-save** + **history/restore/diff** + **tags + slash-path folders**; clone unchanged. Defer: rich Diff / server folder index |
 | Quote cost-safety + sticky pricing summary + guided empty state | Partial → thin attention | Trip Quotations tab: incomplete cost banner, **per-line attention click-through** (+ table scroll/highlight), send/approval gate, Add service / Import / Preview / Send |
 | Margin gate (below-cost + org `minMarginPercent` floor) | Prod-ready (quote path) | Enforced for all senders on API (not only `quote.view_cost`); `below_margin.approve` overrides |
-| Quote service drawers (hotel / transfer / activity V1) | Partial → activity match wired | `QuoteServiceDetailSheet.tsx` — hotel/transfer/activity Match rate from directory; **hotel hard allotment** (blocks send) + **occupancy extras** + **weekend nights** + **gala/date supplements** + **cancel summary** + **soft blackout / hard stop-sale Open contracts** (hotel + transfer + **activity**) + **transfer hard capacity** (blocks send) + **reverse-corridor Swap** + **activity child-age reclassify** banners + provenance stamps → attention chips (**Allotment / Capacity / Occupancy / Gala / Weekend / Cancel / Ages** + pricing gates) |
+| Quote service drawers (hotel / transfer / activity V1) | Partial → activity match wired | `QuoteServiceDetailSheet.tsx` — hotel/transfer/activity Match rate from directory; **hotel hard allotment** (blocks send) + **hotel hard min-stay** (blocks send) + **occupancy extras** + **weekend nights** + **gala/date supplements** + **cancel summary** + **soft blackout / hard stop-sale Open contracts** (hotel + transfer + **activity**) + **transfer hard capacity** (blocks send) + **reverse-corridor Swap** + **activity child-age reclassify** banners + provenance stamps → attention chips (**Allotment / Capacity / Min stay / Occupancy / Gala / Weekend / Cancel / Ages** + pricing gates) |
 | Branded proposal PDF + email | Partial → mature-leaning | `branded-proposal-pdf.ts`, quotation email send |
 | Public itinerary / proposal share + accept | Prod-ready (quote path) | Share binds `quotationVersionId`; public accept requires PIN when set; expired quotes cannot accept |
 | Hotel rates + transfer fares + activity rates + `rates/resolve` | Partial | `apps/api/src/modules/rates/`, Catalog & transfers, supplier Rate chart (stay + **activity** + **transfer/fleet**); `SupplierActivityRate` CRUD on `/activity-rates`; TransferFare optional `supplierId` |
@@ -989,10 +1167,42 @@ Then introduce differentiators: connected WhatsApp and email → agency website 
 
 ### Claim discipline
 
-- Public quote-speed target: **under three minutes** until median creation time is measured.
+- Public quote-speed target: **under three minutes** only when `fitClaimProtocol.publicClaimAllowed` is true (median ≤3m and n≥20 over 30d). Until then status is **testing** — do not put on the website.
 - Do not copy unverified “10X / 95% faster” marketing without methodology.
 - Prefer telemetry: median quote time, lead response time, follow-up completion, conversion, collection time, confirmation time.
 - Do not imply finished custom-domain hosting or Microsoft inbox until shipped. HubSpot is out of scope.
+
+#### Claim registry (sales / marketing / product)
+
+| Claim | Status |
+|-------|--------|
+| Build a standard FIT quotation in under three minutes | **Testing** — gated by dashboard `fitClaimProtocol` |
+| Integrated lead → quote → book → collect → ops workflow | **Proven** (thin-complete) |
+| Multi-organization travel operating platform | **Architecture proven** — do not claim finished partner network |
+| Automated GST-compliant / full accounting ledger | **Do not claim** |
+| Full supplier / partner network | **Do not claim yet** |
+| Live FX market refresh (Settings) | **Proven** (manual Frankfurter refresh; not auto-cron) |
+| Hotel SGL/DBL/TPL contracted bases on Match | **Proven** (thin) |
+| Meal × occupancy matrix (Rate chart) | **Proven** (thin) |
+| Hotel weekend-per-band on Match | **Proven** (thin) |
+| Hotel min stay cue on Match | **Proven** (thin · hard gate + ack) |
+| Hotel nationality IN/INTL Match | **Proven** (thin) |
+| Hotel per-ISO nationality tips | **Proven** (thin) |
+| Full ISO-3166 nationality picker | **Proven** (thin) |
+| Hotel rate version chain | **Proven** (thin) |
+| Transfer + activity rate version chains | **Proven** (thin) |
+| Hotel rate tip diff | **Proven** (thin) |
+| Transfer + activity tip diff | **Proven** (thin) |
+| Hard min-stay send gate | **Proven** (thin) |
+
+#### 90-day execution scorecard
+
+| Bet | Done when | Status |
+|-----|-----------|--------|
+| Hotel occupancy depth | Contracting enters SGL/DBL/TPL without sales spreadsheet override on seeded FIT | **Adult bands → nationality (IN/INTL + per-ISO + full ISO picker) + hotel/transfer/activity rate-version chains + tip diffs done**; multi-guest mixed nationality open |
+| FIT speed claim | Protocol stamped; n≥20; median ≤3m; `publicClaimAllowed` | **Gate shipped**; waiting on sample |
+| Market credibility | Claim registry live; release notes + polished demo org | **Registry + About notes + named demo trip done**; public changelog open |
+| Deal-gated FX/fleet | Open only with signed need; keep locks/meta pluggable | **Discipline** |
 
 ### What we should not copy from Sembark
 

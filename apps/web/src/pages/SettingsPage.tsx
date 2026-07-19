@@ -12,6 +12,7 @@ import {
   FileText,
   Inbox,
   IndianRupee,
+  Info,
   Network,
   Paintbrush,
   Percent,
@@ -66,6 +67,7 @@ import { PlaceSinglePicker } from '../components/places/PlacePicker';
 import { OrganizationProfileForm } from '../components/commerce/OrganizationProfileForm';
 import { PoliciesPanel } from '../components/commerce/PoliciesPanel';
 import { AccessManagementPanel } from '../components/settings/AccessManagementPanel';
+import { AboutReleaseNotesPanel } from '../components/agency/AboutReleaseNotesPanel';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useAdvancedToolsPreference } from '../hooks/useProgressiveDisclosure';
 import { AGENCY_ROUTES } from '../lib/agencyRoutes';
@@ -85,7 +87,8 @@ type SettingsSection =
   | 'lead-sources'
   | 'notifications'
   | 'privacy'
-  | 'members';
+  | 'members'
+  | 'about';
 
 type BrandingForm = {
   companyName: string;
@@ -255,6 +258,12 @@ const SECTIONS: {
     label: 'Members',
     description: 'People with access to this organization.',
     icon: Users,
+  },
+  {
+    id: 'about',
+    label: 'About',
+    description: 'Claim-safe release notes for demos and onboarding.',
+    icon: Info,
   },
 ];
 
@@ -1161,6 +1170,8 @@ export function SettingsPage({
               <AccessManagementPanel active={section === 'members'} />
             ) : section === 'policies' ? (
               <PoliciesPanel />
+            ) : section === 'about' ? (
+              <AboutReleaseNotesPanel />
             ) : (
               <form onSubmit={onSave} className="space-y-6">
                 {section === 'general' ? (

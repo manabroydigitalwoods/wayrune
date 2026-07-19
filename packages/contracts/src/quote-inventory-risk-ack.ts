@@ -1,4 +1,4 @@
-/** Allotment / capacity hard-block → send/approve acknowledge gate. */
+/** Allotment / capacity / min-stay hard-block → send/approve acknowledge gate. */
 
 function noteLooksLikeAllotmentRisk(note: string): boolean {
   return (
@@ -11,6 +11,10 @@ function noteLooksLikeCapacityRisk(note: string): boolean {
     note.startsWith('Insufficient capacity') ||
     note.startsWith('Soft warning: party of')
   );
+}
+
+function noteLooksLikeMinStayRisk(note: string): boolean {
+  return note.startsWith('Min stay') && note.includes('this stay is');
 }
 
 /** True when allotment is short and the editor has not acknowledged this note + reason. */
@@ -43,6 +47,27 @@ export function lineNeedsCapacityRiskAck(opts: {
   if (!warn) return false;
   const ack = opts.capacityRiskAckForNote?.trim() || '';
   const reason = opts.capacityRiskAckReason?.trim() || '';
+  if (!note) return !(ack && reason);
+  return ack !== note || !reason;
+}
+
+/** True when stay is below contracted min and unacked. */
+export function lineNeedsMinStayRiskAck(opts: {
+  minStayWarn?: boolean | null;
+  minStayNote?: string | null;
+  minStayRiskAckForNote?: string | null;
+  minStayRiskAckReason?: string | null;
+  /** Fallback from Match calculation when top-level stamp missing. */
+  minStayShort?: boolean | null;
+}): boolean {
+  const note = opts.minStayNote?.trim() || '';
+  const warn =
+    opts.minStayWarn === true ||
+    opts.minStayShort === true ||
+    (note ? noteLooksLikeMinStayRisk(note) : false);
+  if (!warn) return false;
+  const ack = opts.minStayRiskAckForNote?.trim() || '';
+  const reason = opts.minStayRiskAckReason?.trim() || '';
   if (!note) return !(ack && reason);
   return ack !== note || !reason;
 }

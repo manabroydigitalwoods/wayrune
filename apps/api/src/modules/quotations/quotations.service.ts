@@ -31,6 +31,7 @@ import {
   lineMarginPolicyViolation,
   lineNeedsAllotmentRiskAck,
   lineNeedsCapacityRiskAck,
+  lineNeedsMinStayRiskAck,
   lineNeedsRateDriftAck,
   parseMinMarginPercent,
   resolveTripWindowDisplay,
@@ -223,9 +224,19 @@ export class QuotationsService {
             allotmentWarn?: boolean;
             allotmentNote?: string;
             allotmentRiskAckForNote?: string;
+            allotmentRiskAckReason?: string;
             capacityWarn?: boolean;
             capacityNote?: string;
             capacityRiskAckForNote?: string;
+            capacityRiskAckReason?: string;
+            minStayWarn?: boolean;
+            minStayNote?: string;
+            minStayRiskAckForNote?: string;
+            minStayRiskAckReason?: string;
+            calculation?: {
+              minStayShort?: boolean;
+              minStayNote?: string;
+            } | null;
           } | null;
           marginOverride?: { reason?: string };
         }>)
@@ -286,6 +297,7 @@ export class QuotationsService {
     await this.assertNoBlockingRateDrift(user.organizationId, items);
     this.assertNoBlockingAllotment(items);
     this.assertNoBlockingCapacity(items);
+    this.assertNoBlockingMinStay(items);
     this.assertFxReadyForSend(version, org?.currency || 'INR');
     const travellers = await this.prisma.tripTraveller.count({
       where: { tripId: version.quotation.tripId },
@@ -397,6 +409,37 @@ export class QuotationsService {
       `${blocked.length} transfer service${blocked.length === 1 ? '' : 's'} ${
         blocked.length === 1 ? 'has' : 'have'
       } insufficient vehicle capacity — add vehicles, reduce party, or acknowledge the shortfall with a reason before sending`,
+    );
+  }
+
+  /** Block send/approve when hotel stay is below rate min stay (unless acked). */
+  private assertNoBlockingMinStay(
+    items: Array<{
+      rateProvenance?: {
+        minStayWarn?: boolean;
+        minStayNote?: string;
+        minStayRiskAckForNote?: string;
+        minStayRiskAckReason?: string;
+        calculation?: { minStayShort?: boolean; minStayNote?: string } | null;
+      } | null;
+    }>,
+  ) {
+    const blocked = items.filter((i) =>
+      lineNeedsMinStayRiskAck({
+        minStayWarn: i.rateProvenance?.minStayWarn,
+        minStayNote:
+          i.rateProvenance?.minStayNote ||
+          i.rateProvenance?.calculation?.minStayNote,
+        minStayRiskAckForNote: i.rateProvenance?.minStayRiskAckForNote,
+        minStayRiskAckReason: i.rateProvenance?.minStayRiskAckReason,
+        minStayShort: i.rateProvenance?.calculation?.minStayShort,
+      }),
+    );
+    if (!blocked.length) return;
+    throw new BadRequestException(
+      `${blocked.length} hotel service${blocked.length === 1 ? '' : 's'} ${
+        blocked.length === 1 ? 'is' : 'are'
+      } below minimum stay — extend nights, pick another rate, or acknowledge the shortfall with a reason before sending`,
     );
   }
 
@@ -1754,7 +1797,7 @@ export class QuotationsService {
   }
 
   /**
-   * Autosave must not invent allotment/capacity risk acks — only
+   * Autosave must not invent allotment/capacity/min-stay risk acks — only
    * {@link recordInventoryRiskAcks} may. Clearing an ack is allowed.
    */
   private preserveExistingInventoryRiskAcks(
@@ -1780,6 +1823,11 @@ export class QuotationsService {
       const nextCapacityReason = nextProv?.capacityRiskAckReason?.trim() || '';
       const prevCapacityAck = prevProv?.capacityRiskAckForNote?.trim() || '';
       const prevCapacityReason = prevProv?.capacityRiskAckReason?.trim() || '';
+
+      const nextMinStayAck = nextProv?.minStayRiskAckForNote?.trim() || '';
+      const nextMinStayReason = nextProv?.minStayRiskAckReason?.trim() || '';
+      const prevMinStayAck = prevProv?.minStayRiskAckForNote?.trim() || '';
+      const prevMinStayReason = prevProv?.minStayRiskAckReason?.trim() || '';
 
       let rateProvenance = nextProv ? { ...nextProv } : undefined;
 
@@ -1821,11 +1869,30 @@ export class QuotationsService {
         }
       }
 
+      const minStayCleared = !nextMinStayAck || !nextMinStayReason;
+      const minStaySame =
+        nextMinStayAck === prevMinStayAck &&
+        nextMinStayReason === prevMinStayReason;
+      if (rateProvenance) {
+        if (minStayCleared) {
+          delete rateProvenance.minStayRiskAckForNote;
+          delete rateProvenance.minStayRiskAckReason;
+        } else if (!minStaySame) {
+          if (prevMinStayAck && prevMinStayReason) {
+            rateProvenance.minStayRiskAckForNote = prevProv!.minStayRiskAckForNote;
+            rateProvenance.minStayRiskAckReason = prevProv!.minStayRiskAckReason;
+          } else {
+            delete rateProvenance.minStayRiskAckForNote;
+            delete rateProvenance.minStayRiskAckReason;
+          }
+        }
+      }
+
       return { ...item, rateProvenance };
     });
   }
 
-  /** Permission-gated, audited allotment / capacity send-anyway on selected lines. */
+  /** Permission-gated, audited allotment / capacity / min-stay send-anyway on selected lines. */
   async recordInventoryRiskAcks(
     user: AuthUser,
     versionId: string,
@@ -1854,7 +1921,7 @@ export class QuotationsService {
     const applied: Array<{
       id: string;
       description: string;
-      kind: 'allotment' | 'capacity';
+      kind: 'allotment' | 'capacity' | 'min_stay';
       note: string;
     }> = [];
 
@@ -1919,6 +1986,36 @@ export class QuotationsService {
         });
         touched = true;
       }
+      if (
+        lineNeedsMinStayRiskAck({
+          minStayWarn: prov.minStayWarn,
+          minStayNote: prov.minStayNote || prov.calculation?.minStayNote,
+          minStayRiskAckForNote: prov.minStayRiskAckForNote,
+          minStayRiskAckReason: prov.minStayRiskAckReason,
+          minStayShort: prov.calculation?.minStayShort,
+        })
+      ) {
+        const note =
+          prov.minStayNote?.trim() ||
+          prov.calculation?.minStayNote?.trim() ||
+          '';
+        if (!note) {
+          throw new BadRequestException(
+            `Line “${item.description}” is missing a min-stay shortfall note`,
+          );
+        }
+        prov.minStayNote = note;
+        prov.minStayWarn = true;
+        prov.minStayRiskAckForNote = note;
+        prov.minStayRiskAckReason = reason;
+        applied.push({
+          id: item.id,
+          description: item.description,
+          kind: 'min_stay',
+          note,
+        });
+        touched = true;
+      }
       if (!touched) {
         throw new BadRequestException(
           `Line “${item.description}” does not need an inventory risk acknowledgement`,
@@ -1929,7 +2026,7 @@ export class QuotationsService {
 
     if (!applied.length) {
       throw new BadRequestException(
-        'Select at least one service with an allotment or capacity shortfall',
+        'Select at least one service with an allotment, capacity, or min-stay shortfall',
       );
     }
     const missing = input.lineIds.filter((id) => !items.some((i) => i.id === id));

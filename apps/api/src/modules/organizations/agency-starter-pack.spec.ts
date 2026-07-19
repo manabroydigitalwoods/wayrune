@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DEMO_TRIP_INCLUDES,
   DEMO_TRIP_SPEC,
+  buildDemoTripInstallMeta,
   demoTripDateRange,
   FIT_TEMPLATE_SPECS,
   FIT_TEMPLATES_PACK_ID,
@@ -40,6 +42,17 @@ describe('agency starter pack', () => {
     );
     expect(startDate).toBe('2026-09-02');
     expect(endDate).toBe('2026-09-07');
+  });
+
+  it('names the demo trip and install meta includes', () => {
+    expect(DEMO_TRIP_SPEC.title).toBe('Darjeeling classic FIT — demo');
+    expect(buildDemoTripInstallMeta({ tripId: 't1', created: true })).toEqual({
+      tripId: 't1',
+      tripNumber: DEMO_TRIP_SPEC.tripNumber,
+      title: DEMO_TRIP_SPEC.title,
+      includes: [...DEMO_TRIP_INCLUDES],
+      created: true,
+    });
   });
 
   it('summarises install results including trips', () => {

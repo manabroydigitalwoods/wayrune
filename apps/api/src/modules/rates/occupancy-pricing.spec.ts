@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   applyOccupancyPricing,
   classifyHotelOccupancyPax,
+  parseAdultBands,
   parseOccupancyPricing,
+  pickAdultBand,
 } from './occupancy-pricing';
 
 describe('occupancy-pricing', () => {
@@ -104,5 +106,53 @@ describe('occupancy-pricing', () => {
         childAgeMax: 11,
       }).usedChildAges,
     ).toBe(false);
+  });
+
+  it('parses adult bands with optional weekend costs', () => {
+    expect(
+      parseAdultBands([
+        { adults: 2, unitCostPerNight: 4500, weekendUnitCostPerNight: 5200 },
+        { adults: 1, unitCostPerNight: 3600 },
+      ]),
+    ).toEqual([
+      { adults: 1, unitCostPerNight: 3600 },
+      { adults: 2, unitCostPerNight: 4500, weekendUnitCostPerNight: 5200 },
+    ]);
+    expect(
+      parseOccupancyPricing({
+        adultBands: [{ adults: 2, unitCostPerNight: 4500 }],
+      })?.adultBands,
+    ).toEqual([{ adults: 2, unitCostPerNight: 4500 }]);
+    expect(parseOccupancyPricing({ minStayNights: 2 })?.minStayNights).toBe(2);
+  });
+
+  it('picks band weekend absolute over chart ratio', () => {
+    const bands = parseAdultBands([
+      { adults: 1, unitCostPerNight: 3600, weekendUnitCostPerNight: 4100 },
+      { adults: 2, unitCostPerNight: 4500, weekendUnitCostPerNight: 5200 },
+    ]);
+    const sgl = pickAdultBand({
+      bands,
+      adults: 1,
+      rooms: 1,
+      chartUnitCost: 4500,
+      chartWeekendUnitCost: 9999,
+    });
+    expect(sgl).toMatchObject({
+      adults: 1,
+      unitCostPerNight: 3600,
+      weekendUnitCostPerNight: 4100,
+    });
+
+    const ratioOnly = pickAdultBand({
+      bands: parseAdultBands([{ adults: 1, unitCostPerNight: 3600 }]),
+      adults: 1,
+      rooms: 1,
+      chartUnitCost: 4500,
+      chartWeekendUnitCost: 5200,
+    });
+    expect(ratioOnly?.weekendUnitCostPerNight).toBe(
+      Math.round(3600 * (5200 / 4500) * 100) / 100,
+    );
   });
 });

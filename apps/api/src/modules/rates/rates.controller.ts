@@ -21,6 +21,9 @@ import {
   UpdateSupplierActivityRateSchema,
   UpdateSupplierHotelRateSchema,
   UpdateTransferFareSchema,
+  RestoreHotelRateVersionSchema,
+  RestoreTransferFareVersionSchema,
+  RestoreActivityRateVersionSchema,
 } from '@wayrune/contracts';
 import {
   CurrentUser,
@@ -75,6 +78,38 @@ export class RatesController {
     );
   }
 
+  @Post('hotel-rates/:id/new-version')
+  @RequirePermissions('quote.write')
+  newHotelVersion(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.rates.createHotelRateVersion(
+      user.organizationId,
+      user.sub,
+      id,
+    );
+  }
+
+  @Get('hotel-rates/:id/versions')
+  @RequirePermissions('quote.read', 'quote.write')
+  listHotelVersions(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.rates.listHotelRateVersions(user.organizationId, id);
+  }
+
+  @Post('hotel-rates/:id/restore-version')
+  @RequirePermissions('quote.write')
+  restoreHotelVersion(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    const parsed = RestoreHotelRateVersionSchema.parse(body);
+    return this.rates.restoreHotelRateVersion(
+      user.organizationId,
+      user.sub,
+      id,
+      parsed.sourceVersionId,
+    );
+  }
+
   @Delete('hotel-rates/:id')
   @RequirePermissions('quote.write')
   deleteHotel(@CurrentUser() user: AuthUser, @Param('id') id: string) {
@@ -126,6 +161,38 @@ export class RatesController {
     return this.rates.deleteActivityRate(user.organizationId, id);
   }
 
+  @Post('activity-rates/:id/new-version')
+  @RequirePermissions('quote.write')
+  newActivityVersion(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.rates.createActivityRateVersion(
+      user.organizationId,
+      user.sub,
+      id,
+    );
+  }
+
+  @Get('activity-rates/:id/versions')
+  @RequirePermissions('quote.read', 'quote.write')
+  listActivityVersions(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.rates.listActivityRateVersions(user.organizationId, id);
+  }
+
+  @Post('activity-rates/:id/restore-version')
+  @RequirePermissions('quote.write')
+  restoreActivityVersion(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    const parsed = RestoreActivityRateVersionSchema.parse(body);
+    return this.rates.restoreActivityRateVersion(
+      user.organizationId,
+      user.sub,
+      id,
+      parsed.sourceVersionId,
+    );
+  }
+
   @Post('activity-rates/import/csv')
   @RequirePermissions('quote.write')
   importActivityCsv(@CurrentUser() user: AuthUser, @Body() body: unknown) {
@@ -162,6 +229,38 @@ export class RatesController {
       user.organizationId,
       user.sub,
       CreateTransferFareSchema.parse(body),
+    );
+  }
+
+  @Post('transfer-fares/:id/new-version')
+  @RequirePermissions('quote.write')
+  newTransferVersion(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.rates.createTransferFareVersion(
+      user.organizationId,
+      user.sub,
+      id,
+    );
+  }
+
+  @Get('transfer-fares/:id/versions')
+  @RequirePermissions('quote.read', 'quote.write')
+  listTransferVersions(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.rates.listTransferFareVersions(user.organizationId, id);
+  }
+
+  @Post('transfer-fares/:id/restore-version')
+  @RequirePermissions('quote.write')
+  restoreTransferVersion(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    const parsed = RestoreTransferFareVersionSchema.parse(body);
+    return this.rates.restoreTransferFareVersion(
+      user.organizationId,
+      user.sub,
+      id,
+      parsed.sourceVersionId,
     );
   }
 

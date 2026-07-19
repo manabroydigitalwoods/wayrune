@@ -62,6 +62,7 @@ import {
   occupancyMatchAccepted,
   occupancyPricingToJson,
   parseOccupancyPricing,
+  pickAdultBand,
 } from './occupancy-pricing';
 import {
   applyDateSupplements,
@@ -70,6 +71,32 @@ import {
   parseDateSupplements,
 } from './date-supplements';
 import { summarizeCancellationForMatch } from './cancellation-policy';
+import {
+  evaluateHotelMinStay,
+  hotelMinStayMatchAccepted,
+} from './hotel-min-stay';
+import {
+  filterHotelByNationality,
+  hotelNationalityMatchAccepted,
+  nationalityFromOccupancy,
+  normalizeHotelNationality,
+} from './hotel-nationality';
+import {
+  orderHotelRateVersionChain,
+  planHotelRateNewVersion,
+  hotelRateVersionLabel,
+  type HotelRateVersionRef,
+} from './hotel-rate-version';
+import { diffHotelRateTips } from './hotel-rate-diff';
+import {
+  diffActivityRateTips,
+  diffTransferFareTips,
+} from './transfer-activity-rate-diff';
+import {
+  orderRateVersionChain,
+  planRateNewVersion,
+  type RateVersionRef,
+} from './rate-version-chain';
 import { backfillHotelRateRoomProducts as backfillHotelRateRoomProductsHelper } from './rates-backfill.helpers';
 
 function round2(n: number) {
@@ -116,6 +143,8 @@ type FareRow = {
   startDate: Date | null;
   endDate: Date | null;
   updatedAt: Date;
+  versionNumber?: number;
+  supersedesId?: string | null;
   vehicleType?: { seats: number | null; name: string } | null;
 };
 
@@ -126,8 +155,8 @@ type HotelRow = {
   supplierId: string | null;
   placeId: string | null;
   roomType: string | null;
-  roomProductId: string | null;
-  contractId: string | null;
+  roomProductId?: string | null;
+  contractId?: string | null;
   mealPlan: string | null;
   unitCost: Prisma.Decimal;
   weekendUnitCost: Prisma.Decimal | null;
@@ -136,11 +165,13 @@ type HotelRow = {
   startDate: Date | null;
   endDate: Date | null;
   updatedAt: Date;
+  versionNumber?: number;
+  supersedesId?: string | null;
   contract?: {
     id: string;
     title: string;
     status: string;
-    versionNumber: number;
+    versionNumber: number | null;
   } | null;
 };
 
@@ -160,6 +191,8 @@ type ActivityRow = {
   startDate: Date | null;
   endDate: Date | null;
   updatedAt: Date;
+  versionNumber?: number;
+  supersedesId?: string | null;
 };
 
 @Injectable()
@@ -358,6 +391,9 @@ export class RatesService {
       roomProductId,
       roomType,
       mealPlan: input.mealPlan?.trim() || null,
+      nationality:
+        occupancyPricingToJson(input.occupancyPricing ?? null)?.nationality ??
+        null,
       startDate,
       endDate,
     });
@@ -391,6 +427,7 @@ export class RatesService {
         startDate,
         endDate,
         isActive: input.isActive !== false,
+        versionNumber: 1,
         createdBy: userId,
       },
       include: this.hotelInclude,
@@ -481,6 +518,10 @@ export class RatesService {
         : existing.supplierId;
     const nextPlaceId =
       input.placeId !== undefined ? input.placeId || null : existing.placeId;
+    const nextNationality =
+      input.occupancyPricing !== undefined
+        ? occupancyPricingToJson(input.occupancyPricing)?.nationality ?? null
+        : nationalityFromOccupancy(existing.occupancyPricingJson);
 
     await this.assertNoHotelRateSeasonOverlap({
       organizationId: existing.organizationId,
@@ -491,6 +532,7 @@ export class RatesService {
       roomProductId: nextRoomProductId,
       roomType: nextRoomType,
       mealPlan: nextMeal,
+      nationality: nextNationality,
       startDate: nextStart,
       endDate: nextEnd,
       excludeRateId: rateId,
@@ -571,6 +613,713 @@ export class RatesService {
       data: { deletedAt: new Date(), isActive: false },
     });
     return { ok: true };
+  }
+
+  /**
+   * Clone an active hotel rate as a new tip (vN+1), deactivate the source.
+   * Same commercial dims + occupancy; Match uses the new tip only.
+   */
+  async createHotelRateVersion(
+    organizationId: string,
+    userId: string,
+    rateId: string,
+  ) {
+    const source = await this.prisma.supplierHotelRate.findFirst({
+      where: {
+        id: rateId,
+        organizationId,
+        isSystem: false,
+        deletedAt: null,
+      },
+    });
+    if (!source) throw new NotFoundException('Hotel rate not found');
+    if (!source.isActive) {
+      throw new BadRequestException(
+        'Only the active tip can be versioned — open History and restore, or edit the active rate',
+      );
+    }
+
+    const plan = planHotelRateNewVersion({
+      id: source.id,
+      versionNumber: source.versionNumber,
+    });
+
+    const created = await this.prisma.$transaction(async (tx) => {
+      await tx.supplierHotelRate.update({
+        where: { id: source.id },
+        data: { isActive: false },
+      });
+      return tx.supplierHotelRate.create({
+        data: {
+          organizationId: source.organizationId,
+          supplierId: source.supplierId,
+          placeId: source.placeId,
+          isSystem: false,
+          roomType: source.roomType,
+          roomProductId: source.roomProductId,
+          contractId: source.contractId,
+          mealPlan: source.mealPlan,
+          unitCost: source.unitCost,
+          weekendUnitCost: source.weekendUnitCost,
+          occupancyPricingJson:
+            source.occupancyPricingJson === null
+              ? Prisma.JsonNull
+              : (source.occupancyPricingJson as Prisma.InputJsonValue),
+          currency: source.currency,
+          startDate: source.startDate,
+          endDate: source.endDate,
+          isActive: true,
+          versionNumber: plan.versionNumber,
+          supersedesId: plan.supersedesId,
+          createdBy: userId,
+        },
+        include: this.hotelInclude,
+      });
+    });
+
+    return {
+      ...created,
+      versionMeta: {
+        previousRateId: source.id,
+        previousVersionNumber: plan.previousVersionNumber,
+        versionNumber: plan.versionNumber,
+      },
+    };
+  }
+
+  /** Linear supersedes chain for a rate (any tip in the family). */
+  async listHotelRateVersions(organizationId: string, rateId: string) {
+    const tip = await this.prisma.supplierHotelRate.findFirst({
+      where: {
+        id: rateId,
+        organizationId,
+        isSystem: false,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        versionNumber: true,
+        supersedesId: true,
+        isActive: true,
+        unitCost: true,
+        weekendUnitCost: true,
+        mealPlan: true,
+        roomType: true,
+        occupancyPricingJson: true,
+        startDate: true,
+        endDate: true,
+        updatedAt: true,
+      },
+    });
+    if (!tip) throw new NotFoundException('Hotel rate not found');
+
+    type HotelTipRow = HotelRateVersionRef & {
+      weekendUnitCost?: number | string | null;
+      roomType?: string | null;
+      occupancyPricingJson?: unknown;
+    };
+
+    // Walk to root, then collect descendants via BFS on supersedesId.
+    const family: HotelTipRow[] = [];
+    const byId = new Map<string, HotelTipRow>();
+    let cur: typeof tip | null = tip;
+    const seen = new Set<string>();
+    const tipSelect = {
+      id: true,
+      versionNumber: true,
+      supersedesId: true,
+      isActive: true,
+      unitCost: true,
+      weekendUnitCost: true,
+      mealPlan: true,
+      roomType: true,
+      occupancyPricingJson: true,
+      startDate: true,
+      endDate: true,
+      updatedAt: true,
+    } as const;
+    while (cur && !seen.has(cur.id)) {
+      seen.add(cur.id);
+      const ref: HotelTipRow = {
+        id: cur.id,
+        versionNumber: cur.versionNumber,
+        supersedesId: cur.supersedesId,
+        isActive: cur.isActive,
+        unitCost: Number(cur.unitCost),
+        weekendUnitCost:
+          cur.weekendUnitCost != null ? Number(cur.weekendUnitCost) : null,
+        mealPlan: cur.mealPlan,
+        roomType: cur.roomType,
+        occupancyPricingJson: cur.occupancyPricingJson,
+        startDate: cur.startDate,
+        endDate: cur.endDate,
+        updatedAt: cur.updatedAt,
+      };
+      family.push(ref);
+      byId.set(ref.id, ref);
+      if (!cur.supersedesId) break;
+      cur = await this.prisma.supplierHotelRate.findFirst({
+        where: {
+          id: cur.supersedesId,
+          organizationId,
+          deletedAt: null,
+        },
+        select: tipSelect,
+      });
+    }
+
+    // Also load newer tips that supersede members (forward walk).
+    let frontier = family.map((r) => r.id);
+    while (frontier.length) {
+      const children = await this.prisma.supplierHotelRate.findMany({
+        where: {
+          organizationId,
+          deletedAt: null,
+          supersedesId: { in: frontier },
+        },
+        select: tipSelect,
+      });
+      frontier = [];
+      for (const c of children) {
+        if (byId.has(c.id)) continue;
+        const ref: HotelTipRow = {
+          id: c.id,
+          versionNumber: c.versionNumber,
+          supersedesId: c.supersedesId,
+          isActive: c.isActive,
+          unitCost: Number(c.unitCost),
+          weekendUnitCost:
+            c.weekendUnitCost != null ? Number(c.weekendUnitCost) : null,
+          mealPlan: c.mealPlan,
+          roomType: c.roomType,
+          occupancyPricingJson: c.occupancyPricingJson,
+          startDate: c.startDate,
+          endDate: c.endDate,
+          updatedAt: c.updatedAt,
+        };
+        byId.set(ref.id, ref);
+        family.push(ref);
+        frontier.push(c.id);
+      }
+    }
+
+    const activeTip =
+      [...byId.values()].find((r) => r.isActive) ||
+      [...byId.values()].sort((a, b) => b.versionNumber - a.versionNumber)[0]!;
+    const versions = orderHotelRateVersionChain(activeTip, byId).map((v) => {
+      if (v.id === activeTip.id) {
+        return { ...v, diffVsActive: null as ReturnType<typeof diffHotelRateTips> | null };
+      }
+      return {
+        ...v,
+        diffVsActive: diffHotelRateTips(v, activeTip),
+      };
+    });
+
+    return {
+      rateId,
+      activeRateId: activeTip.id,
+      versions,
+    };
+  }
+
+  /**
+   * Restore a historical tip by creating a new active version from its content
+   * (does not reactivate the old row).
+   */
+  async restoreHotelRateVersion(
+    organizationId: string,
+    userId: string,
+    rateId: string,
+    sourceVersionId: string,
+  ) {
+    const source = await this.prisma.supplierHotelRate.findFirst({
+      where: {
+        id: sourceVersionId,
+        organizationId,
+        isSystem: false,
+        deletedAt: null,
+      },
+    });
+    if (!source) throw new NotFoundException('Source rate version not found');
+
+    const chain = await this.listHotelRateVersions(organizationId, rateId);
+    if (!chain.versions.some((v) => v.id === sourceVersionId)) {
+      throw new BadRequestException('Source is not in this rate version family');
+    }
+
+    const active = await this.prisma.supplierHotelRate.findFirst({
+      where: {
+        id: chain.activeRateId,
+        organizationId,
+        deletedAt: null,
+      },
+    });
+    if (!active) throw new NotFoundException('Active rate tip not found');
+
+    // Version from active tip, copying content from historical source.
+    const plan = planHotelRateNewVersion({
+      id: active.id,
+      versionNumber: active.versionNumber,
+    });
+
+    return this.prisma.$transaction(async (tx) => {
+      if (active.isActive) {
+        await tx.supplierHotelRate.update({
+          where: { id: active.id },
+          data: { isActive: false },
+        });
+      }
+      return tx.supplierHotelRate.create({
+        data: {
+          organizationId: source.organizationId,
+          supplierId: source.supplierId,
+          placeId: source.placeId,
+          isSystem: false,
+          roomType: source.roomType,
+          roomProductId: source.roomProductId,
+          contractId: source.contractId,
+          mealPlan: source.mealPlan,
+          unitCost: source.unitCost,
+          weekendUnitCost: source.weekendUnitCost,
+          occupancyPricingJson:
+            source.occupancyPricingJson === null
+              ? Prisma.JsonNull
+              : (source.occupancyPricingJson as Prisma.InputJsonValue),
+          currency: source.currency,
+          startDate: source.startDate,
+          endDate: source.endDate,
+          isActive: true,
+          versionNumber: plan.versionNumber,
+          supersedesId: plan.supersedesId,
+          createdBy: userId,
+        },
+        include: this.hotelInclude,
+      });
+    });
+  }
+
+  // ── Transfer fare versions ─────────────────────────────────────────
+
+  async createTransferFareVersion(
+    organizationId: string,
+    userId: string,
+    fareId: string,
+  ) {
+    const source = await this.prisma.transferFare.findFirst({
+      where: {
+        id: fareId,
+        organizationId,
+        isSystem: false,
+        deletedAt: null,
+      },
+    });
+    if (!source) throw new NotFoundException('Transfer fare not found');
+    if (!source.isActive) {
+      throw new BadRequestException(
+        'Only the active tip can be versioned — open History and restore, or edit the active fare',
+      );
+    }
+    const plan = planRateNewVersion({
+      id: source.id,
+      versionNumber: source.versionNumber,
+    });
+    const created = await this.prisma.$transaction(async (tx) => {
+      await tx.transferFare.update({
+        where: { id: source.id },
+        data: { isActive: false },
+      });
+      return tx.transferFare.create({
+        data: {
+          organizationId: source.organizationId,
+          supplierId: source.supplierId,
+          isSystem: false,
+          fromPlaceId: source.fromPlaceId,
+          toPlaceId: source.toPlaceId,
+          vehicleTypeId: source.vehicleTypeId,
+          unitCost: source.unitCost,
+          childUnitCost: source.childUnitCost,
+          infantUnitCost: source.infantUnitCost,
+          childAgeMin: source.childAgeMin,
+          childAgeMax: source.childAgeMax,
+          pricingMode: source.pricingMode,
+          currency: source.currency,
+          startDate: source.startDate,
+          endDate: source.endDate,
+          isActive: true,
+          versionNumber: plan.versionNumber,
+          supersedesId: plan.supersedesId,
+          createdBy: userId,
+        },
+        include: this.fareInclude,
+      });
+    });
+    return {
+      ...created,
+      versionMeta: {
+        previousRateId: source.id,
+        previousVersionNumber: plan.previousVersionNumber,
+        versionNumber: plan.versionNumber,
+      },
+    };
+  }
+
+  async listTransferFareVersions(organizationId: string, fareId: string) {
+    const transferVersionSelect = {
+      id: true,
+      versionNumber: true,
+      supersedesId: true,
+      isActive: true,
+      unitCost: true,
+      childUnitCost: true,
+      infantUnitCost: true,
+      pricingMode: true,
+      startDate: true,
+      endDate: true,
+      updatedAt: true,
+    } as const;
+    return this.listGenericRateVersions({
+      rateId: fareId,
+      findOne: (id) =>
+        this.prisma.transferFare.findFirst({
+          where: {
+            id,
+            organizationId,
+            isSystem: false,
+            deletedAt: null,
+          },
+          select: transferVersionSelect,
+        }),
+      findAncestor: (id) =>
+        this.prisma.transferFare.findFirst({
+          where: { id, organizationId, deletedAt: null },
+          select: transferVersionSelect,
+        }),
+      findChildren: (ids) =>
+        this.prisma.transferFare.findMany({
+          where: {
+            organizationId,
+            deletedAt: null,
+            supersedesId: { in: ids },
+          },
+          select: transferVersionSelect,
+        }),
+      mapRow: (row) => ({
+        id: row.id,
+        versionNumber: row.versionNumber,
+        supersedesId: row.supersedesId,
+        isActive: row.isActive,
+        unitCost: Number(row.unitCost),
+        childUnitCost:
+          row.childUnitCost != null ? Number(row.childUnitCost) : null,
+        infantUnitCost:
+          row.infantUnitCost != null ? Number(row.infantUnitCost) : null,
+        pricingMode: row.pricingMode,
+        startDate: row.startDate,
+        endDate: row.endDate,
+        updatedAt: row.updatedAt,
+      }),
+      attachDiffVsActive: (prior, active) =>
+        diffTransferFareTips(prior, active),
+      notFound: 'Transfer fare not found',
+    });
+  }
+
+  async restoreTransferFareVersion(
+    organizationId: string,
+    userId: string,
+    fareId: string,
+    sourceVersionId: string,
+  ) {
+    const source = await this.prisma.transferFare.findFirst({
+      where: {
+        id: sourceVersionId,
+        organizationId,
+        isSystem: false,
+        deletedAt: null,
+      },
+    });
+    if (!source) throw new NotFoundException('Source fare version not found');
+    const chain = await this.listTransferFareVersions(organizationId, fareId);
+    if (!chain.versions.some((v) => v.id === sourceVersionId)) {
+      throw new BadRequestException('Source is not in this fare version family');
+    }
+    const active = await this.prisma.transferFare.findFirst({
+      where: { id: chain.activeRateId, organizationId, deletedAt: null },
+    });
+    if (!active) throw new NotFoundException('Active fare tip not found');
+    const plan = planRateNewVersion({
+      id: active.id,
+      versionNumber: active.versionNumber,
+    });
+    return this.prisma.$transaction(async (tx) => {
+      if (active.isActive) {
+        await tx.transferFare.update({
+          where: { id: active.id },
+          data: { isActive: false },
+        });
+      }
+      return tx.transferFare.create({
+        data: {
+          organizationId: source.organizationId,
+          supplierId: source.supplierId,
+          isSystem: false,
+          fromPlaceId: source.fromPlaceId,
+          toPlaceId: source.toPlaceId,
+          vehicleTypeId: source.vehicleTypeId,
+          unitCost: source.unitCost,
+          childUnitCost: source.childUnitCost,
+          infantUnitCost: source.infantUnitCost,
+          childAgeMin: source.childAgeMin,
+          childAgeMax: source.childAgeMax,
+          pricingMode: source.pricingMode,
+          currency: source.currency,
+          startDate: source.startDate,
+          endDate: source.endDate,
+          isActive: true,
+          versionNumber: plan.versionNumber,
+          supersedesId: plan.supersedesId,
+          createdBy: userId,
+        },
+        include: this.fareInclude,
+      });
+    });
+  }
+
+  // ── Activity rate versions ────────────────────────────────────────
+
+  async createActivityRateVersion(
+    organizationId: string,
+    userId: string,
+    rateId: string,
+  ) {
+    const source = await this.prisma.supplierActivityRate.findFirst({
+      where: { id: rateId, organizationId, deletedAt: null },
+    });
+    if (!source) throw new NotFoundException('Activity rate not found');
+    if (!source.isActive) {
+      throw new BadRequestException(
+        'Only the active tip can be versioned — open History and restore, or edit the active rate',
+      );
+    }
+    const plan = planRateNewVersion({
+      id: source.id,
+      versionNumber: source.versionNumber,
+    });
+    const created = await this.prisma.$transaction(async (tx) => {
+      await tx.supplierActivityRate.update({
+        where: { id: source.id },
+        data: { isActive: false },
+      });
+      return tx.supplierActivityRate.create({
+        data: {
+          organizationId: source.organizationId,
+          supplierId: source.supplierId,
+          placeId: source.placeId,
+          activityName: source.activityName,
+          activityKey: source.activityKey,
+          privateOrSic: source.privateOrSic,
+          adultUnitCost: source.adultUnitCost,
+          childUnitCost: source.childUnitCost,
+          childAgeMin: source.childAgeMin,
+          childAgeMax: source.childAgeMax,
+          currency: source.currency,
+          startDate: source.startDate,
+          endDate: source.endDate,
+          isActive: true,
+          versionNumber: plan.versionNumber,
+          supersedesId: plan.supersedesId,
+          createdBy: userId,
+        },
+        include: this.activityInclude,
+      });
+    });
+    return {
+      ...created,
+      versionMeta: {
+        previousRateId: source.id,
+        previousVersionNumber: plan.previousVersionNumber,
+        versionNumber: plan.versionNumber,
+      },
+    };
+  }
+
+  async listActivityRateVersions(organizationId: string, rateId: string) {
+    const activityVersionSelect = {
+      id: true,
+      versionNumber: true,
+      supersedesId: true,
+      isActive: true,
+      adultUnitCost: true,
+      childUnitCost: true,
+      privateOrSic: true,
+      activityName: true,
+      startDate: true,
+      endDate: true,
+      updatedAt: true,
+    } as const;
+    return this.listGenericRateVersions({
+      rateId,
+      findOne: (id) =>
+        this.prisma.supplierActivityRate.findFirst({
+          where: { id, organizationId, deletedAt: null },
+          select: activityVersionSelect,
+        }),
+      findAncestor: (id) =>
+        this.prisma.supplierActivityRate.findFirst({
+          where: { id, organizationId, deletedAt: null },
+          select: activityVersionSelect,
+        }),
+      findChildren: (ids) =>
+        this.prisma.supplierActivityRate.findMany({
+          where: {
+            organizationId,
+            deletedAt: null,
+            supersedesId: { in: ids },
+          },
+          select: activityVersionSelect,
+        }),
+      mapRow: (row) => ({
+        id: row.id,
+        versionNumber: row.versionNumber,
+        supersedesId: row.supersedesId,
+        isActive: row.isActive,
+        unitCost: Number(row.adultUnitCost),
+        childUnitCost:
+          row.childUnitCost != null ? Number(row.childUnitCost) : null,
+        privateOrSic: row.privateOrSic,
+        activityName: row.activityName,
+        startDate: row.startDate,
+        endDate: row.endDate,
+        updatedAt: row.updatedAt,
+      }),
+      attachDiffVsActive: (prior, active) =>
+        diffActivityRateTips(prior, active),
+      notFound: 'Activity rate not found',
+    });
+  }
+
+  async restoreActivityRateVersion(
+    organizationId: string,
+    userId: string,
+    rateId: string,
+    sourceVersionId: string,
+  ) {
+    const source = await this.prisma.supplierActivityRate.findFirst({
+      where: { id: sourceVersionId, organizationId, deletedAt: null },
+    });
+    if (!source) throw new NotFoundException('Source rate version not found');
+    const chain = await this.listActivityRateVersions(organizationId, rateId);
+    if (!chain.versions.some((v) => v.id === sourceVersionId)) {
+      throw new BadRequestException('Source is not in this rate version family');
+    }
+    const active = await this.prisma.supplierActivityRate.findFirst({
+      where: { id: chain.activeRateId, organizationId, deletedAt: null },
+    });
+    if (!active) throw new NotFoundException('Active rate tip not found');
+    const plan = planRateNewVersion({
+      id: active.id,
+      versionNumber: active.versionNumber,
+    });
+    return this.prisma.$transaction(async (tx) => {
+      if (active.isActive) {
+        await tx.supplierActivityRate.update({
+          where: { id: active.id },
+          data: { isActive: false },
+        });
+      }
+      return tx.supplierActivityRate.create({
+        data: {
+          organizationId: source.organizationId,
+          supplierId: source.supplierId,
+          placeId: source.placeId,
+          activityName: source.activityName,
+          activityKey: source.activityKey,
+          privateOrSic: source.privateOrSic,
+          adultUnitCost: source.adultUnitCost,
+          childUnitCost: source.childUnitCost,
+          childAgeMin: source.childAgeMin,
+          childAgeMax: source.childAgeMax,
+          currency: source.currency,
+          startDate: source.startDate,
+          endDate: source.endDate,
+          isActive: true,
+          versionNumber: plan.versionNumber,
+          supersedesId: plan.supersedesId,
+          createdBy: userId,
+        },
+        include: this.activityInclude,
+      });
+    });
+  }
+
+  private async listGenericRateVersions<
+    TRow extends {
+      id: string;
+      versionNumber: number;
+      supersedesId: string | null;
+      isActive: boolean;
+    },
+    TRef extends RateVersionRef,
+  >(opts: {
+    rateId: string;
+    findOne: (id: string) => Promise<TRow | null>;
+    findAncestor: (id: string) => Promise<TRow | null>;
+    findChildren: (ids: string[]) => Promise<TRow[]>;
+    mapRow: (row: TRow) => TRef;
+    attachDiffVsActive?: (
+      prior: TRef,
+      active: TRef,
+    ) => { changes: string[]; summary: string | null } | null;
+    notFound: string;
+  }) {
+    const tip = await opts.findOne(opts.rateId);
+    if (!tip) throw new NotFoundException(opts.notFound);
+
+    const family: TRef[] = [];
+    const byId = new Map<string, TRef>();
+    let cur: TRow | null = tip;
+    const seen = new Set<string>();
+    while (cur && !seen.has(cur.id)) {
+      seen.add(cur.id);
+      const ref = opts.mapRow(cur);
+      family.push(ref);
+      byId.set(ref.id, ref);
+      if (!cur.supersedesId) break;
+      cur = await opts.findAncestor(cur.supersedesId);
+    }
+
+    let frontier = family.map((r) => r.id);
+    while (frontier.length) {
+      const children = await opts.findChildren(frontier);
+      frontier = [];
+      for (const c of children) {
+        if (byId.has(c.id)) continue;
+        const ref = opts.mapRow(c);
+        byId.set(ref.id, ref);
+        family.push(ref);
+        frontier.push(c.id);
+      }
+    }
+
+    const activeTip =
+      [...byId.values()].find((r) => r.isActive) ||
+      [...byId.values()].sort((a, b) => b.versionNumber - a.versionNumber)[0]!;
+    const versions = orderRateVersionChain(activeTip, byId).map((v) => {
+      if (!opts.attachDiffVsActive || v.id === activeTip.id) {
+        return { ...v, diffVsActive: null };
+      }
+      return {
+        ...v,
+        diffVsActive: opts.attachDiffVsActive(v, activeTip),
+      };
+    });
+
+    return {
+      rateId: opts.rateId,
+      activeRateId: activeTip.id,
+      versions,
+    };
   }
 
   // ── Activity rates ────────────────────────────────────────────────
@@ -1815,12 +2564,15 @@ export class RatesService {
     roomProductId: string | null;
     roomType: string | null;
     mealPlan: string | null;
+    /** Rate market segment (IN / INTL); null = any. */
+    nationality?: string | null;
     startDate: Date | null;
     endDate: Date | null;
     excludeRateId?: string;
   }) {
     const mealNorm = (opts.mealPlan || '').trim().toLowerCase();
     const roomNorm = (opts.roomType || '').trim().toLowerCase();
+    const natNorm = normalizeHotelNationality(opts.nationality);
     const candidates = await this.prisma.supplierHotelRate.findMany({
       where: {
         deletedAt: null,
@@ -1846,6 +2598,7 @@ export class RatesService {
         mealPlan: true,
         startDate: true,
         endDate: true,
+        occupancyPricingJson: true,
       },
     });
 
@@ -1856,6 +2609,10 @@ export class RatesService {
         const rRoom = (r.roomType || '').trim().toLowerCase();
         if (rRoom !== roomNorm) return false;
       }
+      const rNat = normalizeHotelNationality(
+        nationalityFromOccupancy(r.occupancyPricingJson),
+      );
+      if (rNat !== natNorm) return false;
       return hotelSeasonWindowsOverlap(
         opts.startDate,
         opts.endDate,
@@ -1866,7 +2623,7 @@ export class RatesService {
 
     if (overlaps.length) {
       throw new BadRequestException(
-        'Season overlaps an existing rate for the same contract, room, and meal plan. Adjust dates or archive the other season first.',
+        'Season overlaps an existing rate for the same contract, room, meal plan, and nationality. Adjust dates or archive the other season first.',
       );
     }
   }
@@ -2130,6 +2887,7 @@ export class RatesService {
         adults,
         children,
         infants,
+        nationality: input.nationality?.trim() || null,
         blackoutsBySupplier,
         contractStopSaleBySupplier,
         stopSellByAsset,
@@ -2170,6 +2928,7 @@ export class RatesService {
       adults: number;
       children: number;
       infants: number;
+      nationality: string | null;
       blackoutsBySupplier: Map<string, BlackoutRange[]>;
       contractStopSaleBySupplier: Map<string, StopSaleRange[]>;
       stopSellByAsset: Map<string, DateWindow[]>;
@@ -2191,6 +2950,12 @@ export class RatesService {
         (item.details?.roomProductId || '').trim() || null;
       const rooms = Math.max(1, Number(item.details?.rooms) || 1);
       const nightsCount = Math.max(1, Number(item.details?.nights) || 1);
+      const guestNationality =
+        (typeof item.details?.nationality === 'string'
+          ? item.details.nationality.trim()
+          : '') ||
+        ctx.nationality ||
+        null;
       const stayNights = eachStayNight(asOf, nightsCount);
 
       const policyBlock = (sid: string | null | undefined) => {
@@ -2281,11 +3046,14 @@ export class RatesService {
 
       const matchDims = (pool: HotelRow[]) =>
         pickBest(
-          filterHotelByRoomAndMeal(
-            pool,
-            roomWanted,
-            mealWanted,
-            roomProductIdWanted,
+          filterHotelByNationality(
+            filterHotelByRoomAndMeal(
+              pool,
+              roomWanted,
+              mealWanted,
+              roomProductIdWanted,
+            ),
+            guestNationality,
           ),
         );
 
@@ -2354,7 +3122,7 @@ export class RatesService {
 
       const stayDates = stayNights.length ? stayNights : asOf ? [asOf] : [];
       const stayDateIsos = stayDates.map((d) => d.toISOString().slice(0, 10));
-      const baseCalc = hotelStayCalculation(
+      let baseCalc = hotelStayCalculation(
         {
           unitCost: best.unitCost,
           weekendUnitCost: best.weekendUnitCost,
@@ -2386,7 +3154,32 @@ export class RatesService {
         childAges,
         childAgeMax: occupancyPricing?.childAgeMax,
       });
-      const occ = applyOccupancyPricing(baseCalc.totalBuy, occupancyPricing, {
+      const adultBand = pickAdultBand({
+        bands: occupancyPricing?.adultBands ?? [],
+        adults: pax.adults,
+        rooms,
+        chartUnitCost: Number(best.unitCost),
+        chartWeekendUnitCost:
+          best.weekendUnitCost != null ? Number(best.weekendUnitCost) : null,
+      });
+      let occPricingForExtras = occupancyPricing;
+      if (adultBand) {
+        baseCalc = hotelStayCalculation(
+          {
+            unitCost: adultBand.unitCostPerNight,
+            weekendUnitCost: adultBand.weekendUnitCostPerNight,
+          },
+          stayDates,
+          rooms,
+        );
+        occPricingForExtras = occupancyPricing
+          ? { ...occupancyPricing, baseAdults: adultBand.adults }
+          : {
+              baseAdults: adultBand.adults,
+              baseChildren: 0,
+            };
+      }
+      const occ = applyOccupancyPricing(baseCalc.totalBuy, occPricingForExtras, {
         adults: pax.adults,
         children: pax.children,
         childrenWithoutBed,
@@ -2416,6 +3209,19 @@ export class RatesService {
         partyChildren: pax.partyChildren,
         adultsCharged: pax.adults,
         childrenCharged: pax.children,
+        ...(adultBand
+          ? {
+              adultBandAdults: adultBand.adults,
+              adultBandUnitCost: adultBand.unitCostPerNight,
+              ...(adultBand.weekendUnitCostPerNight != null
+                ? {
+                    adultBandWeekendUnitCost:
+                      adultBand.weekendUnitCostPerNight,
+                  }
+                : {}),
+              adultsPerRoom: adultBand.adultsPerRoom,
+            }
+          : {}),
         ...(pax.childAgeMax != null
           ? { childAgeMin: 0, childAgeMax: pax.childAgeMax }
           : {}),
@@ -2435,6 +3241,14 @@ export class RatesService {
       if (mealWanted && best.mealPlan) accepted.push('Meal plan matched');
       else if (!mealWanted) accepted.push('Meal plan matched');
       accepted.push('Dates covered');
+      const rateNationality = nationalityFromOccupancy(best.occupancyPricingJson);
+      accepted.push(
+        ...hotelNationalityMatchAccepted(rateNationality, guestNationality),
+      );
+      const rateVersionNumber = best.versionNumber ?? 1;
+      if (rateVersionNumber > 1 || best.supersedesId) {
+        accepted.push(`Rate ${hotelRateVersionLabel(rateVersionNumber)}`);
+      }
       if (best.contractId && ctx.activeContractIds.has(best.contractId)) {
         accepted.push(
           `Active contract v${best.contract?.versionNumber ?? 1}`,
@@ -2447,8 +3261,17 @@ export class RatesService {
       if (!best.isSystem && best.organizationId) {
         accepted.push('Agency rate preferred');
       }
-      if (occupancyPricing) {
-        accepted.push(...occupancyMatchAccepted(occ, occupancyPricing));
+      if (occupancyPricing || adultBand) {
+        accepted.push(
+          ...occupancyMatchAccepted(
+            occ,
+            occPricingForExtras || {
+              baseAdults: adultBand?.adults ?? 2,
+              baseChildren: 0,
+            },
+            adultBand,
+          ),
+        );
         if (pax.reclassifiedAsAdult > 0 && pax.childAgeMax != null) {
           accepted.push(
             `${pax.reclassifiedAsAdult} child age${pax.reclassifiedAsAdult === 1 ? '' : 's'} priced as adult (≤${pax.childAgeMax})`,
@@ -2457,6 +3280,13 @@ export class RatesService {
       }
       if (gala.matched.length) {
         accepted.push(...dateSupplementMatchAccepted(gala));
+      }
+      const minStay = evaluateHotelMinStay({
+        minStayNights: occupancyPricing?.minStayNights,
+        nights: nightsCount,
+      });
+      if (minStay) {
+        accepted.push(...hotelMinStayMatchAccepted(minStay));
       }
       const cancelSummary = summarizeCancellationForMatch(
         (best.contractId
@@ -2496,6 +3326,9 @@ export class RatesService {
           contractId: best.contractId,
           contractTitle: best.contract?.title ?? null,
           contractVersionNumber: best.contract?.versionNumber ?? null,
+          rateVersionNumber: best.versionNumber ?? 1,
+          nationality: rateNationality,
+          guestNationality: normalizeHotelNationality(guestNationality),
           weekendUnitCost:
             best.weekendUnitCost != null ? Number(best.weekendUnitCost) : null,
           startDate: best.startDate
@@ -2509,6 +3342,21 @@ export class RatesService {
           unitCost: Number(best.unitCost),
           calculation: {
             ...calculation,
+            ...(minStay
+              ? {
+                  minStayNights: minStay.minStayNights,
+                  stayNights: minStay.nights,
+                  minStayShort: minStay.short,
+                  minStayNote: minStay.note,
+                }
+              : {}),
+            ...(rateNationality || guestNationality
+              ? {
+                  nationality: rateNationality,
+                  guestNationality:
+                    normalizeHotelNationality(guestNationality),
+                }
+              : {}),
             ...(cancelSummary
               ? {
                   cancellationPolicy: cancelSummary.snapshot,
@@ -2517,6 +3365,12 @@ export class RatesService {
               : {}),
           },
           matchExplain: { accepted, rejected },
+          ...(minStay?.short
+            ? {
+                minStayWarn: true as const,
+                minStayNote: minStay.note,
+              }
+            : {}),
         },
       });
     }
@@ -2776,6 +3630,7 @@ export class RatesService {
             updatedAt: best.updatedAt.toISOString(),
             unitCost: adultCost,
             supplierId: best.supplierId || supplierId || null,
+            rateVersionNumber: best.versionNumber ?? 1,
             calculation: {
               totalBuy: round2(
                 pax.adultHeads * adultCost +
@@ -2848,6 +3703,7 @@ export class RatesService {
           updatedAt: best.updatedAt.toISOString(),
           unitCost: adultCost,
           supplierId: best.supplierId || supplierId || null,
+          rateVersionNumber: best.versionNumber ?? 1,
           matchExplain: { accepted, rejected },
         },
       });
@@ -2981,6 +3837,8 @@ export class RatesService {
         endDate: r.endDate,
         updatedAt: r.updatedAt,
         currency: r.currency,
+        versionNumber: r.versionNumber ?? 1,
+        supersedesId: r.supersedesId ?? null,
       }));
 
       const best = pickBestActivityRate(pool, {
@@ -3071,6 +3929,7 @@ export class RatesService {
           currency: best.currency || 'INR',
           updatedAt: best.updatedAt.toISOString(),
           unitCost: blended.unitCost,
+          rateVersionNumber: best.versionNumber ?? 1,
           calculation: {
             totalBuy: blended.totalBuy,
             adultUnit: best.adultUnitCost,

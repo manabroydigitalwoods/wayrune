@@ -43,6 +43,11 @@ function preserveExistingInventoryRiskAcks(
     const prevCapacityAck = prevProv?.capacityRiskAckForNote?.trim() || '';
     const prevCapacityReason = prevProv?.capacityRiskAckReason?.trim() || '';
 
+    const nextMinStayAck = nextProv?.minStayRiskAckForNote?.trim() || '';
+    const nextMinStayReason = nextProv?.minStayRiskAckReason?.trim() || '';
+    const prevMinStayAck = prevProv?.minStayRiskAckForNote?.trim() || '';
+    const prevMinStayReason = prevProv?.minStayRiskAckReason?.trim() || '';
+
     const rateProvenance = nextProv ? { ...nextProv } : undefined;
 
     const allotmentCleared = !nextAllotmentAck || !nextAllotmentReason;
@@ -79,6 +84,25 @@ function preserveExistingInventoryRiskAcks(
         } else {
           delete rateProvenance.capacityRiskAckForNote;
           delete rateProvenance.capacityRiskAckReason;
+        }
+      }
+    }
+
+    const minStayCleared = !nextMinStayAck || !nextMinStayReason;
+    const minStaySame =
+      nextMinStayAck === prevMinStayAck &&
+      nextMinStayReason === prevMinStayReason;
+    if (rateProvenance) {
+      if (minStayCleared) {
+        delete rateProvenance.minStayRiskAckForNote;
+        delete rateProvenance.minStayRiskAckReason;
+      } else if (!minStaySame) {
+        if (prevMinStayAck && prevMinStayReason) {
+          rateProvenance.minStayRiskAckForNote = prevProv!.minStayRiskAckForNote;
+          rateProvenance.minStayRiskAckReason = prevProv!.minStayRiskAckReason;
+        } else {
+          delete rateProvenance.minStayRiskAckForNote;
+          delete rateProvenance.minStayRiskAckReason;
         }
       }
     }
@@ -170,5 +194,33 @@ describe('preserveExistingInventoryRiskAcks', () => {
       ],
     );
     expect(out[0]?.rateProvenance?.allotmentRiskAckForNote).toBeUndefined();
+  });
+
+  it('strips forged min-stay ack when none was audited', () => {
+    const note = 'Min stay 3 nights — this stay is 2';
+    const out = preserveExistingInventoryRiskAcks(
+      [
+        {
+          id: '1',
+          rateProvenance: {
+            minStayWarn: true,
+            minStayNote: note,
+            minStayRiskAckForNote: note,
+            minStayRiskAckReason: 'forged',
+          },
+        },
+      ],
+      [
+        {
+          id: '1',
+          rateProvenance: {
+            minStayWarn: true,
+            minStayNote: note,
+          },
+        },
+      ],
+    );
+    expect(out[0]?.rateProvenance?.minStayRiskAckForNote).toBeUndefined();
+    expect(out[0]?.rateProvenance?.minStayRiskAckReason).toBeUndefined();
   });
 });

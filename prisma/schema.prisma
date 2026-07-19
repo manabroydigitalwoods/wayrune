@@ -1935,6 +1935,10 @@ model SupplierHotelRate {
   startDate      DateTime? @map("start_date") @db.Date
   endDate        DateTime? @map("end_date") @db.Date
   isActive       Boolean   @default(true) @map("is_active")
+  /** Version tip number within a supersedes chain (1 = first). */
+  versionNumber  Int       @default(1) @map("version_number")
+  /** Prior rate row this version supersedes. */
+  supersedesId   String?   @map("supersedes_id")
   createdBy      String?   @map("created_by")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
@@ -1945,6 +1949,8 @@ model SupplierHotelRate {
   place        Place?            @relation(fields: [placeId], references: [id], onDelete: Restrict)
   roomProduct  AssetRoomProduct? @relation(fields: [roomProductId], references: [id], onDelete: SetNull)
   contract     SupplierContract? @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  supersedes   SupplierHotelRate?  @relation("HotelRateVersionChain", fields: [supersedesId], references: [id], onDelete: SetNull)
+  supersededBy SupplierHotelRate[] @relation("HotelRateVersionChain")
 
   @@index([organizationId, supplierId, isActive])
   @@index([organizationId, isActive])
@@ -1952,6 +1958,7 @@ model SupplierHotelRate {
   @@index([placeId, roomType, mealPlan, isActive])
   @@index([roomProductId, isActive])
   @@index([contractId, isActive])
+  @@index([supersedesId])
   @@map("supplier_hotel_rates")
 }
 
@@ -1981,6 +1988,10 @@ model TransferFare {
   startDate      DateTime? @map("start_date") @db.Date
   endDate        DateTime? @map("end_date") @db.Date
   isActive       Boolean   @default(true) @map("is_active")
+  /** Version tip number within a supersedes chain (1 = first). */
+  versionNumber  Int       @default(1) @map("version_number")
+  /** Prior fare row this version supersedes. */
+  supersedesId   String?   @map("supersedes_id")
   createdBy      String?   @map("created_by")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
@@ -1991,12 +2002,15 @@ model TransferFare {
   fromPlace    Place         @relation("TransferFareFrom", fields: [fromPlaceId], references: [id], onDelete: Restrict)
   toPlace      Place         @relation("TransferFareTo", fields: [toPlaceId], references: [id], onDelete: Restrict)
   vehicleType  VehicleType   @relation(fields: [vehicleTypeId], references: [id], onDelete: Restrict)
+  supersedes   TransferFare?  @relation("TransferFareVersionChain", fields: [supersedesId], references: [id], onDelete: SetNull)
+  supersededBy TransferFare[] @relation("TransferFareVersionChain")
 
   @@index([organizationId, fromPlaceId, toPlaceId, vehicleTypeId, isActive])
   @@index([organizationId, supplierId, isActive])
   @@index([organizationId, isActive])
   @@index([isSystem, isActive])
   @@index([fromPlaceId, toPlaceId, vehicleTypeId, isSystem, isActive])
+  @@index([supersedesId])
   @@map("transfer_fares")
 }
 
@@ -2023,6 +2037,10 @@ model SupplierActivityRate {
   startDate      DateTime? @map("start_date") @db.Date
   endDate        DateTime? @map("end_date") @db.Date
   isActive       Boolean   @default(true) @map("is_active")
+  /** Version tip number within a supersedes chain (1 = first). */
+  versionNumber  Int       @default(1) @map("version_number")
+  /** Prior rate row this version supersedes. */
+  supersedesId   String?   @map("supersedes_id")
   createdBy      String?   @map("created_by")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
@@ -2031,11 +2049,14 @@ model SupplierActivityRate {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   supplier     Supplier?    @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   place        Place?       @relation(fields: [placeId], references: [id], onDelete: SetNull)
+  supersedes   SupplierActivityRate?  @relation("ActivityRateVersionChain", fields: [supersedesId], references: [id], onDelete: SetNull)
+  supersededBy SupplierActivityRate[] @relation("ActivityRateVersionChain")
 
   @@index([organizationId, activityKey, isActive], map: "sar_org_key_active_idx")
   @@index([organizationId, supplierId, isActive], map: "sar_org_supplier_active_idx")
   @@index([organizationId, placeId, isActive], map: "sar_org_place_active_idx")
   @@index([organizationId, isActive], map: "sar_org_active_idx")
+  @@index([supersedesId])
   @@map("supplier_activity_rates")
 }
 

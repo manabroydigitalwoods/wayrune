@@ -3,6 +3,7 @@ import {
   formatHoursCompact,
   formatHoursTargetCue,
   formatMinutesTargetCue,
+  formatFitClaimProtocolCue,
   salesSlaMedianTone,
 } from './salesSlaFormat';
 
@@ -26,5 +27,39 @@ describe('target cues', () => {
 
   it('keeps compact hours helper', () => {
     expect(formatHoursCompact(4)).toBe('4h');
+  });
+});
+
+describe('formatFitClaimProtocolCue', () => {
+  it('shows testing until sample and median clear the gate', () => {
+    expect(
+      formatFitClaimProtocolCue({
+        claimStatus: 'testing',
+        publicClaimAllowed: false,
+        sampleSize: 5,
+        minSampleSize: 20,
+        targetMinutes: 3,
+      }),
+    ).toBe('testing · 5/20 samples');
+    expect(
+      formatFitClaimProtocolCue({
+        claimStatus: 'testing',
+        publicClaimAllowed: false,
+        sampleSize: 20,
+        minSampleSize: 20,
+        medianMinutes: 4,
+        targetMinutes: 3,
+      }),
+    ).toBe('testing · median 4m · do not claim');
+    expect(
+      formatFitClaimProtocolCue({
+        claimStatus: 'ready',
+        publicClaimAllowed: true,
+        sampleSize: 24,
+        minSampleSize: 20,
+        medianMinutes: 2,
+        targetMinutes: 3,
+      }),
+    ).toBe('claim ready · under 3m (n=24)');
   });
 });

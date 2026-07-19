@@ -247,7 +247,7 @@ export function listStarterPackCatalog(): StarterPackCatalogItem[] {
       id: FIT_TEMPLATES_PACK_ID,
       label: 'Sample FIT quote packs',
       detail:
-        'Adds Darjeeling and Goa priced templates plus a sample planning trip with a draft quote.',
+        'Adds Darjeeling and Goa priced templates plus demo trip TRP-DEMO-01 (draft quote, sample guest).',
       creates: {
         quoteTemplates: FIT_TEMPLATE_SPECS.map((s) => s.name),
         demoTrips: [DEMO_TRIP_SPEC.tripNumber],
@@ -269,9 +269,16 @@ export type DemoTripSpec = {
   templateName: string;
 };
 
+/** Buyer-facing bullets for install toast / onboarding (claim-safe). */
+export const DEMO_TRIP_INCLUDES = [
+  'Darjeeling classic FIT draft quote',
+  'Hotel, transfer, and activity lines',
+  'Sample guest party (editable)',
+] as const;
+
 export const DEMO_TRIP_SPEC: DemoTripSpec = {
   tripNumber: 'TRP-DEMO-01',
-  title: 'Darjeeling hills — sample',
+  title: 'Darjeeling classic FIT — demo',
   partyDisplayName: 'Sample guest (demo)',
   travellerFullName: 'Sample Guest',
   destinationName: 'Darjeeling',
@@ -279,6 +286,29 @@ export const DEMO_TRIP_SPEC: DemoTripSpec = {
   nights: 5,
   templateName: 'Darjeeling classic FIT',
 };
+
+export type DemoTripInstallMeta = {
+  tripId: string;
+  tripNumber: string;
+  title: string;
+  includes: string[];
+  created: boolean;
+};
+
+export function buildDemoTripInstallMeta(input: {
+  tripId: string;
+  created: boolean;
+  tripNumber?: string;
+  title?: string;
+}): DemoTripInstallMeta {
+  return {
+    tripId: input.tripId,
+    tripNumber: input.tripNumber || DEMO_TRIP_SPEC.tripNumber,
+    title: input.title || DEMO_TRIP_SPEC.title,
+    includes: [...DEMO_TRIP_INCLUDES],
+    created: input.created,
+  };
+}
 
 /** Local calendar dates for the demo trip (stable YYYY-MM-DD). */
 export function demoTripDateRange(

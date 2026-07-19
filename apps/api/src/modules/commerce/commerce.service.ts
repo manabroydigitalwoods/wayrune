@@ -1047,10 +1047,16 @@ export class CommerceService {
             mealPlan: r.mealPlan,
             unitCost: r.unitCost,
             weekendUnitCost: r.weekendUnitCost,
+            occupancyPricingJson:
+              r.occupancyPricingJson === null
+                ? Prisma.JsonNull
+                : (r.occupancyPricingJson as Prisma.InputJsonValue),
             currency: r.currency,
             startDate: r.startDate,
             endDate: r.endDate,
             isActive: r.isActive,
+            versionNumber: 1,
+            supersedesId: r.id,
             createdBy: userId,
           })),
         });

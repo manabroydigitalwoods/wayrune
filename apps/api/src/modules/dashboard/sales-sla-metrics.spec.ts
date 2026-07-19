@@ -4,6 +4,9 @@ import {
   formatHoursCompact,
   hoursBetween,
   medianSorted,
+  buildFitClaimProtocol,
+  FIT_CLAIM_MIN_SAMPLE_SIZE,
+  FIT_CLAIM_TARGET_MINUTES,
   salesSlaMedianTone,
   salesSlaTargetsFromSettings,
 } from './sales-sla-metrics';
@@ -119,5 +122,35 @@ describe('salesSlaMedianTone', () => {
     expect(salesSlaMedianTone(7, 4)).toBe('danger');
     expect(salesSlaMedianTone(5, null)).toBe('neutral');
     expect(salesSlaMedianTone(null, 4)).toBe('neutral');
+  });
+});
+
+describe('buildFitClaimProtocol', () => {
+  it('stays testing until sample and median clear the gate', () => {
+    expect(
+      buildFitClaimProtocol({ sampleSize: 5, medianMinutes: 2 }),
+    ).toMatchObject({
+      claimStatus: 'testing',
+      publicClaimAllowed: false,
+      targetMinutes: FIT_CLAIM_TARGET_MINUTES,
+      minSampleSize: FIT_CLAIM_MIN_SAMPLE_SIZE,
+      sampleSize: 5,
+      medianMinutes: 2,
+    });
+    expect(
+      buildFitClaimProtocol({
+        sampleSize: FIT_CLAIM_MIN_SAMPLE_SIZE,
+        medianMinutes: 4,
+      }).publicClaimAllowed,
+    ).toBe(false);
+    expect(
+      buildFitClaimProtocol({
+        sampleSize: FIT_CLAIM_MIN_SAMPLE_SIZE,
+        medianMinutes: 2.5,
+      }),
+    ).toMatchObject({
+      claimStatus: 'ready',
+      publicClaimAllowed: true,
+    });
   });
 });

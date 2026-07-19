@@ -132,3 +132,46 @@ export function salesSlaMedianTone(
   if (median > target * 1.5) return 'danger';
   return 'warn';
 }
+
+/** Public &lt;3m FIT claim gate — do not advertise until ready. */
+export const FIT_CLAIM_TARGET_MINUTES = 3;
+export const FIT_CLAIM_MIN_SAMPLE_SIZE = 20;
+export const FIT_CLAIM_PROTOCOL_DEFINITION =
+  'Workspace open → first successful quote send (INR FIT path). Timer excludes prior contract/load setup; includes in-session Match and pricing.';
+
+export type FitClaimStatus = 'testing' | 'ready';
+
+export type FitClaimProtocol = {
+  definition: string;
+  targetMinutes: number;
+  minSampleSize: number;
+  sampleSize: number;
+  medianMinutes: number | null;
+  claimStatus: FitClaimStatus;
+  /** True only when sample ≥ min and median ≤ target. */
+  publicClaimAllowed: boolean;
+};
+
+export function buildFitClaimProtocol(opts: {
+  sampleSize: number;
+  medianMinutes: number | null | undefined;
+}): FitClaimProtocol {
+  const sampleSize = Math.max(0, Math.floor(Number(opts.sampleSize)) || 0);
+  const median =
+    opts.medianMinutes != null && Number.isFinite(opts.medianMinutes)
+      ? Number(opts.medianMinutes)
+      : null;
+  const publicClaimAllowed =
+    sampleSize >= FIT_CLAIM_MIN_SAMPLE_SIZE &&
+    median != null &&
+    median <= FIT_CLAIM_TARGET_MINUTES;
+  return {
+    definition: FIT_CLAIM_PROTOCOL_DEFINITION,
+    targetMinutes: FIT_CLAIM_TARGET_MINUTES,
+    minSampleSize: FIT_CLAIM_MIN_SAMPLE_SIZE,
+    sampleSize,
+    medianMinutes: median,
+    claimStatus: publicClaimAllowed ? 'ready' : 'testing',
+    publicClaimAllowed,
+  };
+}

@@ -33,6 +33,7 @@ import {
   listStarterPackCatalog,
   resolveStarterPackTemplates,
   summarizeStarterPackInstall,
+  buildDemoTripInstallMeta,
 } from './agency-starter-pack';
 import {
   fetchFrankfurterOrgFxRates,
@@ -548,6 +549,12 @@ export class OrganizationsService {
       packId,
       ...summary,
       tripId: demo.tripId,
+      demoTrip: buildDemoTripInstallMeta({
+        tripId: demo.tripId,
+        created: demo.created,
+        tripNumber: demo.tripNumber,
+        title: demo.title,
+      }),
       walkthroughHref: demo.tripId
         ? `/trips/${demo.tripId}?tab=quotations`
         : '/work/quotation-drafts?walkthrough=1',
@@ -558,7 +565,12 @@ export class OrganizationsService {
   private async ensureDemoTrip(
     user: AuthUser,
     specs: Array<{ name: string; contentJson: Record<string, unknown> }>,
-  ): Promise<{ tripId: string; tripNumber: string; created: boolean }> {
+  ): Promise<{
+    tripId: string;
+    tripNumber: string;
+    title: string;
+    created: boolean;
+  }> {
     const existing = await this.prisma.trip.findUnique({
       where: {
         organizationId_tripNumber: {
@@ -566,12 +578,29 @@ export class OrganizationsService {
           tripNumber: DEMO_TRIP_SPEC.tripNumber,
         },
       },
-      select: { id: true },
+      select: { id: true, title: true },
     });
     if (existing) {
+      // Polish legacy demo title without rewriting the whole seed trip.
+      if (
+        existing.title === 'Darjeeling hills — sample' ||
+        !existing.title?.trim()
+      ) {
+        await this.prisma.trip.update({
+          where: { id: existing.id },
+          data: { title: DEMO_TRIP_SPEC.title },
+        });
+        return {
+          tripId: existing.id,
+          tripNumber: DEMO_TRIP_SPEC.tripNumber,
+          title: DEMO_TRIP_SPEC.title,
+          created: false,
+        };
+      }
       return {
         tripId: existing.id,
         tripNumber: DEMO_TRIP_SPEC.tripNumber,
+        title: existing.title,
         created: false,
       };
     }
@@ -733,6 +762,7 @@ export class OrganizationsService {
     return {
       tripId: trip.id,
       tripNumber: DEMO_TRIP_SPEC.tripNumber,
+      title: DEMO_TRIP_SPEC.title,
       created: true,
     };
   }

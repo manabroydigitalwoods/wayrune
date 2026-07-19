@@ -12,6 +12,10 @@ import {
   formatTransferCapacityNote,
   withCapacityProvenance,
 } from './transferCapacityNote';
+import {
+  formatHotelMinStayNote,
+  withMinStayProvenance,
+} from './hotelMinStayNote';
 
 export type QuoteServiceDetails = QuotationItemDetails;
 export type { QuoteRateProvenance };
@@ -468,6 +472,7 @@ export const HOTEL_RATE_MATCH_KEYS = [
   'checkOut',
   'roomType',
   'mealPlan',
+  'nationality',
   'rooms',
   'adults',
   'children',
@@ -1320,6 +1325,30 @@ function parseProvenanceCalculation(
     extraAdultCount: num(c.extraAdultCount),
     childWithBedCount: num(c.childWithBedCount),
     childWithoutBedCount: num(c.childWithoutBedCount),
+    adultBandAdults: num(c.adultBandAdults),
+    adultBandUnitCost: num(c.adultBandUnitCost),
+    adultBandWeekendUnitCost: num(c.adultBandWeekendUnitCost),
+    adultsPerRoom: num(c.adultsPerRoom),
+    minStayNights: num(c.minStayNights),
+    stayNights: num(c.stayNights),
+    minStayShort:
+      typeof c.minStayShort === 'boolean' ? c.minStayShort : undefined,
+    minStayNote:
+      typeof c.minStayNote === 'string' && c.minStayNote.trim()
+        ? c.minStayNote.trim()
+        : undefined,
+    nationality:
+      typeof c.nationality === 'string'
+        ? c.nationality
+        : c.nationality === null
+          ? null
+          : undefined,
+    guestNationality:
+      typeof c.guestNationality === 'string'
+        ? c.guestNationality
+        : c.guestNationality === null
+          ? null
+          : undefined,
     dateSupplementTotal: num(c.dateSupplementTotal),
     dateSupplements: (() => {
       if (!Array.isArray(c.dateSupplements)) return undefined;
@@ -1413,6 +1442,8 @@ export function buildQuoteRateProvenance(opts: {
     roomType: strMeta('roomType'),
     roomProductId: strMeta('roomProductId'),
     mealPlan: strMeta('mealPlan'),
+    nationality: strMeta('nationality'),
+    rateVersionNumber: numMeta('rateVersionNumber'),
     pricingMode: strMeta('pricingMode'),
     startDate: strMeta('startDate')?.slice(0, 10),
     endDate: strMeta('endDate')?.slice(0, 10),
@@ -1429,6 +1460,14 @@ export function buildQuoteRateProvenance(opts: {
     contractId: strMeta('contractId'),
     contractTitle: strMeta('contractTitle'),
     contractVersionNumber,
+    ...(meta.minStayWarn === true
+      ? {
+          minStayWarn: true as const,
+          minStayNote: strMeta('minStayNote'),
+        }
+      : strMeta('minStayNote')
+        ? { minStayNote: strMeta('minStayNote') }
+        : {}),
     calculation: (() => {
       const base = parseProvenanceCalculation(meta.calculation) || {};
       if (opts.rateKind !== 'activity' && opts.rateKind !== 'transfer') {
@@ -1525,6 +1564,16 @@ export function parseQuoteRateProvenance(raw: unknown): QuoteRateProvenance | un
     capacityRiskAckReason:
       typeof d.capacityRiskAckReason === 'string'
         ? d.capacityRiskAckReason
+        : undefined,
+    minStayNote: typeof d.minStayNote === 'string' ? d.minStayNote : undefined,
+    minStayWarn: typeof d.minStayWarn === 'boolean' ? d.minStayWarn : undefined,
+    minStayRiskAckForNote:
+      typeof d.minStayRiskAckForNote === 'string'
+        ? d.minStayRiskAckForNote
+        : undefined,
+    minStayRiskAckReason:
+      typeof d.minStayRiskAckReason === 'string'
+        ? d.minStayRiskAckReason
         : undefined,
     vehicleSeats:
       typeof d.vehicleSeats === 'number' && Number.isFinite(d.vehicleSeats)
@@ -1819,6 +1868,17 @@ export function applyRateResolveHit(opts: {
     unitCost: opts.hit.unitCost,
     rateMeta: meta,
   });
+
+  if (serviceType === 'hotel' && rateProvenance) {
+    const minStayNote =
+      (typeof meta.minStayNote === 'string' && meta.minStayNote.trim()
+        ? meta.minStayNote.trim()
+        : null) || formatHotelMinStayNote(rateProvenance.calculation);
+    rateProvenance = withMinStayProvenance(
+      rateProvenance,
+      minStayNote,
+    ) as typeof rateProvenance;
+  }
 
   if (serviceType === 'transfer' && rateProvenance) {
     if (transferSeats != null && transferSeats > 0) {

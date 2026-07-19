@@ -20,6 +20,8 @@ export type ActivityRateCandidate = {
   endDate: Date | null;
   updatedAt: Date;
   currency?: string | null;
+  versionNumber?: number;
+  supersedesId?: string | null;
 };
 
 export function activityNameMatches(

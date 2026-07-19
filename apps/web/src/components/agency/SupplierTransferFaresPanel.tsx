@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pencil, Plus, Trash2, Upload } from 'lucide-react';
+import { GitBranch, History, Pencil, Plus, Trash2, Upload } from 'lucide-react';
 import {
   Button,
   Combobox,
@@ -22,6 +22,12 @@ import { formatDateInput, parseDateInput } from '../../lib/dateInput';
 import { PlaceSinglePicker } from '../places/PlacePicker';
 import { type PlaceRef } from '../../lib/placeRefs';
 import { RatesCsvImportDialog } from '../rates/RatesCsvImportDialog';
+import {
+  formatRateVersionHistoryLine,
+  formatRateVersionTipDiffCue,
+  rateVersionLabel,
+  type RateVersionListItem,
+} from '../../lib/rateVersion';
 
 type TransferFare = SupplierTransferFareRow;
 
@@ -103,6 +109,14 @@ export function SupplierTransferFaresPanel({
   const [formOpen, setFormOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [form, setForm] = useState(() => emptyForm(defaultPlace));
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historySaving, setHistorySaving] = useState(false);
+  const [historyAnchorId, setHistoryAnchorId] = useState<string | null>(null);
+  const [historyVersions, setHistoryVersions] = useState<RateVersionListItem[]>(
+    [],
+  );
+  const [versioningId, setVersioningId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -123,7 +137,9 @@ export function SupplierTransferFaresPanel({
   }, [load]);
 
   const sorted = useMemo(() => {
-    return [...fares].sort((a, b) => {
+    return [...fares]
+      .filter((f) => f.isActive !== false)
+      .sort((a, b) => {
       const from = (a.fromPlace?.name || '').localeCompare(b.fromPlace?.name || '');
       if (from) return from;
       const to = (a.toPlace?.name || '').localeCompare(b.toPlace?.name || '');
@@ -131,6 +147,66 @@ export function SupplierTransferFaresPanel({
       return (a.vehicleType?.name || '').localeCompare(b.vehicleType?.name || '');
     });
   }, [fares]);
+
+  async function createRateVersion(fare: TransferFare) {
+    setVersioningId(fare.id);
+    try {
+      const created = await api<
+        TransferFare & { versionMeta?: { versionNumber?: number } }
+      >(`/transfer-fares/${fare.id}/new-version`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      toastSuccess(
+        `Created ${rateVersionLabel(created.versionMeta?.versionNumber ?? created.versionNumber)} — edit costs then Save`,
+      );
+      await load();
+      startEdit(created);
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not create fare version');
+    } finally {
+      setVersioningId(null);
+    }
+  }
+
+  async function openRateHistory(fare: TransferFare) {
+    setHistoryAnchorId(fare.id);
+    setHistoryOpen(true);
+    setHistoryLoading(true);
+    try {
+      const res = await api<{ versions: RateVersionListItem[] }>(
+        `/transfer-fares/${fare.id}/versions`,
+      );
+      setHistoryVersions(res.versions || []);
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not load fare history');
+      setHistoryVersions([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  async function restoreRateVersion(sourceVersionId: string) {
+    if (!historyAnchorId) return;
+    setHistorySaving(true);
+    try {
+      const created = await api<TransferFare>(
+        `/transfer-fares/${historyAnchorId}/restore-version`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ sourceVersionId }),
+        },
+      );
+      toastSuccess(`Restored as ${rateVersionLabel(created.versionNumber)}`);
+      setHistoryOpen(false);
+      await load();
+      startEdit(created);
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not restore version');
+    } finally {
+      setHistorySaving(false);
+    }
+  }
 
   function openCreate() {
     setEditingId(null);
@@ -297,8 +373,13 @@ export function SupplierTransferFaresPanel({
                 className="flex flex-wrap items-start justify-between gap-3 px-4 py-3"
               >
                 <div className="min-w-0">
-                  <div className="text-sm font-medium">
-                    {fare.fromPlace?.name || '—'} → {fare.toPlace?.name || '—'}
+                  <div className="flex flex-wrap items-center gap-1.5 text-sm font-medium">
+                    <span>
+                      {fare.fromPlace?.name || '—'} → {fare.toPlace?.name || '—'}
+                    </span>
+                    <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      {rateVersionLabel(fare.versionNumber)}
+                    </span>
                   </div>
                   <div className="mt-0.5 text-xs text-muted-foreground">
                     {fare.vehicleType?.name || 'Vehicle'}
@@ -314,22 +395,49 @@ export function SupplierTransferFaresPanel({
                   </div>
                 </div>
                 <Can anyOf={CAP.ratesWrite}>
-                  <div className="flex gap-1">
+                  <div className="flex items-center gap-0.5">
                     <Button
+                      type="button"
                       size="icon"
                       variant="ghost"
+                      className="size-7"
+                      aria-label="New fare version"
+                      title="New version (keeps history)"
+                      disabled={versioningId === fare.id}
+                      onClick={() => void createRateVersion(fare)}
+                    >
+                      <GitBranch className="size-3.5" />
+                    </Button>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="size-7"
+                      aria-label="Fare version history"
+                      title="Version history"
+                      onClick={() => void openRateHistory(fare)}
+                    >
+                      <History className="size-3.5" />
+                    </Button>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="size-7"
                       onClick={() => startEdit(fare)}
                       aria-label="Edit fare"
                     >
-                      <Pencil className="size-4" />
+                      <Pencil className="size-3.5" />
                     </Button>
                     <Button
+                      type="button"
                       size="icon"
                       variant="ghost"
+                      className="size-7 text-destructive"
                       onClick={() => void remove(fare)}
                       aria-label="Remove fare"
                     >
-                      <Trash2 className="size-4" />
+                      <Trash2 className="size-3.5" />
                     </Button>
                   </div>
                 </Can>
@@ -466,6 +574,78 @@ export function SupplierTransferFaresPanel({
             />
           </FormField>
         </FormGrid>
+      </RecordSheet>
+
+      <RecordSheet
+        open={historyOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setHistoryOpen(false);
+            setHistoryAnchorId(null);
+            setHistoryVersions([]);
+          } else setHistoryOpen(true);
+        }}
+        title="Fare version history"
+        description="Superseded tips stay on file. Restore copies content into a new active tip."
+        submitting={historySaving}
+        footer={
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              setHistoryOpen(false);
+              setHistoryAnchorId(null);
+            }}
+          >
+            Close
+          </Button>
+        }
+      >
+        {historyLoading ? (
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        ) : historyVersions.length ? (
+          <ul className="divide-y divide-border/50 overflow-hidden rounded-xl border border-border/60">
+            {[...historyVersions].reverse().map((v) => (
+              <li
+                key={v.id}
+                className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 text-sm"
+              >
+                <span className="text-xs text-muted-foreground">
+                  {formatRateVersionHistoryLine(v, {
+                    kind: 'transfer',
+                    formatAmount: (n) =>
+                      formatCurrency(n, { maximumFractionDigits: 0 }),
+                  })}
+                  {formatRateVersionTipDiffCue(v.diffVsActive) ? (
+                    <span className="mt-0.5 block text-[11px] text-amber-800 dark:text-amber-200">
+                      Diff vs current ·{' '}
+                      {formatRateVersionTipDiffCue(v.diffVsActive)}
+                    </span>
+                  ) : null}
+                </span>
+                <Can anyOf={CAP.ratesWrite}>
+                  {!v.isActive ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={historySaving}
+                      onClick={() => void restoreRateVersion(v.id)}
+                    >
+                      Restore as new tip
+                    </Button>
+                  ) : (
+                    <span className="text-[10px] font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
+                      Current
+                    </span>
+                  )}
+                </Can>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-muted-foreground">No versions yet.</p>
+        )}
       </RecordSheet>
 
       <RatesCsvImportDialog

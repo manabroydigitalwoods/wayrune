@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthUser } from '../../common/helpers';
 import {
+  buildFitClaimProtocol,
   computeSalesSlaMetrics,
   salesSlaTargetsFromSettings,
 } from './sales-sla-metrics';
@@ -331,6 +332,10 @@ export class DashboardService {
       leadToQuoteSampleSize30d: sla.leadToQuoteSampleSize,
       medianFitBuildMinutes30d: sla.medianFitBuildMinutes,
       fitBuildSampleSize30d: sla.fitBuildSampleSize,
+      fitClaimProtocol: buildFitClaimProtocol({
+        sampleSize: sla.fitBuildSampleSize,
+        medianMinutes: sla.medianFitBuildMinutes,
+      }),
       firstTouchTargetHours: salesSlaTargets.firstTouchTargetHours,
       leadToQuoteTargetHours: salesSlaTargets.leadToQuoteTargetHours,
       fitBuildTargetMinutes: salesSlaTargets.fitBuildTargetMinutes,

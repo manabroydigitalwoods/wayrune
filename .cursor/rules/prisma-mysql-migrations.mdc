@@ -1,0 +1,57 @@
+---
+description: Prisma migrations must be MySQL dialect (not Postgres)
+globs: prisma/**/*
+alwaysApply: false
+---
+
+# Prisma migrations are MySQL
+
+This repo uses **MySQL 8** (`provider = "mysql"` in `prisma/schema.prisma` and `prisma/migrations/migration_lock.toml`). Local/CI `DATABASE_URL` is `mysql://…`.
+
+## Do not hand-write Postgres SQL
+
+Agents often invent Postgres migrations. **Never** use:
+
+- Double-quoted identifiers (`"table"`, `"column"`)
+- `TEXT` for Prisma `String` ids/FKs (use `VARCHAR(191)`)
+- `ADD COLUMN IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS`
+- `DO $$ … $$` blocks
+- `pg_constraint`, `pg_catalog`, or other Postgres system catalogs
+- `SERIAL` / `BIGSERIAL` / `JSONB` / `TIMESTAMPTZ` (unless schema truly needs a MySQL equivalent)
+
+## Preferred workflow
+
+1. Edit `prisma/schema.prisma`.
+2. Prefer generating SQL with Prisma against a MySQL URL:
+
+```bash
+# from repo root (loads mysql DATABASE_URL)
+pnpm db:migrate
+# or non-interactive:
+pnpm exec prisma migrate diff \
+  --from-migrations prisma/migrations \
+  --to-schema-datamodel prisma/schema.prisma \
+  --script
+```
+
+3. If you must hand-author `prisma/migrations/<timestamp>_<name>/migration.sql`, copy the style of recent MySQL migrations (backticks, `VARCHAR(191)` for string FKs).
+
+## Canonical MySQL shape
+
+```sql
+ALTER TABLE `supplier_hotel_rates`
+  ADD COLUMN `version_number` INTEGER NOT NULL DEFAULT 1,
+  ADD COLUMN `supersedes_id` VARCHAR(191) NULL;
+
+CREATE INDEX `supplier_hotel_rates_supersedes_id_idx`
+  ON `supplier_hotel_rates`(`supersedes_id`);
+
+ALTER TABLE `supplier_hotel_rates`
+  ADD CONSTRAINT `supplier_hotel_rates_supersedes_id_fkey`
+  FOREIGN KEY (`supersedes_id`) REFERENCES `supplier_hotel_rates`(`id`)
+  ON DELETE SET NULL ON UPDATE CASCADE;
+```
+
+## Before finishing
+
+Run `pnpm db:check-migrations` (or CI will). Fix any Postgres dialect hits before applying.

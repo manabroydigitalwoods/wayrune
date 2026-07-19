@@ -1,0 +1,222 @@
+/**
+ * Claim-safe in-app release notes (Settings → About).
+ * Only proven / architecture-proven entries are buyer-visible.
+ */
+
+export type ReleaseNoteClaimStatus =
+  | 'proven'
+  | 'architecture'
+  | 'testing'
+  | 'do_not_claim';
+
+export type ReleaseNote = {
+  id: string;
+  /** ISO date `YYYY-MM-DD`. */
+  date: string;
+  title: string;
+  summary: string;
+  claimStatus: ReleaseNoteClaimStatus;
+};
+
+/** Product build label shown on About (not a marketing version claim). */
+export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
+
+/**
+ * Curated notes aligned with the strategy claim registry.
+ * Do not add Testing / Do-not-claim marketing promises as proven.
+ */
+export const RELEASE_NOTES: ReleaseNote[] = [
+  {
+    id: '2026-07-20-iso3166-nationality-picker',
+    date: '2026-07-20',
+    title: 'Full country nationality picker',
+    summary:
+      'Rate chart and quote Match guest nationality search the full ISO-3166 country list, with quick chips for Indian, Foreign, and common markets.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-transfer-activity-tip-diff',
+    date: '2026-07-20',
+    title: 'Transfer & activity tip Diff vs current',
+    summary:
+      'Transfer and activity version History shows what changed versus the active tip (costs, mode/type, dates).',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-per-iso-nationality',
+    date: '2026-07-20',
+    title: 'Hotel country-specific rate cards',
+    summary:
+      'Rate chart and quote Match support country tips (US, GB, AE…) alongside Indian and Foreign catch-all. Match prefers the guest country, then Foreign, then any.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-transfer-activity-version',
+    date: '2026-07-20',
+    title: 'Transfer & activity rate version history',
+    summary:
+      'Transfer and activity Rate charts support New version and History restore, same as hotels. Match uses the active tip.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-hotel-tip-diff',
+    date: '2026-07-20',
+    title: 'Hotel rate tip Diff vs current',
+    summary:
+      'Hotel version History shows what changed versus the active tip (cost, meal, dates, occupancy).',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-min-stay-gate',
+    date: '2026-07-20',
+    title: 'Hotel min-stay send gate',
+    summary:
+      'Match stamps short min stay on the quote line. Send and approve stay blocked until nights are extended or a manager with inventory_risk.approve acknowledges with a reason.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-rate-version',
+    date: '2026-07-20',
+    title: 'Hotel rate version history',
+    summary:
+      'New version supersedes a rate tip while keeping history. Restore copies an older tip into a new active version. Contract New version now copies occupancy bands.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-nationality',
+    date: '2026-07-20',
+    title: 'Hotel Indian vs foreign rate cards',
+    summary:
+      'Rate chart marks IN or INTL nationality markets, plus country ISO tips. Match prefers exact market, then Foreign catch-all, then any-nationality cards.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-min-stay',
+    date: '2026-07-20',
+    title: 'Hotel minimum stay on rate cards',
+    summary:
+      'Rate chart sets min stay nights. Match cues when the stay is shorter; send is blocked until acknowledged.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-weekend-band',
+    date: '2026-07-20',
+    title: 'Weekend cost per occupancy band',
+    summary:
+      'Rate chart sets Single/Double/Triple weekend buy separately. Match uses band weekend when set; otherwise scales from the season chart weekend.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-meal-occ-matrix',
+    date: '2026-07-20',
+    title: 'Meal × occupancy rate matrix',
+    summary:
+      'Rate chart grid edits EP/CP/MAP/AP × Single/Double/Triple for one season window and creates or updates sibling meal rows.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-demo-org',
+    date: '2026-07-20',
+    title: 'Named demo trip in sample FIT pack',
+    summary:
+      'Install opens “Darjeeling classic FIT — demo” with draft quote and sample guest. Onboarding offers Open demo trip after templates exist.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-copy-meal',
+    date: '2026-07-20',
+    title: 'Copy hotel rate as other meal plan',
+    summary:
+      'Rate chart clones a season row into EP/CP/MAP/AP with the same dates and occupancy bands, nudging costs for the target meal.',
+    claimStatus: 'proven',
+  },
+      {
+        id: '2026-07-20-fit-claim-gate',
+        date: '2026-07-20',
+        title: 'Quote speed claim discipline',
+        summary:
+          'Sales strip shows median FIT build with a testing/ready gate. Public “under three minutes” stays withheld until sample size and median clear the gate.',
+        claimStatus: 'proven',
+      },
+  {
+    id: '2026-07-20-adult-bands',
+    date: '2026-07-20',
+    title: 'Hotel SGL / DBL / TPL contracted bases',
+    summary:
+      'Rate chart Single/Double/Triple bands apply on Match by adults per room, with weekend cost scaled from the season row.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-live-fx',
+    date: '2026-07-20',
+    title: 'Live FX refresh in Settings',
+    summary:
+      'Refresh from market (Frankfurter/ECB) writes org FX rates used by quote Lock FX. AED keeps prior values when not in the feed.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-package-folders',
+    date: '2026-07-20',
+    title: 'Package folder paths',
+    summary:
+      'Slash-path folders (e.g. Hill stations/Darjeeling) with breadcrumb filters on new-trip and Use-template pickers.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-19-ops-finance',
+    date: '2026-07-19',
+    title: 'Ops + collect & chase depth',
+    summary:
+      'Hotel/transfer/activity enquiry→confirm→voucher, movement board, payment-link chase, and aging AP settle — thin-complete agency wedge.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-01-multi-org',
+    date: '2026-07-01',
+    title: 'Multi-organization platform',
+    summary:
+      'Org kinds, memberships, and workspace switcher are in product. Partner network / Travel Exchange remains early — not a finished marketplace claim.',
+    claimStatus: 'architecture',
+  },
+  {
+    id: 'internal-fit-3m-testing',
+    date: '2026-07-20',
+    title: 'Under-three-minute FIT (public claim)',
+    summary: 'Instrumented and gated; not approved for website or sales decks.',
+    claimStatus: 'testing',
+  },
+  {
+    id: 'internal-gst-ledger',
+    date: '2026-07-01',
+    title: 'Automated GST-compliant ledger',
+    summary: 'Not built — do not claim.',
+    claimStatus: 'do_not_claim',
+  },
+];
+
+export function isBuyerVisibleReleaseNote(note: ReleaseNote): boolean {
+  return note.claimStatus === 'proven' || note.claimStatus === 'architecture';
+}
+
+/** Buyer-facing notes, newest first. */
+export function visibleReleaseNotes(
+  notes: ReleaseNote[] = RELEASE_NOTES,
+  opts?: { limit?: number },
+): ReleaseNote[] {
+  const limit = opts?.limit ?? 12;
+  return notes
+    .filter(isBuyerVisibleReleaseNote)
+    .sort((a, b) => b.date.localeCompare(a.date) || a.title.localeCompare(b.title))
+    .slice(0, Math.max(1, limit));
+}
+
+export function formatReleaseNoteDate(iso: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+  const d = new Date(`${iso}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+}

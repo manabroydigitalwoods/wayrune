@@ -71,6 +71,15 @@ type SalesDash = {
   leadToQuoteSampleSize30d?: number;
   medianFitBuildMinutes30d?: number | null;
   fitBuildSampleSize30d?: number;
+  fitClaimProtocol?: {
+    definition?: string;
+    targetMinutes?: number;
+    minSampleSize?: number;
+    sampleSize?: number;
+    medianMinutes?: number | null;
+    claimStatus?: 'testing' | 'ready';
+    publicClaimAllowed?: boolean;
+  } | null;
   firstTouchTargetHours?: number | null;
   leadToQuoteTargetHours?: number | null;
   fitBuildTargetMinutes?: number | null;
