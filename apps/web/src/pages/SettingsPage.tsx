@@ -106,6 +106,8 @@ type BusinessForm = {
   address: string;
   city: string;
   state: string;
+  placeOfSupply: string;
+  destinationPlaceOfSupply: string;
   pincode: string;
   phone: string;
   emergencyPhone: string;
@@ -492,6 +494,8 @@ export function SettingsPage({
     address: '',
     city: '',
     state: '',
+    placeOfSupply: '',
+    destinationPlaceOfSupply: '',
     pincode: '',
     phone: '',
     emergencyPhone: '',
@@ -626,6 +630,8 @@ export function SettingsPage({
       address: str(businessJson.address),
       city: str(businessJson.city),
       state: str(businessJson.state),
+      placeOfSupply: str(businessJson.placeOfSupply),
+      destinationPlaceOfSupply: str(businessJson.destinationPlaceOfSupply),
       pincode: str(businessJson.pincode),
       phone: str(businessJson.phone),
       emergencyPhone: str(businessJson.emergencyPhone),
@@ -1615,6 +1621,36 @@ export function SettingsPage({
                             setBusiness((prev) => ({ ...prev, gstin: e.target.value }))
                           }
                           placeholder="22AAAAA0000A1Z5"
+                        />
+                      </FormField>
+                      <FormField
+                        label="Place of supply"
+                        description="Agency/supplier state/UT for proposal footer and tax display split (does not change line tax %)."
+                      >
+                        <Input
+                          value={business.placeOfSupply}
+                          onChange={(e) =>
+                            setBusiness((prev) => ({
+                              ...prev,
+                              placeOfSupply: e.target.value,
+                            }))
+                          }
+                          placeholder="KA or Karnataka"
+                        />
+                      </FormField>
+                      <FormField
+                        label="Destination place of supply"
+                        description="Default destination state/UT. Same as place of supply → CGST+SGST display; different → IGST. Display only — not a GST invoice claim."
+                      >
+                        <Input
+                          value={business.destinationPlaceOfSupply}
+                          onChange={(e) =>
+                            setBusiness((prev) => ({
+                              ...prev,
+                              destinationPlaceOfSupply: e.target.value,
+                            }))
+                          }
+                          placeholder="MH or Maharashtra"
                         />
                       </FormField>
                       <FormField label="PAN">

@@ -64,6 +64,13 @@ import {
   resolvePaymentSchedule,
   splitChecklist,
 } from '../../common/customer-proposal';
+import {
+  formatOrgTaxDisplaySplitLines,
+  formatOrgTaxIdentityLines,
+  orgTaxDisplaySplitCue,
+  orgTaxTotalsLabel,
+  parseOrgTaxIdentity,
+} from '../../common/org-tax-identity';
 import { calcQuoteTotals, escapeHtml, formatCurrency, type AuthUser } from '../../common/helpers';
 import { buildBrandedProposalPdf } from './branded-proposal-pdf';
 import {
@@ -82,6 +89,7 @@ import {
 } from './quote-template-content';
 import { rematchQuoteItemsFromRates } from './quote-rate-rematch';
 import { RatesService } from '../rates/rates.service';
+import { resolveNationalityOptsFromTripTravellers } from '../rates/hotel-nationality';
 import { diffQuoteTemplateContent } from './quote-template-diff';
 import {
   normalizeTemplateName,
@@ -1129,6 +1137,13 @@ export class QuotationsService {
     const { items: stampedItems, stampedCount: paxStampedCount } = applyPax
       ? stampApplyPaxOntoQuoteItems(shifted, applyPax)
       : { items: shifted, stampedCount: 0 };
+    const tripTravellerRows = await db.tripTraveller.findMany({
+      where: { tripId },
+      select: {
+        isLead: true,
+        traveller: { select: { nationality: true } },
+      },
+    });
     const rematch = await rematchQuoteItemsFromRates(
       this.rates,
       user.organizationId,
@@ -1138,6 +1153,7 @@ export class QuotationsService {
         adults: applyPax?.adults,
         children: applyPax?.children,
         partyId: trip.partyId ?? null,
+        ...resolveNationalityOptsFromTripTravellers(tripTravellerRows),
       },
     );
     const items = rematch.items;
@@ -3000,6 +3016,11 @@ export class QuotationsService {
     const branding = parseOrgBranding(org.brandingJson, org.name);
     const contact = parseBusinessContact(org.settingsJson);
     const trust = parseOrgTrust(org.settingsJson);
+    const taxIdentity = parseOrgTaxIdentity(org.taxLabel, org.settingsJson);
+    const taxTotalsLabel = orgTaxTotalsLabel(taxIdentity);
+    const taxIdentityHtml = formatOrgTaxIdentityLines(taxIdentity)
+      .map((line) => `<p class="meta">${escapeHtml(line)}</p>`)
+      .join('');
     const primaryColor = escapeHtml(branding.primaryColor);
     const companyName = branding.companyName;
     const footer = branding.previewFooter || `${companyName} · Proposal`;
@@ -3008,6 +3029,24 @@ export class QuotationsService {
       ...version,
       quotation: { quoteNumber: version.quotation.quoteNumber },
     });
+    const taxSplitHtml = quote.taxTotal
+      ? [
+          ...formatOrgTaxDisplaySplitLines(taxIdentity, quote.taxTotal, {
+            formatAmount: (n) => formatCurrency(n, quote.currency),
+          }).map(
+            (line) =>
+              `<p class="meta" style="margin:0">${escapeHtml(line)}</p>`,
+          ),
+          (() => {
+            const cue = orgTaxDisplaySplitCue(taxIdentity, quote.taxTotal);
+            return cue
+              ? `<p class="meta" style="margin:0;font-size:11px">${escapeHtml(cue)}</p>`
+              : '';
+          })(),
+        ]
+          .filter(Boolean)
+          .join('')
+      : '';
     const rawQuoteItems = Array.isArray(version.itemsJson)
       ? (version.itemsJson as Array<{ unitSell?: number | null }>)
       : [];
@@ -3478,8 +3517,9 @@ export class QuotationsService {
           <thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Unit</th><th class="num">Amount</th></tr></thead>
           <tbody>${itemRows || '<tr><td colspan="4">No line items</td></tr>'}</tbody>
         </table>
-        ${quote.taxTotal ? `<p class="meta">Tax: ${formatCurrency(quote.taxTotal, quote.currency)}</p>` : ''}
+        ${quote.taxTotal ? `<p class="meta">${escapeHtml(taxTotalsLabel)}: ${formatCurrency(quote.taxTotal, quote.currency)}</p>${taxSplitHtml}` : ''}
         <p class="total">Total: ${formatCurrency(quote.sellTotal, quote.currency)}</p>
+        ${taxIdentityHtml}
         ${quote.terms ? `<p><strong>Terms</strong><br>${escapeHtml(quote.terms)}</p>` : ''}
       </div>
 
@@ -3527,6 +3567,7 @@ export class QuotationsService {
       currency: quote.currency,
       sellTotal: quote.sellTotal,
       taxTotal: quote.taxTotal || undefined,
+      taxIdentity,
       validUntil: quote.validUntil,
       terms: quote.terms,
       destinations: summary.destinations,

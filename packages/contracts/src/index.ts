@@ -196,10 +196,18 @@ quoteValidityGraceHours: z.number().int().min(0).max(72).optional(),
         address: z.string().optional(),
         city: z.string().optional(),
         state: z.string().optional(),
+        /** Tax place of supply (state/UT code or label) — display only in v1. */
+        placeOfSupply: z.string().optional(),
+        /**
+         * Destination place of supply for display CGST/SGST/IGST split
+         * (same → CGST+SGST, different → IGST). Does not change line tax %.
+         */
+        destinationPlaceOfSupply: z.string().optional(),
         pincode: z.string().optional(),
         phone: z.string().optional(),
         website: z.string().optional(),
         supportEmail: z.string().optional(),
+        emergencyPhone: z.string().optional(),
       })
       .partial()
       .optional(),
@@ -2609,6 +2617,14 @@ export const CreateTravellerSchema = z.object({
   isLead: z.boolean().optional(),
 });
 
+/** Patch traveller fields linked to a trip (nationality for hotel Match defaults). */
+export const UpdateTravellerSchema = z.object({
+  nationality: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  fullName: z.preprocess(blankToNull, z.string().min(1).nullable()).optional(),
+  type: z.enum(['adult', 'child', 'infant']).optional(),
+  isLead: z.boolean().optional(),
+});
+
 export const ItineraryDayItemSchema = z.object({
   id: z.string(),
   type: ItineraryItemTypeSchema,
@@ -2793,6 +2809,11 @@ export const QuotationItemDetailsSchema = z
     mealPlan: z.string().optional(),
     /** Guest market for hotel Match: IN | INTL | ISO country (foreign → INTL). */
     nationality: z.string().optional(),
+    /**
+     * Multi-guest nationalities in the room (IN / INTL / ISO-2).
+     * Match collapses to one effective code (IN+foreign / multi-ISO → INTL).
+     */
+    nationalities: z.array(z.string()).max(12).optional(),
     nights: z.number().optional(),
     rooms: z.number().optional(),
     checkIn: z.string().optional(),
@@ -2927,6 +2948,26 @@ export const QuoteRateProvenanceSchema = z.object({
       minStayNote: z.string().optional(),
       nationality: z.string().nullable().optional(),
       guestNationality: z.string().nullable().optional(),
+      /** Distinct guest codes before collapse (when mixed). */
+      guestNationalities: z.array(z.string()).max(12).optional(),
+      guestNationalityMixed: z.boolean().optional(),
+      /** Mixed-nationality DBL/2 per-adult buy (hotel Match). */
+      buyMode: z.enum(['per_pax_split']).optional(),
+      paxBuySplitTotalPerNight: z.number().optional(),
+      paxBuySplits: z
+        .array(
+          z.object({
+            nationality: z.string(),
+            adults: z.number().optional(),
+            sharePerNight: z.number(),
+            tipRateId: z.string().optional(),
+            tipBandAdults: z.number().optional(),
+            tipUnitCostPerNight: z.number().optional(),
+            tipWeekendUnitCostPerNight: z.number().nullable().optional(),
+          }),
+        )
+        .max(8)
+        .optional(),
       dateSupplementTotal: z.number().optional(),
       dateSupplements: z
         .array(
@@ -3250,6 +3291,8 @@ export const ResolveRatesItemSchema = z.object({
       childAges: z.array(z.number()).optional(),
       /** Guest nationality for hotel market Match (IN / INTL / ISO). */
       nationality: z.string().optional(),
+      /** Multi-guest nationalities (collapsed on Match). */
+      nationalities: z.array(z.string()).max(12).optional(),
       vehicleTypeId: z.string().optional(),
       fromPlaceId: z.string().optional(),
       toPlaceId: z.string().optional(),
@@ -3269,6 +3312,8 @@ export const ResolveRatesSchema = z.object({
   infants: z.number().int().nonnegative().optional(),
   /** Lead / party nationality for hotel market Match (IN / INTL / ISO). */
   nationality: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  /** Multi-guest nationalities when party has mixed markets. */
+  nationalities: z.array(z.string()).max(12).optional(),
   /** When set, resolve may use agentMarkupPercent for trade/B2B parties. */
   partyId: z.preprocess(blankToNull, z.string().nullable()).optional(),
   items: z.array(ResolveRatesItemSchema).min(1).max(200),

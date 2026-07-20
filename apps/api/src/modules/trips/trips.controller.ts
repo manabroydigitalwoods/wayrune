@@ -4,6 +4,7 @@ import {
   CreateTripSchema,
   PaginationQuerySchema,
   RecordTripFeedbackSchema,
+  UpdateTravellerSchema,
   UpdateTripDatesSchema,
   UpdateTripDestinationsSchema,
 } from '@wayrune/contracts';
@@ -68,6 +69,22 @@ export class TripsController {
   @RequirePermissions('trip.write')
   addTraveller(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: unknown) {
     return this.trips.addTraveller(user, id, CreateTravellerSchema.parse(body));
+  }
+
+  @Patch(':id/travellers/:travellerId')
+  @RequirePermissions('trip.write')
+  updateTraveller(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Param('travellerId') travellerId: string,
+    @Body() body: unknown,
+  ) {
+    return this.trips.updateTraveller(
+      user,
+      id,
+      travellerId,
+      UpdateTravellerSchema.parse(body),
+    );
   }
 
   @Get(':id/timeline')

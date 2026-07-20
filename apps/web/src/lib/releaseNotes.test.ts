@@ -13,8 +13,47 @@ describe('releaseNotes', () => {
     const visible = visibleReleaseNotes();
     expect(visible.every(isBuyerVisibleReleaseNote)).toBe(true);
     expect(visible.some((n) => /under three minutes/i.test(n.title))).toBe(false);
-    expect(visible.some((n) => /GST/i.test(n.title))).toBe(false);
-    expect(visible.some((n) => /SGL|Double|Triple|adult/i.test(n.title))).toBe(true);
+    // Thin GST label + display split are proven; filing / compliant ledger stays hidden.
+    expect(visible.some((n) => /GST label/i.test(n.title))).toBe(true);
+    expect(visible.some((n) => /CGST.*SGST.*IGST display/i.test(n.title))).toBe(
+      true,
+    );
+    expect(
+      visible.some(
+        (n) =>
+          /GST-compliant|Automated GST/i.test(n.title) ||
+          /GST-compliant ledger/i.test(n.summary),
+      ),
+    ).toBe(false);
+  });
+
+  it('keeps recent proven rate-grid notes buyer-visible', () => {
+    const allBuyer = visibleReleaseNotes(RELEASE_NOTES, { limit: 100 });
+    expect(allBuyer.some((n) => /SGL|Double|Triple|adult/i.test(n.title))).toBe(
+      true,
+    );
+    expect(
+      allBuyer.some((n) => n.id === '2026-07-20-hotel-per-pax-buy-split'),
+    ).toBe(true);
+    expect(
+      allBuyer.some((n) => n.id === '2026-07-20-hotel-tip-diff-side-by-side'),
+    ).toBe(true);
+    expect(
+      allBuyer.some((n) => n.id === '2026-07-20-tax-identity-proposals'),
+    ).toBe(true);
+    // Newest array entries surface first on the About strip.
+    const top = visibleReleaseNotes(RELEASE_NOTES, { limit: 5 });
+    expect(top[0]?.id).toBe(
+      '2026-07-20-transfer-activity-tip-diff-side-by-side',
+    );
+    expect(
+      allBuyer.some(
+        (n) => n.id === '2026-07-20-transfer-activity-tip-diff-side-by-side',
+      ),
+    ).toBe(true);
+    expect(
+      allBuyer.some((n) => n.id === '2026-07-20-gst-display-split'),
+    ).toBe(true);
   });
 
   it('sorts newest first and respects limit', () => {

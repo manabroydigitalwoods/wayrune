@@ -45,7 +45,13 @@ import {
   HOTEL_NATIONALITY_QUICK_OPTIONS,
   normalizeHotelNationalityUi,
 } from '../../lib/hotelNationalityNote';
-import { formatHotelRateTipDiffCue, formatHotelRateVersionHistoryLine, hotelRateVersionLabel } from '../../lib/hotelRateVersion';
+import {
+  buildHotelRateTipDiffRows,
+  formatHotelRateTipDiffCue,
+  formatHotelRateVersionHistoryLine,
+  hotelRateVersionLabel,
+  showHotelRateTipDiffExpand,
+} from '../../lib/hotelRateVersion';
 import type { HotelRateVersionListItem } from '../../lib/hotelRateVersion';
 import {
   MEAL_MATRIX_PLANS,
@@ -325,6 +331,9 @@ export function SupplierHotelRatesPanel({
   const [historyVersions, setHistoryVersions] = useState<
     HotelRateVersionListItem[]
   >([]);
+  const [historyDiffOpenId, setHistoryDiffOpenId] = useState<string | null>(
+    null,
+  );
   const [versioningId, setVersioningId] = useState<string | null>(null);
 
   const activeContract = useMemo(
@@ -427,6 +436,7 @@ export function SupplierHotelRatesPanel({
   async function openRateHistory(rate: HotelRate) {
     setHistoryAnchorId(rate.id);
     setHistoryOpen(true);
+    setHistoryDiffOpenId(null);
     setHistoryLoading(true);
     try {
       const res = await api<{
@@ -1703,6 +1713,7 @@ export function SupplierHotelRatesPanel({
             setHistoryOpen(false);
             setHistoryAnchorId(null);
             setHistoryVersions([]);
+            setHistoryDiffOpenId(null);
           } else setHistoryOpen(true);
         }}
         title="Rate version history"
@@ -1715,6 +1726,7 @@ export function SupplierHotelRatesPanel({
             onClick={() => {
               setHistoryOpen(false);
               setHistoryAnchorId(null);
+              setHistoryDiffOpenId(null);
             }}
           >
             Close
@@ -1725,41 +1737,104 @@ export function SupplierHotelRatesPanel({
           <p className="text-sm text-muted-foreground">Loading…</p>
         ) : historyVersions.length ? (
           <ul className="divide-y divide-border/50 overflow-hidden rounded-xl border border-border/60">
-            {[...historyVersions].reverse().map((v) => (
-              <li
-                key={v.id}
-                className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 text-sm"
-              >
-                <span className="text-xs text-muted-foreground">
-                  {formatHotelRateVersionHistoryLine(v, {
-                    formatAmount: (n) =>
-                      formatCurrency(n, { maximumFractionDigits: 0 }),
-                  })}
-                  {formatHotelRateTipDiffCue(v.diffVsActive) ? (
-                    <span className="mt-0.5 block text-[11px] text-amber-800 dark:text-amber-200">
-                      Diff vs current · {formatHotelRateTipDiffCue(v.diffVsActive)}
-                    </span>
-                  ) : null}
-                </span>
-                <Can anyOf={CAP.ratesWrite}>
-                  {!v.isActive ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={historySaving}
-                      onClick={() => void restoreRateVersion(v.id)}
-                    >
-                      Restore as new tip
-                    </Button>
-                  ) : (
-                    <span className="text-[10px] font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
-                      Current
-                    </span>
-                  )}
-                </Can>
-              </li>
-            ))}
+            {(() => {
+              const activeTip =
+                historyVersions.find((row) => row.isActive) ?? null;
+              const moneyFmt = (n: number) =>
+                formatCurrency(n, { maximumFractionDigits: 0 });
+              return [...historyVersions].reverse().map((v) => {
+                const cue = formatHotelRateTipDiffCue(v.diffVsActive);
+                const canDiff = showHotelRateTipDiffExpand(v);
+                const diffOpen = historyDiffOpenId === v.id;
+                const diffRows =
+                  diffOpen && canDiff
+                    ? buildHotelRateTipDiffRows(
+                        v,
+                        activeTip,
+                        v.diffVsActive?.changes,
+                        { formatAmount: moneyFmt },
+                      )
+                    : [];
+                return (
+                  <li key={v.id} className="space-y-2 px-3 py-2.5 text-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-xs text-muted-foreground">
+                        {formatHotelRateVersionHistoryLine(v, {
+                          formatAmount: moneyFmt,
+                        })}
+                        {cue ? (
+                          <span className="mt-0.5 block text-[11px] text-amber-800 dark:text-amber-200">
+                            Diff vs current · {cue}
+                          </span>
+                        ) : null}
+                      </span>
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        {canDiff ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() =>
+                              setHistoryDiffOpenId(diffOpen ? null : v.id)
+                            }
+                          >
+                            {diffOpen ? 'Hide' : 'Diff'}
+                          </Button>
+                        ) : null}
+                        <Can anyOf={CAP.ratesWrite}>
+                          {!v.isActive ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              disabled={historySaving}
+                              onClick={() => void restoreRateVersion(v.id)}
+                            >
+                              Restore as new tip
+                            </Button>
+                          ) : (
+                            <span className="text-[10px] font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
+                              Current
+                            </span>
+                          )}
+                        </Can>
+                      </div>
+                    </div>
+                    {diffOpen && diffRows.length ? (
+                      <div className="overflow-x-auto rounded-lg border border-border/50 bg-background/60">
+                        <table className="w-full min-w-[280px] text-left text-[11px]">
+                          <thead>
+                            <tr className="border-b border-border/40 text-muted-foreground">
+                              <th className="px-2 py-1.5 font-medium">Field</th>
+                              <th className="px-2 py-1.5 font-medium">This tip</th>
+                              <th className="px-2 py-1.5 font-medium">Current</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {diffRows.map((row) => (
+                              <tr
+                                key={row.field}
+                                className="border-b border-border/30 last:border-0"
+                              >
+                                <td className="px-2 py-1.5 text-muted-foreground">
+                                  {row.field}
+                                </td>
+                                <td className="px-2 py-1.5 text-foreground">
+                                  {row.thisTip}
+                                </td>
+                                <td className="px-2 py-1.5 text-foreground">
+                                  {row.current}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : null}
+                  </li>
+                );
+              });
+            })()}
           </ul>
         ) : (
           <p className="text-sm text-muted-foreground">No versions yet.</p>

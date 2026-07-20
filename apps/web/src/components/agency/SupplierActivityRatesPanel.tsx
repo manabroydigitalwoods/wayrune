@@ -22,9 +22,11 @@ import { PlaceSinglePicker } from '../places/PlacePicker';
 import { RatesCsvImportDialog } from '../rates/RatesCsvImportDialog';
 import { type PlaceRef } from '../../lib/placeRefs';
 import {
+  buildActivityRateTipDiffRows,
   formatRateVersionHistoryLine,
   formatRateVersionTipDiffCue,
   rateVersionLabel,
+  showRateVersionTipDiffExpand,
   type RateVersionListItem,
 } from '../../lib/rateVersion';
 
@@ -105,6 +107,9 @@ export function SupplierActivityRatesPanel({
   const [historyVersions, setHistoryVersions] = useState<RateVersionListItem[]>(
     [],
   );
+  const [historyDiffOpenId, setHistoryDiffOpenId] = useState<string | null>(
+    null,
+  );
   const [versioningId, setVersioningId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -161,6 +166,7 @@ export function SupplierActivityRatesPanel({
   async function openRateHistory(rate: ActivityRate) {
     setHistoryAnchorId(rate.id);
     setHistoryOpen(true);
+    setHistoryDiffOpenId(null);
     setHistoryLoading(true);
     try {
       const res = await api<{ versions: RateVersionListItem[] }>(
@@ -552,6 +558,7 @@ export function SupplierActivityRatesPanel({
             setHistoryOpen(false);
             setHistoryAnchorId(null);
             setHistoryVersions([]);
+            setHistoryDiffOpenId(null);
           } else setHistoryOpen(true);
         }}
         title="Activity rate version history"
@@ -565,6 +572,7 @@ export function SupplierActivityRatesPanel({
             onClick={() => {
               setHistoryOpen(false);
               setHistoryAnchorId(null);
+              setHistoryDiffOpenId(null);
             }}
           >
             Close
@@ -575,44 +583,107 @@ export function SupplierActivityRatesPanel({
           <p className="text-sm text-muted-foreground">Loading…</p>
         ) : historyVersions.length ? (
           <ul className="divide-y divide-border/50 overflow-hidden rounded-xl border border-border/60">
-            {[...historyVersions].reverse().map((v) => (
-              <li
-                key={v.id}
-                className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 text-sm"
-              >
-                <span className="text-xs text-muted-foreground">
-                  {formatRateVersionHistoryLine(v, {
-                    kind: 'activity',
-                    formatAmount: (n) =>
-                      formatCurrency(n, { maximumFractionDigits: 0 }),
-                  })}
-                  {formatRateVersionTipDiffCue(v.diffVsActive) ? (
-                    <span className="mt-0.5 block text-[11px] text-amber-800 dark:text-amber-200">
-                      Diff vs current ·{' '}
-                      {formatRateVersionTipDiffCue(v.diffVsActive)}
-                    </span>
-                  ) : null}
-                </span>
-                <Can anyOf={CAP.ratesWrite}>
-                  {!v.isActive ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="cursor-pointer"
-                      disabled={historySaving}
-                      onClick={() => void restoreRateVersion(v.id)}
-                    >
-                      Restore as new tip
-                    </Button>
-                  ) : (
-                    <span className="text-[10px] font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
-                      Current
-                    </span>
-                  )}
-                </Can>
-              </li>
-            ))}
+            {(() => {
+              const activeTip =
+                historyVersions.find((row) => row.isActive) ?? null;
+              const moneyFmt = (n: number) =>
+                formatCurrency(n, { maximumFractionDigits: 0 });
+              return [...historyVersions].reverse().map((v) => {
+                const cue = formatRateVersionTipDiffCue(v.diffVsActive);
+                const canDiff = showRateVersionTipDiffExpand(v);
+                const diffOpen = historyDiffOpenId === v.id;
+                const diffRows =
+                  diffOpen && canDiff
+                    ? buildActivityRateTipDiffRows(
+                        v,
+                        activeTip,
+                        v.diffVsActive?.changes,
+                        { formatAmount: moneyFmt },
+                      )
+                    : [];
+                return (
+                  <li key={v.id} className="space-y-2 px-3 py-2.5 text-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-xs text-muted-foreground">
+                        {formatRateVersionHistoryLine(v, {
+                          kind: 'activity',
+                          formatAmount: moneyFmt,
+                        })}
+                        {cue ? (
+                          <span className="mt-0.5 block text-[11px] text-amber-800 dark:text-amber-200">
+                            Diff vs current · {cue}
+                          </span>
+                        ) : null}
+                      </span>
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        {canDiff ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="cursor-pointer"
+                            onClick={() =>
+                              setHistoryDiffOpenId(diffOpen ? null : v.id)
+                            }
+                          >
+                            {diffOpen ? 'Hide' : 'Diff'}
+                          </Button>
+                        ) : null}
+                        <Can anyOf={CAP.ratesWrite}>
+                          {!v.isActive ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="cursor-pointer"
+                              disabled={historySaving}
+                              onClick={() => void restoreRateVersion(v.id)}
+                            >
+                              Restore as new tip
+                            </Button>
+                          ) : (
+                            <span className="text-[10px] font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
+                              Current
+                            </span>
+                          )}
+                        </Can>
+                      </div>
+                    </div>
+                    {diffOpen && diffRows.length ? (
+                      <div className="overflow-x-auto rounded-lg border border-border/50 bg-background/60">
+                        <table className="w-full min-w-[280px] text-left text-[11px]">
+                          <thead>
+                            <tr className="border-b border-border/40 text-muted-foreground">
+                              <th className="px-2 py-1.5 font-medium">Field</th>
+                              <th className="px-2 py-1.5 font-medium">This tip</th>
+                              <th className="px-2 py-1.5 font-medium">Current</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {diffRows.map((row) => (
+                              <tr
+                                key={row.field}
+                                className="border-b border-border/30 last:border-0"
+                              >
+                                <td className="px-2 py-1.5 text-muted-foreground">
+                                  {row.field}
+                                </td>
+                                <td className="px-2 py-1.5 text-foreground">
+                                  {row.thisTip}
+                                </td>
+                                <td className="px-2 py-1.5 text-foreground">
+                                  {row.current}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : null}
+                  </li>
+                );
+              });
+            })()}
           </ul>
         ) : (
           <p className="text-sm text-muted-foreground">No versions yet.</p>

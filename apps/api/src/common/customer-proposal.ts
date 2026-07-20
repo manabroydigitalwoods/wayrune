@@ -98,6 +98,9 @@ export type BusinessContactPayload = {
   website: string | null;
   legalName: string | null;
   emergencyPhone: string | null;
+  gstin: string | null;
+  placeOfSupply: string | null;
+  destinationPlaceOfSupply: string | null;
 };
 
 export type OrgTrustPayload = {
@@ -761,6 +764,19 @@ export function parseBusinessContact(settingsJson: unknown): BusinessContactPayl
         ? business.legalName.trim()
         : null,
     emergencyPhone: emergency || phone,
+    gstin:
+      typeof business.gstin === 'string' && business.gstin.trim()
+        ? business.gstin.trim()
+        : null,
+    placeOfSupply:
+      typeof business.placeOfSupply === 'string' && business.placeOfSupply.trim()
+        ? business.placeOfSupply.trim()
+        : null,
+    destinationPlaceOfSupply:
+      typeof business.destinationPlaceOfSupply === 'string' &&
+      business.destinationPlaceOfSupply.trim()
+        ? business.destinationPlaceOfSupply.trim()
+        : null,
   };
 }
 

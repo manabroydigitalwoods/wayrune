@@ -82,6 +82,18 @@ import {
   installAgencyFitPack,
 } from '../lib/agencyFitPack';
 import {
+  HOTEL_NATIONALITY_OPTIONS,
+  hotelNationalityLabelUi,
+  normalizeHotelNationalityUi,
+} from '../lib/hotelNationalityNote';
+import {
+  formatOrgTaxDisplaySplitLinesUi,
+  formatOrgTaxIdentityLinesUi,
+  orgTaxDisplaySplitCueUi,
+  orgTaxTotalsLabelUi,
+  parseOrgTaxIdentityUi,
+} from '../lib/orgTaxIdentity';
+import {
   canUseTemplateHistoryVersion,
   formatTemplateHistoryDiffLines,
   formatTemplateVersionWhen,
@@ -723,6 +735,13 @@ export function TripWorkspacePage() {
   const [travellerOpen, setTravellerOpen] = useState(false);
   const [travellerName, setTravellerName] = useState('');
   const [travellerType, setTravellerType] = useState('adult');
+  const [travellerNationality, setTravellerNationality] = useState('');
+  const [editTravellerOpen, setEditTravellerOpen] = useState(false);
+  const [editTravellerSaving, setEditTravellerSaving] = useState(false);
+  const [editTravellerId, setEditTravellerId] = useState<string | null>(null);
+  const [editTravellerName, setEditTravellerName] = useState('');
+  const [editTravellerNationality, setEditTravellerNationality] = useState('');
+  const [editTravellerIsLead, setEditTravellerIsLead] = useState(false);
   const [travelDatesOpen, setTravelDatesOpen] = useState(false);
   const [travelDatesSaving, setTravelDatesSaving] = useState(false);
   const [travelDatesShiftQuote, setTravelDatesShiftQuote] = useState(true);
@@ -1618,6 +1637,22 @@ export function TripWorkspacePage() {
   const sellExTax = sellTotal - taxTotal;
   const marginAmount = sellExTax - costTotal;
   const marginPercent = sellExTax > 0 ? (marginAmount / sellExTax) * 100 : 0;
+  const orgTaxIdentity = useMemo(
+    () =>
+      parseOrgTaxIdentityUi(
+        trip?.organization?.taxLabel,
+        trip?.organization?.settingsJson,
+      ),
+    [trip?.organization?.taxLabel, trip?.organization?.settingsJson],
+  );
+  const taxTotalsLabel = orgTaxTotalsLabelUi(orgTaxIdentity);
+  const taxIdentityLines = formatOrgTaxIdentityLinesUi(orgTaxIdentity);
+  const taxSplitLines = formatOrgTaxDisplaySplitLinesUi(
+    orgTaxIdentity,
+    taxTotal,
+    { formatAmount: (n) => formatCurrency(n) },
+  );
+  const taxSplitCue = orgTaxDisplaySplitCueUi(orgTaxIdentity, taxTotal);
   const costGaps = useMemo(() => quoteLinesMissingCost(quoteItems), [quoteItems]);
   const missingSellCount = useMemo(() => quoteLinesMissingSell(quoteItems), [quoteItems]);
   const sellComplete = quoteItems.length > 0 && missingSellCount === 0;
@@ -1955,16 +1990,67 @@ export function TripWorkspacePage() {
 
   async function addTraveller() {
     try {
+      const nationality = normalizeHotelNationalityUi(travellerNationality) || null;
       await api(`/trips/${id}/travellers`, {
         method: 'POST',
-        body: JSON.stringify({ fullName: travellerName, type: travellerType, isLead: true }),
+        body: JSON.stringify({
+          fullName: travellerName,
+          type: travellerType,
+          isLead: true,
+          ...(nationality ? { nationality } : {}),
+        }),
       });
       setTravellerOpen(false);
       setTravellerName('');
+      setTravellerType('adult');
+      setTravellerNationality('');
       toastSuccess('Traveller added');
       await load();
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Could not add traveller');
+    }
+  }
+
+  function openEditTraveller(row: {
+    isLead?: boolean;
+    traveller?: {
+      id?: string;
+      fullName?: string;
+      nationality?: string | null;
+    };
+  }) {
+    const tid = row.traveller?.id;
+    if (!tid) return;
+    setEditTravellerId(tid);
+    setEditTravellerName(row.traveller?.fullName || '');
+    setEditTravellerNationality(
+      normalizeHotelNationalityUi(row.traveller?.nationality),
+    );
+    setEditTravellerIsLead(Boolean(row.isLead));
+    setEditTravellerOpen(true);
+  }
+
+  async function saveEditTraveller() {
+    if (!editTravellerId) return;
+    setEditTravellerSaving(true);
+    try {
+      const nationality = normalizeHotelNationalityUi(editTravellerNationality);
+      await api(`/trips/${id}/travellers/${editTravellerId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          fullName: editTravellerName.trim() || undefined,
+          nationality: nationality || null,
+          isLead: editTravellerIsLead,
+        }),
+      });
+      setEditTravellerOpen(false);
+      setEditTravellerId(null);
+      toastSuccess('Traveller updated');
+      await load();
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not update traveller');
+    } finally {
+      setEditTravellerSaving(false);
     }
   }
 
@@ -3606,6 +3692,22 @@ export function TripWorkspacePage() {
           ),
       },
       {
+        id: 'nationality',
+        header: 'Nationality',
+        size: 140,
+        cell: ({ row }) => {
+          const code = row.original.traveller?.nationality;
+          if (!code) {
+            return <span className="text-muted-foreground">—</span>;
+          }
+          return (
+            <span className="text-muted-foreground">
+              {hotelNationalityLabelUi(code)}
+            </span>
+          );
+        },
+      },
+      {
         id: 'contact',
         header: 'Contact',
         size: 180,
@@ -3615,8 +3717,27 @@ export function TripWorkspacePage() {
           </span>
         ),
       },
+      ...(canTripWrite
+        ? [
+            {
+              id: 'actions',
+              header: '',
+              size: 88,
+              cell: ({ row }: { row: { original: any } }) => (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => openEditTraveller(row.original)}
+                >
+                  Edit
+                </Button>
+              ),
+            } as ColumnDef<any>,
+          ]
+        : []),
     ],
-    [],
+    [canTripWrite],
   );
 
   const quoteColumns = useMemo<ColumnDef<(typeof quoteItems)[0]>[]>(
@@ -3883,7 +4004,7 @@ export function TripWorkspacePage() {
       },
       {
         accessorKey: 'taxPercent',
-        header: 'Tax %',
+        header: `${taxTotalsLabel} %`,
         size: 56,
         minSize: 56,
         maxSize: 56,
@@ -3970,7 +4091,14 @@ export function TripWorkspacePage() {
         ),
       },
     ],
-    [canViewCost, dmcWorkspace, quoteReadOnly, quoteCurrency, quoteMinMarginPercent],
+    [
+      canViewCost,
+      dmcWorkspace,
+      quoteReadOnly,
+      quoteCurrency,
+      quoteMinMarginPercent,
+      taxTotalsLabel,
+    ],
   );
 
   if (tripLoadError) {
@@ -4775,9 +4903,21 @@ export function TripWorkspacePage() {
                         <dd>{formatCurrency(sellExTax)}</dd>
                       </div>
                       <div className="flex justify-between gap-3 tabular-nums">
-                        <dt className="text-muted-foreground">Tax on priced</dt>
+                        <dt className="text-muted-foreground">{taxTotalsLabel} on priced</dt>
                         <dd>{formatCurrency(taxTotal)}</dd>
                       </div>
+                      {taxSplitLines.map((line) => (
+                        <div
+                          key={line}
+                          className="flex justify-between gap-3 text-xs tabular-nums text-muted-foreground"
+                        >
+                          <dt>{line.split(' ')[0]}</dt>
+                          <dd>{line.replace(/^\S+\s+/, '')}</dd>
+                        </div>
+                      ))}
+                      {taxSplitCue ? (
+                        <p className="text-[11px] text-muted-foreground">{taxSplitCue}</p>
+                      ) : null}
                       <div className="flex justify-between gap-3 border-t border-border/60 pt-2 font-semibold tabular-nums">
                         <dt>Partial total</dt>
                         <dd>{formatCurrency(sellTotal)}</dd>
@@ -4803,13 +4943,30 @@ export function TripWorkspacePage() {
                         <dd>{formatCurrency(sellExTax)}</dd>
                       </div>
                       <div className="flex justify-between gap-3 tabular-nums">
-                        <dt className="text-muted-foreground">Tax</dt>
+                        <dt className="text-muted-foreground">{taxTotalsLabel}</dt>
                         <dd>{formatCurrency(taxTotal)}</dd>
                       </div>
+                      {taxSplitLines.map((line) => (
+                        <div
+                          key={line}
+                          className="flex justify-between gap-3 text-xs tabular-nums text-muted-foreground"
+                        >
+                          <dt>{line.split(' ')[0]}</dt>
+                          <dd>{line.replace(/^\S+\s+/, '')}</dd>
+                        </div>
+                      ))}
+                      {taxSplitCue ? (
+                        <p className="text-[11px] text-muted-foreground">{taxSplitCue}</p>
+                      ) : null}
                       <div className="flex justify-between gap-3 border-t border-border/60 pt-2 text-base font-semibold tabular-nums">
                         <dt>Customer total</dt>
                         <dd>{formatCurrency(sellTotal)}</dd>
                       </div>
+                      {taxIdentityLines.map((line) => (
+                        <p key={line} className="text-xs text-muted-foreground">
+                          {line}
+                        </p>
+                      ))}
                     </>
                   )}
                   {canViewCost ? (
@@ -5305,7 +5462,14 @@ export function TripWorkspacePage() {
 
       <RecordSheet
         open={travellerOpen}
-        onOpenChange={setTravellerOpen}
+        onOpenChange={(open) => {
+          setTravellerOpen(open);
+          if (!open) {
+            setTravellerName('');
+            setTravellerType('adult');
+            setTravellerNationality('');
+          }
+        }}
         title="Add traveller"
         submitLabel="Add"
         onSubmit={addTraveller}
@@ -5331,6 +5495,72 @@ export function TripWorkspacePage() {
             onChange={setTravellerType}
           />
         </FormField>
+        <FormField
+          label="Nationality"
+          description="Used as the hotel Match default when a quote line has no guest nationality."
+        >
+          <Combobox
+            value={travellerNationality}
+            onChange={(v) =>
+              setTravellerNationality(normalizeHotelNationalityUi(v))
+            }
+            options={HOTEL_NATIONALITY_OPTIONS}
+            placeholder="Search country / Any"
+            searchable
+          />
+        </FormField>
+      </RecordSheet>
+
+      <RecordSheet
+        open={editTravellerOpen}
+        onOpenChange={(open) => {
+          setEditTravellerOpen(open);
+          if (!open) {
+            setEditTravellerId(null);
+            setEditTravellerName('');
+            setEditTravellerNationality('');
+            setEditTravellerIsLead(false);
+          }
+        }}
+        title="Edit traveller"
+        submitLabel="Save"
+        submitting={editTravellerSaving}
+        onSubmit={() => void saveEditTraveller()}
+      >
+        <FormField label="Full name" required>
+          <Input
+            value={editTravellerName}
+            onChange={(e) => setEditTravellerName(e.target.value)}
+            placeholder="Full name"
+            required
+          />
+        </FormField>
+        <FormField
+          label="Nationality"
+          description="Hotel Match uses this when the quote line has no guest nationality."
+        >
+          <Combobox
+            value={editTravellerNationality}
+            onChange={(v) =>
+              setEditTravellerNationality(normalizeHotelNationalityUi(v))
+            }
+            options={HOTEL_NATIONALITY_OPTIONS}
+            placeholder="Search country / Any"
+            searchable
+          />
+        </FormField>
+        <label className="flex items-start gap-2 text-sm">
+          <Checkbox
+            checked={editTravellerIsLead}
+            onCheckedChange={(v) => setEditTravellerIsLead(v === true)}
+          />
+          <span>
+            Lead traveller
+            <span className="mt-0.5 block text-xs text-muted-foreground">
+              Lead nationality is preferred when seeding hotel Match.
+            </span>
+          </span>
+        </label>
       </RecordSheet>
 
       <RecordSheet
@@ -5424,6 +5654,7 @@ export function TripWorkspacePage() {
         partyInfants={Number(trip?.inquiry?.infants) || undefined}
         defaultMarkupPercent={quoteDefaultMarkupPercent()}
         partyId={trip?.party?.id}
+        tripTravellers={trip?.travellers || null}
         seedDetails={(() => {
           if (!quoteDetailLineId?.startsWith('itin-')) return null;
           const itinId = quoteDetailLineId.slice(5);

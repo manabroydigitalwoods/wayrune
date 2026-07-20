@@ -5,6 +5,7 @@ import type {
   CreateTravellerSchema,
   CreateTripInput,
   QuotationItem,
+  UpdateTravellerSchema,
   UpdateTripDatesInput,
   UpdateTripDestinationsInput,
 } from '@wayrune/contracts';
@@ -20,6 +21,10 @@ import {
   shiftQuoteItemsToTripStart,
 } from '../quotations/quote-template-content';
 import { rematchQuoteItemsFromRates } from '../quotations/quote-rate-rematch';
+import {
+  normalizeHotelNationality,
+  resolveNationalityOptsFromTripTravellers,
+} from '../rates/hotel-nationality';
 import {
   normalizeCurrency,
   parseQuoteFxLock,
@@ -40,6 +45,7 @@ import {
 } from './trip-date-shift';
 
 type CreateTravellerInput = z.infer<typeof CreateTravellerSchema>;
+type UpdateTravellerInput = z.infer<typeof UpdateTravellerSchema>;
 
 @Injectable()
 export class TripsService {
@@ -193,6 +199,15 @@ export class TripsService {
     let rematchUnmatched = 0;
 
     if (doShift && startIso) {
+      const tripTravellerRows = await this.prisma.tripTraveller.findMany({
+        where: { tripId },
+        select: {
+          isLead: true,
+          traveller: { select: { nationality: true } },
+        },
+      });
+      const travellerNat =
+        resolveNationalityOptsFromTripTravellers(tripTravellerRows);
       const versions = await this.prisma.quotationVersion.findMany({
         where: {
           status: { in: ['draft', 'pending_approval'] },
@@ -221,6 +236,7 @@ export class TripsService {
           {
             startDate: startIso,
             partyId: trip.partyId ?? null,
+            ...travellerNat,
           },
         );
         const totals = calcQuoteTotals(
@@ -357,11 +373,22 @@ export class TripsService {
       reminted,
       startIso,
     );
+    const tripTravellerRows = await this.prisma.tripTraveller.findMany({
+      where: { tripId },
+      select: {
+        isLead: true,
+        traveller: { select: { nationality: true } },
+      },
+    });
     const rematch = await rematchQuoteItemsFromRates(
       this.rates,
       user.organizationId,
       shifted,
-      { startDate: startIso, partyId },
+      {
+        startDate: startIso,
+        partyId,
+        ...resolveNationalityOptsFromTripTravellers(tripTravellerRows),
+      },
     );
     const totals = calcQuoteTotals(
       rematch.items,
@@ -539,7 +566,7 @@ export class TripsService {
     const trip = await this.prisma.trip.findFirst({
       where: { id, organizationId: user.organizationId, deletedAt: null },
       include: {
-        organization: { select: { currency: true, settingsJson: true, kind: true } },
+        organization: { select: { currency: true, settingsJson: true, kind: true, taxLabel: true } },
         party: true,
         inquiry: true,
         travellers: { include: { traveller: true } },
@@ -599,7 +626,9 @@ export class TripsService {
         dateOfBirth: input.dateOfBirth ? new Date(input.dateOfBirth) : null,
         passportNumber: input.passportNumber ?? null,
         passportExpiry: input.passportExpiry ? new Date(input.passportExpiry) : null,
-        nationality: input.nationality ?? null,
+        nationality: input.nationality
+          ? normalizeHotelNationality(input.nationality) ?? input.nationality.trim().toUpperCase()
+          : null,
         email: input.email ?? null,
         phone: input.phone ?? null,
         createdBy: user.sub,
@@ -614,6 +643,68 @@ export class TripsService {
         isLead: input.isLead ?? false,
       },
     });
+
+    return traveller;
+  }
+
+  async updateTraveller(
+    user: AuthUser,
+    tripId: string,
+    travellerId: string,
+    input: UpdateTravellerInput,
+  ) {
+    await this.getWorkspace(user, tripId);
+    const link = await this.prisma.tripTraveller.findFirst({
+      where: {
+        tripId,
+        travellerId,
+        traveller: { organizationId: user.organizationId, deletedAt: null },
+      },
+    });
+    if (!link) throw new NotFoundException('Traveller not found on this trip');
+
+    const data: {
+      nationality?: string | null;
+      fullName?: string;
+      type?: string;
+      updatedBy: string;
+    } = { updatedBy: user.sub };
+
+    if (input.nationality !== undefined) {
+      data.nationality = input.nationality
+        ? normalizeHotelNationality(input.nationality) ??
+          input.nationality.trim().toUpperCase()
+        : null;
+    }
+    if (input.fullName != null && input.fullName.trim()) {
+      data.fullName = input.fullName.trim();
+    }
+    if (input.type) data.type = input.type;
+
+    const traveller = await this.prisma.traveller.update({
+      where: { id: travellerId },
+      data,
+    });
+
+    if (input.isLead !== undefined) {
+      if (input.isLead) {
+        await this.prisma.$transaction([
+          this.prisma.tripTraveller.updateMany({
+            where: { tripId },
+            data: { isLead: false },
+          }),
+          this.prisma.tripTraveller.update({
+            where: { tripId_travellerId: { tripId, travellerId } },
+            data: { isLead: true },
+          }),
+        ]);
+      } else {
+        await this.prisma.tripTraveller.update({
+          where: { tripId_travellerId: { tripId, travellerId } },
+          data: { isLead: false },
+        });
+      }
+    }
 
     return traveller;
   }

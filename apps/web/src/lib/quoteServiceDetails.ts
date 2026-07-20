@@ -115,13 +115,23 @@ export function parseQuoteServiceDetails(raw: unknown): QuoteServiceDetails | un
     placeName: str(d.placeName),
     propertyName: str(d.propertyName),
     roomType: str(d.roomType),
+    roomProductId: str(d.roomProductId),
     mealPlan: str(d.mealPlan),
+    nationality: str(d.nationality),
+    nationalities: (() => {
+      if (!Array.isArray(d.nationalities)) return undefined;
+      const rows = d.nationalities
+        .map((x) => (typeof x === 'string' ? x.trim().toUpperCase() : ''))
+        .filter(Boolean);
+      return rows.length ? rows : undefined;
+    })(),
     nights: num(d.nights),
     rooms: num(d.rooms),
     checkIn: str(d.checkIn)?.slice(0, 10),
     checkOut: str(d.checkOut)?.slice(0, 10),
     adults: num(d.adults),
     children: num(d.children),
+    infants: num(d.infants),
     childAges: numArray(d.childAges),
     extraBeds: num(d.extraBeds),
     childrenWithoutBed: num(d.childrenWithoutBed),
@@ -409,6 +419,8 @@ export function resolvePayloadFromQuoteDetails(
         roomType: details.roomType,
         roomProductId: details.roomProductId,
         mealPlan: details.mealPlan,
+        nationality: details.nationality,
+        nationalities: details.nationalities,
         nights,
         rooms: details.rooms,
         adults: details.adults,
@@ -473,6 +485,7 @@ export const HOTEL_RATE_MATCH_KEYS = [
   'roomType',
   'mealPlan',
   'nationality',
+  'nationalities',
   'rooms',
   'adults',
   'children',
@@ -1349,6 +1362,41 @@ function parseProvenanceCalculation(
         : c.guestNationality === null
           ? null
           : undefined,
+    guestNationalities: Array.isArray(c.guestNationalities)
+      ? c.guestNationalities.filter((x): x is string => typeof x === 'string')
+      : undefined,
+    guestNationalityMixed:
+      typeof c.guestNationalityMixed === 'boolean'
+        ? c.guestNationalityMixed
+        : undefined,
+    buyMode:
+      c.buyMode === 'per_pax_split' ? ('per_pax_split' as const) : undefined,
+    paxBuySplitTotalPerNight: num(c.paxBuySplitTotalPerNight),
+    paxBuySplits: Array.isArray(c.paxBuySplits)
+      ? c.paxBuySplits
+          .map((row) => {
+            if (!row || typeof row !== 'object') return null;
+            const r = row as Record<string, unknown>;
+            const nationality =
+              typeof r.nationality === 'string' ? r.nationality.trim() : '';
+            const sharePerNight = num(r.sharePerNight);
+            if (!nationality || sharePerNight == null) return null;
+            return {
+              nationality,
+              adults: num(r.adults),
+              sharePerNight,
+              tipRateId:
+                typeof r.tipRateId === 'string' ? r.tipRateId : undefined,
+              tipBandAdults: num(r.tipBandAdults),
+              tipUnitCostPerNight: num(r.tipUnitCostPerNight),
+              tipWeekendUnitCostPerNight:
+                r.tipWeekendUnitCostPerNight === null
+                  ? null
+                  : num(r.tipWeekendUnitCostPerNight),
+            };
+          })
+          .filter((x): x is NonNullable<typeof x> => x != null)
+      : undefined,
     dateSupplementTotal: num(c.dateSupplementTotal),
     dateSupplements: (() => {
       if (!Array.isArray(c.dateSupplements)) return undefined;

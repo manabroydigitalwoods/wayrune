@@ -27,6 +27,78 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-transfer-activity-tip-diff-side-by-side',
+    date: '2026-07-20',
+    title: 'Transfer & activity tip Diff side-by-side',
+    summary:
+      'Transfer and activity rate History Diff expands a Field / This tip / Current table for changed costs, mode/type, and dates versus the active tip.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-gst-display-split',
+    date: '2026-07-20',
+    title: 'CGST / SGST / IGST display split',
+    summary:
+      'When agency and destination place of supply are set, proposals and the trip pricing summary show a CGST+SGST or IGST breakdown of the same tax total. Display only — not a GST invoice or compliance claim.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-hotel-per-pax-buy-split',
+    date: '2026-07-20',
+    title: 'Mixed-nationality hotel buy split',
+    summary:
+      'For one room with two adults of different nationalities, Match can price buy as half the DBL tip for each guest market (e.g. IN + US) instead of the whole Foreign card — when both tips exist.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-hotel-tip-diff-side-by-side',
+    date: '2026-07-20',
+    title: 'Hotel tip Diff side-by-side',
+    summary:
+      'Hotel rate History Diff expands a Field / This tip / Current table for changed costs, meal, dates, and occupancy versus the active tip.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-tax-identity-proposals',
+    date: '2026-07-20',
+    title: 'GST label on quotes & proposals',
+    summary:
+      'Proposals and the trip pricing summary use your tax label (e.g. GST) and can show GSTIN plus place of supply from Business settings. Line tax % is unchanged — not a GST filing claim.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-edit-traveller-nationality',
+    date: '2026-07-20',
+    title: 'Edit traveller nationality',
+    summary:
+      'Update a trip traveller’s nationality (and lead flag) from the travellers table. Hotel Match still prefers explicit quote-line markets, then travellers.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-add-traveller-nationality',
+    date: '2026-07-20',
+    title: 'Nationality on Add traveller',
+    summary:
+      'Set Indian, Foreign, or any country when adding a trip traveller. The travellers table shows nationality, and blank hotel lines Match from it.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-traveller-nationality-default',
+    date: '2026-07-20',
+    title: 'Hotel Match defaults from trip travellers',
+    summary:
+      'When a hotel line has no guest nationality, Match uses trip travellers (lead first; mixed guests collapse to Foreign). Explicit line nationalities still win.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-mixed-guest-nationality',
+    date: '2026-07-20',
+    title: 'Mixed guest nationalities on hotel Match',
+    summary:
+      'Add each guest market on the hotel quote line. Indian + foreign or multiple countries Match the Foreign (INTL) card; a single shared country still prefers that tip.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-iso3166-nationality-picker',
     date: '2026-07-20',
     title: 'Full country nationality picker',
@@ -198,15 +270,20 @@ export function isBuyerVisibleReleaseNote(note: ReleaseNote): boolean {
   return note.claimStatus === 'proven' || note.claimStatus === 'architecture';
 }
 
-/** Buyer-facing notes, newest first. */
+/** Buyer-facing notes, newest first (array order breaks same-day ties). */
 export function visibleReleaseNotes(
   notes: ReleaseNote[] = RELEASE_NOTES,
   opts?: { limit?: number },
 ): ReleaseNote[] {
   const limit = opts?.limit ?? 12;
   return notes
-    .filter(isBuyerVisibleReleaseNote)
-    .sort((a, b) => b.date.localeCompare(a.date) || a.title.localeCompare(b.title))
+    .map((note, index) => ({ note, index }))
+    .filter(({ note }) => isBuyerVisibleReleaseNote(note))
+    .sort(
+      (a, b) =>
+        b.note.date.localeCompare(a.note.date) || a.index - b.index,
+    )
+    .map(({ note }) => note)
     .slice(0, Math.max(1, limit));
 }
 

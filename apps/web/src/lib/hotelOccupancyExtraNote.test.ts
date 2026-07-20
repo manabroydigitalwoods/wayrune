@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   formatHotelAdultBandNote,
   formatHotelOccupancyExtraNote,
+  formatHotelPaxBuySplitNote,
 } from './hotelOccupancyExtraNote';
 
 describe('formatHotelOccupancyExtraNote', () => {
@@ -51,5 +52,30 @@ describe('formatHotelOccupancyExtraNote', () => {
         extraAdultCount: 1,
       }),
     ).toBe('3A band · ₹5,800/n · +₹1,500 · 1 extra adult');
+  });
+
+  it('formats per-pax buy split over band note', () => {
+    expect(
+      formatHotelPaxBuySplitNote({
+        buyMode: 'per_pax_split',
+        paxBuySplitTotalPerNight: 5350,
+        paxBuySplits: [
+          { nationality: 'IN', sharePerNight: 2250 },
+          { nationality: 'US', sharePerNight: 3100 },
+        ],
+      }),
+    ).toBe('Split · IN ₹2,250 + US ₹3,100 = ₹5,350/n');
+    expect(
+      formatHotelOccupancyExtraNote({
+        buyMode: 'per_pax_split',
+        paxBuySplitTotalPerNight: 5350,
+        paxBuySplits: [
+          { nationality: 'IN', sharePerNight: 2250 },
+          { nationality: 'US', sharePerNight: 3100 },
+        ],
+        adultBandAdults: 2,
+        adultBandUnitCost: 5350,
+      }),
+    ).toMatch(/^Split ·/);
   });
 });

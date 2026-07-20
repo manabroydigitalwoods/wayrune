@@ -13,6 +13,13 @@ import {
   type TimeFormatId,
 } from '@wayrune/ui';
 import {
+  formatOrgTaxDisplaySplitLinesUi,
+  formatOrgTaxIdentityLinesUi,
+  orgTaxDisplaySplitCueUi,
+  orgTaxTotalsLabelUi,
+  parseOrgTaxIdentityUi,
+} from '../../lib/orgTaxIdentity';
+import {
   BedDouble,
   Car,
   Check,
@@ -166,7 +173,16 @@ export type ItineraryPreviewPayload = {
     website: string | null;
     legalName: string | null;
     emergencyPhone?: string | null;
+    gstin?: string | null;
+    placeOfSupply?: string | null;
+    destinationPlaceOfSupply?: string | null;
   };
+  taxIdentity?: {
+    taxLabel: string;
+    gstin: string | null;
+    placeOfSupply: string | null;
+    destinationPlaceOfSupply: string | null;
+  } | null;
   trust?: OrgTrustPayload | null;
   display?: {
     dateFormat?: DateFormatId;
@@ -1225,12 +1241,79 @@ export function ItineraryPreviewView({
                   </table>
                   <div className="space-y-1 border-t border-white/40 px-5 py-3 text-sm dark:border-white/10">
                     {quote.taxTotal ? (
-                      <div className="flex justify-between text-muted-foreground">
-                        <span>Tax</span>
-                        <span className="tabular-nums">
-                          {formatCurrency(quote.taxTotal, quote.currency)}
-                        </span>
-                      </div>
+                      <>
+                        <div className="flex justify-between text-muted-foreground">
+                          <span>
+                            {orgTaxTotalsLabelUi(
+                              data.taxIdentity ||
+                                parseOrgTaxIdentityUi(undefined, {
+                                  business: {
+                                    gstin: data.contact?.gstin,
+                                    placeOfSupply: data.contact?.placeOfSupply,
+                                    destinationPlaceOfSupply:
+                                      data.contact?.destinationPlaceOfSupply,
+                                  },
+                                }),
+                            )}
+                          </span>
+                          <span className="tabular-nums">
+                            {formatCurrency(quote.taxTotal, quote.currency)}
+                          </span>
+                        </div>
+                        {formatOrgTaxDisplaySplitLinesUi(
+                          data.taxIdentity ||
+                            parseOrgTaxIdentityUi(undefined, {
+                              business: {
+                                gstin: data.contact?.gstin,
+                                placeOfSupply: data.contact?.placeOfSupply,
+                                destinationPlaceOfSupply:
+                                  data.contact?.destinationPlaceOfSupply,
+                              },
+                            }),
+                          quote.taxTotal,
+                          {
+                            formatAmount: (n) =>
+                              formatCurrency(n, quote.currency),
+                          },
+                        ).map((line) => (
+                          <div
+                            key={line}
+                            className="flex justify-between text-xs text-muted-foreground"
+                          >
+                            <span>{line.split(' ')[0]}</span>
+                            <span className="tabular-nums">
+                              {line.replace(/^\S+\s+/, '')}
+                            </span>
+                          </div>
+                        ))}
+                        {orgTaxDisplaySplitCueUi(
+                          data.taxIdentity ||
+                            parseOrgTaxIdentityUi(undefined, {
+                              business: {
+                                gstin: data.contact?.gstin,
+                                placeOfSupply: data.contact?.placeOfSupply,
+                                destinationPlaceOfSupply:
+                                  data.contact?.destinationPlaceOfSupply,
+                              },
+                            }),
+                          quote.taxTotal,
+                        ) ? (
+                          <p className="text-[11px] text-muted-foreground">
+                            {orgTaxDisplaySplitCueUi(
+                              data.taxIdentity ||
+                                parseOrgTaxIdentityUi(undefined, {
+                                  business: {
+                                    gstin: data.contact?.gstin,
+                                    placeOfSupply: data.contact?.placeOfSupply,
+                                    destinationPlaceOfSupply:
+                                      data.contact?.destinationPlaceOfSupply,
+                                  },
+                                }),
+                              quote.taxTotal,
+                            )}
+                          </p>
+                        ) : null}
+                      </>
                     ) : null}
                     <div className="flex justify-between font-semibold">
                       <span>Total</span>
@@ -1238,6 +1321,21 @@ export function ItineraryPreviewView({
                         {formatCurrency(quote.sellTotal, quote.currency)}
                       </span>
                     </div>
+                    {formatOrgTaxIdentityLinesUi(
+                      data.taxIdentity ||
+                        parseOrgTaxIdentityUi(undefined, {
+                          business: {
+                            gstin: data.contact?.gstin,
+                            placeOfSupply: data.contact?.placeOfSupply,
+                            destinationPlaceOfSupply:
+                              data.contact?.destinationPlaceOfSupply,
+                          },
+                        }),
+                    ).map((line) => (
+                      <p key={line} className="text-xs text-muted-foreground">
+                        {line}
+                      </p>
+                    ))}
                   </div>
                 </div>
               ) : null}

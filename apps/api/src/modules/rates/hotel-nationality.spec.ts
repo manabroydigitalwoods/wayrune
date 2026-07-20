@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
+  collectGuestNationalityCodes,
+  effectiveGuestNationality,
   filterHotelByNationality,
+  guestNationalitiesAreMixed,
+  guestNationalitiesFromTripTravellers,
   hotelNationalityCompatible,
   hotelNationalityLabel,
   hotelNationalityMatchAccepted,
   hotelNationalityMarket,
   normalizeHotelNationality,
+  resolveNationalityOptsFromTripTravellers,
 } from './hotel-nationality';
 
 describe('hotel-nationality', () => {
@@ -30,6 +35,43 @@ describe('hotel-nationality', () => {
     expect(hotelNationalityLabel('US')).toMatch(/United States/);
     expect(hotelNationalityLabel('JP')).toMatch(/Japan/);
     expect(hotelNationalityLabel(null)).toMatch(/Any/);
+  });
+
+  it('collapses multi-guest nationalities for Match', () => {
+    expect(effectiveGuestNationality(['IN', 'IN'])).toBe('IN');
+    expect(effectiveGuestNationality(['US'])).toBe('US');
+    expect(effectiveGuestNationality(['IN', 'US'])).toBe('INTL');
+    expect(effectiveGuestNationality(['US', 'GB'])).toBe('INTL');
+    expect(effectiveGuestNationality(['INTL', 'US'])).toBe('INTL');
+    expect(effectiveGuestNationality([])).toBeNull();
+    expect(
+      collectGuestNationalityCodes({
+        nationality: 'US',
+        nationalities: ['IN', 'us'],
+      }),
+    ).toEqual(['IN', 'US']);
+    expect(guestNationalitiesAreMixed(['IN', 'US'])).toBe(true);
+    expect(guestNationalitiesAreMixed(['US'])).toBe(false);
+  });
+
+  it('derives Match codes from trip travellers (lead + mixed)', () => {
+    expect(
+      guestNationalitiesFromTripTravellers([
+        { isLead: true, traveller: { nationality: 'IN' } },
+        { isLead: false, traveller: { nationality: null } },
+      ]),
+    ).toEqual({ nationality: 'IN', nationalities: ['IN'] });
+    expect(
+      guestNationalitiesFromTripTravellers([
+        { isLead: true, traveller: { nationality: 'IN' } },
+        { isLead: false, traveller: { nationality: 'US' } },
+      ]).nationalities,
+    ).toEqual(['IN', 'US']);
+    expect(
+      resolveNationalityOptsFromTripTravellers([
+        { isLead: true, traveller: { nationality: 'GB' } },
+      ]),
+    ).toEqual({ nationality: 'GB' });
   });
 
   it('compatibility: exact, INTL catch-all, not cross-ISO', () => {
@@ -65,6 +107,13 @@ describe('hotel-nationality', () => {
     expect(
       filterHotelByNationality([pool[0]!], 'GB').map((r) => r.id),
     ).toEqual(['any']);
+    // Mixed guests → effective INTL prefers INTL card
+    expect(
+      filterHotelByNationality(
+        pool,
+        effectiveGuestNationality(['IN', 'US']),
+      ).map((r) => r.id),
+    ).toEqual(['intl']);
   });
 
   it('match accepted lines', () => {
@@ -75,6 +124,14 @@ describe('hotel-nationality', () => {
       'Nationality US matched',
     ]);
     expect(hotelNationalityMatchAccepted('INTL', 'US')[0]).toMatch(/INTL/);
-    expect(hotelNationalityMatchAccepted(null, 'IN')[0]).toMatch(/Any-nationality/);
+    expect(hotelNationalityMatchAccepted(null, 'IN')[0]).toMatch(
+      /Any-nationality/,
+    );
+    expect(
+      hotelNationalityMatchAccepted('INTL', 'INTL', {
+        guestNationalities: ['IN', 'US'],
+        mixed: true,
+      })[0],
+    ).toMatch(/mixed/);
   });
 });

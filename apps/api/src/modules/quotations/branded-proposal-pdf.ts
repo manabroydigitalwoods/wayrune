@@ -4,6 +4,8 @@ import { isAbsolute, join, resolve } from 'path';
 import PDFDocument from 'pdfkit';
 import { findMonorepoRoot, loadEnv } from '@wayrune/config';
 import type { OrgBrandingPayload } from '../../common/customer-proposal';
+import type { OrgTaxIdentity } from '../../common/org-tax-identity';
+import { formatOrgTaxIdentityLines, formatOrgTaxDisplaySplitLines, orgTaxDisplaySplitCue, orgTaxTotalsLabel } from '../../common/org-tax-identity';
 
 export type ProposalPdfLine = {
   description: string;
@@ -32,6 +34,7 @@ export type ProposalPdfInput = {
   currency: string;
   sellTotal: number;
   taxTotal?: number;
+  taxIdentity?: OrgTaxIdentity | null;
   validUntil?: string | null;
   terms?: string | null;
   destinations: string[];
@@ -317,16 +320,56 @@ export async function buildBrandedProposalPdf(input: ProposalPdfInput): Promise<
     }
 
     y += 8;
+    const taxLabel = orgTaxTotalsLabel(
+      input.taxIdentity || {
+        taxLabel: 'Tax',
+        gstin: null,
+        placeOfSupply: null,
+        destinationPlaceOfSupply: null,
+      },
+    );
     if (input.taxTotal) {
       doc
         .font('Helvetica')
         .fontSize(10)
         .fillColor('#555555')
-        .text(`Tax: ${input.formatMoney(input.taxTotal, input.currency)}`, left, y, {
-          width: contentWidth,
-          align: 'right',
-        });
-      y = doc.y + 4;
+        .text(
+          `${taxLabel}: ${input.formatMoney(input.taxTotal, input.currency)}`,
+          left,
+          y,
+          {
+            width: contentWidth,
+            align: 'right',
+          },
+        );
+      y = doc.y + 2;
+      if (input.taxIdentity) {
+        const splitLines = formatOrgTaxDisplaySplitLines(
+          input.taxIdentity,
+          input.taxTotal,
+          {
+            formatAmount: (n) => input.formatMoney(n, input.currency),
+          },
+        );
+        for (const line of splitLines) {
+          doc
+            .font('Helvetica')
+            .fontSize(8)
+            .fillColor('#777777')
+            .text(line, left, y, { width: contentWidth, align: 'right' });
+          y = doc.y + 1;
+        }
+        const cue = orgTaxDisplaySplitCue(input.taxIdentity, input.taxTotal);
+        if (cue) {
+          doc
+            .font('Helvetica')
+            .fontSize(7)
+            .fillColor('#888888')
+            .text(cue, left, y, { width: contentWidth, align: 'right' });
+          y = doc.y + 2;
+        }
+      }
+      y += 2;
     }
     doc
       .font('Helvetica-Bold')
@@ -337,6 +380,25 @@ export async function buildBrandedProposalPdf(input: ProposalPdfInput): Promise<
         align: 'right',
       });
     y = doc.y + 16;
+
+    const taxLines = input.taxIdentity
+      ? formatOrgTaxIdentityLines(input.taxIdentity)
+      : [];
+    if (taxLines.length) {
+      if (y > doc.page.height - 80) {
+        doc.addPage();
+        y = doc.page.margins.top;
+      }
+      for (const line of taxLines) {
+        doc
+          .font('Helvetica')
+          .fontSize(8)
+          .fillColor('#666666')
+          .text(line, left, y, { width: contentWidth });
+        y = doc.y + 2;
+      }
+      y += 8;
+    }
 
     if (input.terms) {
       if (y > doc.page.height - 100) {

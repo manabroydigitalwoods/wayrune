@@ -72,6 +72,139 @@ export function hotelNationalityLabel(
   return 'Any nationality';
 }
 
+/**
+ * Collect guest nationality codes from singular + list inputs.
+ * Blanks / unknown tokens are dropped; order preserved; duplicates removed.
+ */
+export function collectGuestNationalityCodes(input: {
+  nationality?: string | null;
+  nationalities?: Array<string | null | undefined> | null;
+}): HotelNationalityCode[] {
+  const raw: unknown[] = [];
+  if (Array.isArray(input.nationalities)) {
+    raw.push(...input.nationalities);
+  }
+  if (input.nationality != null && String(input.nationality).trim()) {
+    raw.push(input.nationality);
+  }
+  const out: HotelNationalityCode[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    const n = normalizeHotelNationality(
+      typeof item === 'string' ? item : null,
+    );
+    if (!n || seen.has(n)) continue;
+    seen.add(n);
+    out.push(n);
+  }
+  return out;
+}
+
+/**
+ * Collapse multi-guest nationalities to one Match code.
+ * - all IN → IN
+ * - single foreign ISO (no IN) → that ISO
+ * - IN + foreign, multiple foreign ISOs, or any INTL guest → INTL
+ * - empty → null (unknown / any)
+ */
+export function effectiveGuestNationality(
+  codes: Array<string | null | undefined> | string | null | undefined,
+): HotelNationalityCode | null {
+  const list = Array.isArray(codes)
+    ? collectGuestNationalityCodes({ nationalities: codes })
+    : collectGuestNationalityCodes({ nationality: codes });
+  if (!list.length) return null;
+  if (list.length === 1) return list[0]!;
+
+  const hasIn = list.includes(HOTEL_NATIONALITY_IN);
+  const hasIntl = list.includes(HOTEL_NATIONALITY_INTL);
+  const foreignIsos = list.filter(
+    (c) => c !== HOTEL_NATIONALITY_IN && c !== HOTEL_NATIONALITY_INTL,
+  );
+
+  if (hasIntl || (hasIn && (foreignIsos.length > 0 || hasIntl))) {
+    return HOTEL_NATIONALITY_INTL;
+  }
+  if (hasIn && foreignIsos.length === 0) {
+    return HOTEL_NATIONALITY_IN;
+  }
+  if (foreignIsos.length === 1 && !hasIn && !hasIntl) {
+    return foreignIsos[0]!;
+  }
+  // Multiple distinct foreign ISOs (or foreign + IN already handled)
+  return HOTEL_NATIONALITY_INTL;
+}
+
+export function guestNationalitiesAreMixed(
+  codes: Array<string | null | undefined> | string | null | undefined,
+): boolean {
+  const list = Array.isArray(codes)
+    ? collectGuestNationalityCodes({ nationalities: codes })
+    : collectGuestNationalityCodes({ nationality: codes });
+  return list.length > 1;
+}
+
+export type TripTravellerNationalityRow = {
+  isLead?: boolean | null;
+  nationality?: string | null;
+  traveller?: { nationality?: string | null } | null;
+};
+
+/**
+ * Derive Match guest codes from trip travellers.
+ * Prefer lead nationality; else distinct codes from all travellers with nationality.
+ */
+export function guestNationalitiesFromTripTravellers(
+  rows: TripTravellerNationalityRow[] | null | undefined,
+): { nationality: HotelNationalityCode | null; nationalities: HotelNationalityCode[] } {
+  if (!Array.isArray(rows) || !rows.length) {
+    return { nationality: null, nationalities: [] };
+  }
+  const lead = rows.find((r) => r.isLead);
+  const leadCode = normalizeHotelNationality(
+    lead?.nationality ?? lead?.traveller?.nationality ?? null,
+  );
+  const allCodes = collectGuestNationalityCodes({
+    nationalities: rows.map(
+      (r) => r.nationality ?? r.traveller?.nationality ?? null,
+    ),
+  });
+  if (!allCodes.length) {
+    return { nationality: null, nationalities: [] };
+  }
+  // Single market across party (or only lead set and others blank)
+  if (allCodes.length === 1) {
+    return { nationality: allCodes[0]!, nationalities: allCodes };
+  }
+  // Mixed travellers → pass full list; Match collapses via effectiveGuestNationality
+  // Prefer including lead first for stable order
+  const ordered = leadCode
+    ? [
+        leadCode,
+        ...allCodes.filter((c) => c !== leadCode),
+      ]
+    : allCodes;
+  return {
+    nationality: effectiveGuestNationality(ordered),
+    nationalities: ordered,
+  };
+}
+
+/** Top-level resolve/rematch fields from trip travellers (omit when empty). */
+export function resolveNationalityOptsFromTripTravellers(
+  rows: TripTravellerNationalityRow[] | null | undefined,
+): { nationality?: string; nationalities?: string[] } {
+  const derived = guestNationalitiesFromTripTravellers(rows);
+  if (!derived.nationalities.length) return {};
+  if (derived.nationalities.length === 1) {
+    return { nationality: derived.nationalities[0] };
+  }
+  return {
+    nationality: derived.nationality ?? undefined,
+    nationalities: derived.nationalities,
+  };
+}
+
 /** Rate applies when it is "any", exact match, or INTL catch-all for non-IN guests. */
 export function hotelNationalityCompatible(
   rateNationality: string | null | undefined,
@@ -132,10 +265,29 @@ export function nationalityFromOccupancy(raw: unknown): string | null {
 export function hotelNationalityMatchAccepted(
   rateNationality: string | null | undefined,
   guestNationality: string | null | undefined,
+  opts?: {
+    guestNationalities?: Array<string | null | undefined> | null;
+    mixed?: boolean;
+  },
 ): string[] {
   const rate = normalizeHotelNationality(rateNationality);
   const guest = normalizeHotelNationality(guestNationality);
-  if (rate == null && guest == null) return [];
+  const mixed =
+    opts?.mixed === true ||
+    guestNationalitiesAreMixed(
+      opts?.guestNationalities ??
+        (guestNationality != null ? [guestNationality] : []),
+    );
+  if (rate == null && guest == null && !mixed) return [];
+  if (mixed && rate === HOTEL_NATIONALITY_INTL) {
+    return ['Foreign (INTL) card for mixed guest nationalities'];
+  }
+  if (mixed && rate != null && guest != null && rate === guest) {
+    return [`Nationality ${rate} matched (mixed guests → ${guest})`];
+  }
+  if (mixed && rate == null && guest != null) {
+    return [`Any-nationality card for mixed guests → ${guest}`];
+  }
   if (rate != null && guest != null && rate === guest) {
     return [`Nationality ${rate} matched`];
   }
@@ -144,7 +296,11 @@ export function hotelNationalityMatchAccepted(
     guest != null &&
     guest !== HOTEL_NATIONALITY_IN
   ) {
-    return [`Foreign (INTL) card for guest ${guest}`];
+    return [
+      mixed
+        ? 'Foreign (INTL) card for mixed guest nationalities'
+        : `Foreign (INTL) card for guest ${guest}`,
+    ];
   }
   if (rate != null && guest == null) {
     return [`Nationality ${rate} card (guest unset)`];

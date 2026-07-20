@@ -195,6 +195,11 @@ export function resolvePayloadFromQuoteItem(
             ? details.roomProductId
             : undefined,
         mealPlan: typeof details.mealPlan === 'string' ? details.mealPlan : undefined,
+        nationality:
+          typeof details.nationality === 'string' ? details.nationality : undefined,
+        nationalities: Array.isArray(details.nationalities)
+          ? details.nationalities.filter((n): n is string => typeof n === 'string')
+          : undefined,
         nights: nights ?? undefined,
         rooms: typeof details.rooms === 'number' ? details.rooms : undefined,
         adults: typeof details.adults === 'number' ? details.adults : undefined,
@@ -256,6 +261,9 @@ export function buildResolveRatesInput(opts: {
   children?: number;
   infants?: number;
   partyId?: string | null;
+  /** Trip/traveller guest nationality fallback when lines omit nationality. */
+  nationality?: string | null;
+  nationalities?: string[] | null;
 }): ResolveRatesInput | null {
   const resolveItems = opts.items
     .map((item) => resolvePayloadFromQuoteItem(item, opts.startDate))
@@ -267,6 +275,10 @@ export function buildResolveRatesInput(opts: {
     children: opts.children,
     infants: opts.infants,
     partyId: opts.partyId ?? undefined,
+    nationality: opts.nationality?.trim() || undefined,
+    nationalities: opts.nationalities?.length
+      ? opts.nationalities
+      : undefined,
     items: resolveItems,
   };
 }
@@ -431,6 +443,8 @@ export async function rematchQuoteItemsFromRates(
     children?: number;
     infants?: number;
     partyId?: string | null;
+    nationality?: string | null;
+    nationalities?: string[] | null;
   },
 ): Promise<{
   items: QuotationItem[];
@@ -444,6 +458,8 @@ export async function rematchQuoteItemsFromRates(
     children: opts.children,
     infants: opts.infants,
     partyId: opts.partyId,
+    nationality: opts.nationality,
+    nationalities: opts.nationalities,
   });
   if (!input) {
     return { items, matchedCount: 0, unmatchedCount: 0 };

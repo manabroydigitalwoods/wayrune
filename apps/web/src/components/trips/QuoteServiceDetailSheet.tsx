@@ -43,9 +43,14 @@ import {
   hotelMinStayTone,
 } from '../../lib/hotelMinStayNote';
 import {
-  HOTEL_NATIONALITY_OPTIONS,
+  HOTEL_NATIONALITY_GUEST_OPTIONS,
+  collectGuestNationalityCodesUi,
+  effectiveGuestNationalityUi,
   formatHotelNationalityNote,
+  guestNationalitiesFromTripTravellersUi,
+  hotelNationalityLabelUi,
   normalizeHotelNationalityUi,
+  withGuestNationalities,
 } from '../../lib/hotelNationalityNote';
 import { formatHotelCancellationNote } from '../../lib/hotelCancellationNote';
 import {
@@ -419,6 +424,7 @@ export function QuoteServiceDetailSheet({
   partyId,
   defaultMarkupPercent = 20,
   seedDetails,
+  tripTravellers,
   onSave,
   attentionQueue = null,
   onNextAttention,
@@ -440,6 +446,12 @@ export function QuoteServiceDetailSheet({
   partyInfants?: number;
   /** Trip client — enables agent markup on Match rate when org has agentMarkupPercent. */
   partyId?: string | null;
+  /** Trip travellers — soft-default hotel Match nationality when line is blank. */
+  tripTravellers?: Array<{
+    isLead?: boolean | null;
+    nationality?: string | null;
+    traveller?: { nationality?: string | null } | null;
+  }> | null;
   defaultMarkupPercent?: number;
   seedDetails?: QuoteServiceDetails | null;
   onSave: (patch: Partial<QuoteServiceDetailLine> & { id: string }) => void;
@@ -526,6 +538,20 @@ export function QuoteServiceDetailSheet({
       if (parsed.markupValue == null) parsed.markupValue = defaultMarkupPercent;
       if (!parsed.availability) parsed.availability = 'unknown';
       if (!parsed.rooms) parsed.rooms = 1;
+      {
+        const lineNat = collectGuestNationalityCodesUi({
+          nationality: parsed.nationality,
+          nationalities: parsed.nationalities,
+        });
+        if (!lineNat.length) {
+          const fromTravellers = guestNationalitiesFromTripTravellersUi(
+            tripTravellers,
+          );
+          if (fromTravellers.nationality || fromTravellers.nationalities?.length) {
+            parsed = { ...parsed, ...fromTravellers };
+          }
+        }
+      }
       if (
         !parsed.priceSource &&
         (line.rateId || line.rateUnmatched || line.unitCost != null || line.unitSell != null)
@@ -1520,6 +1546,14 @@ export function QuoteServiceDetailSheet({
           ? 'No active activity rate found for this name, date and supplier.'
           : 'No active matching rate found for these dates and meal plan.';
     try {
+      const lineNatCodes = collectGuestNationalityCodesUi({
+        nationality: withNights.nationality || baseDetails.nationality,
+        nationalities: withNights.nationalities || baseDetails.nationalities,
+      });
+      const travellerNat = guestNationalitiesFromTripTravellersUi(tripTravellers);
+      const matchNat = lineNatCodes.length
+        ? withGuestNationalities(lineNatCodes)
+        : travellerNat;
       const res = await api<{ items: RateResolveRow[] }>('/rates/resolve', {
         method: 'POST',
         body: JSON.stringify({
@@ -1531,10 +1565,8 @@ export function QuoteServiceDetailSheet({
             baseDetails.infants ||
             withNights.infants ||
             undefined,
-          nationality:
-            withNights.nationality ||
-            baseDetails.nationality ||
-            undefined,
+          nationality: matchNat.nationality || undefined,
+          nationalities: matchNat.nationalities || undefined,
           partyId: partyId || undefined,
           items: [payload],
         }),
@@ -2234,21 +2266,96 @@ export function QuoteServiceDetailSheet({
                   />
                 </FormField>
                 <FormField
-                  label="Guest nationality"
-                  description="Match exact ISO or IN/INTL hotel cards (prefers country tip, then Foreign INTL, then any). Search any ISO-3166 country. Blank uses party nationality when sent."
+                  label="Guest nationalities"
+                  description="Add each adult market in the room. Match uses exact tip when all guests share one code; IN+foreign or multiple countries collapse to Foreign (INTL). Blank falls back to trip travellers."
                 >
-                  <Combobox
-                    value={normalizeHotelNationalityUi(details.nationality)}
-                    disabled={readOnly}
-                    onChange={(v) =>
-                      patchDetails({
-                        nationality: normalizeHotelNationalityUi(v) || undefined,
-                      })
-                    }
-                    options={HOTEL_NATIONALITY_OPTIONS}
-                    placeholder="Search country / Any"
-                    searchable
-                  />
+                  <div className="space-y-2">
+                    {(() => {
+                      const selected = collectGuestNationalityCodesUi({
+                        nationality: details.nationality,
+                        nationalities: details.nationalities,
+                      });
+                      const effective = effectiveGuestNationalityUi(selected);
+                      const fromTravellers =
+                        guestNationalitiesFromTripTravellersUi(tripTravellers);
+                      const travellerCodes = collectGuestNationalityCodesUi({
+                        nationality: fromTravellers.nationality,
+                        nationalities: fromTravellers.nationalities,
+                      });
+                      return (
+                        <>
+                          {selected.length ? (
+                            <div className="flex flex-wrap gap-1.5">
+                              {selected.map((code) => (
+                                <button
+                                  key={code}
+                                  type="button"
+                                  disabled={readOnly}
+                                  className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-muted/40 px-2.5 py-1 text-xs font-medium disabled:opacity-60"
+                                  onClick={() => {
+                                    if (readOnly) return;
+                                    patchDetails(
+                                      withGuestNationalities(
+                                        selected.filter((c) => c !== code),
+                                      ),
+                                    );
+                                  }}
+                                  title="Remove"
+                                >
+                                  {hotelNationalityLabelUi(code)}
+                                  {!readOnly ? (
+                                    <span className="text-muted-foreground" aria-hidden>
+                                      ×
+                                    </span>
+                                  ) : null}
+                                </button>
+                              ))}
+                            </div>
+                          ) : null}
+                          <Combobox
+                            value=""
+                            disabled={readOnly}
+                            onChange={(v) => {
+                              const code = normalizeHotelNationalityUi(v);
+                              if (!code) return;
+                              patchDetails(
+                                withGuestNationalities([...selected, code]),
+                              );
+                            }}
+                            options={HOTEL_NATIONALITY_GUEST_OPTIONS.filter(
+                              (o) => !selected.includes(o.value),
+                            )}
+                            placeholder={
+                              selected.length
+                                ? 'Add another nationality…'
+                                : 'Search country / Indian / Foreign'
+                            }
+                            searchable
+                          />
+                          {selected.length > 1 && effective ? (
+                            <p className="text-[11px] text-muted-foreground">
+                              Match uses {hotelNationalityLabelUi(effective)}
+                            </p>
+                          ) : null}
+                          {!selected.length && travellerCodes.length ? (
+                            <p className="text-[11px] text-muted-foreground">
+                              From travellers ·{' '}
+                              {travellerCodes
+                                .map((c) => hotelNationalityLabelUi(c))
+                                .join(' + ')}
+                            </p>
+                          ) : null}
+                          {selected.length > 0 &&
+                          travellerCodes.length > 0 &&
+                          selected.join(',') === travellerCodes.join(',') ? (
+                            <p className="text-[11px] text-muted-foreground">
+                              Seeded from trip travellers
+                            </p>
+                          ) : null}
+                        </>
+                      );
+                    })()}
+                  </div>
                 </FormField>
               </FormGrid>
               {allotmentNote ? (

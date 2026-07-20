@@ -3113,6 +3113,7 @@ async function seedRichAgencyData(
       phone?: string;
       isLead?: boolean;
       passportNumber?: string;
+      nationality?: string;
     }>,
   ) {
     for (const person of people) {
@@ -3128,8 +3129,16 @@ async function seedRichAgencyData(
             phone: person.phone ?? null,
             type: person.type,
             passportNumber: person.passportNumber ?? null,
-            nationality: 'IN',
+            nationality: person.nationality?.trim() || 'IN',
             createdBy: ownerId,
+            updatedBy: ownerId,
+          },
+        });
+      } else if (person.nationality?.trim()) {
+        traveller = await prisma.traveller.update({
+          where: { id: traveller.id },
+          data: {
+            nationality: person.nationality.trim(),
             updatedBy: ownerId,
           },
         });
@@ -3386,12 +3395,14 @@ async function seedRichAgencyData(
       phone: '+919712345678',
       isLead: true,
       passportNumber: 'N4455667',
+      nationality: 'IN',
     },
     {
       email: 'northbengal.spouse@example.com',
       fullName: 'Meera Patel',
       type: 'adult',
       isLead: false,
+      nationality: 'US',
     },
   ]);
 
@@ -5353,6 +5364,7 @@ async function ensureDemoAgency(
         kind: 'travel_agency',
         timezone: 'Asia/Kolkata',
         currency: 'INR',
+        taxLabel: 'GST',
         brandingJson: { primaryColor: '#0f6e56', companyName: 'Demo Travel Agency' },
           settingsJson: {
             indiaReady: true,
@@ -5363,6 +5375,10 @@ async function ensureDemoAgency(
               supportEmail: 'hello@demo.travel',
               website: 'https://demo.travel',
               legalName: 'Demo Travel Agency Pvt Ltd',
+              gstin: '29AABCD1234E1Z5',
+              placeOfSupply: 'KA',
+              destinationPlaceOfSupply: 'MH',
+              state: 'Karnataka',
             },
             trust: {
               licensed: true,
@@ -5390,6 +5406,7 @@ async function ensureDemoAgency(
       data: {
         kind: 'travel_agency',
         slug: org.slug === 'demo-travel' ? org.slug : org.slug,
+        taxLabel: 'GST',
         settingsJson: {
           ...((org.settingsJson && typeof org.settingsJson === 'object'
             ? org.settingsJson
@@ -5402,6 +5419,10 @@ async function ensureDemoAgency(
             supportEmail: 'hello@demo.travel',
             website: 'https://demo.travel',
             legalName: 'Demo Travel Agency Pvt Ltd',
+            gstin: '29AABCD1234E1Z5',
+            placeOfSupply: 'KA',
+            destinationPlaceOfSupply: 'MH',
+            state: 'Karnataka',
           },
           trust: {
             licensed: true,

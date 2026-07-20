@@ -78,6 +78,40 @@ describe('resolvePayloadFromQuoteItem / buildResolveRatesInput', () => {
     });
   });
 
+  it('passes guest nationality / nationalities on rematch payload', () => {
+    const payload = resolvePayloadFromQuoteItem(
+      hotelItem({
+        details: {
+          supplierId: 'sup-1',
+          placeId: 'place-1',
+          roomType: 'Deluxe',
+          mealPlan: 'MAP',
+          checkIn: '2026-10-10',
+          checkOut: '2026-10-12',
+          nights: 2,
+          rooms: 1,
+          nationality: 'INTL',
+          nationalities: ['IN', 'US'],
+        },
+      }),
+      '2026-10-01',
+    );
+    expect(payload?.details).toMatchObject({
+      nationality: 'INTL',
+      nationalities: ['IN', 'US'],
+    });
+  });
+
+  it('passes traveller nationality fallback on batch rematch input', () => {
+    const input = buildResolveRatesInput({
+      items: [hotelItem()],
+      startDate: '2026-10-10',
+      adults: 2,
+      nationality: 'IN',
+    });
+    expect(input?.nationality).toBe('IN');
+  });
+
   it('skips custom lines when building batch input', () => {
     const input = buildResolveRatesInput({
       items: [

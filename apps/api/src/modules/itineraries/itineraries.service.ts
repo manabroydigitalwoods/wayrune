@@ -38,6 +38,7 @@ import {
   parseOrgTrust,
   presentCustomerQuote,
 } from '../../common/customer-proposal';
+import { parseOrgTaxIdentity } from '../../common/org-tax-identity';
 
 function generateFamilyPin() {
   return String(randomInt(100000, 1000000));
@@ -145,7 +146,13 @@ export class ItinerariesService {
       where: { id: tripId, organizationId, deletedAt: null },
       include: {
         organization: {
-          select: { name: true, slug: true, settingsJson: true, brandingJson: true },
+          select: {
+            name: true,
+            slug: true,
+            settingsJson: true,
+            brandingJson: true,
+            taxLabel: true,
+          },
         },
         party: { select: { displayName: true } },
       },
@@ -271,6 +278,10 @@ export class ItinerariesService {
       },
       branding: parseOrgBranding(trip.organization.brandingJson, trip.organization.name),
       contact: parseBusinessContact(trip.organization.settingsJson),
+      taxIdentity: parseOrgTaxIdentity(
+        trip.organization.taxLabel,
+        trip.organization.settingsJson,
+      ),
       trust: parseOrgTrust(trip.organization.settingsJson),
       display: orgDisplayPrefs(trip.organization.settingsJson),
       story,
