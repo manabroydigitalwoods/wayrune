@@ -27,6 +27,22 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-quote-tax-freeze-infer',
+    date: '2026-07-20',
+    title: 'Quote tax freeze + destination POS suggest',
+    summary:
+      'Sent or PDF proposals freeze display tax identity on the quote version. Blank trip destination POS can suggest a state from destinations (display only — not saved, not a GST invoice claim).',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-trip-destination-pos',
+    date: '2026-07-20',
+    title: 'Trip destination place of supply',
+    summary:
+      'Override the org destination place of supply on a trip for CGST/SGST/IGST display. Clear the field to use the org default. Display only — not a GST invoice claim.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-transfer-activity-tip-diff-side-by-side',
     date: '2026-07-20',
     title: 'Transfer & activity tip Diff side-by-side',

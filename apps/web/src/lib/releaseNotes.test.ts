@@ -43,9 +43,13 @@ describe('releaseNotes', () => {
     ).toBe(true);
     // Newest array entries surface first on the About strip.
     const top = visibleReleaseNotes(RELEASE_NOTES, { limit: 5 });
-    expect(top[0]?.id).toBe(
-      '2026-07-20-transfer-activity-tip-diff-side-by-side',
-    );
+    expect(top[0]?.id).toBe('2026-07-20-quote-tax-freeze-infer');
+    expect(
+      allBuyer.some((n) => n.id === '2026-07-20-quote-tax-freeze-infer'),
+    ).toBe(true);
+    expect(
+      allBuyer.some((n) => n.id === '2026-07-20-trip-destination-pos'),
+    ).toBe(true);
     expect(
       allBuyer.some(
         (n) => n.id === '2026-07-20-transfer-activity-tip-diff-side-by-side',

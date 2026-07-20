@@ -89,6 +89,7 @@ import {
 import {
   formatOrgTaxDisplaySplitLinesUi,
   formatOrgTaxIdentityLinesUi,
+  inferredDestinationPosCueUi,
   orgTaxDisplaySplitCueUi,
   orgTaxTotalsLabelUi,
   parseOrgTaxIdentityUi,
@@ -1088,10 +1089,52 @@ export function TripWorkspacePage() {
         method: 'PATCH',
         body: JSON.stringify({ destinations: next }),
       });
-      setTrip((t: any) => (t ? { ...t, destinationsJson: updated.destinationsJson } : t));
+      setTrip((t: any) =>
+        t
+          ? {
+              ...t,
+              destinationsJson: updated.destinationsJson,
+              inferredDestinationPlaceOfSupply:
+                updated.inferredDestinationPlaceOfSupply ?? null,
+            }
+          : t,
+      );
       toastSuccess('Destinations updated');
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Could not update destinations');
+    }
+  }
+
+  async function saveTripDestinationPlaceOfSupply(raw: string) {
+    if (!id) return;
+    const value = raw.trim() || null;
+    try {
+      const updated = await api<{ destinationPlaceOfSupply: string | null }>(
+        `/trips/${id}/destination-place-of-supply`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ destinationPlaceOfSupply: value }),
+        },
+      );
+      setTrip((t: any) =>
+        t
+          ? {
+              ...t,
+              destinationPlaceOfSupply: updated.destinationPlaceOfSupply,
+            }
+          : t,
+      );
+      toastSuccess(
+        updated.destinationPlaceOfSupply
+          ? 'Destination place of supply updated'
+          : 'Using org default destination POS',
+      );
+    } catch (e) {
+      toastError(
+        e instanceof Error
+          ? e.message
+          : 'Could not update destination place of supply',
+      );
     }
   }
 
@@ -1642,8 +1685,18 @@ export function TripWorkspacePage() {
       parseOrgTaxIdentityUi(
         trip?.organization?.taxLabel,
         trip?.organization?.settingsJson,
+        {
+          destinationPlaceOfSupply: trip?.destinationPlaceOfSupply ?? null,
+          inferredDestinationPlaceOfSupply:
+            trip?.inferredDestinationPlaceOfSupply ?? null,
+        },
       ),
-    [trip?.organization?.taxLabel, trip?.organization?.settingsJson],
+    [
+      trip?.organization?.taxLabel,
+      trip?.organization?.settingsJson,
+      trip?.destinationPlaceOfSupply,
+      trip?.inferredDestinationPlaceOfSupply,
+    ],
   );
   const taxTotalsLabel = orgTaxTotalsLabelUi(orgTaxIdentity);
   const taxIdentityLines = formatOrgTaxIdentityLinesUi(orgTaxIdentity);
@@ -1653,6 +1706,7 @@ export function TripWorkspacePage() {
     { formatAmount: (n) => formatCurrency(n) },
   );
   const taxSplitCue = orgTaxDisplaySplitCueUi(orgTaxIdentity, taxTotal);
+  const inferredPosCue = inferredDestinationPosCueUi(orgTaxIdentity);
   const costGaps = useMemo(() => quoteLinesMissingCost(quoteItems), [quoteItems]);
   const missingSellCount = useMemo(() => quoteLinesMissingSell(quoteItems), [quoteItems]);
   const sellComplete = quoteItems.length > 0 && missingSellCount === 0;
@@ -4317,6 +4371,71 @@ export function TripWorkspacePage() {
                     ) : (
                       <p className="text-sm text-foreground/90">{destinationsLabel || '—'}</p>
                     )}
+                  </div>
+                  <div className="space-y-2 border-t border-border/50 pt-3">
+                    <FormField
+                      label="Destination place of supply"
+                      description="Overrides org default for CGST/SGST/IGST display only. Clear to use suggested destinations or org default."
+                    >
+                      {canTripWrite ? (
+                        <Input
+                          key={String(trip?.destinationPlaceOfSupply ?? '')}
+                          defaultValue={trip?.destinationPlaceOfSupply ?? ''}
+                          placeholder={
+                            (() => {
+                              const inferred =
+                                typeof trip?.inferredDestinationPlaceOfSupply ===
+                                'string'
+                                  ? trip.inferredDestinationPlaceOfSupply.trim()
+                                  : '';
+                              if (inferred) {
+                                return `Suggested: ${inferred}`;
+                              }
+                              const biz =
+                                trip?.organization?.settingsJson &&
+                                typeof trip.organization.settingsJson ===
+                                  'object' &&
+                                !Array.isArray(trip.organization.settingsJson)
+                                  ? (
+                                      trip.organization.settingsJson as {
+                                        business?: {
+                                          destinationPlaceOfSupply?: string;
+                                        };
+                                      }
+                                    ).business
+                                  : undefined;
+                              const orgDefault =
+                                typeof biz?.destinationPlaceOfSupply === 'string'
+                                  ? biz.destinationPlaceOfSupply.trim()
+                                  : '';
+                              return orgDefault
+                                ? `Org default: ${orgDefault}`
+                                : 'e.g. MH or Maharashtra';
+                            })()
+                          }
+                          onBlur={(e) => {
+                            const next = e.target.value.trim();
+                            const prev = String(
+                              trip?.destinationPlaceOfSupply || '',
+                            ).trim();
+                            if (next === prev) return;
+                            void saveTripDestinationPlaceOfSupply(next);
+                          }}
+                        />
+                      ) : (
+                        <p className="text-sm text-foreground/90">
+                          {trip?.destinationPlaceOfSupply?.trim() ||
+                            trip?.inferredDestinationPlaceOfSupply?.trim() ||
+                            'Org default'}
+                        </p>
+                      )}
+                    </FormField>
+                    {inferredPosCue &&
+                    !trip?.destinationPlaceOfSupply?.trim() ? (
+                      <p className="text-xs text-muted-foreground">
+                        {inferredPosCue}
+                      </p>
+                    ) : null}
                   </div>
                 </CardContent>
               </Card>

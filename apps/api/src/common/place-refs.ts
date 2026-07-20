@@ -71,3 +71,42 @@ export async function resolveOnePlaceRef(
   const list = await resolvePlaceRefs(prisma, organizationId, raw == null ? [] : [raw]);
   return list[0] ?? null;
 }
+
+/**
+ * Labels for destination → POS infer: each destination's display name, then
+ * parent-chain names (root → leaf). Free-text destinations contribute name only.
+ */
+export async function placeAncestorLabelsForRefs(
+  prisma: PrismaService,
+  organizationId: string,
+  destinationsJson: unknown,
+): Promise<string[]> {
+  const refs = placeRefsFromJson(destinationsJson);
+  if (!refs.length) return [];
+  const labels: string[] = [];
+  for (const ref of refs) {
+    if (ref.name?.trim()) labels.push(ref.name.trim());
+    if (!ref.placeId) continue;
+    const chain: string[] = [];
+    let currentId: string | null = ref.placeId;
+    const guard = new Set<string>();
+    while (currentId && !guard.has(currentId)) {
+      guard.add(currentId);
+      const place = await prisma.place.findFirst({
+        where: {
+          id: currentId,
+          deletedAt: null,
+          OR: [{ isSystem: true, organizationId: null }, { organizationId }],
+        },
+        select: { name: true, parentId: true },
+      });
+      if (!place) break;
+      chain.unshift(place.name);
+      currentId = place.parentId;
+    }
+    for (const name of chain) {
+      if (name?.trim()) labels.push(name.trim());
+    }
+  }
+  return labels;
+}

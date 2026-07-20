@@ -6,6 +6,7 @@ import {
   RecordTripFeedbackSchema,
   UpdateTravellerSchema,
   UpdateTripDatesSchema,
+  UpdateTripDestinationPlaceOfSupplySchema,
   UpdateTripDestinationsSchema,
 } from '@wayrune/contracts';
 import {
@@ -52,6 +53,20 @@ export class TripsController {
       user,
       id,
       UpdateTripDestinationsSchema.parse(body),
+    );
+  }
+
+  @Patch(':id/destination-place-of-supply')
+  @RequirePermissions('trip.write')
+  updateDestinationPlaceOfSupply(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    return this.trips.updateDestinationPlaceOfSupply(
+      user,
+      id,
+      UpdateTripDestinationPlaceOfSupplySchema.parse(body),
     );
   }
 

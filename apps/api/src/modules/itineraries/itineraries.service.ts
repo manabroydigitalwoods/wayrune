@@ -39,6 +39,9 @@ import {
   presentCustomerQuote,
 } from '../../common/customer-proposal';
 import { parseOrgTaxIdentity } from '../../common/org-tax-identity';
+import { inferDestinationPlaceOfSupplyFromLabels } from '../../common/destination-pos-infer';
+import { placeAncestorLabelsForRefs } from '../../common/place-refs';
+import { parseQuoteTaxIdentity } from '../../common/quote-tax-identity';
 
 function generateFamilyPin() {
   return String(randomInt(100000, 1000000));
@@ -261,6 +264,36 @@ export class ItinerariesService {
       packageSummary.destinations = destinations;
     }
 
+    const stampedRow = quotation?.versionId
+      ? await this.prisma.quotationVersion.findFirst({
+          where: { id: quotation.versionId },
+          select: { taxIdentityJson: true },
+        })
+      : null;
+    const stamped = parseQuoteTaxIdentity(stampedRow?.taxIdentityJson);
+    const taxIdentity = stamped
+      ? (() => {
+          const { lockedAt: _l, lockSource: _s, ...identity } = stamped;
+          void _l;
+          void _s;
+          return identity;
+        })()
+      : parseOrgTaxIdentity(
+          trip.organization.taxLabel,
+          trip.organization.settingsJson,
+          {
+            destinationPlaceOfSupply: trip.destinationPlaceOfSupply,
+            inferredDestinationPlaceOfSupply:
+              inferDestinationPlaceOfSupplyFromLabels(
+                await placeAncestorLabelsForRefs(
+                  this.prisma,
+                  organizationId,
+                  trip.destinationsJson,
+                ),
+              ),
+          },
+        );
+
     return {
       trip: {
         id: trip.id,
@@ -277,11 +310,16 @@ export class ItinerariesService {
         slug: trip.organization.slug,
       },
       branding: parseOrgBranding(trip.organization.brandingJson, trip.organization.name),
-      contact: parseBusinessContact(trip.organization.settingsJson),
-      taxIdentity: parseOrgTaxIdentity(
-        trip.organization.taxLabel,
-        trip.organization.settingsJson,
-      ),
+      contact: (() => {
+        const contact = parseBusinessContact(trip.organization.settingsJson);
+        return {
+          ...contact,
+          destinationPlaceOfSupply:
+            taxIdentity.destinationPlaceOfSupply ??
+            contact.destinationPlaceOfSupply,
+        };
+      })(),
+      taxIdentity,
       trust: parseOrgTrust(trip.organization.settingsJson),
       display: orgDisplayPrefs(trip.organization.settingsJson),
       story,

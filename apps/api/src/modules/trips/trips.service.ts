@@ -7,6 +7,7 @@ import type {
   QuotationItem,
   UpdateTravellerSchema,
   UpdateTripDatesInput,
+  UpdateTripDestinationPlaceOfSupplyInput,
   UpdateTripDestinationsInput,
 } from '@wayrune/contracts';
 import { QuotationItemSchema } from '@wayrune/contracts';
@@ -14,7 +15,8 @@ import { z } from 'zod';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { calcQuoteTotals, type AuthUser } from '../../common/helpers';
-import { resolvePlaceRefs } from '../../common/place-refs';
+import { resolvePlaceRefs, placeAncestorLabelsForRefs } from '../../common/place-refs';
+import { inferDestinationPlaceOfSupplyFromLabels } from '../../common/destination-pos-infer';
 import {
   reanchorItineraryDaysToTripStart,
   remintQuoteItems,
@@ -141,6 +143,47 @@ export class TripsService {
       organizationId: user.organizationId,
       actorUserId: user.sub,
       action: 'trip.destinations_update',
+      entityType: 'trip',
+      entityId: tripId,
+    });
+    return {
+      ...updated,
+      inferredDestinationPlaceOfSupply:
+        inferDestinationPlaceOfSupplyFromLabels(
+          await placeAncestorLabelsForRefs(
+            this.prisma,
+            user.organizationId,
+            updated.destinationsJson,
+          ),
+        ),
+    };
+  }
+
+  async updateDestinationPlaceOfSupply(
+    user: AuthUser,
+    tripId: string,
+    input: UpdateTripDestinationPlaceOfSupplyInput,
+  ) {
+    const trip = await this.prisma.trip.findFirst({
+      where: { id: tripId, organizationId: user.organizationId, deletedAt: null },
+    });
+    if (!trip) throw new NotFoundException('Trip not found');
+    const value =
+      typeof input.destinationPlaceOfSupply === 'string' &&
+      input.destinationPlaceOfSupply.trim()
+        ? input.destinationPlaceOfSupply.trim()
+        : null;
+    const updated = await this.prisma.trip.update({
+      where: { id: tripId },
+      data: {
+        destinationPlaceOfSupply: value,
+        updatedBy: user.sub,
+      },
+    });
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorUserId: user.sub,
+      action: 'trip.destination_place_of_supply_update',
       entityType: 'trip',
       entityId: tripId,
     });
@@ -609,7 +652,21 @@ export class TripsService {
       }),
     }));
 
-    return { ...trip, travellers, quotations };
+    const inferredDestinationPlaceOfSupply =
+      inferDestinationPlaceOfSupplyFromLabels(
+        await placeAncestorLabelsForRefs(
+          this.prisma,
+          user.organizationId,
+          trip.destinationsJson,
+        ),
+      );
+
+    return {
+      ...trip,
+      travellers,
+      quotations,
+      inferredDestinationPlaceOfSupply,
+    };
   }
 
   async addTraveller(user: AuthUser, tripId: string, input: CreateTravellerInput) {

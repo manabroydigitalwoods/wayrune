@@ -7,6 +7,8 @@ import {
   type TaxDisplaySplit,
 } from './tax-display-split';
 
+export type DestinationPosSource = 'trip' | 'inferred' | 'org' | 'none';
+
 export type OrgTaxIdentity = {
   /** Display label for totals, e.g. GST / VAT. Never empty. */
   taxLabel: string;
@@ -14,6 +16,8 @@ export type OrgTaxIdentity = {
   placeOfSupply: string | null;
   /** Destination POS for display CGST/SGST/IGST split (not filing). */
   destinationPlaceOfSupply: string | null;
+  /** How destination POS was chosen (trip override → infer → org). */
+  destinationPlaceOfSupplySource: DestinationPosSource;
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -28,23 +32,49 @@ function trimOrNull(value: unknown): string | null {
   return t || null;
 }
 
+export function resolveDestinationPlaceOfSupply(opts: {
+  tripOverride?: string | null;
+  inferred?: string | null;
+  orgDefault?: string | null;
+}): { value: string | null; source: DestinationPosSource } {
+  const trip = trimOrNull(opts.tripOverride);
+  if (trip) return { value: trip, source: 'trip' };
+  const inferred = trimOrNull(opts.inferred);
+  if (inferred) return { value: inferred, source: 'inferred' };
+  const org = trimOrNull(opts.orgDefault);
+  if (org) return { value: org, source: 'org' };
+  return { value: null, source: 'none' };
+}
+
 /**
  * Resolve display tax identity from org `taxLabel` + `settingsJson.business`.
  * `None` tax label still shows "Tax" on money rows.
+ * Destination POS: trip override ?? inferred from destinations ?? org default.
  */
 export function parseOrgTaxIdentity(
   taxLabel: string | null | undefined,
   settingsJson: unknown,
+  opts?: {
+    destinationPlaceOfSupply?: string | null;
+    inferredDestinationPlaceOfSupply?: string | null;
+  },
 ): OrgTaxIdentity {
   const business = asRecord(asRecord(settingsJson).business);
   const raw = typeof taxLabel === 'string' ? taxLabel.trim() : '';
   const taxDisplay =
     !raw || raw.toLowerCase() === 'none' ? 'Tax' : raw;
+  const orgDest = trimOrNull(business.destinationPlaceOfSupply);
+  const dest = resolveDestinationPlaceOfSupply({
+    tripOverride: opts?.destinationPlaceOfSupply,
+    inferred: opts?.inferredDestinationPlaceOfSupply,
+    orgDefault: orgDest,
+  });
   return {
     taxLabel: taxDisplay,
     gstin: trimOrNull(business.gstin),
     placeOfSupply: trimOrNull(business.placeOfSupply),
-    destinationPlaceOfSupply: trimOrNull(business.destinationPlaceOfSupply),
+    destinationPlaceOfSupply: dest.value,
+    destinationPlaceOfSupplySource: dest.source,
   };
 }
 
@@ -56,13 +86,28 @@ export function formatOrgTaxIdentityLines(identity: OrgTaxIdentity): string[] {
     lines.push(`Place of supply: ${identity.placeOfSupply}`);
   }
   if (identity.destinationPlaceOfSupply) {
-    lines.push(`Destination POS: ${identity.destinationPlaceOfSupply}`);
+    const suffix =
+      identity.destinationPlaceOfSupplySource === 'inferred'
+        ? ' (suggested from destinations)'
+        : '';
+    lines.push(
+      `Destination POS: ${identity.destinationPlaceOfSupply}${suffix}`,
+    );
   }
   return lines;
 }
 
 export function orgTaxTotalsLabel(identity: OrgTaxIdentity): string {
   return identity.taxLabel || 'Tax';
+}
+
+/** Soft cue when destination POS came from place labels (not persisted). */
+export function inferredDestinationPosCue(
+  identity: OrgTaxIdentity,
+): string | null {
+  if (identity.destinationPlaceOfSupplySource !== 'inferred') return null;
+  if (!identity.destinationPlaceOfSupply) return null;
+  return `Suggested from destinations: ${identity.destinationPlaceOfSupply} — display only; not saved on the trip`;
 }
 
 /** Display-only CGST/SGST/IGST from org + destination POS. */

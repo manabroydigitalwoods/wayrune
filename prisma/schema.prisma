@@ -1593,6 +1593,8 @@ model Trip {
   startDate      DateTime? @map("start_date")
   endDate        DateTime? @map("end_date")
   destinationsJson Json?   @map("destinations_json")
+  /** Trip override for GST display split destination POS (null = use org default). */
+  destinationPlaceOfSupply String? @map("destination_place_of_supply")
   cancellationReason String? @map("cancellation_reason") @db.Text
   createdBy      String?   @map("created_by")
   updatedBy      String?   @map("updated_by")
@@ -1813,6 +1815,8 @@ model QuotationVersion {
   currency        String    @default("INR") @db.Char(3)
   validUntil      DateTime? @map("valid_until")
   exchangeRatesJson Json?   @map("exchange_rates_json")
+  /// Write-once display tax identity (label / GSTIN / POS) stamped on send or PDF.
+  taxIdentityJson Json?     @map("tax_identity_json")
   itemsJson       Json      @map("items_json")
   inclusions      String?   @db.Text
   exclusions      String?   @db.Text

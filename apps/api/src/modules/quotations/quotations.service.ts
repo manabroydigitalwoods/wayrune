@@ -70,7 +70,14 @@ import {
   orgTaxDisplaySplitCue,
   orgTaxTotalsLabel,
   parseOrgTaxIdentity,
+  type OrgTaxIdentity,
 } from '../../common/org-tax-identity';
+import { inferDestinationPlaceOfSupplyFromLabels } from '../../common/destination-pos-infer';
+import { placeAncestorLabelsForRefs } from '../../common/place-refs';
+import {
+  parseQuoteTaxIdentity,
+  quoteTaxIdentityToJson,
+} from '../../common/quote-tax-identity';
 import { calcQuoteTotals, escapeHtml, formatCurrency, type AuthUser } from '../../common/helpers';
 import { buildBrandedProposalPdf } from './branded-proposal-pdf';
 import {
@@ -2544,10 +2551,39 @@ export class QuotationsService {
           validityGraceUsed: ready.validityGraceUsed,
         };
       }
+
+      let taxIdentityStamp: Prisma.InputJsonValue | undefined;
+      if (action === 'send' && !parseQuoteTaxIdentity(version.taxIdentityJson)) {
+        const org = await this.prisma.organization.findFirst({
+          where: { id: user.organizationId },
+          select: { taxLabel: true, settingsJson: true },
+        });
+        const tripForTax = await this.prisma.trip.findFirst({
+          where: { id: version.quotation.tripId },
+          select: {
+            destinationPlaceOfSupply: true,
+            destinationsJson: true,
+          },
+        });
+        if (org && tripForTax) {
+          const live = await this.resolveLiveTaxIdentity({
+            organizationId: user.organizationId,
+            taxLabel: org.taxLabel,
+            settingsJson: org.settingsJson,
+            trip: tripForTax,
+          });
+          taxIdentityStamp = quoteTaxIdentityToJson(
+            live,
+            'send',
+          ) as Prisma.InputJsonValue;
+        }
+      }
+
       const updated = await this.prisma.quotationVersion.update({
         where: { id: versionId },
         data: {
           status: map[action],
+          ...(taxIdentityStamp ? { taxIdentityJson: taxIdentityStamp } : {}),
         },
       });
 
@@ -2995,6 +3031,67 @@ export class QuotationsService {
     };
   }
 
+  /** Live tax identity: trip override ?? destination infer ?? org (display only). */
+  private async resolveLiveTaxIdentity(opts: {
+    organizationId: string;
+    taxLabel: string | null | undefined;
+    settingsJson: unknown;
+    trip: {
+      destinationPlaceOfSupply?: string | null;
+      destinationsJson?: unknown;
+    };
+  }): Promise<OrgTaxIdentity> {
+    const labels = await placeAncestorLabelsForRefs(
+      this.prisma,
+      opts.organizationId,
+      opts.trip.destinationsJson,
+    );
+    const inferred = inferDestinationPlaceOfSupplyFromLabels(labels);
+    return parseOrgTaxIdentity(opts.taxLabel, opts.settingsJson, {
+      destinationPlaceOfSupply: opts.trip.destinationPlaceOfSupply,
+      inferredDestinationPlaceOfSupply: inferred,
+    });
+  }
+
+  /**
+   * Prefer write-once stamp on the version; otherwise live resolve.
+   * When `stamp` is set and no stamp exists, persist write-once.
+   */
+  private async resolveVersionTaxIdentity(opts: {
+    organizationId: string;
+    versionId: string;
+    taxIdentityJson: unknown;
+    taxLabel: string | null | undefined;
+    settingsJson: unknown;
+    trip: {
+      destinationPlaceOfSupply?: string | null;
+      destinationsJson?: unknown;
+    };
+    stamp?: 'send' | 'pdf';
+  }): Promise<OrgTaxIdentity> {
+    const stamped = parseQuoteTaxIdentity(opts.taxIdentityJson);
+    if (stamped) {
+      const { lockedAt: _l, lockSource: _s, ...identity } = stamped;
+      void _l;
+      void _s;
+      return identity;
+    }
+    const live = await this.resolveLiveTaxIdentity({
+      organizationId: opts.organizationId,
+      taxLabel: opts.taxLabel,
+      settingsJson: opts.settingsJson,
+      trip: opts.trip,
+    });
+    if (opts.stamp) {
+      const payload = quoteTaxIdentityToJson(live, opts.stamp);
+      await this.prisma.quotationVersion.update({
+        where: { id: opts.versionId },
+        data: { taxIdentityJson: payload as Prisma.InputJsonValue },
+      });
+    }
+    return live;
+  }
+
   async generatePdf(user: AuthUser, versionId: string) {
     const version = await this.prisma.quotationVersion.findFirst({
       where: { id: versionId },
@@ -3016,7 +3113,16 @@ export class QuotationsService {
     const branding = parseOrgBranding(org.brandingJson, org.name);
     const contact = parseBusinessContact(org.settingsJson);
     const trust = parseOrgTrust(org.settingsJson);
-    const taxIdentity = parseOrgTaxIdentity(org.taxLabel, org.settingsJson);
+    const trip = version.quotation.trip;
+    const taxIdentity = await this.resolveVersionTaxIdentity({
+      organizationId: user.organizationId,
+      versionId,
+      taxIdentityJson: version.taxIdentityJson,
+      taxLabel: org.taxLabel,
+      settingsJson: org.settingsJson,
+      trip,
+      stamp: 'pdf',
+    });
     const taxTotalsLabel = orgTaxTotalsLabel(taxIdentity);
     const taxIdentityHtml = formatOrgTaxIdentityLines(taxIdentity)
       .map((line) => `<p class="meta">${escapeHtml(line)}</p>`)
@@ -3066,7 +3172,6 @@ export class QuotationsService {
     const days = contentJson ? customerItineraryDays(contentJson) : [];
     const story = contentJson ? parseItineraryStory(contentJson) : null;
     const summary = computePackageSummary(days, quote, story);
-    const trip = version.quotation.trip;
     const startIso = trip.startDate
       ? trip.startDate.toISOString().slice(0, 10)
       : null;

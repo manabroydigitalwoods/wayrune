@@ -2605,6 +2605,14 @@ export const UpdateTripDestinationsSchema = z.object({
   destinations: z.array(PlaceRefInputSchema),
 });
 
+/** Trip override for GST display destination POS (blank/null clears → org default). */
+export const UpdateTripDestinationPlaceOfSupplySchema = z.object({
+  destinationPlaceOfSupply: z.preprocess(
+    blankToNull,
+    z.string().max(64).nullable(),
+  ),
+});
+
 export const CreateTravellerSchema = z.object({
   fullName: RequiredText('Full name'),
   type: z.enum(['adult', 'child', 'infant']).default('adult'),
@@ -3760,6 +3768,9 @@ export type EnsureShadowAssetInput = z.infer<typeof EnsureShadowAssetSchema>;
 export type CreateSupplierInput = z.infer<typeof CreateSupplierSchema>;
 export type UpdateSupplierInput = z.infer<typeof UpdateSupplierSchema>;
 export type UpdateTripDestinationsInput = z.infer<typeof UpdateTripDestinationsSchema>;
+export type UpdateTripDestinationPlaceOfSupplyInput = z.infer<
+  typeof UpdateTripDestinationPlaceOfSupplySchema
+>;
 export type CreateRoomTypeInput = z.infer<typeof CreateRoomTypeSchema>;
 export type CreateVehicleTypeInput = z.infer<typeof CreateVehicleTypeSchema>;
 export type CreateInquiryInput = z.infer<typeof CreateInquirySchema>;

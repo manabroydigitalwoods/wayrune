@@ -54,6 +54,10 @@ const POS_ALIASES: Record<string, string> = {
   PUNJAB: 'PB',
 };
 
+export const KNOWN_PLACE_OF_SUPPLY_CODES_UI = new Set(
+  Object.values(POS_ALIASES),
+);
+
 export function normalizePlaceOfSupplyUi(
   raw: string | null | undefined,
 ): string | null {
@@ -61,6 +65,15 @@ export function normalizePlaceOfSupplyUi(
   const t = raw.trim().toUpperCase().replace(/\s+/g, ' ');
   if (!t) return null;
   return POS_ALIASES[t] || t;
+}
+
+/** Match a label to a known POS code; cities / unknown → null. */
+export function matchKnownPlaceOfSupplyUi(
+  raw: string | null | undefined,
+): string | null {
+  const n = normalizePlaceOfSupplyUi(raw);
+  if (!n || !KNOWN_PLACE_OF_SUPPLY_CODES_UI.has(n)) return null;
+  return n;
 }
 
 export function splitTaxDisplayUi(opts: {

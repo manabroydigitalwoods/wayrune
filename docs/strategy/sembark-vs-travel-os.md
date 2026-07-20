@@ -610,7 +610,27 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Settings destination POS; workspace + proposal PDF/email/public preview show breakdown + “not a GST invoice claim” cue |
 | **3 Proof** | **Done** | tax-display-split + org-tax-identity specs; claim registry; About note; this ladder in memo |
 
-**Defer:** place-of-supply–driven hotel buy rates; e-invoice / GSTR; trip-level POS override; GST compliance claim (stays do-not-claim).
+**Defer:** *(closed — see Trip destination POS override + freeze/infer below)* · place-of-supply–driven hotel buy rates; e-invoice / GSTR; GST compliance claim (stays do-not-claim).
+
+#### Prod-ready ladder — Trip destination POS override (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `Trip.destinationPlaceOfSupply`; `PATCH /trips/:id/destination-place-of-supply`; `parseOrgTaxIdentity(…, { destinationPlaceOfSupply })` → trip ?? org |
+| **2 Channels / UI** | **Done** | Overview field beside Destinations; workspace + proposal PDF/email/preview use trip override |
+| **3 Proof** | **Done** | org-tax-identity override specs; this ladder in memo |
+
+**Defer:** *(closed — freeze + infer below)* · hotel buy rates; e-invoice / compliance.
+
+#### Prod-ready ladder — Quote freeze + destination POS infer (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `QuotationVersion.taxIdentityJson` write-once stamp on send / first PDF; live resolve = trip override ?? place-label infer (`POS_ALIASES` / parent chain) ?? org; infer never persisted on trip |
+| **2 Channels / UI** | **Done** | Overview soft cue + placeholder when suggested; proposals/preview prefer stamped identity when present |
+| **3 Proof** | **Done** | infer + freeze + precedence specs; this ladder in memo |
+
+**Defer:** hotel buy rates; e-invoice / GST compliance claim (stays do-not-claim).
 
 #### Prod-ready ladder — FIT &lt;3m claim protocol gate (**done**)
 
@@ -1136,7 +1156,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **Sales response / quote-turnaround telemetry** | `GET /dashboard/sales`, Lead/Activity/Inquiry→Trip→Quotation | **Thin + FIT minutes:** overdue lead follow-ups + median first-touch + median lead→quote (30d) + **median FIT build minutes** (workspace open → first send via `quote.fit_build` audit). `/leads?followUp=overdue` click-through. **Task→followUpAt sync:** creating a lead (or inquiry→lead) task with `dueAt` stamps `Lead.followUpAt`. **Reverse:** editing lead `followUpAt` stamps the newest open lead-linked task `dueAt`. **Inbox unread SLA thin:** unread + aging thread counts + `/inbox?unread=1` / `?aging=1`; **org `settingsJson.inboxAgingHours` (1–72, default 4)** on Settings → General, dashboard, and aging list filter. **Org sales SLA targets thin-complete:** optional `firstTouchTargetHours` / `leadToQuoteTargetHours` / `fitBuildTargetMinutes` on Settings → General; dashboard returns targets; Sales response strip tones medians (success / warn / danger) + target cues. **`conversation.unread_sla` fire:** worker 15m tick + opportunistic on sales dashboard / aging inbox; idempotent `[unread_sla:…]` subject marker; Integrations rule UI. **`conversation.waiting` fire** when status set to waiting. **Round-robin polish:** skip inactive members, preserve cursor on save, next-up / last-assigned on Lead sources, create toast shows owner, `/leads?owner=me`. Defer: dual-source merge / task PATCH |
 | Itinerary → priced lines loop | `POST /rates/resolve`, Trip workspace quote UI | Live auto-rematch in hotel/transfer drawer when match keys change; bulk refresh uses same apply helper |
 | Markup presets (fixed + %) | Org `defaultMarkupPercent`, rate resolve | **Thin slice complete:** Fixed ₹ and % both persist on open/save/rematch (no longer force-percent); Match apply keeps Fixed; **Apply default markup** uses org `defaultMarkupPercent` (not hardcoded 20%). **Agent / B2B markup:** org `agentMarkupPercent` for travel_agency / reseller / DMC parties (Settings + Match / rematch / Apply default via `partyId`). Defer: preset libraries |
-| Tax default apply | Org `defaultTaxPercent` | **Thin slice complete:** new/import lines + unmatched resolve stamp org default (fallback 5%); **Apply default tax** (attention strip + ···) sets 0% billable lines to org default without overwriting set tax. **Tax identity thin-complete:** org `taxLabel` + business `gstin` / `placeOfSupply` on proposal PDF/email/public preview + workspace summary (display only). **CGST/SGST/IGST display split thin-complete:** destination POS vs agency POS drives breakdown of the same tax total (not filing). Defer: place-of-supply–driven hotel buy rates / e-invoice / GST compliance |
+| Tax default apply | Org `defaultTaxPercent` | **Thin slice complete:** new/import lines + unmatched resolve stamp org default (fallback 5%); **Apply default tax** (attention strip + ···) sets 0% billable lines to org default without overwriting set tax. **Tax identity thin-complete:** org `taxLabel` + business `gstin` / `placeOfSupply` on proposal PDF/email/public preview + workspace summary (display only). **CGST/SGST/IGST display split thin-complete:** destination POS vs agency POS drives breakdown of the same tax total (not filing). **Trip destination POS override thin-complete.** **Quote freeze + destination infer thin-complete** (`taxIdentityJson` on send/PDF; infer from place labels, never persisted). Defer: place-of-supply–driven hotel buy rates / e-invoice / GST compliance |
 | Margin warning + `below_margin.approve` | Org `minMarginPercent` + line override audit | API blocks send/approval; UI Send opens override when margin is the only gate |
 | One-click branded proposal | PDF + email already | WhatsApp Cloud send (`POST …/send-whatsapp`) with public proposal link; **cold send requires Meta template** designated via Integrations `quoteProposalTemplateId` (or name/`quote_proposal` fallback); `wa.me` fallback + **Mark as sent** when Cloud is off; Send dialog readiness cue |
 | Quote revision UX polish | Versioning + revise-from-accepted | **Thin slice complete:** org `defaultQuoteValidityDays` stamped on create/clone/template/revise; **missing `validUntil` blocks send**; **near-expiry / grace extend is opt-in** on send, request-approval, and mark-sent; **post-expiry grace** keeps date in-window; **past grace blocks send** (reset required); Reset to org default + cues; attention click-through + Save & next; rate-drift strip/preflight; **attention table auto-scroll**; **version label display + edit + preset picker**. Defer: *(validity extend opt-in closed)* |
@@ -1285,6 +1305,8 @@ Then introduce differentiators: connected WhatsApp and email → agency website 
 | Edit traveller nationality | **Proven** (thin) |
 | Tax identity on proposals (label / GSTIN / POS) | **Proven** (thin · display only) |
 | CGST/SGST/IGST display split (POS-driven) | **Proven** (thin · display only) |
+| Trip destination POS override | **Proven** (thin · display only) |
+| Quote tax identity freeze + destination POS infer | **Proven** (thin · display only) |
 | Automated GST-compliant ledger | **Do not claim** |
 | Hotel rate version chain | **Proven** (thin) |
 | Transfer + activity rate version chains | **Proven** (thin) |
