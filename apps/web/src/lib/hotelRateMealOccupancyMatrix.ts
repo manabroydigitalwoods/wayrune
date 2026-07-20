@@ -58,6 +58,11 @@ export type MealOccupancyMatrixUpsert = {
   changed: boolean;
 };
 
+export type MealOccupancyMatrixDelete = {
+  mealPlan: MealMatrixPlan;
+  existingId: string;
+};
+
 function isoDate(raw?: string | Date | null): string {
   if (!raw) return '';
   if (typeof raw === 'string') return raw.slice(0, 10);
@@ -263,17 +268,23 @@ function weekendBandsChanged(
 
 /**
  * Diff edited cells against existing sibling rates.
- * Empty meal rows are skipped (no delete). Invalid costs throw via caller toast.
+ * Empty meal rows with a sibling → delete (except the open/anchor tip).
  * Blank weekend = preserve prior / ratio-stamp (season-form semantics).
  */
 export function diffMealOccupancyMatrix(opts: {
   cells: MealOccupancyMatrixCell[];
   byMeal: Partial<Record<MealMatrixPlan, MealOccupancyMatrixRate>>;
-  /** Anchor used for weekend ratio on creates. */
+  /** Anchor used for weekend ratio on creates; cannot be matrix-deleted. */
   anchor: MealOccupancyMatrixRate;
-}): { upserts: MealOccupancyMatrixUpsert[]; errors: string[] } {
+}): {
+  upserts: MealOccupancyMatrixUpsert[];
+  deletes: MealOccupancyMatrixDelete[];
+  errors: string[];
+} {
   const errors: string[] = [];
   const upserts: MealOccupancyMatrixUpsert[] = [];
+  const deletes: MealOccupancyMatrixDelete[] = [];
+  const anchorMeal = normalizeMatrixMealPlan(opts.anchor.mealPlan);
   const anchorCost = Number(opts.anchor.unitCost);
   const anchorWeekend =
     opts.anchor.weekendUnitCost != null && opts.anchor.weekendUnitCost !== ''
@@ -317,11 +328,21 @@ export function diffMealOccupancyMatrix(opts: {
         ...(weekend != null ? { weekendUnitCostPerNight: weekend } : {}),
       });
     }
-    if (!adultBands.length) continue;
+    const existing = opts.byMeal[meal] ?? null;
+    if (!adultBands.length) {
+      if (!existing) continue;
+      if (existing.id === opts.anchor.id || meal === anchorMeal) {
+        errors.push(
+          `Cannot clear ${meal} — that is the open tip. Delete the rate row instead`,
+        );
+        continue;
+      }
+      deletes.push({ mealPlan: meal, existingId: existing.id });
+      continue;
+    }
 
     const dbl = adultBands.find((b) => b.adults === 2)?.unitCostPerNight;
     const unitCost = dbl ?? adultBands[0]!.unitCostPerNight;
-    const existing = opts.byMeal[meal] ?? null;
     const weekendUnitCost =
       weekendRatio != null
         ? Math.round(unitCost * weekendRatio)
@@ -360,7 +381,7 @@ export function diffMealOccupancyMatrix(opts: {
     });
   }
 
-  return { upserts, errors };
+  return { upserts, deletes, errors };
 }
 
 /** Count cells with a weekday cost — for empty-state / toast. */

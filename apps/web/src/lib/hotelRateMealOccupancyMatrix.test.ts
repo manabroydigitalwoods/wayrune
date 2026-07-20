@@ -193,6 +193,36 @@ describe('diffMealOccupancyMatrix', () => {
     expect(errors.some((e) => /AP 1A/.test(e))).toBe(true);
     expect(errors.some((e) => /EP 2A needs a weekday/.test(e))).toBe(true);
   });
+
+  it('deletes cleared sibling meals but not the open tip', () => {
+    const built = buildMealOccupancyMatrix([springMap, springCp], springMap);
+    let cells = built.cells.map((c) =>
+      c.mealPlan === 'CP' ? { ...c, unitCost: '', weekendUnitCost: '' } : c,
+    );
+    const cleared = diffMealOccupancyMatrix({
+      cells,
+      byMeal: built.byMeal,
+      anchor: springMap,
+    });
+    expect(cleared.errors).toEqual([]);
+    expect(cleared.deletes).toEqual([{ mealPlan: 'CP', existingId: 'cp-1' }]);
+    expect(cleared.upserts.find((u) => u.mealPlan === 'MAP')?.changed).toBe(
+      false,
+    );
+
+    cells = built.cells.map((c) =>
+      c.mealPlan === 'MAP' ? { ...c, unitCost: '', weekendUnitCost: '' } : c,
+    );
+    const anchorClear = diffMealOccupancyMatrix({
+      cells,
+      byMeal: built.byMeal,
+      anchor: springMap,
+    });
+    expect(anchorClear.deletes).toEqual([]);
+    expect(anchorClear.errors.some((e) => /Cannot clear MAP/.test(e))).toBe(
+      true,
+    );
+  });
 });
 
 describe('occupancyJsonWithAdultBands', () => {

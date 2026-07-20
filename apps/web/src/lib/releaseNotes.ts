@@ -27,6 +27,14 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-matrix-delete-cleared-meals',
+    date: '2026-07-20',
+    title: 'Clear a meal plan from the rate matrix',
+    summary:
+      'Blanking all cells for a sibling meal (e.g. CP) and saving removes that tip. The open meal stays — delete its row if you need it gone.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-csv-band-weekend',
     date: '2026-07-20',
     title: 'Hotel CSV SGL/DBL/TPL weekend columns',

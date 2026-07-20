@@ -603,7 +603,7 @@ export function SupplierHotelRatesPanel({
 
   async function saveMealOccupancyMatrix() {
     if (!matrixAnchor) return;
-    const { upserts, errors } = diffMealOccupancyMatrix({
+    const { upserts, deletes, errors } = diffMealOccupancyMatrix({
       cells: matrixCells,
       byMeal: matrixByMeal,
       anchor: matrixAnchor,
@@ -613,7 +613,7 @@ export function SupplierHotelRatesPanel({
       return;
     }
     const changed = upserts.filter((u) => u.changed);
-    if (!changed.length) {
+    if (!changed.length && !deletes.length) {
       toastSuccess('Matrix unchanged');
       closeMatrix();
       return;
@@ -622,6 +622,7 @@ export function SupplierHotelRatesPanel({
     try {
       let created = 0;
       let updated = 0;
+      let removed = 0;
       for (const row of changed) {
         const existing = row.existingId
           ? rates.find((r) => r.id === row.existingId) || null
@@ -674,9 +675,18 @@ export function SupplierHotelRatesPanel({
           created += 1;
         }
       }
+      for (const row of deletes) {
+        await api(`/hotel-rates/${row.existingId}`, { method: 'DELETE' });
+        removed += 1;
+      }
       const parts: string[] = [];
       if (created) parts.push(`${created} meal plan${created === 1 ? '' : 's'} added`);
       if (updated) parts.push(`${updated} updated`);
+      if (removed) {
+        parts.push(
+          `${removed} meal plan${removed === 1 ? '' : 's'} removed`,
+        );
+      }
       toastSuccess(parts.join(' · ') || 'Matrix saved');
       closeMatrix();
       await load();
