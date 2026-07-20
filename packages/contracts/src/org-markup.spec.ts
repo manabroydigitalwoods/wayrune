@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   partyMarkupCue,
   partyMarkupPercentOverride,
+  partyMarkupStampSourceLabel,
   partyUsesAgentMarkup,
   resolveOrgMarkupPercent,
+  resolvePartyMarkupStamp,
+  stampPartyMarkupOntoQuoteItems,
 } from './org-markup';
 
 describe('partyUsesAgentMarkup', () => {
@@ -81,5 +84,41 @@ describe('partyMarkupCue', () => {
     expect(partyMarkupCue({ markupPercent: 9 })).toMatch(/Custom markup 9%/);
     expect(partyMarkupCue({ businessType: 'dmc' })).toMatch(/Agent markup/);
     expect(partyMarkupCue({ businessType: 'corporate' })).toBeNull();
+  });
+});
+
+describe('stampPartyMarkupOntoQuoteItems', () => {
+  it('resolves source and freezes onto unstamped lines', () => {
+    expect(
+      resolvePartyMarkupStamp(
+        { defaultMarkupPercent: 20, agentMarkupPercent: 12 },
+        { businessType: 'travel_agency', markupPercent: 8 },
+      ),
+    ).toEqual({ percent: 8, source: 'party_override' });
+    expect(
+      resolvePartyMarkupStamp(
+        { defaultMarkupPercent: 20, agentMarkupPercent: 12 },
+        { businessType: 'dmc' },
+      ),
+    ).toEqual({ percent: 12, source: 'agent' });
+    expect(partyMarkupStampSourceLabel('agent')).toBe('agent / B2B');
+
+    const { items, stampedCount } = stampPartyMarkupOntoQuoteItems(
+      [
+        { id: 'a', details: { markupMode: 'percent', markupValue: 20 } },
+        {
+          id: 'b',
+          details: { partyMarkupPercent: 5, partyMarkupSource: 'org_default' },
+        },
+      ],
+      { percent: 8, source: 'party_override' },
+    );
+    expect(stampedCount).toBe(1);
+    expect(items[0]?.details).toMatchObject({
+      markupValue: 20,
+      partyMarkupPercent: 8,
+      partyMarkupSource: 'party_override',
+    });
+    expect(items[1]?.details).toMatchObject({ partyMarkupPercent: 5 });
   });
 });

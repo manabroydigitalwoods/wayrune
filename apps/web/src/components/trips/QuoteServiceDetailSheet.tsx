@@ -27,6 +27,7 @@ import {
   markupPresetSummary,
   type MarkupPreset,
 } from '../../lib/markupPresets';
+import { partyMarkupStampSourceLabel } from '../../lib/orgMarkup';
 import { serviceTypeLabel } from '../../lib/quoteImportFromItinerary';
 import {
   EXPERIENCE_SUPPLIER_TYPE_QUERY,
@@ -1080,6 +1081,23 @@ export function QuoteServiceDetailSheet({
           ))}
         </div>
       </div>
+    );
+  }
+
+  function renderPartyMarkupStampCue() {
+    const pct = details.partyMarkupPercent;
+    if (pct == null || !Number.isFinite(Number(pct))) return null;
+    const source = partyMarkupStampSourceLabel(
+      details.partyMarkupSource as
+        | 'party_override'
+        | 'agent'
+        | 'org_default'
+        | undefined,
+    );
+    return (
+      <p className="text-[11px] text-muted-foreground">
+        Frozen at send · client markup {Number(pct)}% ({source})
+      </p>
     );
   }
 
@@ -2858,6 +2876,7 @@ export function QuoteServiceDetailSheet({
                 />
               </FormField>
               {renderMarkupPresetChips()}
+              {renderPartyMarkupStampCue()}
               <FormField label="Sell unit rate" description="Calculated from buy × markup">
                 <PriceField
                   currency={currency}
@@ -3855,6 +3874,7 @@ export function QuoteServiceDetailSheet({
                 />
               </FormField>
               {renderMarkupPresetChips()}
+              {renderPartyMarkupStampCue()}
               <FormField label="Sell unit rate" description="Calculated from buy × markup">
                 <PriceField
                   currency={currency}
@@ -4391,6 +4411,7 @@ export function QuoteServiceDetailSheet({
                   />
                 </FormField>
                 {renderMarkupPresetChips()}
+                {renderPartyMarkupStampCue()}
                 <FormField label="Sell / person" description="Calculated from buy × markup">
                   <PriceField
                     currency={currency}
@@ -4511,6 +4532,7 @@ export function QuoteServiceDetailSheet({
               </FormField>
             </FormGrid>
             {renderMarkupPresetChips()}
+            {renderPartyMarkupStampCue()}
             <p className="text-xs text-muted-foreground">
               Suggested sell:{' '}
               {customSuggested != null ? formatCurrency(customSuggested) : '—'}

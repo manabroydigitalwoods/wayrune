@@ -2886,6 +2886,14 @@ export const QuotationItemDetailsSchema = z
     /** Org preset id when sell was set from the markup library (this line). */
     markupPresetId: z.string().max(48).optional(),
     markupPresetLabel: z.string().max(80).optional(),
+    /**
+     * Party/org markup % frozen onto the line at quote send
+     * (audit trail; does not rewrite sell).
+     */
+    partyMarkupPercent: z.number().min(0).max(500).optional(),
+    partyMarkupSource: z
+      .enum(['party_override', 'agent', 'org_default'])
+      .optional(),
     /** True when sell was typed manually instead of following markup. */
     sellManual: z.boolean().optional(),
     priceSource: QuotePriceSourceSchema.optional(),

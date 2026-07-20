@@ -1,61 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import {
-  partyMarkupCue,
-  partyMarkupPercentOverride,
-  partyUsesAgentMarkup,
-  resolveOrgMarkupPercent,
+  partyMarkupStampSourceLabel,
+  stampPartyMarkupOntoQuoteItems,
 } from './orgMarkup';
 
-describe('partyUsesAgentMarkup', () => {
-  it('detects trade / agent business types', () => {
-    expect(partyUsesAgentMarkup({ businessType: 'travel_agency' })).toBe(true);
-    expect(partyUsesAgentMarkup({ businessType: 'reseller' })).toBe(true);
-    expect(partyUsesAgentMarkup({ businessType: 'dmc' })).toBe(true);
-    expect(partyUsesAgentMarkup({ businessType: 'corporate' })).toBe(false);
-    expect(partyUsesAgentMarkup({ businessType: null })).toBe(false);
-    expect(partyUsesAgentMarkup(null)).toBe(false);
-  });
-});
-
-describe('resolveOrgMarkupPercent', () => {
-  it('uses default for retail and agent override when set', () => {
-    expect(
-      resolveOrgMarkupPercent(
-        { defaultMarkupPercent: 25, agentMarkupPercent: 12 },
-        { party: { businessType: 'individual' } },
-      ),
-    ).toBe(25);
-    expect(
-      resolveOrgMarkupPercent(
-        { defaultMarkupPercent: 25, agentMarkupPercent: 12 },
-        { party: { businessType: 'travel_agency' } },
-      ),
-    ).toBe(12);
-  });
-
-  it('falls back to default when agent percent unset', () => {
-    expect(
-      resolveOrgMarkupPercent(
-        { defaultMarkupPercent: 18 },
-        { party: { businessType: 'dmc' } },
-      ),
-    ).toBe(18);
-    expect(resolveOrgMarkupPercent(null)).toBe(20);
-  });
-
-  it('prefers per-party markup override', () => {
-    expect(partyMarkupPercentOverride({ markupPercent: 11 })).toBe(11);
-    expect(
-      resolveOrgMarkupPercent(
-        { defaultMarkupPercent: 25, agentMarkupPercent: 12 },
-        {
-          party: {
-            businessType: 'travel_agency',
-            metadataJson: { markupPercent: 6 },
-          },
-        },
-      ),
-    ).toBe(6);
-    expect(partyMarkupCue({ markupPercent: 6 })).toMatch(/Custom markup 6%/);
+describe('orgMarkup web re-export', () => {
+  it('stamps party markup onto quote lines', () => {
+    const { items, stampedCount } = stampPartyMarkupOntoQuoteItems(
+      [{ id: '1', details: {} }],
+      { percent: 15, source: 'org_default' },
+    );
+    expect(stampedCount).toBe(1);
+    expect(items[0]?.details).toMatchObject({
+      partyMarkupPercent: 15,
+      partyMarkupSource: 'org_default',
+    });
+    expect(partyMarkupStampSourceLabel('party_override')).toBe('client override');
   });
 });

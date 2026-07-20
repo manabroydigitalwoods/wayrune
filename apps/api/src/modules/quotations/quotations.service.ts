@@ -38,7 +38,9 @@ import {
   lineNeedsMinStayRiskAck,
   lineNeedsRateDriftAck,
   parseMinMarginPercent,
+  resolvePartyMarkupStamp,
   resolveTripWindowDisplay,
+  stampPartyMarkupOntoQuoteItems,
 } from '@wayrune/contracts';
 import { hashPassword } from '@wayrune/auth';
 import { loadEnv } from '@wayrune/config';
@@ -2760,29 +2762,72 @@ export class QuotationsService {
       }
 
       let taxIdentityStamp: Prisma.InputJsonValue | undefined;
-      if (action === 'send' && !parseQuoteTaxIdentity(version.taxIdentityJson)) {
+      let itemsJsonStamp: Prisma.InputJsonValue | undefined;
+      let partyMarkupStampedCount = 0;
+      if (action === 'send') {
         const org = await this.prisma.organization.findFirst({
           where: { id: user.organizationId },
           select: { taxLabel: true, settingsJson: true },
         });
-        const tripForTax = await this.prisma.trip.findFirst({
+        const tripForSend = await this.prisma.trip.findFirst({
           where: { id: version.quotation.tripId },
           select: {
             destinationPlaceOfSupply: true,
             destinationsJson: true,
+            party: {
+              select: {
+                businessType: true,
+                metadataJson: true,
+              },
+            },
           },
         });
-        if (org && tripForTax) {
+        if (org && tripForSend && !parseQuoteTaxIdentity(version.taxIdentityJson)) {
           const live = await this.resolveLiveTaxIdentity({
             organizationId: user.organizationId,
             taxLabel: org.taxLabel,
             settingsJson: org.settingsJson,
-            trip: tripForTax,
+            trip: tripForSend,
           });
           taxIdentityStamp = quoteTaxIdentityToJson(
             live,
             'send',
           ) as Prisma.InputJsonValue;
+        }
+        if (org && Array.isArray(version.itemsJson)) {
+          const settings =
+            org.settingsJson &&
+            typeof org.settingsJson === 'object' &&
+            !Array.isArray(org.settingsJson)
+              ? (org.settingsJson as {
+                  defaultMarkupPercent?: unknown;
+                  agentMarkupPercent?: unknown;
+                })
+              : null;
+          const partyMeta =
+            tripForSend?.party?.metadataJson &&
+            typeof tripForSend.party.metadataJson === 'object' &&
+            !Array.isArray(tripForSend.party.metadataJson)
+              ? (tripForSend.party.metadataJson as Record<string, unknown>)
+              : null;
+          const stamp = resolvePartyMarkupStamp(settings, {
+            businessType: tripForSend?.party?.businessType,
+            markupPercent:
+              partyMeta && Number.isFinite(Number(partyMeta.markupPercent))
+                ? Number(partyMeta.markupPercent)
+                : null,
+            metadataJson: tripForSend?.party?.metadataJson,
+          });
+          const { items, stampedCount } = stampPartyMarkupOntoQuoteItems(
+            version.itemsJson as Array<{
+              details?: Record<string, unknown> | null;
+            }>,
+            stamp,
+          );
+          if (stampedCount > 0) {
+            itemsJsonStamp = items as unknown as Prisma.InputJsonValue;
+            partyMarkupStampedCount = stampedCount;
+          }
         }
       }
 
@@ -2791,8 +2836,20 @@ export class QuotationsService {
         data: {
           status: map[action],
           ...(taxIdentityStamp ? { taxIdentityJson: taxIdentityStamp } : {}),
+          ...(itemsJsonStamp ? { itemsJson: itemsJsonStamp } : {}),
         },
       });
+
+      if (action === 'send' && partyMarkupStampedCount > 0) {
+        await this.audit.record({
+          organizationId: user.organizationId,
+          actorUserId: user.sub,
+          action: 'quote.party_markup_stamp',
+          entityType: 'quotation_version',
+          entityId: versionId,
+          metadata: { stampedCount: partyMarkupStampedCount },
+        });
+      }
 
       const trip = await this.prisma.trip.findFirst({
         where: { id: version.quotation.tripId },

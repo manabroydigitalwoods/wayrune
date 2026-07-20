@@ -27,6 +27,14 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-party-markup-stamp-on-send',
+    date: '2026-07-20',
+    title: 'Party markup frozen on quote lines at send',
+    summary:
+      'Sending a quote (email, WhatsApp, or mark-sent) freezes the resolved client markup % and source onto each line’s details for audit. Service detail shows Frozen at send; sell amounts are not rewritten.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-per-line-markup-presets',
     date: '2026-07-20',
     title: 'Markup presets on individual quote lines',

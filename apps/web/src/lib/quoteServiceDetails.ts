@@ -158,6 +158,13 @@ export function parseQuoteServiceDetails(raw: unknown): QuoteServiceDetails | un
     markupValue: num(d.markupValue),
     markupPresetId: str(d.markupPresetId),
     markupPresetLabel: str(d.markupPresetLabel),
+    partyMarkupPercent: num(d.partyMarkupPercent),
+    partyMarkupSource: (() => {
+      const s = str(d.partyMarkupSource);
+      return s === 'party_override' || s === 'agent' || s === 'org_default'
+        ? s
+        : undefined;
+    })(),
     sellManual: typeof d.sellManual === 'boolean' ? d.sellManual : undefined,
     priceSource:
       priceSource &&
