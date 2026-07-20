@@ -91,6 +91,41 @@ export function collectGuestNationalityCodesUi(input: {
   return out;
 }
 
+/** Keeps duplicates for traveller multiplicity / alone rooming (mirrors API bag). */
+export function collectGuestNationalityBagUi(input: {
+  nationality?: string | null;
+  nationalities?: Array<string | null | undefined> | null;
+}): string[] {
+  const raw: unknown[] = [];
+  if (Array.isArray(input.nationalities)) raw.push(...input.nationalities);
+  if (input.nationality != null && String(input.nationality).trim()) {
+    raw.push(input.nationality);
+  }
+  const out: string[] = [];
+  for (const item of raw) {
+    if (out.length >= 12) break;
+    const n = normalizeHotelNationalityUi(
+      typeof item === 'string' ? item : null,
+    );
+    if (!n) continue;
+    out.push(n);
+  }
+  return out;
+}
+
+/** Move one occurrence of alone to the end (3A/2R SGL). */
+export function orderBagWithAloneLastUi(
+  bag: Array<string | null | undefined>,
+  alone: string | null | undefined,
+): string[] {
+  const list = collectGuestNationalityBagUi({ nationalities: bag });
+  const aloneCode = normalizeHotelNationalityUi(alone);
+  if (!aloneCode || !list.length) return list;
+  const idx = list.findIndex((c) => c === aloneCode);
+  if (idx < 0) return list;
+  return [...list.slice(0, idx), ...list.slice(idx + 1), aloneCode];
+}
+
 /**
  * Collapse multi-guest codes to one Match nationality (mirrors API).
  * IN+foreign / multi-ISO / INTL → INTL; single ISO kept; all IN → IN.
@@ -123,20 +158,31 @@ export function guestNationalitiesAreMixedUi(
   return list.length > 1;
 }
 
-/** Sync nationalities[] + collapsed nationality for quote line details. */
+/** Sync nationalities[] + collapsed nationality for quote line details.
+ * Preserves duplicate codes when present (multiplicity / alone order).
+ */
 export function withGuestNationalities(
   codes: Array<string | null | undefined>,
 ): { nationality?: string; nationalities?: string[] } {
-  const list = collectGuestNationalityCodesUi({ nationalities: codes });
-  if (!list.length) return { nationality: undefined, nationalities: undefined };
-  const effective = effectiveGuestNationalityUi(list);
-  if (list.length === 1) {
-    return { nationality: list[0], nationalities: undefined };
+  const bag = collectGuestNationalityBagUi({ nationalities: codes });
+  const distinct = collectGuestNationalityCodesUi({ nationalities: codes });
+  if (!bag.length) return { nationality: undefined, nationalities: undefined };
+  const effective = effectiveGuestNationalityUi(distinct);
+  if (distinct.length === 1) {
+    return { nationality: distinct[0], nationalities: undefined };
   }
   return {
     nationality: effective || undefined,
-    nationalities: list,
+    nationalities: bag,
   };
+}
+
+/** Set who sleeps alone on 3A/2R (last market → SGL). */
+export function withAloneGuestNationality(
+  codes: Array<string | null | undefined>,
+  alone: string | null | undefined,
+): { nationality?: string; nationalities?: string[] } {
+  return withGuestNationalities(orderBagWithAloneLastUi(codes, alone));
 }
 
 export type TripTravellerNationalityRowUi = {
@@ -145,7 +191,7 @@ export type TripTravellerNationalityRowUi = {
   traveller?: { nationality?: string | null } | null;
 };
 
-/** Derive Match guest codes from trip travellers (lead-first; mixed → list). */
+/** Derive Match guest codes from trip travellers (lead-first; mixed → bag). */
 export function guestNationalitiesFromTripTravellersUi(
   rows: TripTravellerNationalityRowUi[] | null | undefined,
 ): { nationality?: string; nationalities?: string[] } {
@@ -156,19 +202,26 @@ export function guestNationalitiesFromTripTravellersUi(
   const leadCode = normalizeHotelNationalityUi(
     lead?.nationality ?? lead?.traveller?.nationality ?? null,
   );
-  const allCodes = collectGuestNationalityCodesUi({
-    nationalities: rows.map(
+  const orderedRows = lead
+    ? [lead, ...rows.filter((r) => r !== lead)]
+    : rows;
+  const bag = collectGuestNationalityBagUi({
+    nationalities: orderedRows.map(
       (r) => r.nationality ?? r.traveller?.nationality ?? null,
     ),
   });
-  if (!allCodes.length) return {};
-  if (allCodes.length === 1) {
-    return withGuestNationalities(allCodes);
+  if (!bag.length) return {};
+  const distinct = collectGuestNationalityCodesUi({ nationalities: bag });
+  if (distinct.length === 1) {
+    return withGuestNationalities(distinct);
   }
-  const ordered = leadCode
-    ? [leadCode, ...allCodes.filter((c) => c !== leadCode)]
-    : allCodes;
-  return withGuestNationalities(ordered);
+  const leadFirst = leadCode
+    ? [
+        ...bag.filter((c) => c === leadCode),
+        ...bag.filter((c) => c !== leadCode),
+      ]
+    : bag;
+  return withGuestNationalities(leadFirst);
 }
 
 export function formatHotelNationalityNote(calc: {

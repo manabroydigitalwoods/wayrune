@@ -4,6 +4,7 @@ import {
   HOTEL_NATIONALITY_OPTIONS,
   effectiveGuestNationalityUi,
   guestNationalitiesFromTripTravellersUi,
+  withAloneGuestNationality,
   withGuestNationalities,
   normalizeHotelNationalityUi,
 } from './hotelNationalityNote';
@@ -50,6 +51,24 @@ describe('hotelNationalityNote', () => {
         { isLead: false, traveller: { nationality: 'US' } },
       ]),
     ).toEqual({ nationality: 'INTL', nationalities: ['IN', 'US'] });
+    expect(
+      guestNationalitiesFromTripTravellersUi([
+        { isLead: true, traveller: { nationality: 'IN' } },
+        { isLead: false, traveller: { nationality: 'US' } },
+        { isLead: false, traveller: { nationality: 'US' } },
+      ]),
+    ).toEqual({ nationality: 'INTL', nationalities: ['IN', 'US', 'US'] });
+  });
+
+  it('reorders alone market to the end', () => {
+    expect(withAloneGuestNationality(['IN', 'US'], 'IN')).toEqual({
+      nationality: 'INTL',
+      nationalities: ['US', 'IN'],
+    });
+    expect(withAloneGuestNationality(['IN', 'US', 'US'], 'IN')).toEqual({
+      nationality: 'INTL',
+      nationalities: ['US', 'US', 'IN'],
+    });
   });
 
   it('formats exact and INTL fallback cues', () => {

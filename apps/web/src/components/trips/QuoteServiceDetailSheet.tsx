@@ -44,12 +44,14 @@ import {
 } from '../../lib/hotelMinStayNote';
 import {
   HOTEL_NATIONALITY_GUEST_OPTIONS,
+  collectGuestNationalityBagUi,
   collectGuestNationalityCodesUi,
   effectiveGuestNationalityUi,
   formatHotelNationalityNote,
   guestNationalitiesFromTripTravellersUi,
   hotelNationalityLabelUi,
   normalizeHotelNationalityUi,
+  withAloneGuestNationality,
   withGuestNationalities,
 } from '../../lib/hotelNationalityNote';
 import { formatHotelCancellationNote } from '../../lib/hotelCancellationNote';
@@ -2271,6 +2273,10 @@ export function QuoteServiceDetailSheet({
                 >
                   <div className="space-y-2">
                     {(() => {
+                      const bag = collectGuestNationalityBagUi({
+                        nationality: details.nationality,
+                        nationalities: details.nationalities,
+                      });
                       const selected = collectGuestNationalityCodesUi({
                         nationality: details.nationality,
                         nationalities: details.nationalities,
@@ -2282,6 +2288,13 @@ export function QuoteServiceDetailSheet({
                         nationality: fromTravellers.nationality,
                         nationalities: fromTravellers.nationalities,
                       });
+                      const aloneCode = bag.length
+                        ? bag[bag.length - 1]!
+                        : selected[selected.length - 1] || '';
+                      const showAlone =
+                        Number(details.rooms) === 2 &&
+                        Number(details.adults) === 3 &&
+                        selected.length >= 2;
                       return (
                         <>
                           {selected.length ? (
@@ -2296,13 +2309,18 @@ export function QuoteServiceDetailSheet({
                                     if (readOnly) return;
                                     patchDetails(
                                       withGuestNationalities(
-                                        selected.filter((c) => c !== code),
+                                        (bag.length ? bag : selected).filter(
+                                          (c) => c !== code,
+                                        ),
                                       ),
                                     );
                                   }}
                                   title="Remove"
                                 >
                                   {hotelNationalityLabelUi(code)}
+                                  {bag.filter((c) => c === code).length > 1
+                                    ? ` ×${bag.filter((c) => c === code).length}`
+                                    : ''}
                                   {!readOnly ? (
                                     <span className="text-muted-foreground" aria-hidden>
                                       ×
@@ -2319,7 +2337,10 @@ export function QuoteServiceDetailSheet({
                               const code = normalizeHotelNationalityUi(v);
                               if (!code) return;
                               patchDetails(
-                                withGuestNationalities([...selected, code]),
+                                withGuestNationalities([
+                                  ...(bag.length ? bag : selected),
+                                  code,
+                                ]),
                               );
                             }}
                             options={HOTEL_NATIONALITY_GUEST_OPTIONS.filter(
@@ -2332,6 +2353,31 @@ export function QuoteServiceDetailSheet({
                             }
                             searchable
                           />
+                          {showAlone ? (
+                            <FormField
+                              label="Alone (single)"
+                              description="Who sleeps alone — last market on DBL+SGL."
+                            >
+                              <Combobox
+                                value={aloneCode}
+                                disabled={readOnly}
+                                onChange={(v) => {
+                                  if (readOnly) return;
+                                  patchDetails(
+                                    withAloneGuestNationality(
+                                      bag.length ? bag : selected,
+                                      v,
+                                    ),
+                                  );
+                                }}
+                                options={selected.map((code) => ({
+                                  value: code,
+                                  label: hotelNationalityLabelUi(code),
+                                }))}
+                                placeholder="Select…"
+                              />
+                            </FormField>
+                          ) : null}
                           {selected.length > 1 && effective ? (
                             <p className="text-[11px] text-muted-foreground">
                               Match uses {hotelNationalityLabelUi(effective)}

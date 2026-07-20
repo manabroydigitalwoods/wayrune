@@ -2,12 +2,13 @@
  * Thin mixed-nationality hotel buy: equal share from each guest tip's occupancy band.
  * Gates:
  * - DBL/2: adults === 2 × rooms, exactly two distinct codes
- * - TPL/3: 1 room, 3 adults, 3 codes or weighted 2 (2× first + 1× second)
- * - DBL+SGL: 2 rooms, 3 adults, 3 codes or weighted 2 (same expansion)
+ * - DBL+SGL: 2 rooms, 3 adults (last slot = alone / SGL)
+ * - TPL/3 × N: adults === 3 × rooms (bag multiplicity or lead-weighted 2-code)
  * Children allowed — extras compose via applyOccupancyPricing after the split.
  */
 
 import {
+  collectGuestNationalityBag,
   collectGuestNationalityCodes,
   filterHotelByNationality,
   guestNationalitiesAreMixed,
@@ -88,17 +89,35 @@ function money(v: number | string | null | undefined): number {
 }
 
 /**
- * Expand distinct codes into three adult slots for 3A parties.
- * - 3 codes → one each
- * - 2 codes → lead (first) twice + other once (weighted fiction)
+ * Expand guest codes into three adult slots for 3A / 3A×N parties.
+ * - Bag length 3 with 2–3 markets → use bag (multiplicity / alone order)
+ * - 3 distinct → one each
+ * - 2 distinct → majority ×2 from bag counts; tie / unknown → first ×2
  */
 export function expandThreeAdultNationalitySlots(
   codes: string[],
 ): string[] | null {
-  if (codes.length === 3) return [...codes];
-  if (codes.length === 2) {
-    return [codes[0]!, codes[0]!, codes[1]!];
+  const bag = collectGuestNationalityBag({ nationalities: codes });
+  const distinct = collectGuestNationalityCodes({ nationalities: codes });
+  if (distinct.length < 2) return null;
+
+  if (bag.length === 3 && distinct.length >= 2 && distinct.length <= 3) {
+    return bag;
   }
+
+  if (distinct.length === 3) return [...distinct];
+
+  if (distinct.length === 2) {
+    const c0 = distinct[0]!;
+    const c1 = distinct[1]!;
+    const n0 = bag.filter((c) => c === c0).length;
+    const n1 = bag.filter((c) => c === c1).length;
+    if (n0 > n1) return [c0, c0, c1];
+    if (n1 > n0) return [c1, c1, c0];
+    // Tie or distinct-only list → first (lead) twice
+    return [c0, c0, c1];
+  }
+
   return null;
 }
 
@@ -112,26 +131,13 @@ export function hotelPaxBuySplitPlan(
   const rooms = Math.max(1, Math.floor(opts.rooms) || 1);
   const adults = Math.max(0, Math.floor(opts.adults) || 0);
   void opts.children; // allowed; child extras apply after split on Match tip
-  const codes = collectGuestNationalityCodes({ nationalities: guestCodes });
-  if (!guestNationalitiesAreMixed(codes)) return null;
+  const bag = collectGuestNationalityBag({ nationalities: guestCodes });
+  const distinct = collectGuestNationalityCodes({ nationalities: guestCodes });
+  if (!guestNationalitiesAreMixed(distinct)) return null;
 
-  // TPL/3: one room, three adults — 3 markets or weighted 2 (2× first + 1× second)
-  if (rooms === 1 && adults === 3) {
-    const expanded = expandThreeAdultNationalitySlots(codes);
-    if (!expanded) return null;
-    return {
-      slots: expanded.map((code) => ({ code, bandAdults: 3 })),
-      bandAdults: 3,
-      composition: 'equal',
-      displayRooms: 1,
-      stayRooms: 1,
-    };
-  }
-
-  // Uneven 3A/2R: first two share a double, third takes a single (code order).
-  // Weighted 2-code: 2× first on the double halves + second on the single.
+  // Uneven 3A/2R first (not TPL×2): last expanded slot is SGL
   if (rooms === 2 && adults === 3) {
-    const expanded = expandThreeAdultNationalitySlots(codes);
+    const expanded = expandThreeAdultNationalitySlots(bag.length ? bag : distinct);
     if (!expanded) return null;
     return {
       slots: [
@@ -146,11 +152,24 @@ export function hotelPaxBuySplitPlan(
     };
   }
 
+  // TPL/3 × N rooms (1R/3A, 2R/6A, 3R/9A, …)
+  if (adults === 3 * rooms) {
+    const expanded = expandThreeAdultNationalitySlots(bag.length ? bag : distinct);
+    if (!expanded) return null;
+    return {
+      slots: expanded.map((code) => ({ code, bandAdults: 3 })),
+      bandAdults: 3,
+      composition: 'equal',
+      displayRooms: rooms,
+      stayRooms: rooms,
+    };
+  }
+
   // DBL/2: adults === 2 × rooms (incl. multi-room 2A×N)
   if (adults === 2 * rooms) {
-    if (codes.length !== 2) return null;
+    if (distinct.length !== 2) return null;
     return {
-      slots: codes.map((code) => ({ code, bandAdults: 2 })),
+      slots: distinct.map((code) => ({ code, bandAdults: 2 })),
       bandAdults: 2,
       composition: 'equal',
       displayRooms: rooms,

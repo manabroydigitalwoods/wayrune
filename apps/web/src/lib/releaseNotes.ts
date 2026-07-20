@@ -27,6 +27,14 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-rooming-multiplicity-3axn',
+    date: '2026-07-20',
+    title: 'Rooming, traveller counts, and triple×N',
+    summary:
+      '3A/2R Alone picker chooses the single. Traveller nationalities keep counts (e.g. 1×IN + 2×US). adults = 3 × rooms multiplies TPL/3 across rooms.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-weighted-2code-3a-pax',
     date: '2026-07-20',
     title: 'Weighted 2-market triple buy',

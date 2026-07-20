@@ -101,6 +101,49 @@ export function collectGuestNationalityCodes(input: {
 }
 
 /**
+ * Like collectGuestNationalityCodes but keeps duplicates (traveller multiplicity).
+ * Caps at 12 entries.
+ */
+export function collectGuestNationalityBag(input: {
+  nationality?: string | null;
+  nationalities?: Array<string | null | undefined> | null;
+}): HotelNationalityCode[] {
+  const raw: unknown[] = [];
+  if (Array.isArray(input.nationalities)) {
+    raw.push(...input.nationalities);
+  }
+  if (input.nationality != null && String(input.nationality).trim()) {
+    raw.push(input.nationality);
+  }
+  const out: HotelNationalityCode[] = [];
+  for (const item of raw) {
+    if (out.length >= 12) break;
+    const n = normalizeHotelNationality(
+      typeof item === 'string' ? item : null,
+    );
+    if (!n) continue;
+    out.push(n);
+  }
+  return out;
+}
+
+/**
+ * Move one occurrence of `alone` to the end (SGL / who sleeps alone).
+ * Used for 3A/2R DBL+SGL rooming.
+ */
+export function orderBagWithAloneLast(
+  bag: Array<string | null | undefined>,
+  alone: string | null | undefined,
+): HotelNationalityCode[] {
+  const list = collectGuestNationalityBag({ nationalities: bag });
+  const aloneCode = normalizeHotelNationality(alone);
+  if (!aloneCode || !list.length) return list;
+  const idx = list.findIndex((c) => c === aloneCode);
+  if (idx < 0) return list;
+  return [...list.slice(0, idx), ...list.slice(idx + 1), aloneCode];
+}
+
+/**
  * Collapse multi-guest nationalities to one Match code.
  * - all IN → IN
  * - single foreign ISO (no IN) → that ISO
@@ -152,7 +195,7 @@ export type TripTravellerNationalityRow = {
 
 /**
  * Derive Match guest codes from trip travellers.
- * Prefer lead nationality; else distinct codes from all travellers with nationality.
+ * Prefer lead nationality; mixed parties keep one code per traveller (multiplicity).
  */
 export function guestNationalitiesFromTripTravellers(
   rows: TripTravellerNationalityRow[] | null | undefined,
@@ -164,29 +207,31 @@ export function guestNationalitiesFromTripTravellers(
   const leadCode = normalizeHotelNationality(
     lead?.nationality ?? lead?.traveller?.nationality ?? null,
   );
-  const allCodes = collectGuestNationalityCodes({
-    nationalities: rows.map(
+  const orderedRows = lead
+    ? [lead, ...rows.filter((r) => r !== lead)]
+    : rows;
+  const bag = collectGuestNationalityBag({
+    nationalities: orderedRows.map(
       (r) => r.nationality ?? r.traveller?.nationality ?? null,
     ),
   });
-  if (!allCodes.length) {
+  if (!bag.length) {
     return { nationality: null, nationalities: [] };
   }
-  // Single market across party (or only lead set and others blank)
-  if (allCodes.length === 1) {
-    return { nationality: allCodes[0]!, nationalities: allCodes };
+  const distinct = collectGuestNationalityCodes({ nationalities: bag });
+  if (distinct.length === 1) {
+    return { nationality: distinct[0]!, nationalities: distinct };
   }
-  // Mixed travellers → pass full list; Match collapses via effectiveGuestNationality
-  // Prefer including lead first for stable order
-  const ordered = leadCode
+  // Lead-first bag: all lead occurrences first, then others in traveller order
+  const leadFirst = leadCode
     ? [
-        leadCode,
-        ...allCodes.filter((c) => c !== leadCode),
+        ...bag.filter((c) => c === leadCode),
+        ...bag.filter((c) => c !== leadCode),
       ]
-    : allCodes;
+    : bag;
   return {
-    nationality: effectiveGuestNationality(ordered),
-    nationalities: ordered,
+    nationality: effectiveGuestNationality(leadFirst),
+    nationalities: leadFirst,
   };
 }
 

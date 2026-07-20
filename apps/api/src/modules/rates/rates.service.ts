@@ -88,7 +88,7 @@ import {
   hotelNationalityMatchAccepted,
   nationalityFromOccupancy,
   normalizeHotelNationality,
-  collectGuestNationalityCodes,
+  collectGuestNationalityBag,
   effectiveGuestNationality,
   guestNationalitiesAreMixed,
 } from './hotel-nationality';
@@ -3240,7 +3240,7 @@ export class RatesService {
         (item.details?.roomProductId || '').trim() || null;
       const rooms = Math.max(1, Number(item.details?.rooms) || 1);
       const nightsCount = Math.max(1, Number(item.details?.nights) || 1);
-      const lineGuestCodes = collectGuestNationalityCodes({
+      const lineGuestCodes = collectGuestNationalityBag({
         nationality:
           typeof item.details?.nationality === 'string'
             ? item.details.nationality.trim()
@@ -3249,11 +3249,12 @@ export class RatesService {
           ? item.details.nationalities
           : null,
       });
-      const ctxGuestCodes = collectGuestNationalityCodes({
+      const ctxGuestCodes = collectGuestNationalityBag({
         nationality: ctx.nationality,
         nationalities: ctx.nationalities,
       });
       // Line nationalities win; trip/traveller ctx only fills when the line is blank.
+      // Bag keeps multiplicity for per-pax split; Match still collapses via effectiveGuestNationality.
       const guestCodes = lineGuestCodes.length ? lineGuestCodes : ctxGuestCodes;
       const guestNationality = effectiveGuestNationality(guestCodes);
       const guestMixed = guestNationalitiesAreMixed(guestCodes);

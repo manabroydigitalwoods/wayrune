@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  collectGuestNationalityBag,
   collectGuestNationalityCodes,
   effectiveGuestNationality,
   filterHotelByNationality,
@@ -10,6 +11,7 @@ import {
   hotelNationalityMatchAccepted,
   hotelNationalityMarket,
   normalizeHotelNationality,
+  orderBagWithAloneLast,
   resolveNationalityOptsFromTripTravellers,
 } from './hotel-nationality';
 
@@ -54,6 +56,17 @@ describe('hotel-nationality', () => {
     expect(guestNationalitiesAreMixed(['US'])).toBe(false);
   });
 
+  it('keeps bag duplicates and alone-last order', () => {
+    expect(
+      collectGuestNationalityBag({ nationalities: ['IN', 'US', 'US'] }),
+    ).toEqual(['IN', 'US', 'US']);
+    expect(orderBagWithAloneLast(['IN', 'US', 'US'], 'IN')).toEqual([
+      'US',
+      'US',
+      'IN',
+    ]);
+  });
+
   it('derives Match codes from trip travellers (lead + mixed)', () => {
     expect(
       guestNationalitiesFromTripTravellers([
@@ -67,6 +80,13 @@ describe('hotel-nationality', () => {
         { isLead: false, traveller: { nationality: 'US' } },
       ]).nationalities,
     ).toEqual(['IN', 'US']);
+    expect(
+      guestNationalitiesFromTripTravellers([
+        { isLead: true, traveller: { nationality: 'IN' } },
+        { isLead: false, traveller: { nationality: 'US' } },
+        { isLead: false, traveller: { nationality: 'US' } },
+      ]).nationalities,
+    ).toEqual(['IN', 'US', 'US']);
     expect(
       resolveNationalityOptsFromTripTravellers([
         { isLead: true, traveller: { nationality: 'GB' } },

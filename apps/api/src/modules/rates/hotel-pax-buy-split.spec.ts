@@ -406,4 +406,96 @@ describe('hotel-pax-buy-split', () => {
     });
     expect(split).toBeNull();
   });
+
+  it('uses traveller multiplicity bag (1×IN + 2×US) not lead-weighted', () => {
+    const pool = [
+      tip({ id: 'in', unitCost: 4000, nationality: 'IN', tpl: 6600 }),
+      tip({ id: 'us', unitCost: 6000, nationality: 'US', tpl: 7200 }),
+    ];
+    const split = tryHotelPaxBuySplit({
+      guestCodes: ['IN', 'US', 'US'],
+      adults: 3,
+      children: 0,
+      rooms: 1,
+      stayDates: [new Date('2026-04-10T00:00:00.000Z')],
+      candidatePool: pool,
+      pickBest: (rows) => rows[0],
+    });
+    expect(split).not.toBeNull();
+    expect(split!.paxBuySplits.map((s) => s.nationality)).toEqual([
+      'IN',
+      'US',
+      'US',
+    ]);
+    expect(split!.paxBuySplitTotalPerNight).toBe(2200 + 2400 + 2400);
+  });
+
+  it('alone-last bag puts SGL on chosen market (3A/2R)', () => {
+    const pool = [
+      tip({ id: 'in', unitCost: 4000, nationality: 'IN', dbl: 4500, sgl: 3600 }),
+      tip({ id: 'us', unitCost: 6000, nationality: 'US', dbl: 6200, sgl: 4800 }),
+    ];
+    const split = tryHotelPaxBuySplit({
+      guestCodes: ['US', 'US', 'IN'],
+      adults: 3,
+      children: 0,
+      rooms: 2,
+      stayDates: [new Date('2026-04-10T00:00:00.000Z')],
+      candidatePool: pool,
+      pickBest: (rows) => rows[0],
+    });
+    expect(split).not.toBeNull();
+    expect(split!.composition).toBe('dbl_sgl');
+    expect(split!.paxBuySplits.map((s) => s.nationality)).toEqual([
+      'US',
+      'US',
+      'IN',
+    ]);
+    expect(split!.paxBuySplits[2]).toMatchObject({
+      tipBandAdults: 1,
+      sharePerNight: 3600,
+    });
+  });
+
+  it('multiplies TPL/3 by rooms for 3A×N (6 adults / 2 rooms)', () => {
+    const pool = [
+      tip({ id: 'in', unitCost: 4000, nationality: 'IN', tpl: 6600 }),
+      tip({ id: 'us', unitCost: 6000, nationality: 'US', tpl: 7200 }),
+      tip({ id: 'gb', unitCost: 5500, nationality: 'GB', tpl: 6900 }),
+    ];
+    const split = tryHotelPaxBuySplit({
+      guestCodes: ['IN', 'US', 'GB'],
+      adults: 6,
+      children: 0,
+      rooms: 2,
+      stayDates: [new Date('2026-04-10T00:00:00.000Z')],
+      candidatePool: pool,
+      pickBest: (rows) => rows[0],
+    });
+    expect(split).not.toBeNull();
+    expect(split!.composition).toBe('equal');
+    expect(split!.rooms).toBe(2);
+    expect(split!.bandAdults).toBe(3);
+    expect(split!.paxBuySplitTotalPerNight).toBe(6900);
+    expect(split!.totalBuy).toBe(6900 * 2);
+    expect(hotelPaxBuySplitMatchAccepted(split!)[0]).toMatch(/× 2 rooms/);
+  });
+
+  it('does not treat 6A/4R as 3A×N (uneven — still null)', () => {
+    const pool = [
+      tip({ id: 'in', unitCost: 4000, nationality: 'IN', tpl: 6600 }),
+      tip({ id: 'us', unitCost: 6000, nationality: 'US', tpl: 7200 }),
+    ];
+    expect(
+      tryHotelPaxBuySplit({
+        guestCodes: ['IN', 'US'],
+        adults: 6,
+        children: 0,
+        rooms: 4,
+        stayDates: [new Date('2026-04-10T00:00:00.000Z')],
+        candidatePool: pool,
+        pickBest: (rows) => rows[0],
+      }),
+    ).toBeNull();
+  });
 });
