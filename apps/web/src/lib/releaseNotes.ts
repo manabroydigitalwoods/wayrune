@@ -27,6 +27,14 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-cross-pair-fx-convert',
+    date: '2026-07-20',
+    title: 'Convert non-INR chart amounts into a foreign quote',
+    summary:
+      'Lock FX (and Match-safe convert) can turn a EUR or AED buy into a USD quote by pricing through INR: org Settings FX rates for the chart currency, then the quote lock for the sell currency. Missing org rate fails closed — no silent identity convert.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-transfer-activity-tip-field-restore',
     date: '2026-07-20',
     title: 'Restore one transfer or activity field from History',

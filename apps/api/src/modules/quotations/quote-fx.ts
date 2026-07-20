@@ -156,12 +156,14 @@ export function fxLockCoversQuote(
 
 /**
  * Convert an amount denominated in `fromCurrency` into quote currency using the lock.
- * Wave 1: rate charts are INR; quote may be foreign → amountQuote = amountInr / rate.
+ * Wave 1: rate charts are usually INR; quote may be foreign → amountQuote = amountInr / rate.
+ * Cross-pair (e.g. EUR chart → USD quote, INR base): amount → base via org fxRates, then base → quote via lock.
  */
 export function convertWithQuoteFxLock(
   amount: number,
   fromCurrency: string,
   lock: QuoteFxLock,
+  orgFxRates?: Record<string, number>,
 ): { amount: number; converted: boolean; skipped?: string } {
   if (!Number.isFinite(amount)) {
     return { amount: 0, converted: false, skipped: 'invalid_amount' };
@@ -178,24 +180,33 @@ export function convertWithQuoteFxLock(
   if (from !== base && quote === base) {
     return { amount: roundMoney(amount * lock.rate), converted: true };
   }
-  // Foreign → foreign via base
+  // Foreign → foreign via base (org rates → base, lock → quote)
   if (from !== base && quote !== base) {
-    const inBase = amount * lock.rate; // wrong if from≠quote's pair — Wave 1: only INR charts
-    return {
-      amount: roundMoney(inBase / lock.rate),
-      converted: false,
-      skipped: 'cross_pair_unsupported',
-    };
+    if (base !== 'INR') {
+      return { amount, converted: false, skipped: 'cross_pair_non_inr_base' };
+    }
+    const table = orgFxRates || DEFAULT_INR_PER_FOREIGN;
+    const fromPerUnit = table[from];
+    if (fromPerUnit == null || !(fromPerUnit > 0)) {
+      return {
+        amount,
+        converted: false,
+        skipped: 'cross_pair_missing_org_rate',
+      };
+    }
+    const inBase = amount * fromPerUnit;
+    return { amount: roundMoney(inBase / lock.rate), converted: true };
   }
   return { amount, converted: false, skipped: 'unsupported_pair' };
 }
 
-/** Convert INR (or base) buy into quote currency; no-op when same. */
+/** Convert buy into quote currency; no-op when same. Fail closed when lock/org rate missing. */
 export function convertBuyToQuoteCurrency(
   unitCost: number,
   rateCurrency: string | null | undefined,
   lock: QuoteFxLock | null,
   quoteCurrency: string,
+  orgFxRates?: Record<string, number>,
 ): {
   unitCost: number;
   fx?: { from: string; to: string; rate: number; source: string };
@@ -212,7 +223,7 @@ export function convertBuyToQuoteCurrency(
       error: `FX lock required to convert ${from} → ${to}`,
     };
   }
-  const converted = convertWithQuoteFxLock(unitCost, from, lock);
+  const converted = convertWithQuoteFxLock(unitCost, from, lock, orgFxRates);
   if (converted.skipped) {
     return { unitCost, error: converted.skipped };
   }

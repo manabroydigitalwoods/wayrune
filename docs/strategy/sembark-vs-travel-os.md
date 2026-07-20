@@ -35,7 +35,7 @@ Maturity labels: **early** | **partial** | **mature** | **structural** (architec
 | Lead and enquiry intake | Lead APIs, round-robin, follow-ups | Parties, leads, inquiries, pipelines, custom fields, travel-request intake; **sales response strip**; **org sales SLA targets**; **task↔followUpAt**; **inbox unread + aging**; **unread_sla automation**; **round-robin polish** | **Near parity** (objects + SLA cues) |
 | Communication | WhatsApp notifications, calling add-on, email parsing | Unified inbox (WhatsApp / email / Instagram / website / Google Business), AI rewrite/summarize; Microsoft = SSO only; quote WA share = Cloud template/session + `wa.me` Mark-as-sent; **Quote proposal template picker** | **Stronger foundation; uneven channel depth** — no Microsoft messaging claim; **HubSpot out of scope** |
 | Itinerary creation | Productised ~60s workflow with costing | Flexible itinerary builder + public proposal; **package apply + rematch + Story seed**; FIT build minutes instrumented (do not claim 60s publicly) | **Sembark for polished speed**; we are closing via packages + telemetry |
-| Quotation pricing | Multi-currency, tax, component markup, reusable supplier data | Versioned quotes; hotel/transfer/activity resolve; cost/sell/tax/margin; **fixed + % + agent markup**; **org default tax**; branded PDF/email/WA; public accept; **Quote FX lock** + **Settings live FX refresh (Frankfurter)** | **Near parity on INR FIT path**; **Sembark** on tax regimes / cross-pair / auto FX |
+| Quotation pricing | Multi-currency, tax, component markup, reusable supplier data | Versioned quotes; hotel/transfer/activity resolve; cost/sell/tax/margin; **fixed + % + agent markup**; **org default tax**; branded PDF/email/WA; public accept; **Quote FX lock** + **Settings live FX refresh (Frankfurter)** + **cross-pair convert (org rates → lock)** | **Near parity on INR FIT path**; **Sembark** on tax regimes / auto FX |
 | Supplier contracts | Mature rates, seasons, stop/blackout, bulk upload, occupancy grids | **Supplier Directory + Profile V1**; hotel/transfer/activity charts; seasons/weekend/gala/occupancy extras; **SGL/DBL/TPL adultBands** + **copy-as-meal** + **meal×occupancy matrix (Wk/We)** + **weekend-per-band** + **min stay (hard gate)** + **IN/INTL + per-ISO + full ISO-3166 + multi-guest mixed nationality** + **hotel/transfer/activity rate version chains** + **hotel/transfer/activity tip diffs**; **hotel/transfer/activity tip dual-control Activate (`rates.approve`)** + **activation Tasks for hotel/transfer/activity** + **hotel/transfer/activity tip field restore**; blackout vs stop-sale; CSV/XLSX + import audit; hard allotment + capacity gates; cancel policy stamp | **Near parity** on daily contracting thin path; **multi-step quorum parked** (Activate inbox sufficient) |
 | Booking operations | Reservations, assignment, vouchers, movement charts | Booking components + readiness; hotel/transfer/activity enquiry→confirm→payable→voucher; **movement board + calendar**; driver/fleet assign + DriverJob sync; **allotment release+reallocate**; type-aware partner Confirm | **Near parity on agency ops thin slice**; partner fleet OS depth still open |
 | Payments and accounting | Receivables, payables, instalments, payment links, ledgers | Per-trip AR/AP + margin; payment links + Razorpay; org aging/portfolio; **chase + AP Mark paid/Unmark**; report packs + scheduled CSV email; **FX honesty cues** | **Sembark** on full ledger; **near parity** on collect/chase thin path |
@@ -57,7 +57,7 @@ Maturity labels: **early** | **partial** | **mature** | **structural** (architec
 
 | Gap that used to be “Sembark” | Now |
 |-------------------------------|-----|
-| FX stub / no live rates | **Quote lock + Settings Frankfurter refresh** — still no auto-cron / AED feed / cross-pair |
+| FX stub / no live rates | **Quote lock + Settings Frankfurter refresh + cross-pair via org rates** — still no auto-cron / AED feed |
 | Package library depth | **Versioning + history/diff (side-by-side) + tags + slash-path folder nav + folder rename/move** — still no server folder index / DnD |
 | Onboarding “no product” | **Checklist + FIT pack + empty-state Install** — still no consultant implementation centre |
 | Movement / vouchers “missing” | **Board + vouchers + DriverJob sync thin-complete** |
@@ -136,7 +136,17 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Quote sidebar currency + Lock FX; send gate copy when FX missing; cost-compare excludes other-currency bookings; aging shows other-currency count |
 | **3 Proof** | **Done** | `quote-fx` unit specs; this ladder in memo |
 
-**Defer:** *(closed — see Live FX refresh below)* · cross-pair (non-INR chart) convert.
+**Defer:** *(closed — see Cross-pair FX convert below)* · *(also closed — see Live FX refresh)*.
+
+#### Prod-ready ladder — Cross-pair FX convert (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | Foreign chart → foreign quote via org `fxRates` (amount→INR) then quote lock (INR→quote); missing org rate fails closed (`cross_pair_missing_org_rate`); non-INR base stays blocked |
+| **2 Channels / UI** | **Done** | Lock FX line convert passes org rates (no new control) |
+| **3 Proof** | **Done** | `quote-fx` cross-pair specs; About note; this ladder in memo |
+
+**Defer:** auto-cron FX; live fetch inside Lock FX; paid providers; portfolio multi-currency rollup; AED alternate feed.
 
 #### Prod-ready ladder — Portfolio FX honesty (**done**)
 
@@ -146,7 +156,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Portfolio page exclusion cue; home stats use portfolio currency + FX-excl. label when mixed |
 | **3 Proof** | **Done** | Mixed INR+USD unit spec; this ladder in memo |
 
-**Defer:** live provider rollup of all currencies into one total; cross-pair convert.
+**Defer:** live provider rollup of all currencies into one total; *(cross-pair closed — see Cross-pair FX convert)*.
 
 **Next after Portfolio FX honesty:** package template versioning (done below), live FX refresh (done below), or cross-pair convert.
 
@@ -1310,7 +1320,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Settings → General USD/EUR/AED/GBP editor; Lock FX blank-rate cue → Settings |
 | **3 Proof** | **Done** | Org override beats defaults in `quote-fx.spec`; this ladder in memo |
 
-**Defer:** *(closed — see Live FX refresh below)* · cross-pair convert; portfolio FX rollup.
+**Defer:** *(closed — see Live FX refresh below)* · *(cross-pair closed — see Cross-pair FX convert)*; portfolio FX rollup.
 
 #### Prod-ready ladder — Live FX refresh (Frankfurter) (**done**)
 
@@ -1320,7 +1330,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Settings → General **Refresh from market** + last-fetched cue; toast lists refreshed / kept codes |
 | **3 Proof** | **Done** | `org-fx-refresh` + cue helper specs; this ladder in memo |
 
-**Defer:** auto-refresh cron; live fetch inside quote Lock FX; paid providers; cross-pair convert; portfolio FX rollup; AED via another feed.
+**Defer:** auto-refresh cron; live fetch inside quote Lock FX; paid providers; *(cross-pair closed — see Cross-pair FX convert)*; portfolio FX rollup; AED via another feed.
 
 #### Prod-ready ladder — Inbox / WA: Quote proposal template designation (**done**)
 

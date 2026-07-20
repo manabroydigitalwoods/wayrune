@@ -75,6 +75,7 @@ export function convertBuyToQuoteCurrency(
   rateCurrency: string | null | undefined,
   lock: QuoteFxLock | null,
   quoteCurrency: string,
+  orgFxRates?: Record<string, number>,
 ): { unitCost: number; error?: string; converted?: boolean } {
   const from = normalizeCurrency(rateCurrency || quoteCurrency);
   const to = normalizeCurrency(quoteCurrency);
@@ -82,9 +83,30 @@ export function convertBuyToQuoteCurrency(
   if (!lock || !fxLockCoversQuote(lock, to, lock.baseCurrency)) {
     return { unitCost, error: `FX lock required to convert ${from} → ${to}` };
   }
-  if (from === normalizeCurrency(lock.baseCurrency) && to !== from) {
+  const base = normalizeCurrency(lock.baseCurrency);
+  if (from === base && to !== from) {
     return {
       unitCost: Math.round((unitCost / lock.rate) * 100) / 100,
+      converted: true,
+    };
+  }
+  if (from !== base && to === base) {
+    return {
+      unitCost: Math.round(unitCost * lock.rate * 100) / 100,
+      converted: true,
+    };
+  }
+  if (from !== base && to !== base) {
+    if (base !== 'INR') {
+      return { unitCost, error: 'cross_pair_non_inr_base' };
+    }
+    const fromPerUnit = orgFxRates?.[from];
+    if (fromPerUnit == null || !(fromPerUnit > 0)) {
+      return { unitCost, error: 'cross_pair_missing_org_rate' };
+    }
+    const inBase = unitCost * fromPerUnit;
+    return {
+      unitCost: Math.round((inBase / lock.rate) * 100) / 100,
       converted: true,
     };
   }

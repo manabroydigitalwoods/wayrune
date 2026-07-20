@@ -2447,13 +2447,14 @@ export class QuotationsService {
     });
     const baseCurrency = normalizeCurrency(org?.currency || 'INR');
     const quoteCurrency = normalizeCurrency(input.quoteCurrency);
+    const orgFxRates = parseOrgFxRates(org?.settingsJson);
     let lock;
     try {
       lock = buildQuoteFxLock({
         baseCurrency,
         quoteCurrency,
         rate: input.rate,
-        orgFxRates: parseOrgFxRates(org?.settingsJson),
+        orgFxRates,
         source: input.rate != null ? 'manual' : 'org_default',
       });
     } catch (e) {
@@ -2479,6 +2480,7 @@ export class QuotationsService {
               prevCurrency,
               lock,
               quoteCurrency,
+              orgFxRates,
             );
             if (converted.error) continue;
             if (converted.fx) {

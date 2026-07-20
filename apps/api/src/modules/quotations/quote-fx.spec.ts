@@ -53,6 +53,39 @@ describe('quote-fx', () => {
     expect(r.amount).toBe(100);
   });
 
+  it('converts EUR chart into USD quote via org rates + lock', () => {
+    const rates = parseOrgFxRates({ fxRates: { EUR: 90, USD: 83.25 } });
+    const lock = buildQuoteFxLock({
+      baseCurrency: 'INR',
+      quoteCurrency: 'USD',
+      rate: 83.25,
+      orgFxRates: rates,
+    });
+    // 100 EUR → 9000 INR → 9000/83.25 USD
+    const r = convertWithQuoteFxLock(100, 'EUR', lock, rates);
+    expect(r.converted).toBe(true);
+    expect(r.amount).toBe(108.11);
+    expect(r.skipped).toBeUndefined();
+
+    const buy = convertBuyToQuoteCurrency(100, 'EUR', lock, 'USD', rates);
+    expect(buy.error).toBeUndefined();
+    expect(buy.unitCost).toBe(108.11);
+  });
+
+  it('fails closed when cross-pair org rate is missing', () => {
+    const lock = buildQuoteFxLock({
+      baseCurrency: 'INR',
+      quoteCurrency: 'USD',
+      rate: 83.25,
+    });
+    const r = convertWithQuoteFxLock(100, 'JPY', lock, { USD: 83.25 });
+    expect(r.converted).toBe(false);
+    expect(r.skipped).toBe('cross_pair_missing_org_rate');
+    expect(
+      convertBuyToQuoteCurrency(100, 'JPY', lock, 'USD', { USD: 83.25 }).error,
+    ).toBe('cross_pair_missing_org_rate');
+  });
+
   it('blocks buy convert without lock', () => {
     const r = convertBuyToQuoteCurrency(1000, 'INR', null, 'USD');
     expect(r.error).toMatch(/FX lock required/);
