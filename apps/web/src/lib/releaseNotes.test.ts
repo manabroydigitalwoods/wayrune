@@ -44,11 +44,11 @@ describe('releaseNotes', () => {
     ).toBe(true);
     // Newest array entries surface first on the About strip.
     const top = visibleReleaseNotes(RELEASE_NOTES, { limit: 5 });
-    expect(top[0]?.id).toBe('2026-07-20-write-off-workflow');
-    expect(top[1]?.id).toBe('2026-07-20-fx-cron-disable-portfolio-rollup');
-    expect(top[2]?.id).toBe('2026-07-20-transfer-csv-party-bands');
-    expect(top[3]?.id).toBe('2026-07-20-fx-lock-live-fetch');
-    expect(top[4]?.id).toBe('2026-07-20-fx-auto-cron');
+    expect(top[0]?.id).toBe('2026-07-20-package-sibling-sort');
+    expect(top[1]?.id).toBe('2026-07-20-write-off-awaiting-inbox');
+    expect(top[2]?.id).toBe('2026-07-20-transfer-dense-bands-child-addon');
+    expect(top[3]?.id).toBe('2026-07-20-write-off-workflow');
+    expect(top[4]?.id).toBe('2026-07-20-fx-cron-disable-portfolio-rollup');
     expect(
       allBuyer.some((n) => n.id === '2026-07-20-party-markup-override'),
     ).toBe(true);

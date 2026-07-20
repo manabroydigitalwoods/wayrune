@@ -44,6 +44,7 @@ import {
   sendTripPaymentLinkWhatsapp,
   toastForPaymentLinkWhatsapp,
 } from '../lib/paymentLinkActions';
+import { WriteOffAwaitingStrip } from '../components/agency/WriteOffAwaitingStrip';
 
 type AgingRow = {
   id: string;
@@ -660,6 +661,8 @@ export function FinanceAgingPage() {
           </Button>
         }
       />
+
+      {mode !== 'payables' ? <WriteOffAwaitingStrip /> : null}
 
       <div className="mb-4 space-y-2">
         <div className="flex flex-wrap items-center gap-2">

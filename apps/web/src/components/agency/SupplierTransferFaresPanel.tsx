@@ -92,11 +92,14 @@ function emptyForm(defaultFrom?: PlaceRef | null) {
     childAgeMin: '',
     childAgeMax: '',
     pricingMode: 'per_vehicle' as 'per_vehicle' | 'per_adult',
-    /** Optional party bands (partySize + cost) — up to 3. */
+    /** Optional party bands (partySize + cost) — up to 6. */
     partyBandRows: [
       { partySize: '2', unitCost: '' },
       { partySize: '4', unitCost: '' },
       { partySize: '6', unitCost: '' },
+      { partySize: '8', unitCost: '' },
+      { partySize: '10', unitCost: '' },
+      { partySize: '12', unitCost: '' },
     ],
     startDate: '',
     endDate: '',
@@ -336,6 +339,9 @@ export function SupplierTransferFaresPanel({
           { partySize: '2', unitCost: '' },
           { partySize: '4', unitCost: '' },
           { partySize: '6', unitCost: '' },
+          { partySize: '8', unitCost: '' },
+          { partySize: '10', unitCost: '' },
+          { partySize: '12', unitCost: '' },
         ];
         const raw = fare.pricingJson;
         const bands =
@@ -347,14 +353,17 @@ export function SupplierTransferFaresPanel({
                   .partyBands
               )
             : [];
-        return blanks.map((blank, i) => {
-          const b = bands[i];
+        return blanks.map((blank) => {
+          const size = Number(blank.partySize);
+          const b = bands.find(
+            (row) =>
+              row.partySize != null &&
+              Number.isFinite(Number(row.partySize)) &&
+              Math.floor(Number(row.partySize)) === size,
+          );
           if (!b) return blank;
           return {
-            partySize:
-              b.partySize != null && Number(b.partySize) >= 1
-                ? String(Math.floor(Number(b.partySize)))
-                : blank.partySize,
+            partySize: blank.partySize,
             unitCost:
               b.unitCost != null && Number(b.unitCost) >= 0
                 ? String(b.unitCost)
@@ -687,7 +696,7 @@ export function SupplierTransferFaresPanel({
           {form.pricingMode === 'per_vehicle' ? (
             <FormField
               label="Party bands (optional)"
-              description="Up to 3 sizes — Match picks the highest band ≤ party (adults+children)."
+              description="Up to 6 sizes — Match picks the highest band ≤ party (adults+children)."
             >
               <div className="space-y-2">
                 {form.partyBandRows.map((row, idx) => (
@@ -716,7 +725,14 @@ export function SupplierTransferFaresPanel({
               </div>
             </FormField>
           ) : null}
-          <FormField label="Child (optional)">
+          <FormField
+            label="Child (optional)"
+            description={
+              form.pricingMode === 'per_vehicle'
+                ? 'When set, Match adds child × this cost on top of the cab/band.'
+                : undefined
+            }
+          >
             <PriceField
               value={form.childUnitCost}
               onChange={(childUnitCost) =>
@@ -725,7 +741,14 @@ export function SupplierTransferFaresPanel({
               placeholder="Optional"
             />
           </FormField>
-          <FormField label="Infant (optional)">
+          <FormField
+            label="Infant (optional)"
+            description={
+              form.pricingMode === 'per_vehicle'
+                ? 'When set, Match adds infant × this cost on top of the cab/band.'
+                : undefined
+            }
+          >
             <PriceField
               value={form.infantUnitCost}
               onChange={(infantUnitCost) =>

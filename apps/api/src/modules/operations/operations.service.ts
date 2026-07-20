@@ -123,10 +123,12 @@ import { buildFinancePortfolio } from './finance-portfolio';
 import { parseOrgFxRates } from '../quotations/quote-fx';
 import {
   assertCanRequestWriteOff,
+  collectAwaitingWriteOffs,
   parseTripPaymentWriteOff,
   planApproveWriteOff,
   planRequestWriteOff,
   tripPaymentOutstanding,
+  WRITE_OFF_AWAITING_NOTES_CONTAINS,
 } from './trip-payment-write-off';
 import {
   agingBoardToCsv,
@@ -5643,6 +5645,68 @@ export class OperationsService {
       financeByTrip,
       days: win.days,
     });
+  }
+
+  /**
+   * Org inbox of customer instalments with write-off awaiting approval.
+   * Deep-links into trip Finance; approve stays dual-control on the trip.
+   */
+  async listAwaitingWriteOffs(user: AuthUser) {
+    const orgId = user.organizationId;
+    const org = await this.prisma.organization.findFirst({
+      where: { id: orgId },
+      select: { currency: true },
+    });
+    const payments = await this.prisma.tripPayment.findMany({
+      where: {
+        organizationId: orgId,
+        direction: 'customer',
+        status: { notIn: ['paid', 'cancelled'] },
+        notes: { contains: WRITE_OFF_AWAITING_NOTES_CONTAINS },
+        trip: { deletedAt: null },
+      },
+      select: {
+        id: true,
+        tripId: true,
+        direction: true,
+        status: true,
+        label: true,
+        amount: true,
+        amountPaid: true,
+        currency: true,
+        notes: true,
+        trip: {
+          select: {
+            tripNumber: true,
+            title: true,
+            party: { select: { displayName: true } },
+          },
+        },
+      },
+      orderBy: [{ updatedAt: 'asc' }],
+      take: 100,
+    });
+    const items = collectAwaitingWriteOffs(
+      payments.map((p) => ({
+        id: p.id,
+        tripId: p.tripId,
+        direction: p.direction,
+        status: p.status,
+        label: p.label,
+        amount: Number(p.amount),
+        amountPaid: Number(p.amountPaid || 0),
+        currency: p.currency || org?.currency || 'INR',
+        notes: p.notes,
+        tripNumber: p.trip.tripNumber,
+        tripTitle: p.trip.title,
+        partyName: p.trip.party?.displayName ?? null,
+      })),
+    );
+    return {
+      items,
+      count: items.length,
+      generatedAt: new Date().toISOString(),
+    };
   }
 
   /**

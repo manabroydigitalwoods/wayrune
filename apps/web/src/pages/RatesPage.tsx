@@ -1133,7 +1133,7 @@ export function RatesPage() {
           description={
             transferForm.pricingMode === 'per_adult'
               ? 'Child blank uses org child fare factor (default 0.7× adult).'
-              : 'Adult / vehicle is the full-cab cost. Child is optional.'
+              : 'Adult / vehicle is the full-cab cost. When Child/Infant are set, Match adds them on top of the cab/band (not the org factor).'
           }
         >
           <FormGrid>

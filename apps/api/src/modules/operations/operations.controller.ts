@@ -566,6 +566,17 @@ export class OperationsController {
     });
   }
 
+  @Get('operations/finance/write-offs/awaiting')
+  @RequireAgencyOrg()
+  @RequirePermissions(
+    'finance.write_off.approve',
+    'finance.write_off.request',
+    'finance.cost.read',
+  )
+  awaitingWriteOffs(@CurrentUser() user: AuthUser) {
+    return this.operations.listAwaitingWriteOffs(user);
+  }
+
   @Get('operations/finance/portfolio')
   @RequireAgencyOrg()
   @RequirePermissions('finance.margin.read', 'finance.cost.read')

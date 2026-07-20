@@ -213,6 +213,13 @@ quoteValidityGraceHours: z.number().int().min(0).max(72).optional(),
      * even when no active template lives under them (max 200).
      */
     packageFolderIndex: z.array(z.string().max(80)).max(200).optional(),
+    /**
+     * Per-folder package template id order for New-trip / Use-template trees.
+     * Key = normalized folder path; `""` = library root / unfiled.
+     */
+    packageSiblingOrder: z
+      .record(z.string().max(80), z.array(z.string().min(1).max(64)).max(100))
+      .optional(),
     business: z
       .object({
         legalName: z.string().optional(),
@@ -3290,7 +3297,7 @@ export const TransferPartyBandSchema = z.object({
 
 export const TransferFarePricingJsonSchema = z
   .object({
-    partyBands: z.array(TransferPartyBandSchema).max(3).optional(),
+    partyBands: z.array(TransferPartyBandSchema).max(6).optional(),
   })
   .optional()
   .nullable();
@@ -3469,12 +3476,15 @@ export const ImportTransferFareCsvRowSchema = z.object({
   childAgeMin: z.number().int().min(0).max(17).nullable().optional(),
   childAgeMax: z.number().int().min(0).max(17).nullable().optional(),
   /**
-   * Optional party-size band costs (≤3 after parse).
-   * Fixed sizes mirror common cab tiers (2 / 4 / 6 pax).
+   * Optional party-size band costs (≤6 after parse).
+   * Fixed sizes mirror common cab tiers (2 / 4 / 6 / 8 / 10 / 12 pax).
    */
   partyBand2UnitCost: z.number().nonnegative().nullable().optional(),
   partyBand4UnitCost: z.number().nonnegative().nullable().optional(),
   partyBand6UnitCost: z.number().nonnegative().nullable().optional(),
+  partyBand8UnitCost: z.number().nonnegative().nullable().optional(),
+  partyBand10UnitCost: z.number().nonnegative().nullable().optional(),
+  partyBand12UnitCost: z.number().nonnegative().nullable().optional(),
   pricingMode: TransferFarePricingModeSchema.optional(),
   currency: z.string().length(3).optional(),
   startDate: z.preprocess(blankToNull, z.string().nullable()).optional(),
@@ -3716,6 +3726,16 @@ export const MoveQuoteTemplateFolderSchema = z.object({
  */
 export const CascadeDeleteQuoteTemplateFolderSchema = z.object({
   folder: RequiredText('Folder'),
+});
+
+/** Persist sibling order of packages under one folder (org settings). */
+export const ReorderQuoteTemplateSiblingsSchema = z.object({
+  /** Folder path; empty/null = library root / unfiled. */
+  folder: z.preprocess(
+    (v) => (v == null || v === '' ? null : v),
+    z.string().max(80).nullable(),
+  ),
+  orderedIds: z.array(z.string().min(1).max(64)).max(100),
 });
 
 /** Restore a prior (usually superseded) template version as a new active tip. */
@@ -4101,6 +4121,9 @@ export type MoveQuoteTemplateFolderInput = z.infer<
 >;
 export type CascadeDeleteQuoteTemplateFolderInput = z.infer<
   typeof CascadeDeleteQuoteTemplateFolderSchema
+>;
+export type ReorderQuoteTemplateSiblingsInput = z.infer<
+  typeof ReorderQuoteTemplateSiblingsSchema
 >;
 export type RestoreQuoteTemplateInput = z.infer<typeof RestoreQuoteTemplateSchema>;
 export type ApplyQuoteTemplateInput = z.infer<typeof ApplyQuoteTemplateSchema>;

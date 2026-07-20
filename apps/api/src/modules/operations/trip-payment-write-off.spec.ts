@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   assertCanRequestWriteOff,
+  collectAwaitingWriteOffs,
   parseTripPaymentWriteOff,
   planApproveWriteOff,
   planRequestWriteOff,
   stripTripPaymentWriteOffMarker,
+  tripFinanceWriteOffHref,
   tripPaymentOutstanding,
+  writeOffAmountExceedsOutstanding,
 } from './trip-payment-write-off';
 
 describe('trip-payment-write-off', () => {
@@ -55,5 +58,69 @@ describe('trip-payment-write-off', () => {
         writeOffStatus: 'awaiting_approval',
       }),
     ).toThrow(/already awaiting/);
+  });
+
+  it('flags write-off above current outstanding', () => {
+    expect(
+      writeOffAmountExceedsOutstanding({
+        writeOffAmount: 500,
+        outstanding: 400,
+      }),
+    ).toBe(true);
+    expect(
+      writeOffAmountExceedsOutstanding({
+        writeOffAmount: 400,
+        outstanding: 400,
+      }),
+    ).toBe(false);
+  });
+
+  it('collects awaiting rows with finance deep-link', () => {
+    const requested = planRequestWriteOff({
+      notes: null,
+      amount: 250,
+      reason: 'Residual',
+      userId: 'u1',
+      at: new Date('2026-07-20T09:00:00.000Z'),
+    });
+    const rows = collectAwaitingWriteOffs([
+      {
+        id: 'pay1',
+        tripId: 'trip1',
+        direction: 'customer',
+        status: 'partial',
+        label: 'Deposit',
+        amount: 5000,
+        amountPaid: 4800,
+        currency: 'INR',
+        notes: requested.notes,
+        tripNumber: 'TRP-1',
+        tripTitle: 'Darjeeling',
+        partyName: 'Acme',
+      },
+      {
+        id: 'pay2',
+        tripId: 'trip2',
+        direction: 'supplier',
+        status: 'scheduled',
+        label: 'Hotel',
+        amount: 1000,
+        amountPaid: 0,
+        currency: 'INR',
+        notes: requested.notes,
+        tripNumber: 'TRP-2',
+        tripTitle: 'Goa',
+        partyName: null,
+      },
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      paymentId: 'pay1',
+      writeOffAmount: 250,
+      outstanding: 200,
+      amountExceedsOutstanding: true,
+      href: tripFinanceWriteOffHref('trip1', 'pay1'),
+    });
+    expect(rows[0]!.href).toBe('/trips/trip1?tab=finance&paymentId=pay1');
   });
 });

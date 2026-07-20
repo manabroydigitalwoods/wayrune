@@ -28,6 +28,7 @@ import type {
   RemoveQuoteTemplateFolderInput,
   MoveQuoteTemplateFolderInput,
   CascadeDeleteQuoteTemplateFolderInput,
+  ReorderQuoteTemplateSiblingsInput,
   SaveQuotationVersionInput,
   SendQuoteWhatsappInput,
   UpdateQuoteTemplateInput,
@@ -118,6 +119,14 @@ import {
   removePackageFolderPrefixFromIndex,
   withPackageFolderIndex,
 } from './quote-template-folder-index';
+import {
+  applySiblingReorder,
+  clearSiblingOrderPrefix,
+  parsePackageSiblingOrder,
+  remapPackageSiblingOrder,
+  removeTemplateIdFromSiblingOrder,
+  withPackageSiblingOrder,
+} from './quote-template-sibling-order';
 import { rematchQuoteItemsFromRates } from './quote-rate-rematch';
 import { RatesService } from '../rates/rates.service';
 import { resolveNationalityOptsFromTripTravellers } from '../rates/hotel-nationality';
@@ -777,9 +786,11 @@ export class QuotationsService {
       index,
       mapped.map((t) => t.content.folder),
     );
+    const siblingOrder = parsePackageSiblingOrder(org?.settingsJson);
     return {
       items: mapped,
       folderIndex,
+      siblingOrder,
     };
   }
 
@@ -1047,16 +1058,24 @@ export class QuotationsService {
     });
     const prevIndex = parsePackageFolderIndex(org?.settingsJson);
     const nextIndex = remapPackageFolderIndex(prevIndex, from, input.toFolder);
+    const prevOrder = parsePackageSiblingOrder(org?.settingsJson);
+    const nextOrder = remapPackageSiblingOrder(prevOrder, from, input.toFolder);
     const indexChanged =
       JSON.stringify(prevIndex) !== JSON.stringify(nextIndex);
-    if (indexChanged) {
+    const orderChanged =
+      JSON.stringify(prevOrder) !== JSON.stringify(nextOrder);
+    if (indexChanged || orderChanged) {
+      let settings: unknown = org?.settingsJson;
+      if (indexChanged) {
+        settings = withPackageFolderIndex(settings, nextIndex);
+      }
+      if (orderChanged) {
+        settings = withPackageSiblingOrder(settings, nextOrder);
+      }
       await this.prisma.organization.update({
         where: { id: user.organizationId },
         data: {
-          settingsJson: withPackageFolderIndex(
-            org?.settingsJson,
-            nextIndex,
-          ) as Prisma.InputJsonValue,
+          settingsJson: settings as Prisma.InputJsonValue,
         },
       });
     }
@@ -1073,6 +1092,7 @@ export class QuotationsService {
         updated,
         templateIds: touchedIds,
         folderIndexRemapped: indexChanged,
+        siblingOrderRemapped: orderChanged,
       },
     });
     return {
@@ -1081,6 +1101,7 @@ export class QuotationsService {
       toFolder: toNormalized ?? null,
       updated,
       folderIndex: nextIndex,
+      siblingOrder: nextOrder,
     };
   }
 
@@ -1195,28 +1216,35 @@ export class QuotationsService {
       data: { contentJson: nextContent as Prisma.InputJsonValue },
     });
 
+    const org = await this.prisma.organization.findFirst({
+      where: { id: user.organizationId },
+      select: { settingsJson: true },
+    });
     let folderIndex: string[] | undefined;
+    let settings: unknown = org?.settingsJson;
+    let settingsDirty = false;
     if (nextFolder) {
-      const org = await this.prisma.organization.findFirst({
-        where: { id: user.organizationId },
-        select: { settingsJson: true },
-      });
-      const prev = parsePackageFolderIndex(org?.settingsJson);
+      const prev = parsePackageFolderIndex(settings);
       const next = addPackageFolderToIndex(prev, nextFolder);
       if (JSON.stringify(prev) !== JSON.stringify(next)) {
-        await this.prisma.organization.update({
-          where: { id: user.organizationId },
-          data: {
-            settingsJson: withPackageFolderIndex(
-              org?.settingsJson,
-              next,
-            ) as Prisma.InputJsonValue,
-          },
-        });
+        settings = withPackageFolderIndex(settings, next);
+        settingsDirty = true;
         folderIndex = next;
       } else {
         folderIndex = prev;
       }
+    }
+    const prevOrder = parsePackageSiblingOrder(org?.settingsJson);
+    const nextOrder = removeTemplateIdFromSiblingOrder(prevOrder, existing.id);
+    if (JSON.stringify(prevOrder) !== JSON.stringify(nextOrder)) {
+      settings = withPackageSiblingOrder(settings, nextOrder);
+      settingsDirty = true;
+    }
+    if (settingsDirty) {
+      await this.prisma.organization.update({
+        where: { id: user.organizationId },
+        data: { settingsJson: settings as Prisma.InputJsonValue },
+      });
     }
 
     await this.audit.record({
@@ -1237,6 +1265,7 @@ export class QuotationsService {
       folder: nextFolder,
       changed: true,
       folderIndex,
+      siblingOrder: nextOrder,
     };
   }
 
@@ -1272,16 +1301,24 @@ export class QuotationsService {
     });
     const prevIndex = parsePackageFolderIndex(org?.settingsJson);
     const nextIndex = removePackageFolderPrefixFromIndex(prevIndex, folder);
+    const prevOrder = parsePackageSiblingOrder(org?.settingsJson);
+    const nextOrder = clearSiblingOrderPrefix(prevOrder, folder);
     const indexChanged =
       JSON.stringify(prevIndex) !== JSON.stringify(nextIndex);
-    if (indexChanged) {
+    const orderChanged =
+      JSON.stringify(prevOrder) !== JSON.stringify(nextOrder);
+    if (indexChanged || orderChanged) {
+      let settings: unknown = org?.settingsJson;
+      if (indexChanged) {
+        settings = withPackageFolderIndex(settings, nextIndex);
+      }
+      if (orderChanged) {
+        settings = withPackageSiblingOrder(settings, nextOrder);
+      }
       await this.prisma.organization.update({
         where: { id: user.organizationId },
         data: {
-          settingsJson: withPackageFolderIndex(
-            org?.settingsJson,
-            nextIndex,
-          ) as Prisma.InputJsonValue,
+          settingsJson: settings as Prisma.InputJsonValue,
         },
       });
     }
@@ -1297,6 +1334,7 @@ export class QuotationsService {
         deleted: touchedIds.length,
         templateIds: touchedIds,
         folderIndexRemapped: indexChanged,
+        siblingOrderCleared: orderChanged,
       },
     });
     return {
@@ -1304,6 +1342,78 @@ export class QuotationsService {
       folder,
       deleted: touchedIds.length,
       folderIndex: nextIndex,
+      siblingOrder: nextOrder,
+    };
+  }
+
+  /** Persist sibling order of packages under one folder. */
+  async reorderTemplateSiblings(
+    user: AuthUser,
+    input: ReorderQuoteTemplateSiblingsInput,
+  ) {
+    const folder = normalizeTemplateFolder(input.folder) ?? null;
+    const actives = await this.prisma.quoteTemplate.findMany({
+      where: { organizationId: user.organizationId, status: 'active' },
+      select: { id: true, contentJson: true },
+      take: 200,
+    });
+    const idsInFolder: string[] = [];
+    const folderKey = folder || '';
+    for (const row of actives) {
+      const content = parseQuoteTemplateContent(row.contentJson);
+      const f = content.folder || '';
+      if (f.toLowerCase() === folderKey.toLowerCase()) {
+        idsInFolder.push(row.id);
+      }
+    }
+    const unknown = input.orderedIds.filter((id) => !idsInFolder.includes(id));
+    if (unknown.length) {
+      throw new BadRequestException(
+        'orderedIds must only include templates in that folder',
+      );
+    }
+
+    const org = await this.prisma.organization.findFirst({
+      where: { id: user.organizationId },
+      select: { settingsJson: true },
+    });
+    const previous = parsePackageSiblingOrder(org?.settingsJson);
+    const next = applySiblingReorder({
+      folder,
+      orderedIds: input.orderedIds,
+      idsInFolder,
+      previous,
+    });
+    if (JSON.stringify(previous) === JSON.stringify(next)) {
+      return {
+        ok: true as const,
+        folder,
+        siblingOrder: next,
+        changed: false,
+      };
+    }
+    await this.prisma.organization.update({
+      where: { id: user.organizationId },
+      data: {
+        settingsJson: withPackageSiblingOrder(
+          org?.settingsJson,
+          next,
+        ) as Prisma.InputJsonValue,
+      },
+    });
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorUserId: user.sub,
+      action: 'quote.template_siblings_reorder',
+      entityType: 'organization',
+      entityId: user.organizationId,
+      metadata: { folder, orderedIds: input.orderedIds },
+    });
+    return {
+      ok: true as const,
+      folder,
+      siblingOrder: next,
+      changed: true,
     };
   }
 

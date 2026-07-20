@@ -830,6 +830,9 @@ export function TripWorkspacePage() {
     }>
   >([]);
   const [packageFolderIndex, setPackageFolderIndex] = useState<string[]>([]);
+  const [packageSiblingOrder, setPackageSiblingOrder] = useState<
+    Record<string, string[]>
+  >({});
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [templateSaveAsNew, setTemplateSaveAsNew] = useState(false);
   const [applyingTemplateId, setApplyingTemplateId] = useState<string | null>(null);
@@ -2297,13 +2300,16 @@ export function TripWorkspacePage() {
       const res = await api<{
         items: typeof quoteTemplates;
         folderIndex?: string[];
+        siblingOrder?: Record<string, string[]>;
       }>('/quote-templates');
       setQuoteTemplates(res.items || []);
       setPackageFolderIndex(res.folderIndex || []);
+      setPackageSiblingOrder(res.siblingOrder || {});
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Could not load templates');
       setQuoteTemplates([]);
       setPackageFolderIndex([]);
+      setPackageSiblingOrder({});
     } finally {
       setLoadingTemplates(false);
     }
@@ -2410,6 +2416,25 @@ export function TripWorkspacePage() {
       await loadQuoteTemplates();
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Could not move package');
+    }
+  }
+
+  async function reorderQuoteTemplateSiblings(
+    folder: string | null,
+    orderedIds: string[],
+  ) {
+    try {
+      const res = await api<{ siblingOrder?: Record<string, string[]> }>(
+        '/quote-templates/reorder-siblings',
+        {
+          method: 'POST',
+          body: JSON.stringify({ folder, orderedIds }),
+        },
+      );
+      if (res.siblingOrder) setPackageSiblingOrder(res.siblingOrder);
+      else await loadQuoteTemplates();
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not reorder packages');
     }
   }
 
@@ -2547,11 +2572,16 @@ export function TripWorkspacePage() {
     if (tab !== 'quotations' || quoteItems.length > 0 || !canQuoteWrite) return;
     if (quoteTemplates.length > 0) return;
     let cancelled = false;
-    api<{ items: typeof quoteTemplates; folderIndex?: string[] }>('/quote-templates')
+    api<{
+      items: typeof quoteTemplates;
+      folderIndex?: string[];
+      siblingOrder?: Record<string, string[]>;
+    }>('/quote-templates')
       .then((res) => {
         if (cancelled) return;
         setQuoteTemplates(res.items || []);
         setPackageFolderIndex(res.folderIndex || []);
+        setPackageSiblingOrder(res.siblingOrder || {});
       })
       .catch(() => {
         /* non-blocking prefetch for walkthrough CTA */
@@ -6777,8 +6807,12 @@ export function TripWorkspacePage() {
                     name: t.name,
                     folder: t.content?.folder,
                   }))}
+                  siblingOrder={packageSiblingOrder}
                   onMoveTemplate={(id, folder) =>
                     void moveQuoteTemplateFolder(id, folder)
+                  }
+                  onReorderTemplates={(folder, orderedIds) =>
+                    void reorderQuoteTemplateSiblings(folder, orderedIds)
                   }
                   onRename={(path) => void renameQuoteTemplateFolder(path)}
                   onRemoveEmpty={(path) =>

@@ -167,6 +167,9 @@ export function TripsPage() {
   const [installingPack, setInstallingPack] = useState(false);
   const [templates, setTemplates] = useState<QuoteTemplateRow[]>([]);
   const [packageFolderIndex, setPackageFolderIndex] = useState<string[]>([]);
+  const [packageSiblingOrder, setPackageSiblingOrder] = useState<
+    Record<string, string[]>
+  >({});
   const [templatesLoading, setTemplatesLoading] = useState(false);
   const [packageFolderFilter, setPackageFolderFilter] = useState('');
   const [packageTagFilter, setPackageTagFilter] = useState('');
@@ -256,14 +259,18 @@ export function TripsPage() {
   async function loadTemplates() {
     setTemplatesLoading(true);
     try {
-      const res = await api<{ items: QuoteTemplateRow[]; folderIndex?: string[] }>(
-        '/quote-templates',
-      );
+      const res = await api<{
+        items: QuoteTemplateRow[];
+        folderIndex?: string[];
+        siblingOrder?: Record<string, string[]>;
+      }>('/quote-templates');
       setTemplates(res.items || []);
       setPackageFolderIndex(res.folderIndex || []);
+      setPackageSiblingOrder(res.siblingOrder || {});
     } catch {
       setTemplates([]);
       setPackageFolderIndex([]);
+      setPackageSiblingOrder({});
     } finally {
       setTemplatesLoading(false);
     }
@@ -443,6 +450,25 @@ export function TripsPage() {
       await loadTemplates();
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Could not move package');
+    }
+  }
+
+  async function reorderPackageSiblings(
+    folder: string | null,
+    orderedIds: string[],
+  ) {
+    try {
+      const res = await api<{ siblingOrder?: Record<string, string[]> }>(
+        '/quote-templates/reorder-siblings',
+        {
+          method: 'POST',
+          body: JSON.stringify({ folder, orderedIds }),
+        },
+      );
+      if (res.siblingOrder) setPackageSiblingOrder(res.siblingOrder);
+      else await loadTemplates();
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not reorder packages');
     }
   }
 
@@ -1058,8 +1084,12 @@ export function TripsPage() {
                         name: t.name,
                         folder: t.content?.folder,
                       }))}
+                      siblingOrder={packageSiblingOrder}
                       onMoveTemplate={(id, folder) =>
                         void movePackageTemplate(id, folder)
+                      }
+                      onReorderTemplates={(folder, orderedIds) =>
+                        void reorderPackageSiblings(folder, orderedIds)
                       }
                       onRename={(path) => void renamePackageFolder(path)}
                       onRemoveEmpty={(path) => void removeEmptyPackageFolder(path)}

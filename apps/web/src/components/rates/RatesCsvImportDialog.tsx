@@ -56,8 +56,8 @@ const HOTEL_TEMPLATE =
   'INR,2026-04-01,2026-10-31\n';
 
 const TRANSFER_TEMPLATE =
-  'supplierName,fromPlace,toPlace,vehicleType,unitCost,partyBand2UnitCost,partyBand4UnitCost,partyBand6UnitCost,childUnitCost,infantUnitCost,childAgeMin,childAgeMax,pricingMode,currency,startDate,endDate\n' +
-  'North Bengal Fleet Rentals,Bagdogra (IXB),Darjeeling,Sedan,4500,4500,5200,6500,,,0,11,per_vehicle,INR,2026-04-01,2026-10-31\n';
+  'supplierName,fromPlace,toPlace,vehicleType,unitCost,partyBand2UnitCost,partyBand4UnitCost,partyBand6UnitCost,partyBand8UnitCost,partyBand10UnitCost,partyBand12UnitCost,childUnitCost,infantUnitCost,childAgeMin,childAgeMax,pricingMode,currency,startDate,endDate\n' +
+  'North Bengal Fleet Rentals,Bagdogra (IXB),Darjeeling,Sedan,4500,4500,5200,6500,,,,900,,0,11,per_vehicle,INR,2026-04-01,2026-10-31\n';
 
 const ACTIVITY_TEMPLATE =
   'supplierName,placeName,activityName,privateOrSic,adultUnitCost,childUnitCost,childAgeMin,childAgeMax,currency,startDate,endDate\n' +
@@ -121,8 +121,8 @@ function transferTemplateForSupplier(supplierName?: string) {
   if (!supplierName?.trim()) return TRANSFER_TEMPLATE;
   const safe = supplierName.trim().replace(/,/g, ' ');
   return (
-    'supplierName,fromPlace,toPlace,vehicleType,unitCost,partyBand2UnitCost,partyBand4UnitCost,partyBand6UnitCost,childUnitCost,infantUnitCost,childAgeMin,childAgeMax,pricingMode,currency,startDate,endDate\n' +
-    `${safe},Bagdogra (IXB),Darjeeling,Sedan,4500,4500,5200,6500,,,0,11,per_vehicle,INR,2026-04-01,2026-10-31\n`
+    'supplierName,fromPlace,toPlace,vehicleType,unitCost,partyBand2UnitCost,partyBand4UnitCost,partyBand6UnitCost,partyBand8UnitCost,partyBand10UnitCost,partyBand12UnitCost,childUnitCost,infantUnitCost,childAgeMin,childAgeMax,pricingMode,currency,startDate,endDate\n' +
+    `${safe},Bagdogra (IXB),Darjeeling,Sedan,4500,4500,5200,6500,,,,900,,0,11,per_vehicle,INR,2026-04-01,2026-10-31\n`
   );
 }
 
@@ -406,6 +406,24 @@ export function RatesCsvImportDialog({
       'band6unitcost',
       'party6unitcost',
     );
+    const band8Idx = headerIndex(
+      headers,
+      'partyband8unitcost',
+      'band8unitcost',
+      'party8unitcost',
+    );
+    const band10Idx = headerIndex(
+      headers,
+      'partyband10unitcost',
+      'band10unitcost',
+      'party10unitcost',
+    );
+    const band12Idx = headerIndex(
+      headers,
+      'partyband12unitcost',
+      'band12unitcost',
+      'party12unitcost',
+    );
     const modeIdx = headerIndex(headers, 'pricingmode', 'mode');
     const currencyIdx = headerIndex(headers, 'currency');
     const startIdx = headerIndex(headers, 'startdate', 'fromdate');
@@ -432,6 +450,9 @@ export function RatesCsvImportDialog({
         partyBand2UnitCost: parseOptionalNumber(cell(cols, band2Idx)),
         partyBand4UnitCost: parseOptionalNumber(cell(cols, band4Idx)),
         partyBand6UnitCost: parseOptionalNumber(cell(cols, band6Idx)),
+        partyBand8UnitCost: parseOptionalNumber(cell(cols, band8Idx)),
+        partyBand10UnitCost: parseOptionalNumber(cell(cols, band10Idx)),
+        partyBand12UnitCost: parseOptionalNumber(cell(cols, band12Idx)),
         pricingMode,
         currency: cell(cols, currencyIdx) || undefined,
         startDate: cell(cols, startIdx) || null,

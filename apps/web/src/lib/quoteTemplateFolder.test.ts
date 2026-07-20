@@ -12,6 +12,7 @@ import {
   templateMatchesFolderFilter,
   templatesExactInFolder,
   templatesUnderFolder,
+  moveSiblingId,
 } from './quoteTemplateFolder';
 
 describe('quoteTemplateFolder', () => {
@@ -172,5 +173,35 @@ describe('quoteTemplateFolder', () => {
         dropOnFolder: 'Beach',
       }),
     ).toBeUndefined();
+  });
+
+  it('sorts exact-in-folder by sibling order then name', () => {
+    const templates = [
+      { id: 'c', name: 'Charlie', folder: 'Beach' },
+      { id: 'a', name: 'Alpha', folder: 'Beach' },
+      { id: 'b', name: 'Bravo', folder: 'Beach' },
+    ];
+    expect(
+      templatesExactInFolder(templates, 'Beach', { Beach: ['b', 'a'] }).map(
+        (t) => t.id,
+      ),
+    ).toEqual(['b', 'a', 'c']);
+  });
+
+  it('moves sibling ids up and down', () => {
+    expect(
+      moveSiblingId({
+        orderedIds: ['a', 'b', 'c'],
+        templateId: 'b',
+        direction: 'up',
+      }),
+    ).toEqual(['b', 'a', 'c']);
+    expect(
+      moveSiblingId({
+        orderedIds: ['a', 'b', 'c'],
+        templateId: 'a',
+        direction: 'up',
+      }),
+    ).toBeNull();
   });
 });

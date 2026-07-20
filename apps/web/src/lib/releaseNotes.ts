@@ -27,6 +27,30 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-package-sibling-sort',
+    date: '2026-07-20',
+    title: 'Package sibling sort',
+    summary:
+      'Packages under a folder keep a saved order (Up/Down in the New-trip and Use-template trees). Order lives in org settings — no schema migration.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-write-off-awaiting-inbox',
+    date: '2026-07-20',
+    title: 'Write-off awaiting inbox',
+    summary:
+      'Receivables and Overdue show write-offs waiting approval. Open Finance deep-links to the instalment; trip Finance highlights the row. Cue when the pending amount exceeds current outstanding.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-transfer-dense-bands-child-addon',
+    date: '2026-07-20',
+    title: 'Transfer dense bands + per-vehicle child add-on',
+    summary:
+      'Party bands expand to six tiers (CSV partyBand2–12). On per-vehicle Match, an explicit chart Child/Infant cost adds on top of the cab or band — blank still means cab-only.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-write-off-workflow',
     date: '2026-07-20',
     title: 'Receivable write-off request → approve',

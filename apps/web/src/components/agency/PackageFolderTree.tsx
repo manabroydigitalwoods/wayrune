@@ -8,12 +8,13 @@ import {
   useSensors,
   type DragEndEvent,
 } from '@dnd-kit/core';
-import { ChevronDown, ChevronRight, FileText, Folder } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronUp, FileText, Folder } from 'lucide-react';
 import {
   buildFolderTree,
   computeFolderDropRename,
   computeTemplateDropFolder,
   FOLDER_TREE_ROOT_ID,
+  moveSiblingId,
   templatesExactInFolder,
   type FolderTreeNode,
   type PackageTreeTemplate,
@@ -28,9 +29,16 @@ type PackageFolderTreeProps = {
   onMove: (fromFolder: string, toFolder: string) => void | Promise<void>;
   /** Optional packages shown under matching folders (drag onto folder/root). */
   templates?: PackageTreeTemplate[];
+  /** Saved sibling order from org settings (folder → ids). */
+  siblingOrder?: Record<string, string[]>;
   onMoveTemplate?: (
     templateId: string,
     folder: string | null,
+  ) => void | Promise<void>;
+  /** Persist new sibling order under a folder. */
+  onReorderTemplates?: (
+    folder: string | null,
+    orderedIds: string[],
   ) => void | Promise<void>;
   /** Optional node actions (shown when selected). */
   onRename?: (path: string) => void;
@@ -80,10 +88,18 @@ function TemplateTreeRow({
   template,
   depth,
   canWrite,
+  canMoveUp,
+  canMoveDown,
+  onMoveUp,
+  onMoveDown,
 }: {
   template: PackageTreeTemplate;
   depth: number;
   canWrite: boolean;
+  canMoveUp?: boolean;
+  canMoveDown?: boolean;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
 }) {
   const {
     attributes,
@@ -106,17 +122,53 @@ function TemplateTreeRow({
       className={[
         'flex items-center gap-1 rounded py-0.5 pr-1 text-[10px] text-muted-foreground',
         isDragging ? 'opacity-40' : 'hover:bg-muted/60',
-        canWrite ? 'cursor-grab active:cursor-grabbing' : '',
       ]
         .filter(Boolean)
         .join(' ')}
       style={{ paddingLeft: `${16 + depth * 12}px` }}
-      {...(canWrite ? { ...listeners, ...attributes } : {})}
     >
-      <FileText className="h-3 w-3 shrink-0" />
-      <span className="truncate font-medium text-foreground/80">
-        {template.name}
+      <span
+        className={[
+          'flex min-w-0 flex-1 items-center gap-1',
+          canWrite ? 'cursor-grab active:cursor-grabbing' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+        {...(canWrite ? { ...listeners, ...attributes } : {})}
+      >
+        <FileText className="h-3 w-3 shrink-0" />
+        <span className="truncate font-medium text-foreground/80">
+          {template.name}
+        </span>
       </span>
+      {canWrite && onMoveUp && onMoveDown ? (
+        <span className="flex shrink-0 items-center gap-0.5">
+          <button
+            type="button"
+            className="rounded p-0.5 hover:bg-muted disabled:opacity-30"
+            disabled={!canMoveUp}
+            aria-label={`Move ${template.name} up`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onMoveUp();
+            }}
+          >
+            <ChevronUp className="h-3 w-3" />
+          </button>
+          <button
+            type="button"
+            className="rounded p-0.5 hover:bg-muted disabled:opacity-30"
+            disabled={!canMoveDown}
+            aria-label={`Move ${template.name} down`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onMoveDown();
+            }}
+          >
+            <ChevronDown className="h-3 w-3" />
+          </button>
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -134,6 +186,8 @@ function FolderTreeRow({
   onCascadeDelete,
   isEmptyFolder,
   templates,
+  siblingOrder,
+  onReorderTemplates,
 }: {
   node: FolderTreeNode;
   depth: number;
@@ -147,6 +201,11 @@ function FolderTreeRow({
   onCascadeDelete?: (path: string) => void;
   isEmptyFolder?: (path: string) => boolean;
   templates: PackageTreeTemplate[];
+  siblingOrder?: Record<string, string[]>;
+  onReorderTemplates?: (
+    folder: string | null,
+    orderedIds: string[],
+  ) => void | Promise<void>;
 }) {
   const {
     attributes,
@@ -172,8 +231,19 @@ function FolderTreeRow({
   const hasKids = node.children.length > 0;
   const open = expanded.has(node.path.toLowerCase());
   const empty = isEmptyFolder?.(node.path) ?? false;
-  const inFolder = templatesExactInFolder(templates, node.path);
+  const inFolder = templatesExactInFolder(templates, node.path, siblingOrder);
   const showBody = hasKids || inFolder.length > 0;
+
+  const reorder = (templateId: string, direction: 'up' | 'down') => {
+    if (!onReorderTemplates) return;
+    const next = moveSiblingId({
+      orderedIds: inFolder.map((t) => t.id),
+      templateId,
+      direction,
+    });
+    if (!next) return;
+    void onReorderTemplates(node.path, next);
+  };
 
   return (
     <div>
@@ -250,12 +320,20 @@ function FolderTreeRow({
       </div>
       {showBody && open ? (
         <>
-          {inFolder.map((t) => (
+          {inFolder.map((t, idx) => (
             <TemplateTreeRow
               key={t.id}
               template={t}
               depth={depth + 1}
               canWrite={canWrite}
+              canMoveUp={idx > 0}
+              canMoveDown={idx < inFolder.length - 1}
+              onMoveUp={
+                onReorderTemplates ? () => reorder(t.id, 'up') : undefined
+              }
+              onMoveDown={
+                onReorderTemplates ? () => reorder(t.id, 'down') : undefined
+              }
             />
           ))}
           {node.children.map((child) => (
@@ -273,6 +351,8 @@ function FolderTreeRow({
               onCascadeDelete={onCascadeDelete}
               isEmptyFolder={isEmptyFolder}
               templates={templates}
+              siblingOrder={siblingOrder}
+              onReorderTemplates={onReorderTemplates}
             />
           ))}
         </>
@@ -288,7 +368,9 @@ export function PackageFolderTree({
   onSelect,
   onMove,
   templates = [],
+  siblingOrder,
   onMoveTemplate,
+  onReorderTemplates,
   onRename,
   onRemoveEmpty,
   onCascadeDelete,
@@ -297,8 +379,8 @@ export function PackageFolderTree({
 }: PackageFolderTreeProps) {
   const tree = useMemo(() => buildFolderTree(folders), [folders]);
   const rootTemplates = useMemo(
-    () => templatesExactInFolder(templates, ''),
-    [templates],
+    () => templatesExactInFolder(templates, '', siblingOrder),
+    [templates, siblingOrder],
   );
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const sensors = useSensors(
@@ -313,6 +395,17 @@ export function PackageFolderTree({
       else next.add(key);
       return next;
     });
+  };
+
+  const reorderRoot = (templateId: string, direction: 'up' | 'down') => {
+    if (!onReorderTemplates) return;
+    const next = moveSiblingId({
+      orderedIds: rootTemplates.map((t) => t.id),
+      templateId,
+      direction,
+    });
+    if (!next) return;
+    void onReorderTemplates(null, next);
   };
 
   const onDragEnd = (event: DragEndEvent) => {
@@ -358,12 +451,20 @@ export function PackageFolderTree({
         selected={!selectedPath.trim()}
         onSelect={() => onSelect('')}
       >
-        {rootTemplates.map((t) => (
+        {rootTemplates.map((t, idx) => (
           <TemplateTreeRow
             key={t.id}
             template={t}
             depth={0}
             canWrite={canWrite}
+            canMoveUp={idx > 0}
+            canMoveDown={idx < rootTemplates.length - 1}
+            onMoveUp={
+              onReorderTemplates ? () => reorderRoot(t.id, 'up') : undefined
+            }
+            onMoveDown={
+              onReorderTemplates ? () => reorderRoot(t.id, 'down') : undefined
+            }
           />
         ))}
         {tree.map((node) => (
@@ -381,6 +482,8 @@ export function PackageFolderTree({
             onCascadeDelete={onCascadeDelete}
             isEmptyFolder={isEmptyFolder}
             templates={templates}
+            siblingOrder={siblingOrder}
+            onReorderTemplates={onReorderTemplates}
           />
         ))}
       </DroppableRoot>

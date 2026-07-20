@@ -16,6 +16,7 @@ import {
   RemoveQuoteTemplateFolderSchema,
   MoveQuoteTemplateFolderSchema,
   CascadeDeleteQuoteTemplateFolderSchema,
+  ReorderQuoteTemplateSiblingsSchema,
   RestoreQuoteTemplateSchema,
   SaveQuotationVersionSchema,
   SendQuoteEmailSchema,
@@ -100,6 +101,18 @@ export class QuotationsController {
     return this.quotations.cascadeDeleteTemplateFolder(
       user,
       CascadeDeleteQuoteTemplateFolderSchema.parse(body),
+    );
+  }
+
+  @Post('quote-templates/reorder-siblings')
+  @RequirePermissions('quote.write')
+  reorderTemplateSiblings(
+    @CurrentUser() user: AuthUser,
+    @Body() body: unknown,
+  ) {
+    return this.quotations.reorderTemplateSiblings(
+      user,
+      ReorderQuoteTemplateSiblingsSchema.parse(body),
     );
   }
 

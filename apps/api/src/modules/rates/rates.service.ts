@@ -97,10 +97,12 @@ import {
   hotelMaxStayMatchAccepted,
 } from './hotel-max-stay';
 import {
+  applyPerVehicleChildExtras,
   parseTransferPartyBands,
   pickTransferPartyBand,
   buildPartyBandsFromTransferCsvRow,
   transferPartyBandMatchAccepted,
+  transferPerVehicleChildExtrasAccepted,
 } from './transfer-party-bands';
 import {
   filterHotelByNationality,
@@ -5179,6 +5181,27 @@ export class RatesService {
         });
       }
 
+      // Per-vehicle: optional explicit chart child/infant add-ons (not factor-derived).
+      let partyInfants = ctx.infants;
+      const lineInfantsPv = Number(item.details?.infants);
+      if (Number.isFinite(lineInfantsPv) && lineInfantsPv >= 0) {
+        partyInfants = Math.round(lineInfantsPv);
+      }
+      const lineChildrenPv = Number(item.details?.children);
+      if (Number.isFinite(lineChildrenPv) && lineChildrenPv >= 0) {
+        partyChildren = Math.round(lineChildrenPv);
+      }
+      const pvExtras = applyPerVehicleChildExtras({
+        vehicleUnitCost: adultCost,
+        childUnitCost:
+          best.childUnitCost != null ? Number(best.childUnitCost) : null,
+        infantUnitCost:
+          best.infantUnitCost != null ? Number(best.infantUnitCost) : null,
+        childHeads: partyChildren,
+        infantHeads: partyInfants,
+      });
+      unitCost = pvExtras.unitCost;
+
       const vehicleSeats = best.vehicleType?.seats ?? null;
       const accepted = transferMatchAccepted({
         isSystem: best.isSystem,
@@ -5191,12 +5214,38 @@ export class RatesService {
       if (pickedBand && pricingMode === 'per_vehicle') {
         accepted.push(transferPartyBandMatchAccepted(pickedBand));
       }
+      const childExtrasCue = transferPerVehicleChildExtrasAccepted(pvExtras);
+      if (childExtrasCue) accepted.push(childExtrasCue);
       const rejected = explainTransferRejects(routePool, best.id, {
         fromPlaceId,
         toPlaceId,
         vehicleTypeId,
         asOf,
       });
+
+      const pvCalculation =
+        pickedBand ||
+        pvExtras.childExtras > 0 ||
+        pvExtras.infantExtras > 0
+          ? {
+              ...(pickedBand
+                ? {
+                    partyBandSize: pickedBand.partySize,
+                    partyBandUnitCost: pickedBand.unitCost,
+                    partyForBand,
+                  }
+                : {}),
+              ...(pvExtras.childExtras > 0 || pvExtras.infantExtras > 0
+                ? {
+                    vehicleUnitCost: adultCost,
+                    childExtras: pvExtras.childExtras,
+                    infantExtras: pvExtras.infantExtras,
+                    childrenCharged: pvExtras.childrenCharged,
+                    infantsCharged: pvExtras.infantsCharged,
+                  }
+                : {}),
+            }
+          : undefined;
 
       return matched({
         itemId: item.itemId,
@@ -5212,7 +5261,7 @@ export class RatesService {
           pricingMode,
           adults: partyAdults,
           children: partyChildren,
-          infants: ctx.infants,
+          infants: partyInfants,
           adultUnitCost: adultCost,
           childUnitCost: childCost,
           fromPlaceId: best.fromPlaceId,
@@ -5228,15 +5277,7 @@ export class RatesService {
           unitCost: adultCost,
           supplierId: best.supplierId || supplierId || null,
           rateVersionNumber: best.versionNumber ?? 1,
-          ...(pickedBand && pricingMode === 'per_vehicle'
-            ? {
-                calculation: {
-                  partyBandSize: pickedBand.partySize,
-                  partyBandUnitCost: pickedBand.unitCost,
-                  partyForBand,
-                },
-              }
-            : {}),
+          ...(pvCalculation ? { calculation: pvCalculation } : {}),
           matchExplain: { accepted, rejected },
         },
       });

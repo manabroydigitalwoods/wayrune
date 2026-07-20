@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Building2, FileText, Package, CircleSlash } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Button,
   Card,
@@ -22,6 +23,7 @@ import {
   formatPercent,
   formatDate,
   formatDateTime,
+  cn,
 } from '@wayrune/ui';
 import { api } from '../../api';
 import { Can } from '../Can';
@@ -37,6 +39,7 @@ import { partyCreditLimitCue } from '../../lib/partyCreditLimit';
 import {
   parseTripPaymentWriteOffNotes,
   tripPaymentOutstandingUi,
+  writeOffAmountExceedsOutstandingUi,
 } from '../../lib/tripPaymentWriteOff';
 import {
   copyTripPaymentLink,
@@ -232,6 +235,9 @@ export function FinancePanel({
   const canWriteOffRequest = hasAny(CAP.writeOffRequest);
   const canWriteOffApprove = hasAny(CAP.writeOffApprove);
   const canOverrideCreditLimit = hasAny(CAP.creditLimitOverride);
+  const [searchParams] = useSearchParams();
+  const highlightPaymentId = searchParams.get('paymentId');
+  const highlightRef = useRef<HTMLLIElement | null>(null);
   const [data, setData] = useState<FinanceSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [customerFilter, setCustomerFilter] = useState('all');
@@ -308,6 +314,18 @@ export function FinancePanel({
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!highlightPaymentId) return;
+    setCustomerFilter('all');
+  }, [highlightPaymentId]);
+
+  useEffect(() => {
+    if (!highlightPaymentId || loading || !data) return;
+    const el = highlightRef.current;
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [highlightPaymentId, loading, data, customerFilter]);
 
   useEffect(() => {
     void api<{ items?: Supplier[] } | Supplier[]>(`/suppliers`)
@@ -670,10 +688,21 @@ export function FinancePanel({
       notes: p.notes,
     });
     const writeOff = parseTripPaymentWriteOffNotes(p.notes);
+    const highlighted = highlightPaymentId === p.id;
+    const exceedsOutstanding =
+      writeOff.status === 'awaiting_approval' &&
+      writeOffAmountExceedsOutstandingUi({
+        writeOffAmount: writeOff.amount,
+        outstanding,
+      });
     return (
       <li
         key={p.id}
-        className="flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2.5 text-sm glass-row"
+        ref={highlighted ? highlightRef : undefined}
+        className={cn(
+          'flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2.5 text-sm glass-row',
+          highlighted && 'ring-2 ring-amber-500/60 border-amber-500/40',
+        )}
       >
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -682,6 +711,7 @@ export function FinancePanel({
             {writeOff.status === 'awaiting_approval' ? (
               <span className="rounded bg-amber-500/15 px-1.5 py-px text-[10px] font-medium text-amber-800 dark:text-amber-200">
                 Write-off pending · {formatCurrency(writeOff.amount, p.currency)}
+                {exceedsOutstanding ? ' · exceeds outstanding' : ''}
               </span>
             ) : null}
             {writeOff.status === 'approved' ? (

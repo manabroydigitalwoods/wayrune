@@ -250,16 +250,49 @@ export type PackageTreeTemplate = {
 export function templatesExactInFolder(
   templates: PackageTreeTemplate[],
   folder: string | null | undefined,
+  siblingOrder?: Record<string, string[]>,
 ): PackageTreeTemplate[] {
   const q = normalizeTemplateFolderLabel(folder) || '';
   const ql = q.toLowerCase();
-  return templates
-    .filter((t) => {
-      const f = normalizeTemplateFolderLabel(t.folder) || '';
-      return f.toLowerCase() === ql;
-    })
-    .slice()
+  const matched = templates.filter((t) => {
+    const f = normalizeTemplateFolderLabel(t.folder) || '';
+    return f.toLowerCase() === ql;
+  });
+  if (!siblingOrder) {
+    return matched.slice().sort((a, b) => a.name.localeCompare(b.name));
+  }
+  const key = q;
+  const saved = siblingOrder[key] || [];
+  const byId = new Map(matched.map((t) => [t.id, t]));
+  const remaining = new Set(matched.map((t) => t.id));
+  const out: PackageTreeTemplate[] = [];
+  for (const id of saved) {
+    const t = byId.get(id);
+    if (!t || !remaining.has(id)) continue;
+    out.push(t);
+    remaining.delete(id);
+  }
+  const rest = [...remaining]
+    .map((id) => byId.get(id)!)
     .sort((a, b) => a.name.localeCompare(b.name));
+  return [...out, ...rest];
+}
+
+/** Move one template id up or down within its folder sibling list. */
+export function moveSiblingId(opts: {
+  orderedIds: string[];
+  templateId: string;
+  direction: 'up' | 'down';
+}): string[] | null {
+  const ids = [...opts.orderedIds];
+  const i = ids.indexOf(opts.templateId);
+  if (i < 0) return null;
+  const j = opts.direction === 'up' ? i - 1 : i + 1;
+  if (j < 0 || j >= ids.length) return null;
+  const tmp = ids[i]!;
+  ids[i] = ids[j]!;
+  ids[j] = tmp;
+  return ids;
 }
 
 /**

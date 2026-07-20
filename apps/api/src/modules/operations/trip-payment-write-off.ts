@@ -14,6 +14,9 @@ export type TripPaymentWriteOff = {
 
 const MARKER_RE = /\n?⟦wo:v1⟧([\s\S]*?)⟦\/wo⟧/;
 
+/** Narrow Prisma `contains` for awaiting write-off scans (parse still authoritative). */
+export const WRITE_OFF_AWAITING_NOTES_CONTAINS = '"status":"awaiting_approval"';
+
 const EMPTY: TripPaymentWriteOff = {
   status: 'none',
   amount: 0,
@@ -95,6 +98,101 @@ export function tripPaymentOutstanding(opts: {
   const writeOff =
     wo.status === 'approved' && wo.amount > 0 ? wo.amount : 0;
   return Math.max(0, round2(opts.amount - opts.amountPaid - writeOff));
+}
+
+/**
+ * Pending write-off vs current cash outstanding (approved write-offs already
+ * subtracted via {@link tripPaymentOutstanding}).
+ */
+export function writeOffAmountExceedsOutstanding(opts: {
+  writeOffAmount: number;
+  outstanding: number;
+}): boolean {
+  const amount = round2(Number(opts.writeOffAmount) || 0);
+  const outstanding = round2(Number(opts.outstanding) || 0);
+  return amount > 0 && amount > outstanding + 0.001;
+}
+
+export type AwaitingWriteOffListItem = {
+  paymentId: string;
+  tripId: string;
+  tripNumber: string;
+  tripTitle: string;
+  partyName: string | null;
+  label: string;
+  currency: string;
+  writeOffAmount: number;
+  reason: string | null;
+  requestedBy: string | null;
+  requestedAt: string | null;
+  outstanding: number;
+  amountExceedsOutstanding: boolean;
+  /** App-relative deep-link into trip Finance for this instalment. */
+  href: string;
+};
+
+export function tripFinanceWriteOffHref(
+  tripId: string,
+  paymentId: string,
+): string {
+  return `/trips/${tripId}?tab=finance&paymentId=${encodeURIComponent(paymentId)}`;
+}
+
+/** Pure mapper for org awaiting write-off inbox (parse notes; ignore closed). */
+export function collectAwaitingWriteOffs(
+  payments: Array<{
+    id: string;
+    tripId: string;
+    direction: string;
+    status: string;
+    label: string;
+    amount: number;
+    amountPaid: number;
+    currency: string;
+    notes: string | null;
+    tripNumber: string;
+    tripTitle: string;
+    partyName: string | null;
+  }>,
+): AwaitingWriteOffListItem[] {
+  const out: AwaitingWriteOffListItem[] = [];
+  for (const p of payments) {
+    if (p.direction !== 'customer') continue;
+    if (p.status === 'paid' || p.status === 'cancelled') continue;
+    const wo = parseTripPaymentWriteOff(p.notes);
+    if (wo.status !== 'awaiting_approval' || !(wo.amount > 0)) continue;
+    const outstanding = tripPaymentOutstanding({
+      amount: p.amount,
+      amountPaid: p.amountPaid,
+      notes: p.notes,
+    });
+    out.push({
+      paymentId: p.id,
+      tripId: p.tripId,
+      tripNumber: p.tripNumber,
+      tripTitle: p.tripTitle,
+      partyName: p.partyName,
+      label: p.label,
+      currency: p.currency,
+      writeOffAmount: wo.amount,
+      reason: wo.reason,
+      requestedBy: wo.requestedBy,
+      requestedAt: wo.requestedAt,
+      outstanding,
+      amountExceedsOutstanding: writeOffAmountExceedsOutstanding({
+        writeOffAmount: wo.amount,
+        outstanding,
+      }),
+      href: tripFinanceWriteOffHref(p.tripId, p.id),
+    });
+  }
+  out.sort((a, b) => {
+    const at = a.requestedAt || '';
+    const bt = b.requestedAt || '';
+    if (at !== bt) return at < bt ? -1 : 1;
+    return a.tripNumber.localeCompare(b.tripNumber);
+  });
+  return out;
 }
 
 export function assertCanRequestWriteOff(input: {
