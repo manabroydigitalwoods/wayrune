@@ -1371,6 +1371,10 @@ function parseProvenanceCalculation(
         : undefined,
     buyMode:
       c.buyMode === 'per_pax_split' ? ('per_pax_split' as const) : undefined,
+    composition:
+      c.composition === 'dbl_sgl' || c.composition === 'equal'
+        ? (c.composition as 'equal' | 'dbl_sgl')
+        : undefined,
     paxBuySplitTotalPerNight: num(c.paxBuySplitTotalPerNight),
     paxBuySplits: Array.isArray(c.paxBuySplits)
       ? c.paxBuySplits

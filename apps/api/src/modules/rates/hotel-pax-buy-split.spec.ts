@@ -15,12 +15,23 @@ function tip(opts: {
   dblWeekend?: number;
   tpl?: number;
   tplWeekend?: number;
+  sgl?: number;
+  sglWeekend?: number;
 }) {
   const adultBands: Array<{
     adults: number;
     unitCostPerNight: number;
     weekendUnitCostPerNight?: number;
   }> = [];
+  if (opts.sgl != null) {
+    adultBands.push({
+      adults: 1,
+      unitCostPerNight: opts.sgl,
+      ...(opts.sglWeekend != null
+        ? { weekendUnitCostPerNight: opts.sglWeekend }
+        : {}),
+    });
+  }
   if (opts.dbl != null) {
     adultBands.push({
       adults: 2,
@@ -113,6 +124,13 @@ describe('hotel-pax-buy-split', () => {
     ).toBeNull();
     expect(
       hotelPaxBuySplitAdultSlots(['IN', 'US', 'GB'], {
+        adults: 3,
+        children: 0,
+        rooms: 2,
+      }),
+    ).toEqual(['IN', 'US', 'GB']);
+    expect(
+      hotelPaxBuySplitAdultSlots(['IN', 'US'], {
         adults: 3,
         children: 0,
         rooms: 2,
@@ -248,6 +266,52 @@ describe('hotel-pax-buy-split', () => {
     });
     expect(split!.paxBuySplitTotalPerNight).toBe(6900);
     expect(split!.totalBuy).toBe(6900);
+  });
+
+  it('composes DBL+SGL for 3 adults / 2 rooms without ×2 rooms', () => {
+    const pool = [
+      tip({ id: 'in', unitCost: 4000, nationality: 'IN', dbl: 4500, sgl: 3600 }),
+      tip({ id: 'us', unitCost: 6000, nationality: 'US', dbl: 6200, sgl: 4800 }),
+      tip({ id: 'gb', unitCost: 5500, nationality: 'GB', dbl: 5800, sgl: 3800 }),
+    ];
+    const split = tryHotelPaxBuySplit({
+      guestCodes: ['IN', 'US', 'GB'],
+      adults: 3,
+      children: 0,
+      rooms: 2,
+      stayDates: [
+        new Date('2026-04-10T00:00:00.000Z'),
+        new Date('2026-04-11T00:00:00.000Z'),
+      ],
+      candidatePool: pool,
+      pickBest: (rows) => rows[0],
+    });
+    expect(split).not.toBeNull();
+    expect(split!.composition).toBe('dbl_sgl');
+    expect(split!.rooms).toBe(2);
+    expect(split!.bandAdults).toBe(2);
+    expect(split!.paxBuySplits).toEqual([
+      expect.objectContaining({
+        nationality: 'IN',
+        tipBandAdults: 2,
+        sharePerNight: 2250,
+      }),
+      expect.objectContaining({
+        nationality: 'US',
+        tipBandAdults: 2,
+        sharePerNight: 3100,
+      }),
+      expect.objectContaining({
+        nationality: 'GB',
+        tipBandAdults: 1,
+        sharePerNight: 3800,
+      }),
+    ]);
+    // 2250 + 3100 + 3800 = 9150/n × 2 nights × stayRooms 1
+    expect(split!.paxBuySplitTotalPerNight).toBe(9150);
+    expect(split!.totalBuy).toBe(9150 * 2);
+    expect(hotelPaxBuySplitMatchAccepted(split!)[0]).toMatch(/DBL\+SGL/);
+    expect(hotelPaxBuySplitMatchAccepted(split!)[0]).not.toMatch(/× 2 rooms/);
   });
 
   it('falls back when a nationality tip is missing', () => {

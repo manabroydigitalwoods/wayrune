@@ -16,6 +16,7 @@ export type HotelOccupancyExtraCalc = {
   paxBuySplitTotalPerNight?: number | null;
   paxBuySplits?: HotelPaxBuySplitShareUi[] | null;
   rooms?: number | null;
+  composition?: string | null;
 };
 
 export function formatHotelAdultBandNote(
@@ -31,7 +32,7 @@ export function formatHotelAdultBandNote(
   return `${adults}A band · ${amount}/n`;
 }
 
-/** Mixed-nationality DBL/2 share cue (Match buyMode per_pax_split). */
+/** Mixed-nationality per-pax / composed-room cue (Match buyMode per_pax_split). */
 export function formatHotelPaxBuySplitNote(
   calc: HotelOccupancyExtraCalc | null | undefined,
   opts?: { formatAmount?: (n: number) => string },
@@ -55,8 +56,13 @@ export function formatHotelPaxBuySplitNote(
   const totalBit =
     Number.isFinite(total) && total >= 0 ? ` = ${fmt(total)}/n` : '';
   const rooms = Math.max(0, Math.round(Number(calc.rooms) || 0));
-  const roomsBit = rooms > 1 ? ` · × ${rooms} rooms` : '';
-  return `Split · ${bits.join(' + ')}${totalBit}${roomsBit}`;
+  const suffix =
+    calc.composition === 'dbl_sgl'
+      ? ' · DBL+SGL'
+      : rooms > 1
+        ? ` · × ${rooms} rooms`
+        : '';
+  return `Split · ${bits.join(' + ')}${totalBit}${suffix}`;
 }
 
 function occupancyExtraBits(

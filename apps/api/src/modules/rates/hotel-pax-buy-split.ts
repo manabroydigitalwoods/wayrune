@@ -3,6 +3,7 @@
  * Gates:
  * - DBL/2: adults === 2 × rooms, exactly two distinct codes
  * - TPL/3: 1 room, 3 adults, exactly three distinct codes
+ * - DBL+SGL: 2 rooms, 3 adults, exactly three distinct codes (ordered: DBL, DBL, SGL)
  * Children allowed — extras compose via applyOccupancyPricing after the split.
  */
 
@@ -37,13 +38,19 @@ export type HotelPaxBuySplitShare = {
   tipWeekendUnitCostPerNight: number | null;
 };
 
+export type HotelPaxBuyComposition = 'equal' | 'dbl_sgl';
+
 export type HotelPaxBuySplitResult = {
   buyMode: 'per_pax_split';
   paxBuySplits: HotelPaxBuySplitShare[];
-  /** Weekday combined share (sum of adult shares). */
+  /** Weekday combined share (sum of adult shares / composed rooms). */
   paxBuySplitTotalPerNight: number;
-  /** Occupancy band size used for equal shares (2 = DBL, 3 = TPL). */
+  /**
+   * Extras base adults per room (DBL=2, TPL=3).
+   * For dbl_sgl stays at 2 so includedAdults = 2×2 ≥ 3.
+   */
   bandAdults: number;
+  composition: HotelPaxBuyComposition;
   weekdayNights: number;
   weekendNights: number;
   weekdayUnit: number;
@@ -52,9 +59,23 @@ export type HotelPaxBuySplitResult = {
   totalBuy: number;
 };
 
+export type HotelPaxBuySplitSlot = {
+  code: string;
+  bandAdults: number;
+};
+
 export type HotelPaxBuySplitPlan = {
-  codes: string[];
-  bandAdults: 2 | 3;
+  slots: HotelPaxBuySplitSlot[];
+  /** Extras / provenance band adults per room. */
+  bandAdults: number;
+  composition: HotelPaxBuyComposition;
+  /** Display rooms on the result (quote rooms). */
+  displayRooms: number;
+  /**
+   * Stay multiplier rooms. For dbl_sgl the night unit already includes both
+   * rooms, so stay uses 1.
+   */
+  stayRooms: number;
 };
 
 function round2(n: number): number {
@@ -82,24 +103,54 @@ export function hotelPaxBuySplitPlan(
   // TPL/3: one room, three adults, three markets
   if (rooms === 1 && adults === 3) {
     if (codes.length !== 3) return null;
-    return { codes, bandAdults: 3 };
+    return {
+      slots: codes.map((code) => ({ code, bandAdults: 3 })),
+      bandAdults: 3,
+      composition: 'equal',
+      displayRooms: 1,
+      stayRooms: 1,
+    };
+  }
+
+  // Uneven 3A/2R: first two share a double, third takes a single (code order).
+  if (rooms === 2 && adults === 3) {
+    if (codes.length !== 3) return null;
+    return {
+      slots: [
+        { code: codes[0]!, bandAdults: 2 },
+        { code: codes[1]!, bandAdults: 2 },
+        { code: codes[2]!, bandAdults: 1 },
+      ],
+      bandAdults: 2,
+      composition: 'dbl_sgl',
+      displayRooms: 2,
+      stayRooms: 1,
+    };
   }
 
   // DBL/2: adults === 2 × rooms (incl. multi-room 2A×N)
   if (adults === 2 * rooms) {
     if (codes.length !== 2) return null;
-    return { codes, bandAdults: 2 };
+    return {
+      slots: codes.map((code) => ({ code, bandAdults: 2 })),
+      bandAdults: 2,
+      composition: 'equal',
+      displayRooms: rooms,
+      stayRooms: rooms,
+    };
   }
 
   return null;
 }
 
-/** Exactly N adult nationality slots when split is allowed; else null. */
+/** Nationality codes when split is allowed; else null. */
 export function hotelPaxBuySplitAdultSlots(
   guestCodes: Array<string | null | undefined> | null | undefined,
   opts: { adults: number; children: number; rooms: number },
 ): string[] | null {
-  return hotelPaxBuySplitPlan(guestCodes, opts)?.codes ?? null;
+  const plan = hotelPaxBuySplitPlan(guestCodes, opts);
+  if (!plan) return null;
+  return plan.slots.map((s) => s.code);
 }
 
 export function bandFromTip(
@@ -161,7 +212,7 @@ function shareFromBand(
 }
 
 /**
- * Resolve per-adult equal-share buy when gate holds and each nationality has a tip.
+ * Resolve per-adult / composed-room buy when gate holds and each slot has a tip.
  * `pickBest` should mirror hotel Match scoring on a nationality-filtered pool.
  */
 export function tryHotelPaxBuySplit<T extends HotelPaxBuySplitTip>(opts: {
@@ -177,20 +228,19 @@ export function tryHotelPaxBuySplit<T extends HotelPaxBuySplitTip>(opts: {
   if (!plan) return null;
   if (!opts.candidatePool.length || !opts.stayDates.length) return null;
 
-  const { codes, bandAdults } = plan;
   const shares: HotelPaxBuySplitShare[] = [];
   const tipIds = new Set<string>();
 
-  for (const rawCode of codes) {
-    const code = normalizeHotelNationality(rawCode);
+  for (const slot of plan.slots) {
+    const code = normalizeHotelNationality(slot.code);
     if (!code) return null;
     const tip = opts.pickBest(
       filterHotelByNationality(opts.candidatePool, code),
     );
     if (!tip) return null;
     tipIds.add(tip.id);
-    const band = bandFromTip(tip, bandAdults);
-    const share = shareFromBand(band, bandAdults);
+    const band = bandFromTip(tip, slot.bandAdults);
+    const share = shareFromBand(band, slot.bandAdults);
     shares.push({
       nationality: code,
       adults: 1,
@@ -203,16 +253,17 @@ export function tryHotelPaxBuySplit<T extends HotelPaxBuySplitTip>(opts: {
   }
 
   // Same tip for multiple adults → room tip is clearer; skip split.
-  if (tipIds.size < codes.length) return null;
+  if (tipIds.size < plan.slots.length) return null;
 
   const weekdayUnit = round2(
     shares.reduce((sum, s) => sum + s.sharePerNight, 0),
   );
-  const weekendParts = shares.map((s) =>
-    s.tipWeekendUnitCostPerNight != null
-      ? round2(s.tipWeekendUnitCostPerNight / bandAdults)
-      : s.sharePerNight,
-  );
+  const weekendParts = shares.map((s, i) => {
+    const slotBand = plan.slots[i]!.bandAdults;
+    return s.tipWeekendUnitCostPerNight != null
+      ? round2(s.tipWeekendUnitCostPerNight / slotBand)
+      : s.sharePerNight;
+  });
   const anyWeekend = shares.some((s) => s.tipWeekendUnitCostPerNight != null);
   const weekendUnit = anyWeekend
     ? round2(weekendParts.reduce((sum, n) => sum + n, 0))
@@ -224,19 +275,20 @@ export function tryHotelPaxBuySplit<T extends HotelPaxBuySplitTip>(opts: {
       weekendUnitCost: weekendUnit,
     },
     opts.stayDates,
-    Math.max(1, Math.floor(opts.rooms) || 1),
+    plan.stayRooms,
   );
 
   return {
     buyMode: 'per_pax_split',
     paxBuySplits: shares,
     paxBuySplitTotalPerNight: weekdayUnit,
-    bandAdults,
+    bandAdults: plan.bandAdults,
+    composition: plan.composition,
     weekdayNights: stay.weekdayNights,
     weekendNights: stay.weekendNights,
     weekdayUnit: stay.weekdayUnit,
     weekendUnit: stay.weekendUnit,
-    rooms: stay.rooms,
+    rooms: plan.displayRooms,
     totalBuy: stay.totalBuy,
   };
 }
@@ -244,7 +296,10 @@ export function tryHotelPaxBuySplit<T extends HotelPaxBuySplitTip>(opts: {
 export function hotelPaxBuySplitMatchAccepted(
   split: Pick<
     HotelPaxBuySplitResult,
-    'paxBuySplits' | 'paxBuySplitTotalPerNight' | 'rooms'
+    | 'paxBuySplits'
+    | 'paxBuySplitTotalPerNight'
+    | 'rooms'
+    | 'composition'
   >,
   opts?: { formatAmount?: (n: number) => string },
 ): string[] {
@@ -255,8 +310,13 @@ export function hotelPaxBuySplitMatchAccepted(
     (s) => `${s.nationality} ${fmt(s.sharePerNight)}`,
   );
   const rooms = Math.max(1, Math.floor(Number(split.rooms) || 1));
-  const roomsBit = rooms > 1 ? ` · × ${rooms} rooms` : '';
+  const suffix =
+    split.composition === 'dbl_sgl'
+      ? ' · DBL+SGL'
+      : rooms > 1
+        ? ` · × ${rooms} rooms`
+        : '';
   return [
-    `Per-pax buy · ${bits.join(' + ')} = ${fmt(split.paxBuySplitTotalPerNight)}/n${roomsBit}`,
+    `Per-pax buy · ${bits.join(' + ')} = ${fmt(split.paxBuySplitTotalPerNight)}/n${suffix}`,
   ];
 }

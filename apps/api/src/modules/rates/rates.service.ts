@@ -3588,6 +3588,7 @@ export class RatesService {
               adultBandAdults: paxSplit.bandAdults,
               adultBandUnitCost: paxSplit.paxBuySplitTotalPerNight,
               adultsPerRoom: paxSplit.bandAdults,
+              composition: paxSplit.composition,
             }
           : adultBand
             ? {

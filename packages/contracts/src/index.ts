@@ -2959,8 +2959,10 @@ export const QuoteRateProvenanceSchema = z.object({
       /** Distinct guest codes before collapse (when mixed). */
       guestNationalities: z.array(z.string()).max(12).optional(),
       guestNationalityMixed: z.boolean().optional(),
-      /** Mixed-nationality DBL/2 per-adult buy (hotel Match; 2A×N rooms). */
+      /** Mixed-nationality per-adult / composed-room buy (hotel Match). */
       buyMode: z.enum(['per_pax_split']).optional(),
+      /** equal = DBL/2 or TPL/3; dbl_sgl = 3A/2R composed double+single. */
+      composition: z.enum(['equal', 'dbl_sgl']).optional(),
       paxBuySplitTotalPerNight: z.number().optional(),
       paxBuySplits: z
         .array(

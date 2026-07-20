@@ -123,4 +123,22 @@ describe('formatHotelOccupancyExtraNote', () => {
       }),
     ).toBe('Split · IN ₹2,200 + US ₹2,400 + GB ₹2,300 = ₹6,900/n');
   });
+
+  it('formats DBL+SGL cue without × rooms', () => {
+    expect(
+      formatHotelPaxBuySplitNote({
+        buyMode: 'per_pax_split',
+        composition: 'dbl_sgl',
+        rooms: 2,
+        paxBuySplitTotalPerNight: 9150,
+        paxBuySplits: [
+          { nationality: 'IN', sharePerNight: 2250 },
+          { nationality: 'US', sharePerNight: 3100 },
+          { nationality: 'GB', sharePerNight: 3800 },
+        ],
+      }),
+    ).toBe(
+      'Split · IN ₹2,250 + US ₹3,100 + GB ₹3,800 = ₹9,150/n · DBL+SGL',
+    );
+  });
 });

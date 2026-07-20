@@ -27,6 +27,14 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-dbl-sgl-pax-buy-split',
+    date: '2026-07-20',
+    title: 'Uneven 3 adults / 2 rooms buy',
+    summary:
+      'Three guest markets across two rooms compose as double + single (DBL/2 + DBL/2 + SGL). Cue shows DBL+SGL; buy is not multiplied by two rooms again.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-public-changelog',
     date: '2026-07-20',
     title: 'Public changelog',
