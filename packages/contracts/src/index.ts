@@ -3525,6 +3525,20 @@ export const UpdateQuoteTemplateSchema = z.object({
   contentJson: QuoteTemplateContentSchema.optional(),
 });
 
+/** Bulk rename/move package template folder path prefix. */
+export const RenameQuoteTemplateFolderSchema = z.object({
+  /** Existing folder path prefix (exact or ancestor of template folders). */
+  fromFolder: RequiredText('From folder'),
+  /**
+   * New path prefix. Empty string clears the matched prefix
+   * (child remainder kept at root).
+   */
+  toFolder: z.preprocess(
+    (v) => (v == null ? '' : v),
+    z.string().max(80),
+  ),
+});
+
 /** Restore a prior (usually superseded) template version as a new active tip. */
 export const RestoreQuoteTemplateSchema = z.object({
   /** Template row to copy content from (must be in the same supersedes chain). */
@@ -3888,6 +3902,9 @@ export type QuoteServiceType = z.infer<typeof QuoteServiceTypeSchema>;
 export type QuoteTemplateContent = z.infer<typeof QuoteTemplateContentSchema>;
 export type CreateQuoteTemplateInput = z.infer<typeof CreateQuoteTemplateSchema>;
 export type UpdateQuoteTemplateInput = z.infer<typeof UpdateQuoteTemplateSchema>;
+export type RenameQuoteTemplateFolderInput = z.infer<
+  typeof RenameQuoteTemplateFolderSchema
+>;
 export type RestoreQuoteTemplateInput = z.infer<typeof RestoreQuoteTemplateSchema>;
 export type ApplyQuoteTemplateInput = z.infer<typeof ApplyQuoteTemplateSchema>;
 export type CloneQuotationInput = z.infer<typeof CloneQuotationSchema>;

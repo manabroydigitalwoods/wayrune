@@ -53,7 +53,7 @@ import {
   filterTemplatesByFolderAndTag,
   formatPackagePickerDescription,
 } from '../lib/quoteTemplatePickerFilter';
-import { buildFolderNav } from '../lib/quoteTemplateFolder';
+import { buildFolderNav, normalizeTemplateFolderLabel } from '../lib/quoteTemplateFolder';
 import {
   agencyFitPackWalkthroughPath,
   formatAgencyFitPackToast,
@@ -334,6 +334,35 @@ export function TripsPage() {
       toastError(e instanceof Error ? e.message : 'Could not install sample pack');
     } finally {
       setInstallingPack(false);
+    }
+  }
+
+  async function renamePackageFolder(fromFolder: string) {
+    const from = normalizeTemplateFolderLabel(fromFolder);
+    if (!from) return;
+    const next = window.prompt(
+      `Rename or move folder “${from}”.\nEnter new path (blank clears the prefix):`,
+      from,
+    );
+    if (next == null) return;
+    try {
+      const res = await api<{ updated: number; toFolder: string | null }>(
+        '/quote-templates/rename-folder',
+        {
+          method: 'POST',
+          body: JSON.stringify({ fromFolder: from, toFolder: next }),
+        },
+      );
+      toastSuccess(
+        res.updated
+          ? `Updated ${res.updated} package${res.updated === 1 ? '' : 's'}`
+          : 'No packages in that folder',
+      );
+      const to = normalizeTemplateFolderLabel(res.toFolder ?? next) || '';
+      setPackageFolderFilter(to);
+      await loadTemplates();
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not rename folder');
     }
   }
 
@@ -896,6 +925,19 @@ export function TripsPage() {
                             </span>
                           );
                         })}
+                        {packageFolderFilter.trim() ? (
+                          <Can anyOf={CAP.quoteWrite}>
+                            <button
+                              type="button"
+                              className="ml-1 rounded border border-border/60 px-1.5 py-px font-medium text-muted-foreground hover:bg-muted/80"
+                              onClick={() =>
+                                void renamePackageFolder(packageFolderFilter)
+                              }
+                            >
+                              Rename folder…
+                            </button>
+                          </Can>
+                        ) : null}
                       </div>
                     ) : null}
                     <div className="flex flex-wrap gap-1">

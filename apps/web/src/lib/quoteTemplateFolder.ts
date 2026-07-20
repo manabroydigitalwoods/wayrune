@@ -65,6 +65,30 @@ export type FolderNavState = {
 };
 
 /**
+ * Remap folder when renaming a path prefix (mirrors API).
+ * Empty `toPrefix` clears the matched prefix.
+ */
+export function remapTemplateFolderPrefixUi(
+  folder: string | null | undefined,
+  fromPrefix: string | null | undefined,
+  toPrefix: string | null | undefined,
+): string | undefined {
+  const from = normalizeTemplateFolderLabel(fromPrefix);
+  const current = normalizeTemplateFolderLabel(folder);
+  if (!from) return current;
+  if (!current) return undefined;
+  const fl = current.toLowerCase();
+  const froml = from.toLowerCase();
+  let rest: string | undefined;
+  if (fl === froml) rest = '';
+  else if (fl.startsWith(`${froml}/`)) rest = current.slice(from.length + 1);
+  else return current;
+  const to = normalizeTemplateFolderLabel(toPrefix);
+  if (!to) return rest ? normalizeTemplateFolderLabel(rest) : undefined;
+  return rest ? normalizeTemplateFolderLabel(`${to}/${rest}`) : to;
+}
+
+/**
  * Breadcrumb + child path chips from unique full folder paths.
  * Filter is a path prefix; children are one segment deeper.
  */

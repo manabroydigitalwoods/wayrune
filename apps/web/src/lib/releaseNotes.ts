@@ -27,6 +27,14 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-package-folder-rename',
+    date: '2026-07-20',
+    title: 'Rename or move package folders',
+    summary:
+      'From the package folder breadcrumb, Rename folder updates every active template under that path (including children). Blank clears the prefix.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-hotel-tip-field-restore',
     date: '2026-07-20',
     title: 'Restore one hotel rate field from History',

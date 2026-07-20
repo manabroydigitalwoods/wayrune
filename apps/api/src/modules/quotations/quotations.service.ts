@@ -23,6 +23,7 @@ import type {
   RecordQuoteMarginOverridesInput,
   RecordQuoteRateDriftAcksInput,
   RestoreQuoteTemplateInput,
+  RenameQuoteTemplateFolderInput,
   SaveQuotationVersionInput,
   SendQuoteWhatsappInput,
   UpdateQuoteTemplateInput,
@@ -84,6 +85,7 @@ import {
   checklistToText,
   buildItineraryDaysFromHotelItems,
   contentFromVersionFields,
+  normalizeTemplateFolder,
   parseQuoteTemplateContent,
   reanchorItineraryDaysToTripStart,
   remintQuoteItems,
@@ -94,6 +96,10 @@ import {
   stampApplyPaxOntoQuoteItems,
   templateItineraryDays,
 } from './quote-template-content';
+import {
+  remapTemplateFolderPrefix,
+  templateFolderMatchesPrefix,
+} from './quote-template-folder-rename';
 import { rematchQuoteItemsFromRates } from './quote-rate-rematch';
 import { RatesService } from '../rates/rates.service';
 import { resolveNationalityOptsFromTripTravellers } from '../rates/hotel-nationality';
@@ -910,6 +916,63 @@ export class QuotationsService {
       metadata: { versionNumber: existing.versionNumber },
     });
     return { ok: true as const };
+  }
+
+  /** Bulk rename/move `contentJson.folder` path prefix on active templates. */
+  async renameTemplateFolders(
+    user: AuthUser,
+    input: RenameQuoteTemplateFolderInput,
+  ) {
+    const from = normalizeTemplateFolder(input.fromFolder);
+    if (!from) {
+      throw new BadRequestException('From folder is required');
+    }
+    const toNormalized = normalizeTemplateFolder(input.toFolder);
+    const actives = await this.prisma.quoteTemplate.findMany({
+      where: { organizationId: user.organizationId, status: 'active' },
+    });
+    let updated = 0;
+    const touchedIds: string[] = [];
+    for (const row of actives) {
+      const content = parseQuoteTemplateContent(row.contentJson);
+      if (!templateFolderMatchesPrefix(content.folder, from)) continue;
+      const nextFolder = remapTemplateFolderPrefix(
+        content.folder,
+        from,
+        input.toFolder,
+      );
+      if ((content.folder || '') === (nextFolder || '')) continue;
+      const nextContent = { ...content } as Record<string, unknown>;
+      if (nextFolder) nextContent.folder = nextFolder;
+      else delete nextContent.folder;
+      await this.prisma.quoteTemplate.update({
+        where: { id: row.id },
+        data: {
+          contentJson: nextContent as Prisma.InputJsonValue,
+        },
+      });
+      updated += 1;
+      touchedIds.push(row.id);
+    }
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorUserId: user.sub,
+      action: 'quote.template_folder_rename',
+      entityType: 'quote_template',
+      entityId: touchedIds[0] || from,
+      metadata: {
+        fromFolder: from,
+        toFolder: toNormalized ?? null,
+        updated,
+        templateIds: touchedIds,
+      },
+    });
+    return {
+      ok: true as const,
+      fromFolder: from,
+      toFolder: toNormalized ?? null,
+      updated,
+    };
   }
 
   /** Walk supersedes chain for any template id (active or superseded). */

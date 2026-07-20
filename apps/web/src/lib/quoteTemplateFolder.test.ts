@@ -4,6 +4,7 @@ import {
   folderPathPrefix,
   folderPathSegments,
   normalizeTemplateFolderLabel,
+  remapTemplateFolderPrefixUi,
   templateMatchesFolderFilter,
 } from './quoteTemplateFolder';
 
@@ -62,5 +63,18 @@ describe('quoteTemplateFolder', () => {
       children: ['Hill stations/Darjeeling', 'Hill stations/Gangtok'],
     });
     expect(buildFolderNav(folders, 'Hill stations/Darjeeling').children).toEqual([]);
+  });
+
+  it('remaps folder prefix for rename/move', () => {
+    expect(
+      remapTemplateFolderPrefixUi(
+        'Hill stations/Darjeeling',
+        'Hill stations',
+        'Mountains',
+      ),
+    ).toBe('Mountains/Darjeeling');
+    expect(
+      remapTemplateFolderPrefixUi('Hill stations', 'Hill stations', ''),
+    ).toBeUndefined();
   });
 });

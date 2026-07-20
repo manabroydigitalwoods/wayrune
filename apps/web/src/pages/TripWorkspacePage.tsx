@@ -2235,6 +2235,36 @@ export function TripWorkspacePage() {
     }
   }
 
+  async function renameQuoteTemplateFolder(fromFolder: string) {
+    const from = normalizeTemplateFolderLabel(fromFolder);
+    if (!from) return;
+    const next = window.prompt(
+      `Rename or move folder “${from}”.\nEnter new path (blank clears the prefix):`,
+      from,
+    );
+    if (next == null) return;
+    try {
+      const res = await api<{ updated: number; toFolder: string | null }>(
+        '/quote-templates/rename-folder',
+        {
+          method: 'POST',
+          body: JSON.stringify({ fromFolder: from, toFolder: next }),
+        },
+      );
+      toastSuccess(
+        res.updated
+          ? `Updated ${res.updated} package${res.updated === 1 ? '' : 's'}`
+          : 'No packages in that folder',
+      );
+      setTemplateFolderFilter(
+        normalizeTemplateFolderLabel(res.toFolder ?? next) || '',
+      );
+      await loadQuoteTemplates();
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not rename folder');
+    }
+  }
+
   async function toggleTemplateHistory(templateId: string) {
     if (templateHistoryForId === templateId) {
       setTemplateHistoryForId(null);
@@ -6408,6 +6438,17 @@ export function TripWorkspacePage() {
                         </span>
                       );
                     })}
+                    {templateFolderFilter.trim() && canQuoteWrite ? (
+                      <button
+                        type="button"
+                        className="ml-1 rounded border border-border/60 px-1.5 py-px font-medium text-muted-foreground hover:bg-muted/80"
+                        onClick={() =>
+                          void renameQuoteTemplateFolder(templateFolderFilter)
+                        }
+                      >
+                        Rename folder…
+                      </button>
+                    ) : null}
                   </div>
                 ) : null}
                 {folderNav.children.length ? (

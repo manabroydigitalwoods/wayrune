@@ -58,7 +58,7 @@ Maturity labels: **early** | **partial** | **mature** | **structural** (architec
 | Gap that used to be “Sembark” | Now |
 |-------------------------------|-----|
 | FX stub / no live rates | **Quote lock + Settings Frankfurter refresh** — still no auto-cron / AED feed / cross-pair |
-| Package library depth | **Versioning + history/diff (side-by-side) + tags + slash-path folder nav** — still no server folder index |
+| Package library depth | **Versioning + history/diff (side-by-side) + tags + slash-path folder nav + folder rename/move** — still no server folder index / DnD |
 | Onboarding “no product” | **Checklist + FIT pack + empty-state Install** — still no consultant implementation centre |
 | Movement / vouchers “missing” | **Board + vouchers + DriverJob sync thin-complete** |
 | Collect & chase | **Payment links + aging chase + AP settle thin-complete** |
@@ -250,7 +250,17 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Use-template History Diff expands side-by-side table (bullet fallback if no rows) |
 | **3 Proof** | **Done** | Diff row + History helper specs; this ladder in memo |
 
-**Defer:** server-side tag/folder index; full tree CRUD / drag-drop; itinerary day-level Diff; field-level restore.
+**Defer:** *(closed — see Package folder rename/move below)* · server-side tag/folder index; full tree CRUD / drag-drop; itinerary day-level Diff.
+
+#### Prod-ready ladder — Package folder rename/move (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `POST /quote-templates/rename-folder` remaps `contentJson.folder` prefix on active templates (exact + children); clear prefix supported |
+| **2 Channels / UI** | **Done** | New-trip + Use-template folder nav **Rename folder…** |
+| **3 Proof** | **Done** | folder-rename + web remap specs; About note; this ladder in memo |
+
+**Defer:** server-side tag/folder index; empty folder nodes; drag-drop tree CRUD.
 
 #### Prod-ready ladder — Quote post-expiry grace (**done**)
 
@@ -490,7 +500,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | History Diff row **Restore** CTA |
 | **3 Proof** | **Done** | hotel-rate-field-restore + Diff row specs; About note; this ladder in memo |
 
-**Defer:** transfer/activity field restore; occupancy JSON field restore; package folder tree CRUD.
+**Defer:** *(closed — see Package folder rename/move)* · transfer/activity field restore; occupancy JSON field restore; server folder index / DnD.
 
 #### Prod-ready ladder — Hotel min stay on rate card (**done**)
 
