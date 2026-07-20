@@ -142,6 +142,7 @@ import {
 import {
   hotelPaxBuySplitMatchAccepted,
   tryHotelPaxBuySplit,
+  type HotelPaxBuySplitTip,
 } from './hotel-pax-buy-split';
 import { sumChildExtrasByNationality } from './child-nationality-extras';
 import {
@@ -4542,7 +4543,7 @@ export class RatesService {
         mealWanted,
         roomProductIdWanted,
       );
-      const splitTips = splitRoomMealPool.map((r) => ({
+      const splitTips: HotelPaxBuySplitTip[] = splitRoomMealPool.map((r) => ({
         id: r.id,
         unitCost: Number(r.unitCost),
         weekendUnitCost:
@@ -4550,8 +4551,8 @@ export class RatesService {
         occupancyPricingJson: r.occupancyPricingJson,
       }));
       const pickBestForPaxSplit = (
-        pool: typeof splitTips,
-      ): (typeof splitTips)[number] | undefined => {
+        pool: HotelPaxBuySplitTip[],
+      ): HotelPaxBuySplitTip | undefined => {
         const ids = new Set(pool.map((p) => p.id));
         const row = pickBest(splitRoomMealPool.filter((r) => ids.has(r.id)));
         if (!row) return undefined;
