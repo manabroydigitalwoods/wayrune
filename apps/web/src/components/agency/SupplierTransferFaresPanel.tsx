@@ -92,6 +92,12 @@ function emptyForm(defaultFrom?: PlaceRef | null) {
     childAgeMin: '',
     childAgeMax: '',
     pricingMode: 'per_vehicle' as 'per_vehicle' | 'per_adult',
+    /** Optional party bands (partySize + cost) — up to 3. */
+    partyBandRows: [
+      { partySize: '2', unitCost: '' },
+      { partySize: '4', unitCost: '' },
+      { partySize: '6', unitCost: '' },
+    ],
     startDate: '',
     endDate: '',
   };
@@ -325,6 +331,37 @@ export function SupplierTransferFaresPanel({
       childAgeMin: fare.childAgeMin != null ? String(fare.childAgeMin) : '',
       childAgeMax: fare.childAgeMax != null ? String(fare.childAgeMax) : '',
       pricingMode: (fare.pricingMode as 'per_vehicle' | 'per_adult') || 'per_vehicle',
+      partyBandRows: (() => {
+        const blanks = [
+          { partySize: '2', unitCost: '' },
+          { partySize: '4', unitCost: '' },
+          { partySize: '6', unitCost: '' },
+        ];
+        const raw = fare.pricingJson;
+        const bands =
+          raw &&
+          typeof raw === 'object' &&
+          Array.isArray((raw as { partyBands?: unknown }).partyBands)
+            ? (
+                (raw as { partyBands: Array<{ partySize?: unknown; unitCost?: unknown }> })
+                  .partyBands
+              )
+            : [];
+        return blanks.map((blank, i) => {
+          const b = bands[i];
+          if (!b) return blank;
+          return {
+            partySize:
+              b.partySize != null && Number(b.partySize) >= 1
+                ? String(Math.floor(Number(b.partySize)))
+                : blank.partySize,
+            unitCost:
+              b.unitCost != null && Number(b.unitCost) >= 0
+                ? String(b.unitCost)
+                : '',
+          };
+        });
+      })(),
       startDate: isoDate(fare.startDate),
       endDate: isoDate(fare.endDate),
     });
@@ -374,9 +411,33 @@ export function SupplierTransferFaresPanel({
         childAgeMin: form.childAgeMin.trim() ? Number(form.childAgeMin) : null,
         childAgeMax: form.childAgeMax.trim() ? Number(form.childAgeMax) : null,
         pricingMode: form.pricingMode,
+        pricingJson: (() => {
+          const partyBands: Array<{ partySize: number; unitCost: number }> = [];
+          for (const row of form.partyBandRows) {
+            if (!row.unitCost.trim()) continue;
+            const partySize = Number(row.partySize);
+            const unitCost = Number(row.unitCost);
+            if (
+              !Number.isFinite(partySize) ||
+              partySize < 1 ||
+              partySize > 12 ||
+              !Number.isFinite(unitCost) ||
+              unitCost < 0
+            ) {
+              toastError('Party bands must be 1–12 pax with a valid cost');
+              return undefined;
+            }
+            partyBands.push({
+              partySize: Math.floor(partySize),
+              unitCost,
+            });
+          }
+          return partyBands.length ? { partyBands } : null;
+        })(),
         startDate: form.startDate || null,
         endDate: form.endDate || null,
       };
+      if (body.pricingJson === undefined) return;
       if (editingId) {
         await api(`/transfer-fares/${editingId}`, {
           method: 'PATCH',
@@ -623,6 +684,38 @@ export function SupplierTransferFaresPanel({
               placeholder="3800"
             />
           </FormField>
+          {form.pricingMode === 'per_vehicle' ? (
+            <FormField
+              label="Party bands (optional)"
+              description="Up to 3 sizes — Match picks the highest band ≤ party (adults+children)."
+            >
+              <div className="space-y-2">
+                {form.partyBandRows.map((row, idx) => (
+                  <div key={idx} className="grid grid-cols-2 gap-2">
+                    <Input
+                      inputMode="numeric"
+                      value={row.partySize}
+                      onChange={(e) => {
+                        const next = [...form.partyBandRows];
+                        next[idx] = { ...row, partySize: e.target.value };
+                        setForm((f) => ({ ...f, partyBandRows: next }));
+                      }}
+                      placeholder="Party size"
+                    />
+                    <PriceField
+                      value={row.unitCost}
+                      onChange={(unitCost) => {
+                        const next = [...form.partyBandRows];
+                        next[idx] = { ...row, unitCost };
+                        setForm((f) => ({ ...f, partyBandRows: next }));
+                      }}
+                      placeholder="Cost"
+                    />
+                  </div>
+                ))}
+              </div>
+            </FormField>
+          ) : null}
           <FormField label="Child (optional)">
             <PriceField
               value={form.childUnitCost}

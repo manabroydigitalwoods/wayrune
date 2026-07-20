@@ -1988,6 +1988,11 @@ model TransferFare {
   childAgeMax    Int?      @map("child_age_max")
   /** per_vehicle | per_adult */
   pricingMode    String    @default("per_vehicle") @map("pricing_mode")
+  /**
+   * Optional party-size bands for per_vehicle fares:
+   * `{ partyBands: [{ partySize: 2|4|6, unitCost }] }` (≤3).
+   */
+  pricingJson    Json?     @map("pricing_json")
   currency       String    @default("INR") @db.Char(3)
   startDate      DateTime? @map("start_date") @db.Date
   endDate        DateTime? @map("end_date") @db.Date

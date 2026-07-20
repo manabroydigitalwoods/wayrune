@@ -42,12 +42,35 @@ export function WhatsAppPanel({
   const [tplMeta, setTplMeta] = useState('');
   const [tplLang, setTplLang] = useState('en');
   const [tplSaving, setTplSaving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   useEffect(() => {
     api<WaTemplate[]>('/lead-sources/whatsapp-templates')
       .then(setTemplates)
       .catch(() => setTemplates([]));
   }, []);
+
+  async function syncFromMeta() {
+    setSyncing(true);
+    try {
+      const result = await api<{
+        created: number;
+        updated: number;
+        remote: number;
+        templates: WaTemplate[];
+      }>('/lead-sources/whatsapp-templates/sync', { method: 'POST' });
+      setTemplates(result.templates);
+      toastSuccess(
+        `Synced ${result.remote} Meta template${result.remote === 1 ? '' : 's'} (${result.created} new, ${result.updated} updated)`,
+      );
+    } catch (e) {
+      toastError(
+        e instanceof Error ? e.message : 'Could not sync templates from Meta',
+      );
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   const activeTemplates = templates.filter((t) => t.isActive);
   const templateOptions: ComboboxOption[] = [
@@ -162,6 +185,23 @@ export function WhatsAppPanel({
             />
           </div>
           <div className="flex flex-col gap-2">
+            <Label className="text-sm font-medium">
+              WhatsApp Business Account ID
+            </Label>
+            <Input
+              name="wa-waba-id"
+              autoComplete="off"
+              value={value.whatsappBusinessAccountId}
+              onChange={(e) =>
+                onChange({
+                  ...value,
+                  whatsappBusinessAccountId: e.target.value,
+                })
+              }
+              placeholder="WABA id — required to Sync from Meta"
+            />
+          </div>
+          <div className="flex flex-col gap-2">
             <div className="flex h-5 items-center justify-between gap-2">
               <Label className="text-sm font-medium">
                 Verify token
@@ -246,6 +286,20 @@ export function WhatsAppPanel({
         title="Message templates"
         description="Approved Meta templates for first outbound / outside the 24h window."
       >
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={syncing}
+            onClick={() => void syncFromMeta()}
+          >
+            {syncing ? 'Syncing…' : 'Sync from Meta'}
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            Needs WABA id + access token saved above.
+          </span>
+        </div>
         <FormField
           className="mb-3"
           label="Quote proposal template"

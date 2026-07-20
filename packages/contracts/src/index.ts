@@ -3278,6 +3278,18 @@ export const UpdateSupplierActivityRateSchema = z.object({
 
 export const TransferFarePricingModeSchema = z.enum(['per_vehicle', 'per_adult']);
 
+export const TransferPartyBandSchema = z.object({
+  partySize: z.number().int().min(1).max(12),
+  unitCost: z.number().nonnegative(),
+});
+
+export const TransferFarePricingJsonSchema = z
+  .object({
+    partyBands: z.array(TransferPartyBandSchema).max(3).optional(),
+  })
+  .optional()
+  .nullable();
+
 export const CreateTransferFareSchema = z.object({
   fromPlaceId: RequiredText('From place'),
   toPlaceId: RequiredText('To place'),
@@ -3290,6 +3302,7 @@ export const CreateTransferFareSchema = z.object({
   childAgeMin: z.number().int().min(0).max(17).nullable().optional(),
   childAgeMax: z.number().int().min(0).max(17).nullable().optional(),
   pricingMode: TransferFarePricingModeSchema.optional(),
+  pricingJson: TransferFarePricingJsonSchema,
   currency: z.string().length(3).optional(),
   startDate: z.preprocess(blankToNull, z.string().nullable()).optional(),
   endDate: z.preprocess(blankToNull, z.string().nullable()).optional(),
@@ -3307,6 +3320,7 @@ export const UpdateTransferFareSchema = z.object({
   childAgeMin: z.number().int().min(0).max(17).nullable().optional(),
   childAgeMax: z.number().int().min(0).max(17).nullable().optional(),
   pricingMode: TransferFarePricingModeSchema.optional(),
+  pricingJson: TransferFarePricingJsonSchema,
   currency: z.string().length(3).optional(),
   startDate: z.preprocess(blankToNull, z.string().nullable()).optional(),
   endDate: z.preprocess(blankToNull, z.string().nullable()).optional(),

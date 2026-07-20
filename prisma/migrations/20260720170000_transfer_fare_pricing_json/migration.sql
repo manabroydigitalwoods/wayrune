@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE `transfer_fares` ADD COLUMN `pricing_json` JSON NULL;

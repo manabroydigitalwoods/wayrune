@@ -44,6 +44,8 @@ type CancellationRefundStatus = {
   refundSettledAmount: number;
   canSettle: boolean;
   currency: string;
+  razorpaySourcePaymentId?: string | null;
+  canRefundViaRazorpay?: boolean;
 };
 type Reconciliation = {
   quoted: number;
@@ -158,14 +160,27 @@ export function TripClosurePanel({
     }
   }, [tripId, canIncidents, loadRefundStatuses]);
 
-  async function settleRefund(caseId: string) {
+  async function settleRefund(
+    caseId: string,
+    mode: 'manual' | 'razorpay' | 'mock_razorpay' = 'manual',
+    amount?: number,
+  ) {
     setSettlingRefundCaseId(caseId);
     try {
       await api(`/commerce/cancellations/${caseId}/settle-refund`, {
         method: 'POST',
-        body: JSON.stringify({}),
+        body: JSON.stringify({
+          mode,
+          ...(amount != null && amount > 0 ? { amount } : {}),
+        }),
       });
-      toastSuccess('Refund marked settled');
+      toastSuccess(
+        mode === 'razorpay'
+          ? 'Refund submitted to Razorpay'
+          : mode === 'mock_razorpay'
+            ? 'Mock Razorpay refund recorded'
+            : 'Refund marked settled',
+      );
       await load();
       onChanged?.();
     } catch (e) {
@@ -467,16 +482,28 @@ export function TripClosurePanel({
                     <StatusBadge value={row.approvalStatus} showIcon={false} />
                     <StatusBadge value={row.executionStatus} showIcon={false} />
                     {canSettleRefund && refundStatus?.canSettle ? (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        disabled={settlingRefundCaseId === row.id}
-                        onClick={() => void settleRefund(row.id)}
-                      >
-                        {settlingRefundCaseId === row.id
-                          ? 'Settling…'
-                          : 'Mark refund settled'}
-                      </Button>
+                      <>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={settlingRefundCaseId === row.id}
+                          onClick={() => void settleRefund(row.id, 'manual')}
+                        >
+                          {settlingRefundCaseId === row.id
+                            ? 'Settling…'
+                            : 'Mark refund settled'}
+                        </Button>
+                        {refundStatus.canRefundViaRazorpay ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={settlingRefundCaseId === row.id}
+                            onClick={() => void settleRefund(row.id, 'razorpay')}
+                          >
+                            Refund via Razorpay
+                          </Button>
+                        ) : null}
+                      </>
                     ) : null}
                   </div>
                 </li>

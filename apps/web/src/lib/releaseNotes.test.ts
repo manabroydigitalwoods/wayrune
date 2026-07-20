@@ -44,11 +44,11 @@ describe('releaseNotes', () => {
     ).toBe(true);
     // Newest array entries surface first on the About strip.
     const top = visibleReleaseNotes(RELEASE_NOTES, { limit: 5 });
-    expect(top[0]?.id).toBe('2026-07-20-hotel-max-stay');
-    expect(top[1]?.id).toBe('2026-07-20-companion-type-edit');
-    expect(top[2]?.id).toBe('2026-07-20-party-markup-stamp-on-send');
-    expect(top[3]?.id).toBe('2026-07-20-per-line-markup-presets');
-    expect(top[4]?.id).toBe('2026-07-20-non-net-payment-terms');
+    expect(top[0]?.id).toBe('2026-07-20-auto-extend-min-stay');
+    expect(top[1]?.id).toBe('2026-07-20-transfer-party-bands');
+    expect(top[2]?.id).toBe('2026-07-20-meta-template-sync');
+    expect(top[3]?.id).toBe('2026-07-20-razorpay-outbound-refund');
+    expect(top[4]?.id).toBe('2026-07-20-hotel-max-stay');
     expect(
       allBuyer.some((n) => n.id === '2026-07-20-party-markup-override'),
     ).toBe(true);

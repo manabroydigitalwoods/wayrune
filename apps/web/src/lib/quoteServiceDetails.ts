@@ -1796,6 +1796,7 @@ export function applyRateResolveHit(opts: {
   pricingUnit?: string;
   /** Set when Match raised vehicles so party fits seats × vehicles. */
   vehiclesBumped?: { from: number; to: number };
+  nightsBumped?: { from: number; to: number; checkOut: string };
 } {
   const serviceType =
     opts.serviceType === 'transfer'
@@ -1898,6 +1899,7 @@ export function applyRateResolveHit(opts: {
   };
 
   let vehiclesBumped: { from: number; to: number } | undefined;
+  let nightsBumped: { from: number; to: number; checkOut: string } | undefined;
   let transferSeats: number | null = null;
   let transferParty = 0;
   if (serviceType === 'transfer') {
@@ -1919,6 +1921,29 @@ export function applyRateResolveHit(opts: {
     if (bump.bumped) {
       nextDetails.vehicles = bump.vehicles;
       vehiclesBumped = { from: bump.previous, to: bump.vehicles };
+    }
+  }
+
+  if (serviceType === 'hotel') {
+    const bumpRaw = meta.nightsBumped;
+    if (
+      bumpRaw &&
+      typeof bumpRaw === 'object' &&
+      typeof (bumpRaw as { checkOut?: unknown }).checkOut === 'string' &&
+      Number.isFinite(Number((bumpRaw as { from?: unknown }).from)) &&
+      Number.isFinite(Number((bumpRaw as { to?: unknown }).to))
+    ) {
+      const from = Math.round(Number((bumpRaw as { from: number }).from));
+      const to = Math.round(Number((bumpRaw as { to: number }).to));
+      const checkOut = String((bumpRaw as { checkOut: string }).checkOut).slice(
+        0,
+        10,
+      );
+      if (to > from && checkOut) {
+        nextDetails.checkOut = checkOut;
+        nextDetails.nights = to;
+        nightsBumped = { from, to, checkOut };
+      }
     }
   }
 
@@ -2001,6 +2026,7 @@ export function applyRateResolveHit(opts: {
     rateProvenance,
     pricingUnit: opts.hit.pricingUnit || undefined,
     vehiclesBumped,
+    nightsBumped,
   };
 }
 

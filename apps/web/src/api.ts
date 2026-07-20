@@ -367,6 +367,9 @@ export type SupplierTransferFareRow = {
   childAgeMin?: number | null;
   childAgeMax?: number | null;
   pricingMode?: string | null;
+  pricingJson?: {
+    partyBands?: Array<{ partySize: number; unitCost: number }>;
+  } | null;
   currency: string;
   startDate?: string | null;
   endDate?: string | null;

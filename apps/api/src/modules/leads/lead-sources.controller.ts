@@ -93,6 +93,12 @@ export class LeadSourcesController {
     return this.leads.createWhatsAppTemplate(user, CreateWhatsAppTemplateSchema.parse(body));
   }
 
+  @Post('whatsapp-templates/sync')
+  @RequirePermissions('org.settings.write')
+  syncWhatsAppTemplates(@CurrentUser() user: AuthUser) {
+    return this.leads.syncWhatsAppTemplatesFromMeta(user);
+  }
+
   @Patch('whatsapp-templates/:id')
   @RequirePermissions('org.settings.write')
   updateWhatsAppTemplate(

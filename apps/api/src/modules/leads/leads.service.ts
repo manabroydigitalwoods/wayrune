@@ -19,6 +19,10 @@ import { InteractionsService } from '../interactions/interactions.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { MetaCloudMessagingProvider } from '../messaging/meta-cloud.messaging';
 import {
+  mapMetaMessageTemplate,
+  matchExistingWhatsAppTemplate,
+} from './whatsapp-template-sync';
+import {
   evaluateWhatsappCustomerSession,
   WHATSAPP_CUSTOMER_SESSION_MS,
 } from '../messaging/whatsapp-customer-session';
@@ -2159,6 +2163,125 @@ export class LeadsService {
         ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
       },
     });
+  }
+
+  /** Pull Meta WABA message_templates into local WhatsAppTemplate rows. */
+  async syncWhatsAppTemplatesFromMeta(user: AuthUser) {
+    const org = await this.prisma.organization.findFirst({
+      where: { id: user.organizationId },
+      select: { settingsJson: true },
+    });
+    const settings =
+      org?.settingsJson &&
+      typeof org.settingsJson === 'object' &&
+      !Array.isArray(org.settingsJson)
+        ? (org.settingsJson as Record<string, unknown>)
+        : {};
+    const integrations =
+      settings.integrations &&
+      typeof settings.integrations === 'object' &&
+      !Array.isArray(settings.integrations)
+        ? (settings.integrations as Record<string, unknown>)
+        : {};
+    const wa =
+      integrations.whatsapp &&
+      typeof integrations.whatsapp === 'object' &&
+      !Array.isArray(integrations.whatsapp)
+        ? (integrations.whatsapp as Record<string, unknown>)
+        : {};
+    const accessToken =
+      typeof wa.accessToken === 'string' ? wa.accessToken.trim() : '';
+    const wabaId =
+      typeof wa.whatsappBusinessAccountId === 'string'
+        ? wa.whatsappBusinessAccountId.trim()
+        : typeof wa.wabaId === 'string'
+          ? wa.wabaId.trim()
+          : '';
+    if (!accessToken) {
+      throw new BadRequestException(
+        'WhatsApp access token is required — save it under Integrations → WhatsApp',
+      );
+    }
+    if (!wabaId) {
+      throw new BadRequestException(
+        'WhatsApp Business Account ID is required to sync templates from Meta',
+      );
+    }
+
+    const remote = await this.messaging.listMessageTemplates({
+      wabaId,
+      accessToken,
+    });
+    const existing = await this.prisma.whatsAppTemplate.findMany({
+      where: { organizationId: user.organizationId },
+    });
+
+    let created = 0;
+    let updated = 0;
+    let skipped = 0;
+    for (const row of remote) {
+      const mapped = mapMetaMessageTemplate(row);
+      if (!mapped) {
+        skipped += 1;
+        continue;
+      }
+      const hit = matchExistingWhatsAppTemplate(
+        existing,
+        mapped.metaTemplateName,
+        mapped.languageCode,
+      );
+      if (hit) {
+        await this.prisma.whatsAppTemplate.update({
+          where: { id: hit.id },
+          data: {
+            bodyPreview: mapped.bodyPreview,
+            variableCount: mapped.variableCount,
+            isActive: mapped.isActive,
+            metaTemplateName: mapped.metaTemplateName,
+            languageCode: mapped.languageCode,
+          },
+        });
+        updated += 1;
+      } else {
+        let name = mapped.name;
+        const nameTaken = existing.some(
+          (e) => e.name.trim().toLowerCase() === name.toLowerCase(),
+        );
+        if (nameTaken) {
+          name = `${mapped.metaTemplateName}_${mapped.languageCode}_${Date.now().toString(36)}`;
+        }
+        const createdRow = await this.prisma.whatsAppTemplate.create({
+          data: {
+            organizationId: user.organizationId,
+            name,
+            metaTemplateName: mapped.metaTemplateName,
+            languageCode: mapped.languageCode,
+            bodyPreview: mapped.bodyPreview,
+            variableCount: mapped.variableCount,
+            isActive: mapped.isActive,
+          },
+        });
+        existing.push(createdRow);
+        created += 1;
+      }
+    }
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorUserId: user.sub,
+      action: 'whatsapp.templates.sync',
+      entityType: 'organization',
+      entityId: user.organizationId,
+      after: { created, updated, skipped, remote: remote.length },
+    });
+
+    return {
+      created,
+      updated,
+      skipped,
+      remote: remote.length,
+      templates: await this.listWhatsAppTemplates(user, true),
+    };
   }
 
   /**

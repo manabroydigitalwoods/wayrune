@@ -27,6 +27,38 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-auto-extend-min-stay',
+    date: '2026-07-20',
+    title: 'Auto-extend check-out to meet min stay',
+    summary:
+      'Match extends hotel check-out when stay is shorter than rate min stay, reprices the stay, and toasts the bump — never silent. Max stay still requires shorten or manager ack.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-transfer-party-bands',
+    date: '2026-07-20',
+    title: 'Transfer party-size rate bands',
+    summary:
+      'Per-vehicle transfer fares can carry up to three party-size bands. Match picks the highest band that fits adults+children and stamps the band on provenance.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-meta-template-sync',
+    date: '2026-07-20',
+    title: 'Sync WhatsApp templates from Meta',
+    summary:
+      'Integrations → WhatsApp: set WhatsApp Business Account ID and Sync from Meta to pull message_templates into the local library (APPROVED stay active). Quote proposal picker reuses the synced list.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-razorpay-outbound-refund',
+    date: '2026-07-20',
+    title: 'Razorpay outbound refund on cancellations',
+    summary:
+      'Changes & incidents can Refund via Razorpay when the trip has a paid pay_… reference (or Mark refund settled for bank/NEFT). Optional partial amounts; mock refunds stay local-only.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-hotel-max-stay',
     date: '2026-07-20',
     title: 'Hotel max stay on rate card and quote',

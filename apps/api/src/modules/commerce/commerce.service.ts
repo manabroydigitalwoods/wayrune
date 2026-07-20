@@ -78,6 +78,14 @@ import {
   parseCancellationRefundEval,
 } from './cancellation-refund-settle';
 import {
+  assertMockRazorpayRefundAllowed,
+  createRazorpayPaymentRefund,
+  mockRazorpayRefundReference,
+  parseCancellationRefundSettleMode,
+  pickRazorpaySourcePaymentId,
+  resolveCancellationRefundSettleAmount,
+} from './razorpay-cancellation-refund';
+import {
   buildCommercialTaxBreakdown,
   commercialDocsToGstrExportRows,
   gstrExportRowsToCsv,
@@ -3205,6 +3213,10 @@ export class CommerceService {
     if (!c) throw new NotFoundException('Cancellation case not found');
 
     const evalFields = parseCancellationRefundEval(c.evaluationJson);
+    const razorpaySourcePaymentId = c.tripId
+      ? await this.findTripRazorpaySourcePaymentId(organizationId, c.tripId)
+      : null;
+
     if (!evalFields.creditNoteId) {
       return {
         cancellationCaseId: caseId,
@@ -3217,6 +3229,8 @@ export class CommerceService {
         refundPaymentId: evalFields.refundPaymentId,
         currency: c.currency,
         canSettle: false,
+        razorpaySourcePaymentId,
+        canRefundViaRazorpay: Boolean(razorpaySourcePaymentId),
       };
     }
 
@@ -3247,14 +3261,40 @@ export class CommerceService {
       refundPaymentId: evalFields.refundPaymentId,
       currency: note.currency || c.currency,
       canSettle: c.executionStatus === 'applied' && refundDue > 0.001,
+      razorpaySourcePaymentId,
+      canRefundViaRazorpay: Boolean(razorpaySourcePaymentId),
     };
+  }
+
+  private async findTripRazorpaySourcePaymentId(
+    organizationId: string,
+    tripId: string,
+  ): Promise<string | null> {
+    const rows = await this.prisma.tripPayment.findMany({
+      where: {
+        organizationId,
+        tripId,
+        direction: 'customer',
+        status: { in: ['paid', 'partial'] },
+      },
+      select: { reference: true, paidAt: true },
+      orderBy: { paidAt: 'desc' },
+      take: 20,
+    });
+    return pickRazorpaySourcePaymentId(rows);
   }
 
   async settleCancellationRefund(
     organizationId: string,
     userId: string,
     caseId: string,
-    input?: { method?: string | null; reference?: string | null },
+    input?: {
+      method?: string | null;
+      reference?: string | null;
+      amount?: number;
+      mode?: 'manual' | 'razorpay' | 'mock_razorpay';
+      razorpayPaymentId?: string | null;
+    },
   ) {
     const status = await this.cancellationRefundStatus(organizationId, caseId);
     if (!status.creditNoteId) {
@@ -3276,7 +3316,65 @@ export class CommerceService {
       );
     }
 
-    const settleAmount = status.refundDue;
+    let settleAmount: number;
+    try {
+      settleAmount = resolveCancellationRefundSettleAmount({
+        refundDue: status.refundDue,
+        amount: input?.amount,
+      });
+    } catch (e) {
+      throw new BadRequestException(
+        e instanceof Error ? e.message : 'Invalid refund amount',
+      );
+    }
+
+    const mode = parseCancellationRefundSettleMode(input?.mode);
+    let method = input?.method?.trim() || null;
+    let reference = input?.reference?.trim() || null;
+
+    if (mode === 'mock_razorpay') {
+      try {
+        assertMockRazorpayRefundAllowed();
+      } catch (e) {
+        throw new BadRequestException(
+          e instanceof Error ? e.message : 'Mock refund not allowed',
+        );
+      }
+      method = 'mock_razorpay_refund';
+      reference = mockRazorpayRefundReference(caseId);
+    } else if (mode === 'razorpay') {
+      const sourceId =
+        input?.razorpayPaymentId?.trim() ||
+        status.razorpaySourcePaymentId ||
+        null;
+      if (!sourceId) {
+        throw new BadRequestException(
+          'No Razorpay payment on this trip — mark refund settled manually or collect a Razorpay payment first',
+        );
+      }
+      const keyId = process.env.RAZORPAY_KEY_ID;
+      const keySecret = process.env.RAZORPAY_KEY_SECRET;
+      if (!keyId || !keySecret) {
+        throw new BadRequestException(
+          'Razorpay keys are not configured — use Mark refund settled or mock refund in local',
+        );
+      }
+      try {
+        const { refundId } = await createRazorpayPaymentRefund({
+          paymentId: sourceId,
+          amountInr: settleAmount,
+          keyId,
+          keySecret,
+        });
+        method = 'razorpay_refund';
+        reference = refundId;
+      } catch (e) {
+        throw new BadRequestException(
+          e instanceof Error ? e.message : 'Razorpay refund failed',
+        );
+      }
+    }
+
     const c = await this.prisma.cancellationCase.findFirstOrThrow({
       where: { id: caseId, organizationId },
     });
@@ -3290,21 +3388,14 @@ export class CommerceService {
       tripId: status.tripId,
       amount: settleAmount,
       currency: note.currency,
-      method: input?.method,
-      reference: input?.reference,
+      method,
+      reference,
     });
 
-    const existingRecord = await this.prisma.paymentRecord.findFirst({
-      where: {
-        organizationId,
-        linkedEntityType: CANCELLATION_REFUND_LINKED_ENTITY,
-        linkedEntityId: caseId,
-        direction: 'outbound',
-      },
-    });
-    if (existingRecord) {
-      throw new BadRequestException('Refund payment already recorded');
-    }
+    const priorPaid =
+      Math.round(Number(note.amountPaid || 0) * 100) / 100;
+    const nextPaid =
+      Math.round((priorPaid + settleAmount) * 100) / 100;
 
     const paymentId = await this.prisma.$transaction(async (tx) => {
       const created = await tx.paymentRecord.create({
@@ -3331,7 +3422,7 @@ export class CommerceService {
         },
       });
 
-      const paidState = commercialDocumentPaidStateFromNote(note, settleAmount);
+      const paidState = commercialDocumentPaidStateFromNote(note, nextPaid);
       await tx.commercialDocument.update({
         where: { id: note.id },
         data: {
@@ -3353,7 +3444,8 @@ export class CommerceService {
           evaluationJson: {
             ...priorEval,
             refundPaymentId: created.id,
-            refundSettledAmount: settleAmount,
+            refundSettledAmount: nextPaid,
+            refundSettleMode: mode,
           },
         },
       });
@@ -3366,7 +3458,7 @@ export class CommerceService {
       'RefundSettled',
       'cancellation_case',
       caseId,
-      `Refund ${settleAmount}`,
+      `Refund ${settleAmount}${mode !== 'manual' ? ` (${mode})` : ''}`,
       userId,
     );
 
@@ -3374,6 +3466,7 @@ export class CommerceService {
       ...(await this.cancellationRefundStatus(organizationId, caseId)),
       paymentId,
       settledAmount: settleAmount,
+      mode,
     };
   }
 

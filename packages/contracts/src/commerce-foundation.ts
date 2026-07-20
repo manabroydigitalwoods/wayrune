@@ -423,6 +423,10 @@ export const SettleCancellationRefundSchema = z.object({
   amount: z.number().positive().optional(),
   method: z.preprocess(blankToNull, z.string().nullable()).optional(),
   reference: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  /** manual (default) | razorpay (live keys) | mock_razorpay (local only). */
+  mode: z.enum(['manual', 'razorpay', 'mock_razorpay']).optional(),
+  /** Override source Razorpay payment id (`pay_…`); else newest trip paid reference. */
+  razorpayPaymentId: z.preprocess(blankToNull, z.string().nullable()).optional(),
 });
 
 export const CreatePaymentRecordSchema = z.object({

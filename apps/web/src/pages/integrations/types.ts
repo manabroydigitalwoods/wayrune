@@ -9,6 +9,8 @@ export type IntegrationsSettings = {
     verifyToken: string;
     appSecret: string;
     appSecretConfigured: boolean;
+    /** WhatsApp Business Account ID (WABA) for template library sync. */
+    whatsappBusinessAccountId: string;
     /** WhatsAppTemplate.id for cold quote Cloud sends. */
     quoteProposalTemplateId: string;
   };
@@ -58,6 +60,7 @@ export const EMPTY_INTEGRATIONS: IntegrationsSettings = {
     verifyToken: '',
     appSecret: '',
     appSecretConfigured: false,
+    whatsappBusinessAccountId: '',
     quoteProposalTemplateId: '',
   },
   facebook: {
@@ -161,6 +164,9 @@ export function parseIntegrationsSettings(settingsJson: unknown): IntegrationsSe
       verifyToken: str(wa.verifyToken),
       appSecret: '',
       appSecretConfigured: Boolean(waSecrets.appSecretConfigured),
+      whatsappBusinessAccountId: str(
+        wa.whatsappBusinessAccountId ?? wa.wabaId,
+      ),
       quoteProposalTemplateId: str(wa.quoteProposalTemplateId),
     },
     facebook: {

@@ -3,6 +3,7 @@ import {
   evaluateHotelMinStay,
   hotelMinStayMatchAccepted,
   parseMinStayNights,
+  planHotelMinStayExtend,
 } from './hotel-min-stay';
 
 describe('hotel-min-stay', () => {
@@ -26,6 +27,28 @@ describe('hotel-min-stay', () => {
     const ok = evaluateHotelMinStay({ minStayNights: 2, nights: 2 });
     expect(ok?.short).toBe(false);
     expect(hotelMinStayMatchAccepted(ok!)).toEqual(['Min stay 2n met']);
+  });
+
+  it('plans non-silent check-out extend', () => {
+    expect(
+      planHotelMinStayExtend({
+        checkInIso: '2026-07-10',
+        nights: 2,
+        minStayNights: 3,
+      }),
+    ).toEqual({
+      fromNights: 2,
+      toNights: 3,
+      checkOut: '2026-07-13',
+      note: 'Extended check-out to meet min stay 3 nights (was 2)',
+    });
+    expect(
+      planHotelMinStayExtend({
+        checkInIso: '2026-07-10',
+        nights: 3,
+        minStayNights: 3,
+      }),
+    ).toBeNull();
   });
 
   it('returns null when unset', () => {

@@ -160,7 +160,17 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Changes & incidents refund due / settled cue + **Mark refund settled**; `GET/POST /commerce/cancellations/:id/refund-status` + `settle-refund` |
 | **3 Proof** | **Done** | `cancellation-refund-settle.spec`; this ladder in memo |
 
-**Defer:** Razorpay outbound/refund API; partial refund splits; `finance.refund.request` / `.approve` workflow.
+**Defer:** *(closed — see Razorpay outbound refund below)* · `finance.refund.request` / `.approve` workflow.
+
+#### Prod-ready ladder — Razorpay outbound refund + partial splits (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | Settle modes `manual` / `razorpay` / `mock_razorpay`; optional partial `amount` capped to due; live `POST /v1/payments/{id}/refund` when keys set; mock fail-closed outside local; accumulates `amountPaid` across partials |
+| **2 Channels / UI** | **Done** | Changes & incidents **Refund via Razorpay** when trip has a `pay_…` reference; keep **Mark refund settled** for bank/NEFT |
+| **3 Proof** | **Done** | `razorpay-cancellation-refund.spec`; this ladder in memo |
+
+**Defer:** `finance.refund.request` / `.approve` workflow.
 
 #### Prod-ready ladder — Hotel occupancy JSON field restore (**done**)
 
@@ -232,7 +242,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Inbox multi-channel setup banners; reply composer + row actions gated on readiness; aging filter on All messages + Conversations |
 | **3 Proof** | **Done** | `inbox-connector-readiness.spec` + `inboxChannelReply.test`; this ladder in memo |
 
-**Defer:** Microsoft messaging inbox; Meta template library sync; HubSpot depth.
+**Defer:** Microsoft messaging inbox; HubSpot depth; *(Meta template sync closed — see Meta WhatsApp template library sync)*.
 
 #### Prod-ready ladder — Blackout / stop-sale / cancellation (**done**)
 
@@ -796,7 +806,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Drawer Send anyway ack (same permission as allotment/capacity); attention chip clears when acked; client send preflight copy; Rate chart field copy updated |
 | **3 Proof** | **Done** | `lineNeedsMinStayRiskAck` + provenance/preserve specs; this ladder in memo |
 
-**Defer:** auto-extend nights on Match.
+**Defer:** *(closed — see Auto-extend nights on Match below)*.
 
 #### Prod-ready ladder — Hotel max stay on rate card (**done**)
 
@@ -816,7 +826,17 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Drawer Send anyway ack (parity with min-stay); attention chip clears when acked; client send preflight copy |
 | **3 Proof** | **Done** | `lineNeedsMaxStayRiskAck` + provenance/preserve specs; this ladder in memo |
 
-**Defer:** auto-extend nights on Match *(still open — medium)*.
+**Defer:** *(closed — see Auto-extend nights on Match below)*.
+
+#### Prod-ready ladder — Auto-extend nights on Match (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | When nights &lt; min stay, Match bumps check-out to meet min, reprices stay, stamps `nightsBumped` + extend note (clears min-stay warn) |
+| **2 Channels / UI** | **Done** | Apply hit updates check-out / nights; toast **stay extended to N nights for min stay** (parity with vehicles bump) |
+| **3 Proof** | **Done** | `planHotelMinStayExtend` specs; this ladder in memo |
+
+**Defer:** *(none — max-stay still shorten-or-ack only)*.
 
 #### Prod-ready ladder — Hotel rate version chain (**done**)
 
@@ -1658,7 +1678,17 @@ Protocol for claim flip (ops, not engineering):
 | **2 Channels / UI** | **Done** | Transfer drawer Ages cue for infant reclass; Infants cue `(from ages)`; child-ages + Infants field copy |
 | **3 Proof** | **Done** | classify + resolve under-age specs; Ages note specs; this ladder in memo |
 
-**Defer:** multi-band grids; per-vehicle child discounts.
+**Defer:** *(closed — see Transfer multi-band party grids below)* · per-vehicle child discounts.
+
+#### Prod-ready ladder — Transfer multi-band party grids (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `TransferFare.pricingJson.partyBands` (≤3); Match picks highest band ≤ party (adults+children) on `per_vehicle`; Match explain + calculation stamp |
+| **2 Channels / UI** | **Done** | Rate chart optional party-size / cost rows |
+| **3 Proof** | **Done** | `transfer-party-bands.spec`; this ladder in memo |
+
+**Defer:** per-vehicle child discounts; dense Sembark transfer matrices; CSV band columns.
 
 #### Prod-ready ladder — Org sales SLA targets (**done**)
 
@@ -1668,7 +1698,7 @@ Protocol for claim flip (ops, not engineering):
 | **2 Channels / UI** | **Done** | Settings → General target fields beside Inbox aging; Sales response strip tones + target cues |
 | **3 Proof** | **Done** | Tone/parse specs (API + web); this ladder in memo |
 
-**Defer:** Meta template library sync; Microsoft messaging.
+**Defer:** *(closed — Meta template sync)* · Microsoft messaging.
 
 #### Prod-ready ladder — Org FX rates Settings UI (**done**)
 
@@ -1698,7 +1728,17 @@ Protocol for claim flip (ops, not engineering):
 | **2 Channels / UI** | **Done** | Integrations → WhatsApp **Quote proposal template** Combobox; Send dialog readiness cue + link; seed designates Quote proposal template |
 | **3 Proof** | **Done** | `quote-whatsapp-template` + web cue specs; this ladder in memo |
 
-**Defer:** Meta template library sync; Microsoft messaging.
+**Defer:** *(closed — see Meta WhatsApp template library sync below)* · Microsoft messaging.
+
+#### Prod-ready ladder — Meta WhatsApp template library sync (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `whatsappBusinessAccountId` on WA settings; `GET …/{waba}/message_templates`; `POST /lead-sources/whatsapp-templates/sync` upserts by meta name + language |
+| **2 Channels / UI** | **Done** | Integrations → WhatsApp WABA field + **Sync from Meta**; existing quote Combobox reuses list |
+| **3 Proof** | **Done** | `whatsapp-template-sync.spec`; this ladder in memo |
+
+**Defer:** Microsoft messaging inbox; HubSpot depth; creating/submitting templates to Meta; auto-cron sync.
 
 #### Prod-ready ladder — Inbox WA: 24h session clock + template reply (**done**)
 
@@ -1708,7 +1748,7 @@ Protocol for claim flip (ops, not engineering):
 | **2 Channels / UI** | **Done** | Inbox composer session cue (countdown); outside window → Meta template Combobox → `reply-template` |
 | **3 Proof** | **Done** | Session eval + cue specs; this ladder in memo |
 
-**Defer:** Meta template library sync; Microsoft messaging.
+**Defer:** *(closed — Meta template sync)* · Microsoft messaging.
 
 #### Prod-ready ladder — Inbox Cloud/Connect banner (**done**)
 
@@ -1718,7 +1758,7 @@ Protocol for claim flip (ops, not engineering):
 | **2 Channels / UI** | **Done** | Inbox header banner + **Open Integrations** when Cloud off/incomplete |
 | **3 Proof** | **Done** | Banner helper specs; this ladder in memo |
 
-**Defer:** Meta template library sync; Microsoft messaging.
+**Defer:** *(closed — Meta template sync)* · Microsoft messaging.
 
 #### Prod-ready ladder — Collect/ops: Voucher WA Mark as sent (**done**)
 

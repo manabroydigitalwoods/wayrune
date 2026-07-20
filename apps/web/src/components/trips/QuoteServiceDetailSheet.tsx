@@ -1768,12 +1768,15 @@ export function QuoteServiceDetailSheet({
         currency: appliedForced.rateProvenance?.currency || currency,
       });
       const bump = appliedForced.vehiclesBumped;
+      const nightsBump = appliedForced.nightsBumped;
       const bumpNote = bump
         ? `vehicles set to ${bump.to} for party of ${
             Math.max(0, Number(appliedForced.details.adults) || 0) +
             Math.max(0, Number(appliedForced.details.children) || 0)
           }`
-        : null;
+        : nightsBump
+          ? `stay extended to ${nightsBump.to} night${nightsBump.to === 1 ? '' : 's'} for min stay`
+          : null;
       if (auto) {
         toastSuccess(
           bumpNote

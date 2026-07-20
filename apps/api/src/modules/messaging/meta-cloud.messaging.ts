@@ -240,4 +240,43 @@ export class MetaCloudMessagingProvider implements MessagingProvider {
     };
     return { providerMessageId: data.messages?.[0]?.id };
   }
+
+  /** List WABA message templates (APPROVED and others). */
+  async listMessageTemplates(input: {
+    wabaId: string;
+    accessToken: string;
+  }): Promise<
+    Array<{
+      name?: string;
+      language?: string;
+      status?: string;
+      components?: Array<{ type?: string; text?: string }>;
+    }>
+  > {
+    const url = new URL(
+      `https://graph.facebook.com/v21.0/${encodeURIComponent(input.wabaId)}/message_templates`,
+    );
+    url.searchParams.set('limit', '100');
+    url.searchParams.set('fields', 'name,language,status,components');
+    const res = await fetch(url.toString(), {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${input.accessToken}` },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '');
+      throw new BadRequestException(
+        `WhatsApp template list failed (${res.status})${errBody ? `: ${errBody.slice(0, 200)}` : ''}`,
+      );
+    }
+    const data = (await res.json().catch(() => ({}))) as {
+      data?: Array<{
+        name?: string;
+        language?: string;
+        status?: string;
+        components?: Array<{ type?: string; text?: string }>;
+      }>;
+    };
+    return Array.isArray(data.data) ? data.data : [];
+  }
 }

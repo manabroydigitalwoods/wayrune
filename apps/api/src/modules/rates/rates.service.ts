@@ -90,11 +90,17 @@ import { summarizeCancellationForMatch } from './cancellation-policy';
 import {
   evaluateHotelMinStay,
   hotelMinStayMatchAccepted,
+  planHotelMinStayExtend,
 } from './hotel-min-stay';
 import {
   evaluateHotelMaxStay,
   hotelMaxStayMatchAccepted,
 } from './hotel-max-stay';
+import {
+  parseTransferPartyBands,
+  pickTransferPartyBand,
+  transferPartyBandMatchAccepted,
+} from './transfer-party-bands';
 import {
   filterHotelByNationality,
   hotelNationalityMatchAccepted,
@@ -2744,6 +2750,12 @@ export class RatesService {
         childAgeMin: childAges.min,
         childAgeMax: childAges.max,
         pricingMode: input.pricingMode || 'per_vehicle',
+        pricingJson:
+          input.pricingJson === undefined
+            ? undefined
+            : input.pricingJson === null
+              ? Prisma.DbNull
+              : (input.pricingJson as Prisma.InputJsonValue),
         currency: input.currency || pricing.currency,
         startDate: parseDateOnly(input.startDate),
         endDate: parseDateOnly(input.endDate),
@@ -2840,6 +2852,14 @@ export class RatesService {
             })()
           : {}),
         ...(input.pricingMode ? { pricingMode: input.pricingMode } : {}),
+        ...(input.pricingJson !== undefined
+          ? {
+              pricingJson:
+                input.pricingJson === null
+                  ? Prisma.DbNull
+                  : (input.pricingJson as Prisma.InputJsonValue),
+            }
+          : {}),
         ...(input.currency ? { currency: input.currency } : {}),
         ...(input.startDate !== undefined
           ? { startDate: parseDateOnly(input.startDate) }
@@ -4181,7 +4201,8 @@ export class RatesService {
       const roomProductIdWanted =
         (item.details?.roomProductId || '').trim() || null;
       const rooms = Math.max(1, Number(item.details?.rooms) || 1);
-      const nightsCount = Math.max(1, Number(item.details?.nights) || 1);
+      let nightsCount = Math.max(1, Number(item.details?.nights) || 1);
+      let nightsExtended: ReturnType<typeof planHotelMinStayExtend> = null;
       const lineGuestCodes = collectGuestNationalityBag({
         nationality:
           typeof item.details?.nationality === 'string'
@@ -4371,7 +4392,32 @@ export class RatesService {
       }
 
       const stayDates = stayNights.length ? stayNights : asOf ? [asOf] : [];
-      const stayDateIsos = stayDates.map((d) => d.toISOString().slice(0, 10));
+      let stayDateIsos = stayDates.map((d) => d.toISOString().slice(0, 10));
+
+      const occupancyPricingEarly = parseOccupancyPricing(best.occupancyPricingJson);
+      const checkInIso =
+        typeof item.details?.checkIn === 'string' && item.details.checkIn.trim()
+          ? item.details.checkIn.trim().slice(0, 10)
+          : asOf
+            ? asOf.toISOString().slice(0, 10)
+            : null;
+      nightsExtended = planHotelMinStayExtend({
+        checkInIso,
+        nights: nightsCount,
+        minStayNights: occupancyPricingEarly?.minStayNights,
+      });
+      let stayDatesForPricing = stayDates;
+      if (nightsExtended) {
+        nightsCount = nightsExtended.toNights;
+        const extendedNights = eachStayNight(asOf, nightsCount);
+        stayDatesForPricing = extendedNights.length
+          ? extendedNights
+          : stayDates;
+        stayDateIsos = stayDatesForPricing.map((d) =>
+          d.toISOString().slice(0, 10),
+        );
+      }
+
       const adults = Math.max(
         0,
         Number(item.details?.adults) || ctx.adults || 0,
@@ -4432,7 +4478,7 @@ export class RatesService {
         adults,
         children,
         rooms,
-        stayDates,
+        stayDates: stayDatesForPricing,
         candidatePool: splitRoomMealPool.map((r) => ({
           id: r.id,
           unitCost: Number(r.unitCost),
@@ -4459,10 +4505,10 @@ export class RatesService {
           unitCost: best.unitCost,
           weekendUnitCost: best.weekendUnitCost,
         },
-        stayDates,
+        stayDatesForPricing,
         rooms,
       );
-      const occupancyPricing = parseOccupancyPricing(best.occupancyPricingJson);
+      const occupancyPricing = occupancyPricingEarly;
       const pax = classifyHotelOccupancyPax({
         adults,
         children,
@@ -4496,7 +4542,7 @@ export class RatesService {
             unitCost: adultBand.unitCostPerNight,
             weekendUnitCost: adultBand.weekendUnitCostPerNight,
           },
-          stayDates,
+          stayDatesForPricing,
           rooms,
         );
         occPricingForExtras = occupancyPricing
@@ -4687,7 +4733,9 @@ export class RatesService {
         minStayNights: occupancyPricing?.minStayNights,
         nights: nightsCount,
       });
-      if (minStay) {
+      if (nightsExtended) {
+        accepted.push(nightsExtended.note);
+      } else if (minStay) {
         accepted.push(...hotelMinStayMatchAccepted(minStay));
       }
       const maxStay = evaluateHotelMaxStay({
@@ -4754,14 +4802,22 @@ export class RatesService {
           unitCost: Number(best.unitCost),
           calculation: {
             ...calculation,
-            ...(minStay
+            ...(nightsExtended
               ? {
-                  minStayNights: minStay.minStayNights,
-                  stayNights: minStay.nights,
-                  minStayShort: minStay.short,
-                  minStayNote: minStay.note,
+                  minStayNights: nightsExtended.toNights,
+                  stayNights: nightsExtended.toNights,
+                  minStayShort: false,
+                  minStayNote: nightsExtended.note,
+                  minStayExtended: true,
                 }
-              : {}),
+              : minStay
+                ? {
+                    minStayNights: minStay.minStayNights,
+                    stayNights: minStay.nights,
+                    minStayShort: minStay.short,
+                    minStayNote: minStay.note,
+                  }
+                : {}),
             ...(maxStay
               ? {
                   maxStayNights: maxStay.maxStayNights,
@@ -4788,12 +4844,21 @@ export class RatesService {
               : {}),
           },
           matchExplain: { accepted, rejected },
-          ...(minStay?.short
+          ...(nightsExtended
             ? {
-                minStayWarn: true as const,
-                minStayNote: minStay.note,
+                nightsBumped: {
+                  from: nightsExtended.fromNights,
+                  to: nightsExtended.toNights,
+                  checkOut: nightsExtended.checkOut,
+                },
+                minStayNote: nightsExtended.note,
               }
-            : {}),
+            : minStay?.short
+              ? {
+                  minStayWarn: true as const,
+                  minStayNote: minStay.note,
+                }
+              : {}),
           ...(maxStay?.long
             ? {
                 maxStayWarn: true as const,
@@ -4943,7 +5008,29 @@ export class RatesService {
         );
       }
 
-      const adultCost = Number(best.unitCost);
+      const chartAdultCost = Number(best.unitCost);
+      const partyBands = parseTransferPartyBands(best.pricingJson);
+      let partyForBand =
+        Number(item.details?.adults) >= 0 &&
+        Number.isFinite(Number(item.details?.adults))
+          ? Math.round(Number(item.details?.adults))
+          : ctx.adults;
+      const childrenForBand =
+        Number(item.details?.children) >= 0 &&
+        Number.isFinite(Number(item.details?.children))
+          ? Math.round(Number(item.details?.children))
+          : ctx.children;
+      partyForBand += Math.max(0, childrenForBand);
+      const pickedBand =
+        partyBands.length > 0
+          ? pickTransferPartyBand({ bands: partyBands, party: partyForBand })
+          : null;
+
+      const pricingMode = best.pricingMode || 'per_vehicle';
+      const adultCost =
+        pricingMode === 'per_vehicle' && pickedBand
+          ? pickedBand.unitCost
+          : chartAdultCost;
       const childCost =
         best.childUnitCost != null
           ? Number(best.childUnitCost)
@@ -4953,7 +5040,6 @@ export class RatesService {
           ? Number(best.infantUnitCost)
           : round2(adultCost * ctx.pricing.infantFareFactor);
 
-      const pricingMode = best.pricingMode || 'per_vehicle';
       let unitCost = adultCost;
       let quantity = 1;
       let pricingUnit: 'per_service' | 'per_person' = 'per_service';
@@ -5096,6 +5182,9 @@ export class RatesService {
         endDate: best.endDate,
         vehicleSeats,
       });
+      if (pickedBand && pricingMode === 'per_vehicle') {
+        accepted.push(transferPartyBandMatchAccepted(pickedBand));
+      }
       const rejected = explainTransferRejects(routePool, best.id, {
         fromPlaceId,
         toPlaceId,
@@ -5133,6 +5222,15 @@ export class RatesService {
           unitCost: adultCost,
           supplierId: best.supplierId || supplierId || null,
           rateVersionNumber: best.versionNumber ?? 1,
+          ...(pickedBand && pricingMode === 'per_vehicle'
+            ? {
+                calculation: {
+                  partyBandSize: pickedBand.partySize,
+                  partyBandUnitCost: pickedBand.unitCost,
+                  partyForBand,
+                },
+              }
+            : {}),
           matchExplain: { accepted, rejected },
         },
       });
