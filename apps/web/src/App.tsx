@@ -78,6 +78,7 @@ import { TripWorkspacePage } from './pages/TripWorkspacePage';
 import { ItineraryPreviewPage } from './pages/ItineraryPreviewPage';
 import { PublicItineraryPage } from './pages/PublicItineraryPage';
 import { PublicTripPaymentPage } from './pages/PublicTripPaymentPage';
+import { PublicChangelogPage } from './pages/PublicChangelogPage';
 import { SuppliersPage } from './pages/SuppliersPage';
 import { SupplierDetailPage } from './pages/SupplierDetailPage';
 import { RatesPage } from './pages/RatesPage';
@@ -618,6 +619,7 @@ export function App() {
       <Route path="/p/itinerary/:token" element={<PublicItineraryPage />} />
       <Route path="/p/pay/:token" element={<PublicTripPaymentPage />} />
       <Route path="/o/:token" element={<PublicGuestOrderPage />} />
+      <Route path="/changelog" element={<PublicChangelogPage />} />
 
       <Route path="/" element={<RootEntry />} />
       <Route path="/inbox" element={<InboxRoute />} />

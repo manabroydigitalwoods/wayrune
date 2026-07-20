@@ -1177,7 +1177,7 @@ export function SettingsPage({
             ) : section === 'policies' ? (
               <PoliciesPanel />
             ) : section === 'about' ? (
-              <AboutReleaseNotesPanel />
+              <AboutReleaseNotesPanel showPublicLink />
             ) : (
               <form onSubmit={onSave} className="space-y-6">
                 {section === 'general' ? (

@@ -45,7 +45,7 @@ Maturity labels: **early** | **partial** | **mature** | **structural** (architec
 | Integrations | Lead APIs, email parsing, flights, calling, WhatsApp | Broader connector contract; channel depth uneven | **Foundation ours; depth mixed** |
 | Onboarding | Mandatory consultant-led setup + extensive guides | Register, org seed, claim invite; **checklist + first-quote walkthrough + sample FIT pack** (quote/trips empty CTAs) | **Sembark** on consultant depth; **we closed self-serve thin wedge** |
 | Reporting | Extensive ops reports + saved presets | Role dashboards; finance CSV + personal presets + **org-shared packs + weekly email**; sales/ops strips | **Sembark** on breadth of ops reports; finance packs thin-complete |
-| Market credibility | Public release notes, docs, claimed scale | Early-stage; **claim registry + in-app About + named demo trip**; no public scale claim | **Sembark** on public docs/scale; **we closed buyer-safe About + demo wedge** |
+| Market credibility | Public release notes, docs, claimed scale | Early-stage; **claim registry + in-app About + public `/changelog` + named demo trip**; no public scale claim | **Near parity** on buyer-safe notes; **Sembark** on docs/scale |
 
 ### Where we are already better (qualified)
 
@@ -67,7 +67,7 @@ Maturity labels: **early** | **partial** | **mature** | **structural** (architec
 
 1. **Tax / ledger depth** — full accounting ledger / e-invoice (CGST/SGST/IGST **display** thin-complete including Finance parity; compliance **do not claim**)  
 2. **Quote speed productisation** — measured sub-3-minute FIT median + public claim gated by `fitClaimProtocol` (demo-travel seed can clear n≥20 locally; production waits on real samples)  
-3. **Market credibility** — release notes, docs, scale proof  
+3. **Market credibility** — *(About + public `/changelog` thin-complete)* · docs / scale proof still open
 4. **Partner fleet OS** — inventory OS beyond booking-linked holds  
 5. **Rate-grid leftovers** — *(per-pax + children + multi-room 2A×N + 3A TPL/3 thin-complete)* · uneven multi-room / weighted duplicate nationalities deferred
 
@@ -730,7 +730,17 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Settings → **About** release notes list + Proven/Architecture badges |
 | **3 Proof** | **Done** | Filter specs; scorecard credibility row; this ladder in memo |
 
-**Defer:** public `/changelog` site; help centre; case studies.
+**Defer:** *(closed — see Public changelog below)* · help centre; case studies.
+
+#### Prod-ready ladder — Public changelog (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | Reuse `visibleReleaseNotes()` (proven/architecture only) — no new claims |
+| **2 Channels / UI** | **Done** | Login-free `/changelog`; Settings → About links to it |
+| **3 Proof** | **Done** | Scorecard credibility row; About release note; this ladder in memo |
+
+**Defer:** help centre; case studies; public scale / FIT-speed marketing claims; marketing site polish.
 
 #### Prod-ready ladder — Demo-org polish (named FIT demo trip) (**done**)
 
@@ -1410,7 +1420,7 @@ Then introduce differentiators: connected WhatsApp and email → agency website 
 |-----|-----------|--------|
 | Hotel occupancy depth | Contracting enters SGL/DBL/TPL without sales spreadsheet override on seeded FIT | **Adult bands → nationality + traveller default + rate-version chains + tip diffs + per-pax DBL/2 + multi-room 2A×N + 3A TPL/3 done**; uneven multi-room / weighted duplicates open |
 | FIT speed claim | Protocol stamped; n≥20; median ≤3m; `publicClaimAllowed` | **Gate shipped**; **demo-travel seed stamps n=20 under 3m** (local demos only — production still waiting on real samples) |
-| Market credibility | Claim registry live; release notes + polished demo org | **Registry + About notes + named demo trip done**; public changelog open |
+| Market credibility | Claim registry live; release notes + polished demo org | **Registry + About + public `/changelog` + named demo trip done**; public scale claim still open |
 | Deal-gated FX/fleet | Open only with signed need; keep locks/meta pluggable | **Discipline** |
 
 ### What we should not copy from Sembark

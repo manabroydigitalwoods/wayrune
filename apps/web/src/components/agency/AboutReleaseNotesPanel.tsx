@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { StatusBadge } from '@wayrune/ui';
 import {
   APP_RELEASE_LABEL,
@@ -5,8 +6,12 @@ import {
   visibleReleaseNotes,
 } from '../../lib/releaseNotes';
 
-/** Settings → About: claim-safe release notes (no Save). */
-export function AboutReleaseNotesPanel() {
+/** Settings → About: claim-safe release notes (no Save). Also used on public /changelog. */
+export function AboutReleaseNotesPanel({
+  showPublicLink = false,
+}: {
+  showPublicLink?: boolean;
+} = {}) {
   const notes = visibleReleaseNotes();
 
   return (
@@ -16,6 +21,14 @@ export function AboutReleaseNotesPanel() {
         <p className="text-xs text-muted-foreground">
           Claim-safe highlights for demos and onboarding. Testing or prohibited claims are kept out
           of this list (see strategy claim registry).
+          {showPublicLink ? (
+            <>
+              {' '}
+              <Link to="/changelog" className="text-primary hover:underline">
+                Public changelog
+              </Link>
+            </>
+          ) : null}
         </p>
       </div>
       <ul className="space-y-3">

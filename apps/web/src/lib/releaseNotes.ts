@@ -27,6 +27,14 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-public-changelog',
+    date: '2026-07-20',
+    title: 'Public changelog',
+    summary:
+      'Login-free /changelog mirrors Settings → About with the same claim-safe Proven and Architecture notes. No scale claims.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-tpl-pax-buy-split',
     date: '2026-07-20',
     title: 'Triple per-pax hotel buy',
