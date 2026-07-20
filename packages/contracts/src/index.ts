@@ -188,6 +188,11 @@ quoteValidityGraceHours: z.number().int().min(0).max(72).optional(),
         skipped: z.array(z.string()).optional(),
       })
       .optional(),
+    /**
+     * Empty package-folder paths kept in the New-trip / Use-template nav
+     * even when no active template lives under them (max 200).
+     */
+    packageFolderIndex: z.array(z.string().max(80)).max(200).optional(),
     business: z
       .object({
         legalName: z.string().optional(),
@@ -3574,6 +3579,16 @@ export const RenameQuoteTemplateFolderSchema = z.object({
   ),
 });
 
+/** Add an empty folder path to the org package folder index. */
+export const UpsertQuoteTemplateFolderSchema = z.object({
+  folder: RequiredText('Folder'),
+});
+
+/** Remove a folder path from the org package folder index (templates untouched). */
+export const RemoveQuoteTemplateFolderSchema = z.object({
+  folder: RequiredText('Folder'),
+});
+
 /** Restore a prior (usually superseded) template version as a new active tip. */
 export const RestoreQuoteTemplateSchema = z.object({
   /** Template row to copy content from (must be in the same supersedes chain). */
@@ -3939,6 +3954,12 @@ export type CreateQuoteTemplateInput = z.infer<typeof CreateQuoteTemplateSchema>
 export type UpdateQuoteTemplateInput = z.infer<typeof UpdateQuoteTemplateSchema>;
 export type RenameQuoteTemplateFolderInput = z.infer<
   typeof RenameQuoteTemplateFolderSchema
+>;
+export type UpsertQuoteTemplateFolderInput = z.infer<
+  typeof UpsertQuoteTemplateFolderSchema
+>;
+export type RemoveQuoteTemplateFolderInput = z.infer<
+  typeof RemoveQuoteTemplateFolderSchema
 >;
 export type RestoreQuoteTemplateInput = z.infer<typeof RestoreQuoteTemplateSchema>;
 export type ApplyQuoteTemplateInput = z.infer<typeof ApplyQuoteTemplateSchema>;

@@ -6,6 +6,7 @@ import {
   normalizeTemplateFolderLabel,
   remapTemplateFolderPrefixUi,
   templateMatchesFolderFilter,
+  templatesUnderFolder,
 } from './quoteTemplateFolder';
 
 describe('quoteTemplateFolder', () => {
@@ -76,5 +77,16 @@ describe('quoteTemplateFolder', () => {
     expect(
       remapTemplateFolderPrefixUi('Hill stations', 'Hill stations', ''),
     ).toBeUndefined();
+  });
+
+  it('detects whether any template sits under a folder', () => {
+    expect(
+      templatesUnderFolder(
+        ['Hill stations/Darjeeling', 'Beach/Goa'],
+        'Hill stations',
+      ),
+    ).toBe(true);
+    expect(templatesUnderFolder(['Beach/Goa'], 'Hill stations')).toBe(false);
+    expect(templatesUnderFolder(['Beach'], 'Beach')).toBe(true);
   });
 });

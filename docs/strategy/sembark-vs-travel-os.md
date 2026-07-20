@@ -58,7 +58,7 @@ Maturity labels: **early** | **partial** | **mature** | **structural** (architec
 | Gap that used to be “Sembark” | Now |
 |-------------------------------|-----|
 | FX stub / no live rates | **Quote lock + Settings Frankfurter refresh + cross-pair via org rates** — still no auto-cron / AED feed |
-| Package library depth | **Versioning + history/diff (side-by-side) + tags + slash-path folder nav + folder rename/move** — still no server folder index / DnD |
+| Package library depth | **Versioning + history/diff (side-by-side) + tags + slash-path folder nav + folder rename/move + empty folder index** — still no DnD |
 | Onboarding “no product” | **Checklist + FIT pack + empty-state Install** — still no consultant implementation centre |
 | Movement / vouchers “missing” | **Board + vouchers + DriverJob sync thin-complete** |
 | Collect & chase | **Payment links + aging chase + AP settle thin-complete** |
@@ -270,7 +270,17 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | New-trip + Use-template folder nav **Rename folder…** |
 | **3 Proof** | **Done** | folder-rename + web remap specs; About note; this ladder in memo |
 
-**Defer:** server-side tag/folder index; empty folder nodes; drag-drop tree CRUD.
+**Defer:** *(closed — see Package folder index / empty nodes below)* · drag-drop tree CRUD.
+
+#### Prod-ready ladder — Package folder index / empty nodes (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | Org `settingsJson.packageFolderIndex`; list templates returns merged `folderIndex`; add/remove empty paths; rename remaps index |
+| **2 Channels / UI** | **Done** | New-trip + Use-template **New folder…** / **Remove empty…**; nav uses index ∪ templates |
+| **3 Proof** | **Done** | folder-index + templatesUnderFolder specs; About note; this ladder in memo |
+
+**Defer:** drag-drop tree CRUD.
 
 #### Prod-ready ladder — Quote post-expiry grace (**done**)
 

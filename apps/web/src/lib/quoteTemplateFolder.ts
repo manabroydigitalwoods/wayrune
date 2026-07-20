@@ -133,3 +133,19 @@ export function buildFolderNav(
 
   return { filter: q, breadcrumbs, children: [...childMap.values()] };
 }
+
+/** True when any template folder equals or sits under `folder`. */
+export function templatesUnderFolder(
+  folders: Array<string | null | undefined>,
+  folder: string | null | undefined,
+): boolean {
+  const q = normalizeTemplateFolderLabel(folder);
+  if (!q) return false;
+  const ql = q.toLowerCase();
+  return folders.some((raw) => {
+    const f = normalizeTemplateFolderLabel(raw);
+    if (!f) return false;
+    const fl = f.toLowerCase();
+    return fl === ql || fl.startsWith(`${ql}/`);
+  });
+}

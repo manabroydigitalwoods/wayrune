@@ -53,7 +53,11 @@ import {
   filterTemplatesByFolderAndTag,
   formatPackagePickerDescription,
 } from '../lib/quoteTemplatePickerFilter';
-import { buildFolderNav, normalizeTemplateFolderLabel } from '../lib/quoteTemplateFolder';
+import {
+  buildFolderNav,
+  normalizeTemplateFolderLabel,
+  templatesUnderFolder,
+} from '../lib/quoteTemplateFolder';
 import {
   agencyFitPackWalkthroughPath,
   formatAgencyFitPackToast,
@@ -158,6 +162,7 @@ export function TripsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [installingPack, setInstallingPack] = useState(false);
   const [templates, setTemplates] = useState<QuoteTemplateRow[]>([]);
+  const [packageFolderIndex, setPackageFolderIndex] = useState<string[]>([]);
   const [templatesLoading, setTemplatesLoading] = useState(false);
   const [packageFolderFilter, setPackageFolderFilter] = useState('');
   const [packageTagFilter, setPackageTagFilter] = useState('');
@@ -247,10 +252,14 @@ export function TripsPage() {
   async function loadTemplates() {
     setTemplatesLoading(true);
     try {
-      const res = await api<{ items: QuoteTemplateRow[] }>('/quote-templates');
+      const res = await api<{ items: QuoteTemplateRow[]; folderIndex?: string[] }>(
+        '/quote-templates',
+      );
       setTemplates(res.items || []);
+      setPackageFolderIndex(res.folderIndex || []);
     } catch {
       setTemplates([]);
+      setPackageFolderIndex([]);
     } finally {
       setTemplatesLoading(false);
     }
@@ -294,8 +303,14 @@ export function TripsPage() {
   );
 
   const packageFolderNav = useMemo(
+    () => buildFolderNav(packageFolderIndex, packageFolderFilter),
+    [packageFolderIndex, packageFolderFilter],
+  );
+
+  const packageFolderIsEmpty = useMemo(
     () =>
-      buildFolderNav(
+      Boolean(packageFolderFilter.trim()) &&
+      !templatesUnderFolder(
         templates.map((t) => t.content?.folder),
         packageFolderFilter,
       ),
@@ -363,6 +378,53 @@ export function TripsPage() {
       await loadTemplates();
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Could not rename folder');
+    }
+  }
+
+  async function addPackageFolder() {
+    const raw = window.prompt(
+      'New empty folder path (e.g. Beach/New shelf):',
+      packageFolderFilter.trim() ? `${packageFolderFilter.trim()}/` : '',
+    );
+    if (raw == null) return;
+    const folder = normalizeTemplateFolderLabel(raw);
+    if (!folder) {
+      toastError('Enter a folder path');
+      return;
+    }
+    try {
+      await api('/quote-templates/folders', {
+        method: 'POST',
+        body: JSON.stringify({ folder }),
+      });
+      toastSuccess(`Folder “${folder}” added`);
+      setPackageFolderFilter(folder);
+      await loadTemplates();
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not add folder');
+    }
+  }
+
+  async function removeEmptyPackageFolder(folderRaw: string) {
+    const folder = normalizeTemplateFolderLabel(folderRaw);
+    if (!folder) return;
+    if (
+      !window.confirm(
+        `Remove empty folder “${folder}” from the package library nav? Packages are not deleted.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      await api('/quote-templates/folders/remove', {
+        method: 'POST',
+        body: JSON.stringify({ folder }),
+      });
+      toastSuccess(`Removed “${folder}” from folder nav`);
+      setPackageFolderFilter('');
+      await loadTemplates();
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not remove folder');
     }
   }
 
@@ -891,55 +953,74 @@ export function TripsPage() {
                   placeholder="Blank trip, or pick a package…"
                   options={packageOptions}
                 />
-                {packageFolderNav.breadcrumbs.length ||
-                packageFolderNav.children.length ||
-                packageMetaChips.tags.length ? (
-                  <div className="space-y-1.5">
-                    {packageFolderNav.breadcrumbs.length ? (
-                      <div className="flex flex-wrap items-center gap-1 text-[10px]">
+                <div className="space-y-1.5">
+                    <div className="flex flex-wrap items-center gap-1 text-[10px]">
+                      {packageFolderNav.breadcrumbs.length ? (
+                        <>
+                          <button
+                            type="button"
+                            className="rounded bg-muted px-1.5 py-px font-medium text-muted-foreground hover:bg-muted/80"
+                            onClick={() => setPackageFolderFilter('')}
+                          >
+                            All folders
+                          </button>
+                          {packageFolderNav.breadcrumbs.map((crumb) => {
+                            const active =
+                              packageFolderFilter.trim().toLowerCase() ===
+                              crumb.path.toLowerCase();
+                            return (
+                              <span key={crumb.path} className="contents">
+                                <span className="text-muted-foreground/70">/</span>
+                                <button
+                                  type="button"
+                                  className={
+                                    active
+                                      ? 'rounded bg-primary/20 px-1.5 py-px font-medium text-primary'
+                                      : 'rounded bg-primary/10 px-1.5 py-px font-medium text-primary hover:bg-primary/15'
+                                  }
+                                  onClick={() => setPackageFolderFilter(crumb.path)}
+                                >
+                                  {crumb.label}
+                                </button>
+                              </span>
+                            );
+                          })}
+                        </>
+                      ) : null}
+                      <Can anyOf={CAP.quoteWrite}>
                         <button
                           type="button"
-                          className="rounded bg-muted px-1.5 py-px font-medium text-muted-foreground hover:bg-muted/80"
-                          onClick={() => setPackageFolderFilter('')}
+                          className="ml-1 rounded border border-border/60 px-1.5 py-px font-medium text-muted-foreground hover:bg-muted/80"
+                          onClick={() => void addPackageFolder()}
                         >
-                          All folders
+                          New folder…
                         </button>
-                        {packageFolderNav.breadcrumbs.map((crumb) => {
-                          const active =
-                            packageFolderFilter.trim().toLowerCase() ===
-                            crumb.path.toLowerCase();
-                          return (
-                            <span key={crumb.path} className="contents">
-                              <span className="text-muted-foreground/70">/</span>
-                              <button
-                                type="button"
-                                className={
-                                  active
-                                    ? 'rounded bg-primary/20 px-1.5 py-px font-medium text-primary'
-                                    : 'rounded bg-primary/10 px-1.5 py-px font-medium text-primary hover:bg-primary/15'
-                                }
-                                onClick={() => setPackageFolderFilter(crumb.path)}
-                              >
-                                {crumb.label}
-                              </button>
-                            </span>
-                          );
-                        })}
-                        {packageFolderFilter.trim() ? (
-                          <Can anyOf={CAP.quoteWrite}>
+                      </Can>
+                      {packageFolderFilter.trim() ? (
+                        <Can anyOf={CAP.quoteWrite}>
+                          <button
+                            type="button"
+                            className="rounded border border-border/60 px-1.5 py-px font-medium text-muted-foreground hover:bg-muted/80"
+                            onClick={() =>
+                              void renamePackageFolder(packageFolderFilter)
+                            }
+                          >
+                            Rename folder…
+                          </button>
+                          {packageFolderIsEmpty ? (
                             <button
                               type="button"
-                              className="ml-1 rounded border border-border/60 px-1.5 py-px font-medium text-muted-foreground hover:bg-muted/80"
+                              className="rounded border border-border/60 px-1.5 py-px font-medium text-muted-foreground hover:bg-muted/80"
                               onClick={() =>
-                                void renamePackageFolder(packageFolderFilter)
+                                void removeEmptyPackageFolder(packageFolderFilter)
                               }
                             >
-                              Rename folder…
+                              Remove empty…
                             </button>
-                          </Can>
-                        ) : null}
-                      </div>
-                    ) : null}
+                          ) : null}
+                        </Can>
+                      ) : null}
+                    </div>
                     <div className="flex flex-wrap gap-1">
                       {packageFolderNav.children.map((folder) => {
                         const active =
@@ -985,7 +1066,6 @@ export function TripsPage() {
                       })}
                     </div>
                   </div>
-                ) : null}
               </div>
             ) : (
               <Button

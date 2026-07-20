@@ -27,6 +27,14 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-package-folder-index',
+    date: '2026-07-20',
+    title: 'Empty package folders stay in the library nav',
+    summary:
+      'New folder… keeps a shelf visible before any package lives there. Remove empty… drops it from the org folder index (packages untouched). Rename still remaps both templates and the index.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-cross-pair-fx-convert',
     date: '2026-07-20',
     title: 'Convert non-INR chart amounts into a foreign quote',

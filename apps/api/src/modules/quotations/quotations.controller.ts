@@ -12,6 +12,8 @@ import {
   RecordQuoteRateDriftAcksSchema,
   RequestQuoteApprovalSchema,
   RenameQuoteTemplateFolderSchema,
+  UpsertQuoteTemplateFolderSchema,
+  RemoveQuoteTemplateFolderSchema,
   RestoreQuoteTemplateSchema,
   SaveQuotationVersionSchema,
   SendQuoteEmailSchema,
@@ -66,6 +68,24 @@ export class QuotationsController {
     return this.quotations.renameTemplateFolders(
       user,
       RenameQuoteTemplateFolderSchema.parse(body),
+    );
+  }
+
+  @Post('quote-templates/folders')
+  @RequirePermissions('quote.write')
+  upsertTemplateFolder(@CurrentUser() user: AuthUser, @Body() body: unknown) {
+    return this.quotations.upsertTemplateFolder(
+      user,
+      UpsertQuoteTemplateFolderSchema.parse(body),
+    );
+  }
+
+  @Post('quote-templates/folders/remove')
+  @RequirePermissions('quote.write')
+  removeTemplateFolder(@CurrentUser() user: AuthUser, @Body() body: unknown) {
+    return this.quotations.removeTemplateFolder(
+      user,
+      RemoveQuoteTemplateFolderSchema.parse(body),
     );
   }
 

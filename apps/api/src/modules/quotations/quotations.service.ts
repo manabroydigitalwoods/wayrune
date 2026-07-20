@@ -24,6 +24,8 @@ import type {
   RecordQuoteRateDriftAcksInput,
   RestoreQuoteTemplateInput,
   RenameQuoteTemplateFolderInput,
+  UpsertQuoteTemplateFolderInput,
+  RemoveQuoteTemplateFolderInput,
   SaveQuotationVersionInput,
   SendQuoteWhatsappInput,
   UpdateQuoteTemplateInput,
@@ -100,6 +102,14 @@ import {
   remapTemplateFolderPrefix,
   templateFolderMatchesPrefix,
 } from './quote-template-folder-rename';
+import {
+  addPackageFolderToIndex,
+  mergePackageFolderSources,
+  parsePackageFolderIndex,
+  remapPackageFolderIndex,
+  removePackageFolderFromIndex,
+  withPackageFolderIndex,
+} from './quote-template-folder-index';
 import { rematchQuoteItemsFromRates } from './quote-rate-rematch';
 import { RatesService } from '../rates/rates.service';
 import { resolveNationalityOptsFromTripTravellers } from '../rates/hotel-nationality';
@@ -680,20 +690,33 @@ export class QuotationsService {
   }
 
   async listTemplates(user: AuthUser) {
-    const items = await this.prisma.quoteTemplate.findMany({
-      where: { organizationId: user.organizationId, status: 'active' },
-      orderBy: { createdAt: 'desc' },
-      take: 100,
-    });
+    const [items, org] = await Promise.all([
+      this.prisma.quoteTemplate.findMany({
+        where: { organizationId: user.organizationId, status: 'active' },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+      }),
+      this.prisma.organization.findFirst({
+        where: { id: user.organizationId },
+        select: { settingsJson: true },
+      }),
+    ]);
+    const mapped = items.map((t) => ({
+      id: t.id,
+      name: t.name,
+      versionNumber: t.versionNumber,
+      status: t.status,
+      createdAt: t.createdAt,
+      content: parseQuoteTemplateContent(t.contentJson),
+    }));
+    const index = parsePackageFolderIndex(org?.settingsJson);
+    const folderIndex = mergePackageFolderSources(
+      index,
+      mapped.map((t) => t.content.folder),
+    );
     return {
-      items: items.map((t) => ({
-        id: t.id,
-        name: t.name,
-        versionNumber: t.versionNumber,
-        status: t.status,
-        createdAt: t.createdAt,
-        content: parseQuoteTemplateContent(t.contentJson),
-      })),
+      items: mapped,
+      folderIndex,
     };
   }
 
@@ -954,6 +977,27 @@ export class QuotationsService {
       updated += 1;
       touchedIds.push(row.id);
     }
+
+    const org = await this.prisma.organization.findFirst({
+      where: { id: user.organizationId },
+      select: { settingsJson: true },
+    });
+    const prevIndex = parsePackageFolderIndex(org?.settingsJson);
+    const nextIndex = remapPackageFolderIndex(prevIndex, from, input.toFolder);
+    const indexChanged =
+      JSON.stringify(prevIndex) !== JSON.stringify(nextIndex);
+    if (indexChanged) {
+      await this.prisma.organization.update({
+        where: { id: user.organizationId },
+        data: {
+          settingsJson: withPackageFolderIndex(
+            org?.settingsJson,
+            nextIndex,
+          ) as Prisma.InputJsonValue,
+        },
+      });
+    }
+
     await this.audit.record({
       organizationId: user.organizationId,
       actorUserId: user.sub,
@@ -965,6 +1009,7 @@ export class QuotationsService {
         toFolder: toNormalized ?? null,
         updated,
         templateIds: touchedIds,
+        folderIndexRemapped: indexChanged,
       },
     });
     return {
@@ -972,7 +1017,84 @@ export class QuotationsService {
       fromFolder: from,
       toFolder: toNormalized ?? null,
       updated,
+      folderIndex: nextIndex,
     };
+  }
+
+  /** Add an empty folder path to the org package folder index. */
+  async upsertTemplateFolder(
+    user: AuthUser,
+    input: UpsertQuoteTemplateFolderInput,
+  ) {
+    const folder = normalizeTemplateFolder(input.folder);
+    if (!folder) {
+      throw new BadRequestException('Folder is required');
+    }
+    const org = await this.prisma.organization.findFirst({
+      where: { id: user.organizationId },
+      select: { settingsJson: true },
+    });
+    const prev = parsePackageFolderIndex(org?.settingsJson);
+    const next = addPackageFolderToIndex(prev, folder);
+    if (JSON.stringify(prev) === JSON.stringify(next)) {
+      return { ok: true as const, folder, folderIndex: next, created: false };
+    }
+    await this.prisma.organization.update({
+      where: { id: user.organizationId },
+      data: {
+        settingsJson: withPackageFolderIndex(
+          org?.settingsJson,
+          next,
+        ) as Prisma.InputJsonValue,
+      },
+    });
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorUserId: user.sub,
+      action: 'quote.template_folder_index_add',
+      entityType: 'organization',
+      entityId: user.organizationId,
+      metadata: { folder },
+    });
+    return { ok: true as const, folder, folderIndex: next, created: true };
+  }
+
+  /** Remove a folder path from the org index (templates untouched). */
+  async removeTemplateFolder(
+    user: AuthUser,
+    input: RemoveQuoteTemplateFolderInput,
+  ) {
+    const folder = normalizeTemplateFolder(input.folder);
+    if (!folder) {
+      throw new BadRequestException('Folder is required');
+    }
+    const org = await this.prisma.organization.findFirst({
+      where: { id: user.organizationId },
+      select: { settingsJson: true },
+    });
+    const prev = parsePackageFolderIndex(org?.settingsJson);
+    const next = removePackageFolderFromIndex(prev, folder);
+    if (JSON.stringify(prev) === JSON.stringify(next)) {
+      return { ok: true as const, folder, folderIndex: next, removed: false };
+    }
+    await this.prisma.organization.update({
+      where: { id: user.organizationId },
+      data: {
+        settingsJson: withPackageFolderIndex(
+          org?.settingsJson,
+          next,
+        ) as Prisma.InputJsonValue,
+      },
+    });
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorUserId: user.sub,
+      action: 'quote.template_folder_index_remove',
+      entityType: 'organization',
+      entityId: user.organizationId,
+      metadata: { folder },
+    });
+    return { ok: true as const, folder, folderIndex: next, removed: true };
   }
 
   /** Walk supersedes chain for any template id (active or superseded). */
