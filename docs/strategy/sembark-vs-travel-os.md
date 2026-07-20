@@ -68,7 +68,7 @@ Maturity labels: **early** | **partial** | **mature** | **structural** (architec
 1. **Tax / ledger depth** — full accounting ledger / e-invoice (CGST/SGST/IGST **display** thin-complete including Finance parity; compliance **do not claim**)  
 2. **Quote speed productisation** — measured sub-3-minute FIT median + public claim gated by `fitClaimProtocol` (demo-travel seed can clear n≥20 locally; production waits on real samples)  
 3. **Market credibility** — *(About + public `/changelog` thin-complete)* · docs / scale proof still open
-4. **Partner fleet OS** — inventory OS beyond booking-linked holds  
+4. **Partner fleet OS** — *(booking-linked holds + allocate UI thin-complete)* · full unit board / utilization still deal-gated
 5. **Rate-grid leftovers** — *(per-pax + children + multi-room 2A×N + 3A TPL/3 thin-complete)* · uneven multi-room / weighted duplicate nationalities deferred
 
 ---
