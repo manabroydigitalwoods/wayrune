@@ -40,9 +40,17 @@ type ImportResponse = {
   results: ImportResultRow[];
 };
 
+const HOTEL_MATRIX_MEALS = ['ep', 'cp', 'map', 'ap'] as const;
+
 const HOTEL_TEMPLATE =
-  'supplierName,placeName,placeKey,roomType,mealPlan,unitCost,weekendUnitCost,sglUnitCost,sglWeekendUnitCost,dblUnitCost,dblWeekendUnitCost,tplUnitCost,tplWeekendUnitCost,currency,startDate,endDate\n' +
-  'Heritage Darjeeling,Darjeeling,,Deluxe,MAP,4500,5200,3600,4100,4500,5200,5800,6400,INR,2026-04-01,2026-10-31\n';
+  'supplierName,placeName,placeKey,roomType,' +
+  'mapUnitCost,mapWeekendUnitCost,mapSglUnitCost,mapSglWeekendUnitCost,mapDblUnitCost,mapDblWeekendUnitCost,mapTplUnitCost,mapTplWeekendUnitCost,' +
+  'cpUnitCost,cpWeekendUnitCost,cpSglUnitCost,cpSglWeekendUnitCost,cpDblUnitCost,cpDblWeekendUnitCost,cpTplUnitCost,cpTplWeekendUnitCost,' +
+  'currency,startDate,endDate\n' +
+  'Heritage Darjeeling,Darjeeling,,Deluxe,' +
+  '4500,5200,3600,4100,4500,5200,5800,6400,' +
+  '4050,4680,3240,3740,4050,4680,5220,6030,' +
+  'INR,2026-04-01,2026-10-31\n';
 
 const TRANSFER_TEMPLATE =
   'supplierName,fromPlace,toPlace,vehicleType,unitCost,childUnitCost,infantUnitCost,childAgeMin,childAgeMax,pricingMode,currency,startDate,endDate\n' +
@@ -86,8 +94,14 @@ function hotelTemplateForSupplier(supplierName?: string) {
   if (!supplierName?.trim()) return HOTEL_TEMPLATE;
   const safe = supplierName.trim().replace(/,/g, ' ');
   return (
-    'supplierName,placeName,placeKey,roomType,mealPlan,unitCost,weekendUnitCost,sglUnitCost,sglWeekendUnitCost,dblUnitCost,dblWeekendUnitCost,tplUnitCost,tplWeekendUnitCost,currency,startDate,endDate\n' +
-    `${safe},,,Deluxe,MAP,4500,5200,3600,4100,4500,5200,5800,6400,INR,2026-04-01,2026-10-31\n`
+    'supplierName,placeName,placeKey,roomType,' +
+    'mapUnitCost,mapWeekendUnitCost,mapSglUnitCost,mapSglWeekendUnitCost,mapDblUnitCost,mapDblWeekendUnitCost,mapTplUnitCost,mapTplWeekendUnitCost,' +
+    'cpUnitCost,cpWeekendUnitCost,cpSglUnitCost,cpSglWeekendUnitCost,cpDblUnitCost,cpDblWeekendUnitCost,cpTplUnitCost,cpTplWeekendUnitCost,' +
+    'currency,startDate,endDate\n' +
+    `${safe},,,Deluxe,` +
+    '4500,5200,3600,4100,4500,5200,5800,6400,' +
+    '4050,4680,3240,3740,4050,4680,5220,6030,' +
+    'INR,2026-04-01,2026-10-31\n'
   );
 }
 
@@ -213,14 +227,54 @@ export function RatesCsvImportDialog({
         'tplweekendunitcost',
         'tplweekend',
       );
+      const mealFieldIdx: Record<string, number> = {};
+      for (const meal of HOTEL_MATRIX_MEALS) {
+        for (const suffix of [
+          'unitcost',
+          'weekendunitcost',
+          'sglunitcost',
+          'sglweekendunitcost',
+          'dblunitcost',
+          'dblweekendunitcost',
+          'tplunitcost',
+          'tplweekendunitcost',
+        ] as const) {
+          const key = `${meal}${suffix}`;
+          mealFieldIdx[key] = headerIndex(headers, key);
+        }
+      }
+      const hasMatrixHeader = Object.values(mealFieldIdx).some((i) => i >= 0);
+      if (costIdx < 0 && !hasMatrixHeader) {
+        return {
+          error: 'Sheet must include unitCost or meal-prefixed columns (e.g. mapUnitCost)' as const,
+        };
+      }
       const currencyIdx = headerIndex(headers, 'currency');
       const startIdx = headerIndex(headers, 'startdate', 'from');
       const endIdx = headerIndex(headers, 'enddate', 'to');
-      if (costIdx < 0) return { error: 'Sheet must include unitCost' as const };
       const locked = lockedSupplierName?.trim() || '';
       const rows = data.map((cols) => {
-        const unitCost = Number(cell(cols, costIdx));
-        const weekendRaw = cell(cols, weekendIdx);
+        const unitRaw = cell(cols, costIdx);
+        const unitCost =
+          costIdx >= 0 && unitRaw.trim() ? Number(unitRaw) : undefined;
+        const mealPayload: Record<string, number | null | undefined> = {};
+        for (const meal of HOTEL_MATRIX_MEALS) {
+          const pairs: Array<[string, string]> = [
+            [`${meal}UnitCost`, `${meal}unitcost`],
+            [`${meal}WeekendUnitCost`, `${meal}weekendunitcost`],
+            [`${meal}SglUnitCost`, `${meal}sglunitcost`],
+            [`${meal}SglWeekendUnitCost`, `${meal}sglweekendunitcost`],
+            [`${meal}DblUnitCost`, `${meal}dblunitcost`],
+            [`${meal}DblWeekendUnitCost`, `${meal}dblweekendunitcost`],
+            [`${meal}TplUnitCost`, `${meal}tplunitcost`],
+            [`${meal}TplWeekendUnitCost`, `${meal}tplweekendunitcost`],
+          ];
+          for (const [prop, idxKey] of pairs) {
+            mealPayload[prop] = parseOptionalNumber(
+              cell(cols, mealFieldIdx[idxKey] ?? -1),
+            );
+          }
+        }
         return {
           supplierName: locked || cell(cols, supplierIdx) || null,
           placeName: cell(cols, placeNameIdx) || null,
@@ -228,19 +282,33 @@ export function RatesCsvImportDialog({
           roomType: cell(cols, roomIdx) || null,
           mealPlan: cell(cols, mealIdx) || null,
           unitCost,
-          weekendUnitCost: parseOptionalNumber(weekendRaw),
+          weekendUnitCost: parseOptionalNumber(cell(cols, weekendIdx)),
           sglUnitCost: parseOptionalNumber(cell(cols, sglIdx)),
           sglWeekendUnitCost: parseOptionalNumber(cell(cols, sglWeIdx)),
           dblUnitCost: parseOptionalNumber(cell(cols, dblIdx)),
           dblWeekendUnitCost: parseOptionalNumber(cell(cols, dblWeIdx)),
           tplUnitCost: parseOptionalNumber(cell(cols, tplIdx)),
           tplWeekendUnitCost: parseOptionalNumber(cell(cols, tplWeIdx)),
+          ...mealPayload,
           currency: cell(cols, currencyIdx) || undefined,
           startDate: cell(cols, startIdx) || null,
           endDate: cell(cols, endIdx) || null,
         };
       });
-      if (rows.some((r) => !Number.isFinite(r.unitCost))) {
+      const hasMatrixRow = rows.some((r) => {
+        const rec = r as Record<string, unknown>;
+        return HOTEL_MATRIX_MEALS.some(
+          (m) =>
+            rec[`${m}UnitCost`] != null ||
+            rec[`${m}SglUnitCost`] != null ||
+            rec[`${m}DblUnitCost`] != null ||
+            rec[`${m}TplUnitCost`] != null,
+        );
+      });
+      if (
+        !hasMatrixRow &&
+        rows.some((r) => r.unitCost == null || !Number.isFinite(r.unitCost))
+      ) {
         return { error: 'unitCost must be a number on every row' as const };
       }
       return { rows };

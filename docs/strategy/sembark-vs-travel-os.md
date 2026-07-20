@@ -430,7 +430,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Rate chart **Meal × occupancy matrix** (grid) — EP/CP/MAP/AP × SGL/DBL/TPL sheet; Save creates/patches meal rows for one season window |
 | **3 Proof** | **Done** | Matrix helper specs; this ladder in memo |
 
-**Defer:** CSV matrix columns; *(matrix delete + weekend closed below)*.
+**Defer:** *(closed — see meal×occupancy matrix CSV below)*.
 
 #### Prod-ready ladder — Weekend-per-band hotel costs (**done**)
 
@@ -470,7 +470,17 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Matrix Save soft-deletes cleared meal siblings (`DELETE /hotel-rates/:id`); toast counts removals |
 | **3 Proof** | **Done** | hotelRateMealOccupancyMatrix delete specs; claim registry; About note; this ladder in memo |
 
-**Defer:** CSV matrix meal columns; field-level restore.
+**Defer:** *(closed — see CSV matrix meal columns below)* · field-level restore.
+
+#### Prod-ready ladder — CSV matrix meal columns (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | Meal-prefixed CSV cols (`mapUnitCost` / `cpSgl…`) expand one row into EP/CP/MAP/AP sibling tips with bands; legacy single-meal path unchanged |
+| **2 Channels / UI** | **Done** | Hotel import template demos MAP+CP expand row; parser accepts meal-prefixed headers |
+| **3 Proof** | **Done** | hotel-csv-matrix specs; claim registry; About note; this ladder in memo |
+
+**Defer:** field-level restore; package folder tree CRUD.
 
 #### Prod-ready ladder — Hotel min stay on rate card (**done**)
 
@@ -1468,6 +1478,7 @@ Then introduce differentiators: connected WhatsApp and email → agency website 
 | Matrix weekend columns (Rate chart) | **Proven** (thin) |
 | CSV band weekend columns (hotel import) | **Proven** (thin) |
 | Matrix delete of cleared meals | **Proven** (thin) |
+| CSV matrix meal columns (hotel import) | **Proven** (thin) |
 | Hotel min stay cue on Match | **Proven** (thin · hard gate + ack) |
 | Hotel nationality IN/INTL Match | **Proven** (thin) |
 | Hotel per-ISO nationality tips | **Proven** (thin) |

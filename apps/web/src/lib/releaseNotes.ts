@@ -27,6 +27,14 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-csv-matrix-meals',
+    date: '2026-07-20',
+    title: 'One CSV row for EP/CP/MAP/AP hotel tips',
+    summary:
+      'Hotel rate import can expand meal-prefixed columns (e.g. mapUnitCost + cpSglUnitCost) into sibling tips for the same season — same grid as the rate matrix.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-matrix-delete-cleared-meals',
     date: '2026-07-20',
     title: 'Clear a meal plan from the rate matrix',

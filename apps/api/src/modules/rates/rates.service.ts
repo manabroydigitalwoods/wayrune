@@ -67,14 +67,17 @@ import {
   type ActivityRateCandidate,
 } from './activity-rate-match';
 import {
-  applyOccupancyPricing,
   buildAdultBandsFromHotelCsvRow,
   classifyHotelOccupancyPax,
   occupancyMatchAccepted,
   occupancyPricingToJson,
   parseOccupancyPricing,
   pickAdultBand,
+  applyOccupancyPricing,
 } from './occupancy-pricing';
+import {
+  expandHotelCsvMatrixMeals,
+} from './hotel-csv-matrix';
 import {
   applyDateSupplements,
   dateSupplementMatchAccepted,
@@ -2605,6 +2608,80 @@ export class RatesService {
           placeId = place.id;
         }
 
+        const matrixTips = expandHotelCsvMatrixMeals(
+          row as unknown as Record<string, unknown>,
+        );
+
+        if (matrixTips) {
+          if (!matrixTips.length) {
+            skipCount += 1;
+            results.push({
+              row: rowNum,
+              status: 'skip',
+              reason:
+                'Meal-prefixed columns present but no meal has a weekday cost',
+            });
+            continue;
+          }
+          const mealList = matrixTips.map((t) => t.mealPlan).join('+');
+          const summary = [
+            row.supplierName?.trim(),
+            row.placeKey?.trim() || row.placeName?.trim(),
+            row.roomType?.trim(),
+            mealList,
+            `${matrixTips.length} tip${matrixTips.length === 1 ? '' : 's'}`,
+          ]
+            .filter(Boolean)
+            .join(' · ');
+
+          if (!input.commit) {
+            okCount += 1;
+            results.push({ row: rowNum, status: 'ok', summary });
+            continue;
+          }
+
+          const rateIds: string[] = [];
+          for (const tip of matrixTips) {
+            const created = await this.createHotelRate(
+              organizationId,
+              userId,
+              {
+                supplierId: supplierId ?? null,
+                placeId: placeId ?? null,
+                roomType: row.roomType,
+                mealPlan: tip.mealPlan,
+                unitCost: tip.unitCost,
+                weekendUnitCost: tip.weekendUnitCost,
+                occupancyPricing: tip.adultBands?.length
+                  ? { adultBands: tip.adultBands }
+                  : undefined,
+                currency: row.currency,
+                startDate: row.startDate,
+                endDate: row.endDate,
+              },
+            );
+            rateIds.push(created.id);
+          }
+          okCount += 1;
+          results.push({
+            row: rowNum,
+            status: 'ok',
+            summary,
+            rateId: rateIds[0],
+          });
+          continue;
+        }
+
+        if (row.unitCost == null || !Number.isFinite(row.unitCost)) {
+          skipCount += 1;
+          results.push({
+            row: rowNum,
+            status: 'skip',
+            reason: 'unitCost is required for single-meal rows',
+          });
+          continue;
+        }
+
         const summary = [
           row.supplierName?.trim(),
           row.placeKey?.trim() || row.placeName?.trim(),
@@ -2621,7 +2698,16 @@ export class RatesService {
           continue;
         }
 
-        const adultBands = buildAdultBandsFromHotelCsvRow(row);
+        const adultBands = buildAdultBandsFromHotelCsvRow({
+          unitCost: row.unitCost,
+          weekendUnitCost: row.weekendUnitCost,
+          sglUnitCost: row.sglUnitCost,
+          sglWeekendUnitCost: row.sglWeekendUnitCost,
+          dblUnitCost: row.dblUnitCost,
+          dblWeekendUnitCost: row.dblWeekendUnitCost,
+          tplUnitCost: row.tplUnitCost,
+          tplWeekendUnitCost: row.tplWeekendUnitCost,
+        });
         const dblWeekend = adultBands?.find((b) => b.adults === 2)
           ?.weekendUnitCostPerNight;
         const created = await this.createHotelRate(organizationId, userId, {

@@ -3197,25 +3197,91 @@ export const UpdateTransferFareSchema = z.object({
 });
 
 /** One hotel rate sheet row (names/keys resolved server-side). */
-export const ImportHotelRateCsvRowSchema = z.object({
-  supplierName: z.preprocess(blankToNull, z.string().nullable()).optional(),
-  placeName: z.preprocess(blankToNull, z.string().nullable()).optional(),
-  placeKey: z.preprocess(blankToNull, z.string().nullable()).optional(),
-  roomType: z.preprocess(blankToNull, z.string().nullable()).optional(),
-  mealPlan: z.preprocess(blankToNull, z.string().nullable()).optional(),
-  unitCost: z.number().nonnegative(),
-  weekendUnitCost: z.number().nonnegative().nullable().optional(),
-  /** Optional SGL/DBL/TPL weekday + weekend (absolute) — builds adultBands. */
-  sglUnitCost: z.number().nonnegative().nullable().optional(),
-  sglWeekendUnitCost: z.number().nonnegative().nullable().optional(),
-  dblUnitCost: z.number().nonnegative().nullable().optional(),
-  dblWeekendUnitCost: z.number().nonnegative().nullable().optional(),
-  tplUnitCost: z.number().nonnegative().nullable().optional(),
-  tplWeekendUnitCost: z.number().nonnegative().nullable().optional(),
-  currency: z.string().length(3).optional(),
-  startDate: z.preprocess(blankToNull, z.string().nullable()).optional(),
-  endDate: z.preprocess(blankToNull, z.string().nullable()).optional(),
-});
+export const ImportHotelRateCsvRowSchema = z
+  .object({
+    supplierName: z.preprocess(blankToNull, z.string().nullable()).optional(),
+    placeName: z.preprocess(blankToNull, z.string().nullable()).optional(),
+    placeKey: z.preprocess(blankToNull, z.string().nullable()).optional(),
+    roomType: z.preprocess(blankToNull, z.string().nullable()).optional(),
+    mealPlan: z.preprocess(blankToNull, z.string().nullable()).optional(),
+    /** Required for legacy single-meal rows; optional when meal-prefixed cols present. */
+    unitCost: z.number().nonnegative().optional(),
+    weekendUnitCost: z.number().nonnegative().nullable().optional(),
+    /** Optional SGL/DBL/TPL weekday + weekend (absolute) — builds adultBands. */
+    sglUnitCost: z.number().nonnegative().nullable().optional(),
+    sglWeekendUnitCost: z.number().nonnegative().nullable().optional(),
+    dblUnitCost: z.number().nonnegative().nullable().optional(),
+    dblWeekendUnitCost: z.number().nonnegative().nullable().optional(),
+    tplUnitCost: z.number().nonnegative().nullable().optional(),
+    tplWeekendUnitCost: z.number().nonnegative().nullable().optional(),
+    /** Meal×occupancy expand: EP/CP/MAP/AP prefixed chart + band cols. */
+    epUnitCost: z.number().nonnegative().nullable().optional(),
+    epWeekendUnitCost: z.number().nonnegative().nullable().optional(),
+    epSglUnitCost: z.number().nonnegative().nullable().optional(),
+    epSglWeekendUnitCost: z.number().nonnegative().nullable().optional(),
+    epDblUnitCost: z.number().nonnegative().nullable().optional(),
+    epDblWeekendUnitCost: z.number().nonnegative().nullable().optional(),
+    epTplUnitCost: z.number().nonnegative().nullable().optional(),
+    epTplWeekendUnitCost: z.number().nonnegative().nullable().optional(),
+    cpUnitCost: z.number().nonnegative().nullable().optional(),
+    cpWeekendUnitCost: z.number().nonnegative().nullable().optional(),
+    cpSglUnitCost: z.number().nonnegative().nullable().optional(),
+    cpSglWeekendUnitCost: z.number().nonnegative().nullable().optional(),
+    cpDblUnitCost: z.number().nonnegative().nullable().optional(),
+    cpDblWeekendUnitCost: z.number().nonnegative().nullable().optional(),
+    cpTplUnitCost: z.number().nonnegative().nullable().optional(),
+    cpTplWeekendUnitCost: z.number().nonnegative().nullable().optional(),
+    mapUnitCost: z.number().nonnegative().nullable().optional(),
+    mapWeekendUnitCost: z.number().nonnegative().nullable().optional(),
+    mapSglUnitCost: z.number().nonnegative().nullable().optional(),
+    mapSglWeekendUnitCost: z.number().nonnegative().nullable().optional(),
+    mapDblUnitCost: z.number().nonnegative().nullable().optional(),
+    mapDblWeekendUnitCost: z.number().nonnegative().nullable().optional(),
+    mapTplUnitCost: z.number().nonnegative().nullable().optional(),
+    mapTplWeekendUnitCost: z.number().nonnegative().nullable().optional(),
+    apUnitCost: z.number().nonnegative().nullable().optional(),
+    apWeekendUnitCost: z.number().nonnegative().nullable().optional(),
+    apSglUnitCost: z.number().nonnegative().nullable().optional(),
+    apSglWeekendUnitCost: z.number().nonnegative().nullable().optional(),
+    apDblUnitCost: z.number().nonnegative().nullable().optional(),
+    apDblWeekendUnitCost: z.number().nonnegative().nullable().optional(),
+    apTplUnitCost: z.number().nonnegative().nullable().optional(),
+    apTplWeekendUnitCost: z.number().nonnegative().nullable().optional(),
+    currency: z.string().length(3).optional(),
+    startDate: z.preprocess(blankToNull, z.string().nullable()).optional(),
+    endDate: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  })
+  .superRefine((row, ctx) => {
+    const matrixKeys = [
+      'epUnitCost',
+      'epSglUnitCost',
+      'epDblUnitCost',
+      'epTplUnitCost',
+      'cpUnitCost',
+      'cpSglUnitCost',
+      'cpDblUnitCost',
+      'cpTplUnitCost',
+      'mapUnitCost',
+      'mapSglUnitCost',
+      'mapDblUnitCost',
+      'mapTplUnitCost',
+      'apUnitCost',
+      'apSglUnitCost',
+      'apDblUnitCost',
+      'apTplUnitCost',
+    ] as const;
+    const hasMatrix = matrixKeys.some((k) => {
+      const v = row[k];
+      return typeof v === 'number' && Number.isFinite(v) && v >= 0;
+    });
+    if (!hasMatrix && (row.unitCost == null || !Number.isFinite(row.unitCost))) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'unitCost is required when meal-prefixed columns are absent',
+        path: ['unitCost'],
+      });
+    }
+  });
 
 export const ImportHotelRateCsvSchema = z.object({
   rows: z.array(ImportHotelRateCsvRowSchema).min(1).max(500),
