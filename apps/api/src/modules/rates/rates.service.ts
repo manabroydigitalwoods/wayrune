@@ -68,6 +68,7 @@ import {
 } from './activity-rate-match';
 import {
   applyOccupancyPricing,
+  buildAdultBandsFromHotelCsvRow,
   classifyHotelOccupancyPax,
   occupancyMatchAccepted,
   occupancyPricingToJson,
@@ -2620,13 +2621,20 @@ export class RatesService {
           continue;
         }
 
+        const adultBands = buildAdultBandsFromHotelCsvRow(row);
+        const dblWeekend = adultBands?.find((b) => b.adults === 2)
+          ?.weekendUnitCostPerNight;
         const created = await this.createHotelRate(organizationId, userId, {
           supplierId: supplierId ?? null,
           placeId: placeId ?? null,
           roomType: row.roomType,
           mealPlan: row.mealPlan,
           unitCost: row.unitCost,
-          weekendUnitCost: row.weekendUnitCost,
+          weekendUnitCost:
+            row.weekendUnitCost ?? dblWeekend ?? null,
+          occupancyPricing: adultBands?.length
+            ? { adultBands }
+            : undefined,
           currency: row.currency,
           startDate: row.startDate,
           endDate: row.endDate,

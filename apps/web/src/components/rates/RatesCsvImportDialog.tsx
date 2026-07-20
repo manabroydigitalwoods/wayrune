@@ -41,8 +41,8 @@ type ImportResponse = {
 };
 
 const HOTEL_TEMPLATE =
-  'supplierName,placeName,placeKey,roomType,mealPlan,unitCost,weekendUnitCost,currency,startDate,endDate\n' +
-  'Heritage Darjeeling,Darjeeling,,Deluxe,MAP,4500,5200,INR,2026-04-01,2026-10-31\n';
+  'supplierName,placeName,placeKey,roomType,mealPlan,unitCost,weekendUnitCost,sglUnitCost,sglWeekendUnitCost,dblUnitCost,dblWeekendUnitCost,tplUnitCost,tplWeekendUnitCost,currency,startDate,endDate\n' +
+  'Heritage Darjeeling,Darjeeling,,Deluxe,MAP,4500,5200,3600,4100,4500,5200,5800,6400,INR,2026-04-01,2026-10-31\n';
 
 const TRANSFER_TEMPLATE =
   'supplierName,fromPlace,toPlace,vehicleType,unitCost,childUnitCost,infantUnitCost,childAgeMin,childAgeMax,pricingMode,currency,startDate,endDate\n' +
@@ -86,8 +86,8 @@ function hotelTemplateForSupplier(supplierName?: string) {
   if (!supplierName?.trim()) return HOTEL_TEMPLATE;
   const safe = supplierName.trim().replace(/,/g, ' ');
   return (
-    'supplierName,placeName,placeKey,roomType,mealPlan,unitCost,weekendUnitCost,currency,startDate,endDate\n' +
-    `${safe},,,Deluxe,MAP,4500,5200,INR,2026-04-01,2026-10-31\n`
+    'supplierName,placeName,placeKey,roomType,mealPlan,unitCost,weekendUnitCost,sglUnitCost,sglWeekendUnitCost,dblUnitCost,dblWeekendUnitCost,tplUnitCost,tplWeekendUnitCost,currency,startDate,endDate\n' +
+    `${safe},,,Deluxe,MAP,4500,5200,3600,4100,4500,5200,5800,6400,INR,2026-04-01,2026-10-31\n`
   );
 }
 
@@ -195,6 +195,24 @@ export function RatesCsvImportDialog({
       const mealIdx = headerIndex(headers, 'mealplan', 'meal');
       const costIdx = headerIndex(headers, 'unitcost', 'cost');
       const weekendIdx = headerIndex(headers, 'weekendunitcost', 'weekendcost');
+      const sglIdx = headerIndex(headers, 'sglunitcost', 'sgl');
+      const sglWeIdx = headerIndex(
+        headers,
+        'sglweekendunitcost',
+        'sglweekend',
+      );
+      const dblIdx = headerIndex(headers, 'dblunitcost', 'dbl');
+      const dblWeIdx = headerIndex(
+        headers,
+        'dblweekendunitcost',
+        'dblweekend',
+      );
+      const tplIdx = headerIndex(headers, 'tplunitcost', 'tpl');
+      const tplWeIdx = headerIndex(
+        headers,
+        'tplweekendunitcost',
+        'tplweekend',
+      );
       const currencyIdx = headerIndex(headers, 'currency');
       const startIdx = headerIndex(headers, 'startdate', 'from');
       const endIdx = headerIndex(headers, 'enddate', 'to');
@@ -211,6 +229,12 @@ export function RatesCsvImportDialog({
           mealPlan: cell(cols, mealIdx) || null,
           unitCost,
           weekendUnitCost: parseOptionalNumber(weekendRaw),
+          sglUnitCost: parseOptionalNumber(cell(cols, sglIdx)),
+          sglWeekendUnitCost: parseOptionalNumber(cell(cols, sglWeIdx)),
+          dblUnitCost: parseOptionalNumber(cell(cols, dblIdx)),
+          dblWeekendUnitCost: parseOptionalNumber(cell(cols, dblWeIdx)),
+          tplUnitCost: parseOptionalNumber(cell(cols, tplIdx)),
+          tplWeekendUnitCost: parseOptionalNumber(cell(cols, tplWeIdx)),
           currency: cell(cols, currencyIdx) || undefined,
           startDate: cell(cols, startIdx) || null,
           endDate: cell(cols, endIdx) || null,

@@ -3205,6 +3205,13 @@ export const ImportHotelRateCsvRowSchema = z.object({
   mealPlan: z.preprocess(blankToNull, z.string().nullable()).optional(),
   unitCost: z.number().nonnegative(),
   weekendUnitCost: z.number().nonnegative().nullable().optional(),
+  /** Optional SGL/DBL/TPL weekday + weekend (absolute) — builds adultBands. */
+  sglUnitCost: z.number().nonnegative().nullable().optional(),
+  sglWeekendUnitCost: z.number().nonnegative().nullable().optional(),
+  dblUnitCost: z.number().nonnegative().nullable().optional(),
+  dblWeekendUnitCost: z.number().nonnegative().nullable().optional(),
+  tplUnitCost: z.number().nonnegative().nullable().optional(),
+  tplWeekendUnitCost: z.number().nonnegative().nullable().optional(),
   currency: z.string().length(3).optional(),
   startDate: z.preprocess(blankToNull, z.string().nullable()).optional(),
   endDate: z.preprocess(blankToNull, z.string().nullable()).optional(),

@@ -440,7 +440,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Rate chart SGL/DBL/TPL weekday + weekend fields; copy-as-meal scales band weekends; matrix save preserves/stamps band weekends |
 | **3 Proof** | **Done** | parse/pick + clone/matrix merge specs; this ladder in memo |
 
-**Defer:** *(closed — see Matrix weekend columns below)* · CSV band weekend columns.
+**Defer:** *(closed — see Matrix weekend columns + CSV band weekend below)* · CSV band weekend columns.
 
 #### Prod-ready ladder — Matrix weekend columns (**done**)
 
@@ -450,7 +450,17 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Meal × occupancy matrix Wk / We fields per SGL/DBL/TPL |
 | **3 Proof** | **Done** | Matrix weekend helper specs; this ladder in memo |
 
-**Defer:** CSV band weekend columns; matrix delete of cleared meals.
+**Defer:** *(closed — see CSV band weekend columns below)* · matrix delete of cleared meals.
+
+#### Prod-ready ladder — CSV band weekend columns (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | Optional `sgl`/`dbl`/`tpl` + `*Weekend` CSV cols → `adultBands[].weekendUnitCostPerNight`; chart-only rows unchanged |
+| **2 Channels / UI** | **Done** | Hotel import template includes band weekday/weekend headers + demo row |
+| **3 Proof** | **Done** | occupancy-pricing band-from-CSV specs; claim registry; About note; this ladder in memo |
+
+**Defer:** matrix delete of cleared meals; CSV matrix meal columns.
 
 #### Prod-ready ladder — Hotel min stay on rate card (**done**)
 
@@ -1446,6 +1456,7 @@ Then introduce differentiators: connected WhatsApp and email → agency website 
 | Meal × occupancy matrix (Rate chart) | **Proven** (thin) |
 | Hotel weekend-per-band on Match | **Proven** (thin) |
 | Matrix weekend columns (Rate chart) | **Proven** (thin) |
+| CSV band weekend columns (hotel import) | **Proven** (thin) |
 | Hotel min stay cue on Match | **Proven** (thin · hard gate + ack) |
 | Hotel nationality IN/INTL Match | **Proven** (thin) |
 | Hotel per-ISO nationality tips | **Proven** (thin) |

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyOccupancyPricing,
+  buildAdultBandsFromHotelCsvRow,
   classifyHotelOccupancyPax,
   parseAdultBands,
   parseOccupancyPricing,
@@ -154,5 +155,37 @@ describe('occupancy-pricing', () => {
     expect(ratioOnly?.weekendUnitCostPerNight).toBe(
       Math.round(3600 * (5200 / 4500) * 100) / 100,
     );
+  });
+
+  it('builds adultBands from hotel CSV band weekend columns', () => {
+    expect(
+      buildAdultBandsFromHotelCsvRow({
+        unitCost: 4500,
+        weekendUnitCost: 5200,
+      }),
+    ).toBeNull();
+
+    const bands = buildAdultBandsFromHotelCsvRow({
+      unitCost: 4500,
+      weekendUnitCost: 5200,
+      sglUnitCost: 3600,
+      sglWeekendUnitCost: 4100,
+      tplUnitCost: 5800,
+      tplWeekendUnitCost: 6400,
+    });
+    expect(bands).toEqual([
+      { adults: 1, unitCostPerNight: 3600, weekendUnitCostPerNight: 4100 },
+      { adults: 2, unitCostPerNight: 4500, weekendUnitCostPerNight: 5200 },
+      { adults: 3, unitCostPerNight: 5800, weekendUnitCostPerNight: 6400 },
+    ]);
+
+    const dblOnly = buildAdultBandsFromHotelCsvRow({
+      unitCost: 4500,
+      dblUnitCost: 4600,
+      dblWeekendUnitCost: 5300,
+    });
+    expect(dblOnly).toEqual([
+      { adults: 2, unitCostPerNight: 4600, weekendUnitCostPerNight: 5300 },
+    ]);
   });
 });

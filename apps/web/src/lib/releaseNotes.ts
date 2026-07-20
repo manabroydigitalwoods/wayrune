@@ -27,6 +27,14 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-csv-band-weekend',
+    date: '2026-07-20',
+    title: 'Hotel CSV SGL/DBL/TPL weekend columns',
+    summary:
+      'Bulk hotel rate import can set per-band weekday and weekend buy (sgl/dbl/tpl). Chart-only sheets still work without the new columns.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-transfer-activity-activate',
     date: '2026-07-20',
     title: 'Activate transfer and activity rate tips',

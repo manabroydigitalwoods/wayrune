@@ -101,6 +101,59 @@ export function parseAdultBands(raw: unknown): AdultBand[] {
   return [...byAdults.values()].sort((x, y) => x.adults - y.adults);
 }
 
+/**
+ * Build SGL/DBL/TPL adultBands from optional hotel CSV band columns.
+ * Returns null when no band weekday columns are present (chart-only import).
+ * When any of sgl/dbl/tpl weekday is set, DBL defaults to chart `unitCost`
+ * (and chart `weekendUnitCost` when DBL weekend omitted).
+ */
+export function buildAdultBandsFromHotelCsvRow(row: {
+  unitCost: number;
+  weekendUnitCost?: number | null;
+  sglUnitCost?: number | null;
+  sglWeekendUnitCost?: number | null;
+  dblUnitCost?: number | null;
+  dblWeekendUnitCost?: number | null;
+  tplUnitCost?: number | null;
+  tplWeekendUnitCost?: number | null;
+}): AdultBand[] | null {
+  const hasBandWeekday =
+    row.sglUnitCost != null ||
+    row.dblUnitCost != null ||
+    row.tplUnitCost != null;
+  if (!hasBandWeekday) return null;
+
+  const bands: AdultBand[] = [];
+  const push = (
+    adults: 1 | 2 | 3,
+    unit: number | null | undefined,
+    weekend: number | null | undefined,
+  ) => {
+    if (unit == null || !Number.isFinite(unit) || unit < 0) return;
+    const band: AdultBand = { adults, unitCostPerNight: round2(unit) };
+    if (weekend != null && Number.isFinite(weekend) && weekend >= 0) {
+      band.weekendUnitCostPerNight = round2(weekend);
+    }
+    bands.push(band);
+  };
+
+  push(1, row.sglUnitCost, row.sglWeekendUnitCost);
+
+  const dblUnit =
+    row.dblUnitCost != null ? row.dblUnitCost : row.unitCost;
+  const dblWeekend =
+    row.dblWeekendUnitCost != null
+      ? row.dblWeekendUnitCost
+      : row.dblUnitCost == null
+        ? row.weekendUnitCost
+        : null;
+  push(2, dblUnit, dblWeekend);
+
+  push(3, row.tplUnitCost, row.tplWeekendUnitCost);
+
+  return bands.length ? bands : null;
+}
+
 export function adultsPerRoom(adults: number, rooms: number): number {
   const r = Math.max(1, Math.floor(rooms) || 1);
   const a = Math.max(0, Math.floor(adults) || 0);
