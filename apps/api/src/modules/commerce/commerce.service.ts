@@ -78,6 +78,14 @@ import {
   parseCancellationRefundEval,
 } from './cancellation-refund-settle';
 import {
+  assertCanApproveRefund,
+  assertCanRequestRefund,
+  assertRefundApprovedForSettle,
+  parseRefundApproval,
+  planApproveRefundStamp,
+  planRequestRefundStamp,
+} from './cancellation-refund-approval';
+import {
   assertMockRazorpayRefundAllowed,
   createRazorpayPaymentRefund,
   mockRazorpayRefundReference,
@@ -3218,6 +3226,7 @@ export class CommerceService {
       : null;
 
     if (!evalFields.creditNoteId) {
+      const approval = parseRefundApproval(c.evaluationJson);
       return {
         cancellationCaseId: caseId,
         tripId: c.tripId,
@@ -3231,6 +3240,9 @@ export class CommerceService {
         canSettle: false,
         razorpaySourcePaymentId,
         canRefundViaRazorpay: Boolean(razorpaySourcePaymentId),
+        ...approval,
+        canRequestRefund: false,
+        canApproveRefund: false,
       };
     }
 
@@ -3249,6 +3261,9 @@ export class CommerceService {
       0,
       Math.round((creditNoteAmount - refundDue) * 100) / 100,
     );
+    const approval = parseRefundApproval(c.evaluationJson);
+    const applied = c.executionStatus === 'applied';
+    const dueOpen = refundDue > 0.001;
 
     return {
       cancellationCaseId: caseId,
@@ -3260,9 +3275,19 @@ export class CommerceService {
       refundSettledAmount,
       refundPaymentId: evalFields.refundPaymentId,
       currency: note.currency || c.currency,
-      canSettle: c.executionStatus === 'applied' && refundDue > 0.001,
+      canSettle:
+        applied &&
+        dueOpen &&
+        approval.refundApprovalStatus === 'approved',
       razorpaySourcePaymentId,
       canRefundViaRazorpay: Boolean(razorpaySourcePaymentId),
+      ...approval,
+      canRequestRefund:
+        applied && dueOpen && approval.refundApprovalStatus === 'none',
+      canApproveRefund:
+        applied &&
+        dueOpen &&
+        approval.refundApprovalStatus === 'awaiting_approval',
     };
   }
 
@@ -3282,6 +3307,120 @@ export class CommerceService {
       take: 20,
     });
     return pickRazorpaySourcePaymentId(rows);
+  }
+
+  async requestCancellationRefund(
+    organizationId: string,
+    userId: string,
+    caseId: string,
+    input: { reason: string },
+  ) {
+    const status = await this.cancellationRefundStatus(organizationId, caseId);
+    try {
+      assertCanRequestRefund({
+        executionStatus: status.executionStatus,
+        refundDue: status.refundDue,
+        refundApprovalStatus: status.refundApprovalStatus,
+      });
+    } catch (e) {
+      throw new BadRequestException(
+        e instanceof Error ? e.message : 'Cannot request refund',
+      );
+    }
+    if (!status.creditNoteId) {
+      throw new BadRequestException(
+        'No refund credit note on this cancellation case',
+      );
+    }
+
+    const c = await this.prisma.cancellationCase.findFirstOrThrow({
+      where: { id: caseId, organizationId },
+    });
+    const priorEval =
+      c.evaluationJson &&
+      typeof c.evaluationJson === 'object' &&
+      !Array.isArray(c.evaluationJson)
+        ? (c.evaluationJson as Record<string, unknown>)
+        : {};
+
+    let evaluationJson: Record<string, unknown>;
+    try {
+      evaluationJson = planRequestRefundStamp({
+        priorEval,
+        amount: status.refundDue,
+        reason: input.reason,
+        userId,
+      });
+    } catch (e) {
+      throw new BadRequestException(
+        e instanceof Error ? e.message : 'Invalid refund request',
+      );
+    }
+
+    await this.prisma.cancellationCase.update({
+      where: { id: caseId },
+      data: { evaluationJson },
+    });
+
+    await this.timeline(
+      organizationId,
+      'RefundRequested',
+      'cancellation_case',
+      caseId,
+      `Refund requested ${status.refundDue}`,
+      userId,
+    );
+
+    return this.cancellationRefundStatus(organizationId, caseId);
+  }
+
+  async approveCancellationRefund(
+    organizationId: string,
+    userId: string,
+    caseId: string,
+  ) {
+    const status = await this.cancellationRefundStatus(organizationId, caseId);
+    try {
+      assertCanApproveRefund({
+        refundApprovalStatus: status.refundApprovalStatus,
+        refundRequestedAmount: status.refundRequestedAmount,
+      });
+    } catch (e) {
+      throw new BadRequestException(
+        e instanceof Error ? e.message : 'Cannot approve refund',
+      );
+    }
+
+    const c = await this.prisma.cancellationCase.findFirstOrThrow({
+      where: { id: caseId, organizationId },
+    });
+    const priorEval =
+      c.evaluationJson &&
+      typeof c.evaluationJson === 'object' &&
+      !Array.isArray(c.evaluationJson)
+        ? (c.evaluationJson as Record<string, unknown>)
+        : {};
+
+    const evaluationJson = planApproveRefundStamp({
+      priorEval,
+      userId,
+    });
+
+    await this.prisma.cancellationCase.update({
+      where: { id: caseId },
+      data: { evaluationJson },
+    });
+
+    await this.timeline(
+      organizationId,
+      'RefundApproved',
+      'cancellation_case',
+      caseId,
+      `Refund approved ${status.refundRequestedAmount ?? ''}`,
+      userId,
+    );
+
+    return this.cancellationRefundStatus(organizationId, caseId);
   }
 
   async settleCancellationRefund(
@@ -3325,6 +3464,18 @@ export class CommerceService {
     } catch (e) {
       throw new BadRequestException(
         e instanceof Error ? e.message : 'Invalid refund amount',
+      );
+    }
+
+    try {
+      assertRefundApprovedForSettle({
+        refundApprovalStatus: status.refundApprovalStatus,
+        refundRequestedAmount: status.refundRequestedAmount,
+        settleAmount,
+      });
+    } catch (e) {
+      throw new BadRequestException(
+        e instanceof Error ? e.message : 'Refund not approved for settlement',
       );
     }
 

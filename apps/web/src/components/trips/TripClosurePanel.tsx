@@ -46,6 +46,11 @@ type CancellationRefundStatus = {
   currency: string;
   razorpaySourcePaymentId?: string | null;
   canRefundViaRazorpay?: boolean;
+  refundApprovalStatus?: 'none' | 'awaiting_approval' | 'approved';
+  refundRequestReason?: string | null;
+  refundRequestedAmount?: number | null;
+  canRequestRefund?: boolean;
+  canApproveRefund?: boolean;
 };
 type Reconciliation = {
   quoted: number;
@@ -93,6 +98,12 @@ export function TripClosurePanel({
   const [settlingRefundCaseId, setSettlingRefundCaseId] = useState<string | null>(
     null,
   );
+  const [refundReasonByCaseId, setRefundReasonByCaseId] = useState<
+    Record<string, string>
+  >({});
+  const [refundActionCaseId, setRefundActionCaseId] = useState<string | null>(
+    null,
+  );
   const [recon, setRecon] = useState<Reconciliation | null>(null);
   const [changeType, setChangeType] = useState('other');
   const [summary, setSummary] = useState('');
@@ -104,6 +115,8 @@ export function TripClosurePanel({
   const canTripWrite = hasAny(CAP.tripWrite);
   const canIncidentWrite = hasAny(CAP.incidentWrite);
   const canSettleRefund = hasAny(CAP.refundExecute);
+  const canRequestRefund = hasAny(CAP.refundRequest);
+  const canApproveRefund = hasAny(CAP.refundApprove);
 
   const loadRefundStatuses = useCallback(async (rows: CancellationCase[]) => {
     const applied = rows.filter(
@@ -187,6 +200,50 @@ export function TripClosurePanel({
       toastError(reportError(e, 'Could not settle refund'));
     } finally {
       setSettlingRefundCaseId(null);
+    }
+  }
+
+  async function requestRefund(caseId: string) {
+    const reason = (refundReasonByCaseId[caseId] || '').trim();
+    if (!reason) {
+      toastError('Enter a refund reason');
+      return;
+    }
+    setRefundActionCaseId(caseId);
+    try {
+      await api(`/commerce/cancellations/${caseId}/request-refund`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      });
+      toastSuccess('Refund requested — awaiting approval');
+      setRefundReasonByCaseId((prev) => {
+        const next = { ...prev };
+        delete next[caseId];
+        return next;
+      });
+      await load();
+      onChanged?.();
+    } catch (e) {
+      toastError(reportError(e, 'Could not request refund'));
+    } finally {
+      setRefundActionCaseId(null);
+    }
+  }
+
+  async function approveRefund(caseId: string) {
+    setRefundActionCaseId(caseId);
+    try {
+      await api(`/commerce/cancellations/${caseId}/approve-refund`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      toastSuccess('Refund approved — ready to settle');
+      await load();
+      onChanged?.();
+    } catch (e) {
+      toastError(reportError(e, 'Could not approve refund'));
+    } finally {
+      setRefundActionCaseId(null);
     }
   }
 
@@ -427,7 +484,8 @@ export function TripClosurePanel({
           </div>
           <p className="text-xs text-muted-foreground">
             Policy fees and refunds from Ops Cancel. Credit notes auto-allocate to trip
-            receivables when one exists; use Mark refund settled when cash is paid out.
+            receivables when one exists. Request → Approve → Mark refund settled (or
+            Razorpay) when cash is paid out.
           </p>
           <ul className="space-y-2">
             {cancellations.map((row) => {
@@ -476,11 +534,53 @@ export function TripClosurePanel({
                               maximumFractionDigits: 0,
                             })})`
                           : ''}
+                      {refundStatus?.refundApprovalStatus === 'awaiting_approval'
+                        ? ' · awaiting refund approval'
+                        : refundStatus?.refundApprovalStatus === 'approved'
+                          ? ' · refund approved'
+                          : ''}
                     </div>
                   </div>
                   <div className="flex shrink-0 flex-wrap items-center gap-1.5">
                     <StatusBadge value={row.approvalStatus} showIcon={false} />
                     <StatusBadge value={row.executionStatus} showIcon={false} />
+                    {canRequestRefund && refundStatus?.canRequestRefund ? (
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Input
+                          className="h-8 w-40 text-xs"
+                          placeholder="Refund reason…"
+                          value={refundReasonByCaseId[row.id] || ''}
+                          onChange={(e) =>
+                            setRefundReasonByCaseId((prev) => ({
+                              ...prev,
+                              [row.id]: e.target.value,
+                            }))
+                          }
+                        />
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={refundActionCaseId === row.id}
+                          onClick={() => void requestRefund(row.id)}
+                        >
+                          {refundActionCaseId === row.id
+                            ? 'Requesting…'
+                            : 'Request refund'}
+                        </Button>
+                      </div>
+                    ) : null}
+                    {canApproveRefund && refundStatus?.canApproveRefund ? (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={refundActionCaseId === row.id}
+                        onClick={() => void approveRefund(row.id)}
+                      >
+                        {refundActionCaseId === row.id
+                          ? 'Approving…'
+                          : 'Approve refund'}
+                      </Button>
+                    ) : null}
                     {canSettleRefund && refundStatus?.canSettle ? (
                       <>
                         <Button

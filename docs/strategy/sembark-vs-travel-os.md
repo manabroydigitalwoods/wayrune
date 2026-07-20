@@ -160,7 +160,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Changes & incidents refund due / settled cue + **Mark refund settled**; `GET/POST /commerce/cancellations/:id/refund-status` + `settle-refund` |
 | **3 Proof** | **Done** | `cancellation-refund-settle.spec`; this ladder in memo |
 
-**Defer:** *(closed — see Razorpay outbound refund below)* · `finance.refund.request` / `.approve` workflow.
+**Defer:** *(closed — see Razorpay outbound refund below)* · *(closed — see Refund request → approve → settle)*
 
 #### Prod-ready ladder — Razorpay outbound refund + partial splits (**done**)
 
@@ -170,7 +170,17 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Changes & incidents **Refund via Razorpay** when trip has a `pay_…` reference; keep **Mark refund settled** for bank/NEFT |
 | **3 Proof** | **Done** | `razorpay-cancellation-refund.spec`; this ladder in memo |
 
-**Defer:** `finance.refund.request` / `.approve` workflow.
+**Defer:** *(closed — see Refund request → approve → settle below)*
+
+#### Prod-ready ladder — Refund request → approve → settle (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `evaluationJson` stamps `refundApprovalStatus` none→awaiting_approval→approved; amount/reason fingerprint; settle fail-closed unless approved (partial ≤ fingerprint); `POST request-refund` / `approve-refund` |
+| **2 Channels / UI** | **Done** | CAP `refundRequest` / `refundApprove`; Changes & incidents Request (reason) → Approve → existing Settle / Razorpay when approved |
+| **3 Proof** | **Done** | approval transition + settle gate specs; About note; this ladder in memo |
+
+**Defer:** write-off workflow; multi-approver queue; amounts outside credit-note due; changing cancellation case `approvalStatus` (policy apply stays separate).
 
 #### Prod-ready ladder — Hotel occupancy JSON field restore (**done**)
 

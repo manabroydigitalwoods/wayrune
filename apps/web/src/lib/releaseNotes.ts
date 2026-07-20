@@ -27,6 +27,14 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-refund-request-approve',
+    date: '2026-07-20',
+    title: 'Refund request → approve → settle',
+    summary:
+      'Cancellation refunds need Request (reason) then Approve before Mark refund settled or Razorpay. Stamps live on the cancellation case; settle stays blocked until approved.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-package-folder-dnd',
     date: '2026-07-20',
     title: 'Package folder drag-drop tree',

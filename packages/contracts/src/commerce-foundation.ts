@@ -429,6 +429,12 @@ export const SettleCancellationRefundSchema = z.object({
   razorpayPaymentId: z.preprocess(blankToNull, z.string().nullable()).optional(),
 });
 
+export const RequestCancellationRefundSchema = z.object({
+  reason: RequiredText('Refund reason').max(500),
+});
+
+export const ApproveCancellationRefundSchema = z.object({}).strict();
+
 export const CreatePaymentRecordSchema = z.object({
   commercialDocumentId: z.preprocess(blankToNull, z.string().nullable()).optional(),
   direction: z.enum(['inbound', 'outbound']),

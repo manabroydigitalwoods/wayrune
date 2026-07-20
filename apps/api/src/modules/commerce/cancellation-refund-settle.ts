@@ -83,3 +83,9 @@ export function parseCancellationRefundEval(evalJson: unknown): {
       typeof o.refundSettledAmount === 'number' ? o.refundSettledAmount : null,
   };
 }
+
+export {
+  parseRefundApproval,
+  type RefundApprovalFields,
+  type RefundApprovalStatus,
+} from './cancellation-refund-approval';

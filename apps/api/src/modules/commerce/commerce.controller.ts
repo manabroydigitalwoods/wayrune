@@ -23,6 +23,8 @@ import {
   CreatePaymentRecordSchema,
   CreatePolicySchema,
   SettleCancellationRefundSchema,
+  RequestCancellationRefundSchema,
+  ApproveCancellationRefundSchema,
   CreateServiceIncidentSchema,
   CreateServiceRequestItemSchema,
   CreateServiceRequestSchema,
@@ -800,6 +802,37 @@ export class CommerceController {
     @Param('id') id: string,
   ) {
     return this.commerce.cancellationRefundStatus(user.organizationId, id);
+  }
+
+  @Post('cancellations/:id/request-refund')
+  @RequirePermissions('finance.refund.request')
+  requestCancellationRefund(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    const parsed = RequestCancellationRefundSchema.parse(body ?? {});
+    return this.commerce.requestCancellationRefund(
+      user.organizationId,
+      user.sub,
+      id,
+      parsed,
+    );
+  }
+
+  @Post('cancellations/:id/approve-refund')
+  @RequirePermissions('finance.refund.approve')
+  approveCancellationRefund(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    ApproveCancellationRefundSchema.parse(body ?? {});
+    return this.commerce.approveCancellationRefund(
+      user.organizationId,
+      user.sub,
+      id,
+    );
   }
 
   @Post('cancellations/:id/settle-refund')
