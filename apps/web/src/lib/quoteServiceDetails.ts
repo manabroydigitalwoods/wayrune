@@ -134,6 +134,13 @@ export function parseQuoteServiceDetails(raw: unknown): QuoteServiceDetails | un
     children: num(d.children),
     infants: num(d.infants),
     childAges: numArray(d.childAges),
+    childNationalities: (() => {
+      if (!Array.isArray(d.childNationalities)) return undefined;
+      const rows = d.childNationalities
+        .map((x) => (typeof x === 'string' ? x.trim().toUpperCase() : ''))
+        .filter(Boolean);
+      return rows.length ? rows : undefined;
+    })(),
     extraBeds: num(d.extraBeds),
     childrenWithoutBed: num(d.childrenWithoutBed),
     rateBasis:

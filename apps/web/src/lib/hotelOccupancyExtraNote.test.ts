@@ -179,4 +179,18 @@ describe('formatHotelOccupancyExtraNote', () => {
       }),
     ).toMatch(/DBL\+SGL · Alone Asha/);
   });
+
+  it('tags mixed child nationality extras on occupancy cue', () => {
+    expect(
+      formatHotelOccupancyExtraNote({
+        occupancyExtraTotal: 4000,
+        childWithBedCount: 1,
+        childWithoutBedCount: 1,
+        childNationalityExtras: [
+          { nationality: 'IN', withBed: false, total: 1000 },
+          { nationality: 'US', withBed: true, total: 3000 },
+        ],
+      }),
+    ).toMatch(/child mkts IN\+US/);
+  });
 });

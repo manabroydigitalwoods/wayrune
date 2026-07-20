@@ -2836,6 +2836,8 @@ export const QuotationItemDetailsSchema = z
     /** Infants on transfer per_adult (and party stamp). */
     infants: z.number().optional(),
     childAges: z.array(z.number()).optional(),
+    /** Per-child market codes aligned with childAges (IN / INTL / ISO-2). */
+    childNationalities: z.array(z.string()).max(12).optional(),
     extraBeds: z.number().optional(),
     childrenWithoutBed: z.number().optional(),
     rateBasis: QuoteHotelRateBasisSchema.optional(),

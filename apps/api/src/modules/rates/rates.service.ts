@@ -102,6 +102,7 @@ import {
   hotelPaxBuySplitMatchAccepted,
   tryHotelPaxBuySplit,
 } from './hotel-pax-buy-split';
+import { sumChildExtrasByNationality } from './child-nationality-extras';
 import {
   orderHotelRateVersionChain,
   planHotelRateNewVersion,
@@ -4021,6 +4022,13 @@ export class RatesService {
             (a): a is number => typeof a === 'number' && Number.isFinite(a),
           )
         : [];
+      const childNationalities = collectGuestNationalityBag({
+        nationalities: Array.isArray(item.details?.childNationalities)
+          ? (item.details!.childNationalities as Array<
+              string | null | undefined
+            >)
+          : undefined,
+      });
 
       const splitCandidatePool = (
         supplierId
@@ -4138,9 +4146,54 @@ export class RatesService {
         rooms,
         nights: nightsCount,
       });
+      let occFinal = occ;
+      let childNationalityExtras:
+        | ReturnType<typeof sumChildExtrasByNationality>
+        | undefined;
+      if (
+        guestNationalitiesAreMixed(childNationalities) &&
+        pax.children > 0 &&
+        occ.childWithBedCount + occ.childWithoutBedCount > 0
+      ) {
+        const billableChildren =
+          occ.childWithBedCount + occ.childWithoutBedCount;
+        const childPart = sumChildExtrasByNationality({
+          nights: nightsCount,
+          billableChildren,
+          childrenWithoutBed: occ.childWithoutBedCount,
+          childNationalities,
+          pickPricing: (code) => {
+            const tip = pickBest(
+              filterHotelByNationality(splitRoomMealPool, code),
+            );
+            if (!tip) return null;
+            const pricing = parseOccupancyPricing(tip.occupancyPricingJson);
+            if (!pricing) return null;
+            return {
+              childWithBedPerNight: pricing.childWithBedPerNight ?? null,
+              childWithoutBedPerNight: pricing.childWithoutBedPerNight ?? null,
+            };
+          },
+        });
+        if (childPart) {
+          childNationalityExtras = childPart;
+          const occupancyExtraTotal = round2(
+            occ.extraAdultTotal + childPart.occupancyExtraTotal,
+          );
+          occFinal = {
+            ...occ,
+            childWithBedCount: childPart.childWithBedCount,
+            childWithoutBedCount: childPart.childWithoutBedCount,
+            childWithBedTotal: childPart.childWithBedTotal,
+            childWithoutBedTotal: childPart.childWithoutBedTotal,
+            occupancyExtraTotal,
+            totalBuy: round2(occ.baseTotal + occupancyExtraTotal),
+          };
+        }
+      }
       const dateSupplements = parseDateSupplements(best.occupancyPricingJson);
       const gala = applyDateSupplements(
-        occ.totalBuy,
+        occFinal.totalBuy,
         dateSupplements,
         stayDateIsos,
         rooms,
@@ -4150,17 +4203,22 @@ export class RatesService {
       const calculation = {
         ...baseCalc,
         totalBuy: gala.totalBuy,
-        baseRoomTotal: occ.baseTotal,
-        occupancyExtraTotal: occ.occupancyExtraTotal,
-        extraAdultCount: occ.extraAdultCount,
-        childWithBedCount: occ.childWithBedCount,
-        childWithoutBedCount: occ.childWithoutBedCount,
+        baseRoomTotal: occFinal.baseTotal,
+        occupancyExtraTotal: occFinal.occupancyExtraTotal,
+        extraAdultCount: occFinal.extraAdultCount,
+        childWithBedCount: occFinal.childWithBedCount,
+        childWithoutBedCount: occFinal.childWithoutBedCount,
         dateSupplementTotal: gala.supplementTotal,
         dateSupplements: gala.matched,
         partyAdults: pax.partyAdults,
         partyChildren: pax.partyChildren,
         adultsCharged: pax.adults,
         childrenCharged: pax.children,
+        ...(childNationalityExtras
+          ? {
+              childNationalityExtras: childNationalityExtras.shares,
+            }
+          : {}),
         ...(paxSplit
           ? {
               buyMode: paxSplit.buyMode,

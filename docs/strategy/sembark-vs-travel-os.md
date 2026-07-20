@@ -69,7 +69,7 @@ Maturity labels: **early** | **partial** | **mature** | **structural** (architec
 2. **Quote speed productisation** — measured sub-3-minute FIT median + public claim gated by `fitClaimProtocol` (demo-travel seed can clear n≥20 locally; production waits on real samples)  
 3. **Market credibility** — *(About + public `/changelog` thin-complete)* · docs / scale proof still open
 4. **Partner fleet OS** — *(booking-linked holds + allocate UI thin-complete)* · full unit board / utilization still deal-gated
-5. **Rate-grid leftovers** — *(per-pax depth through rooming / multiplicity / 3A×N / uneven 6A/4R / named alone slots thin-complete)* · per-child nationality tips deferred
+5. **Rate-grid leftovers** — *(per-pax depth through rooming / named alone / per-child nationality extras thin-complete)* · full Sembark matrix / chart child columns deferred
 
 ---
 
@@ -770,7 +770,17 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Uneven DBL+SGL Alone / Singles control lists trip travellers by name; Occupancy cue **Alone Name** |
 | **3 Proof** | **Done** | hotelNationalityNote + cue specs; About note; this ladder in memo |
 
-**Defer:** per-child nationality tips; full rooming matrix / voucher room lists; TripTraveller.roomAllocation stamp.
+**Defer:** *(closed — see Per-child nationality tips below)* · full rooming matrix / voucher room lists; TripTraveller.roomAllocation stamp.
+
+#### Prod-ready ladder — Per-child nationality tips (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `childNationalities` on hotel line; Match sums child extras per market tip (exact → INTL → any); adult extras stay on Match tip |
+| **2 Channels / UI** | **Done** | Quote drawer child nationality chips; Occupancy cue **child mkts IN+US** when mixed |
+| **3 Proof** | **Done** | child-nationality-extras + cue specs; About note; this ladder in memo |
+
+**Defer:** age-band × nationality chart columns; full Sembark child matrix; rooming matrix / voucher room lists.
 
 #### Prod-ready ladder — Tax identity on proposals (**done**)
 

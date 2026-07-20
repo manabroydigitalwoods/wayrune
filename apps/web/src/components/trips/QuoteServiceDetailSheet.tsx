@@ -2660,6 +2660,66 @@ export function QuoteServiceDetailSheet({
                     />
                   </FormField>
                   <FormField
+                    label="Child nationalities"
+                    description="Optional — when mixed, each child’s occupancy extra uses that market tip (exact → Foreign → any)."
+                  >
+                    <div className="space-y-2">
+                      {Array.isArray(details.childNationalities) &&
+                      details.childNationalities.length ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          {details.childNationalities.map((code, idx) => (
+                            <button
+                              key={`${code}-${idx}`}
+                              type="button"
+                              disabled={readOnly}
+                              className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-muted/40 px-2.5 py-1 text-xs font-medium disabled:opacity-60"
+                              onClick={() => {
+                                if (readOnly) return;
+                                const next = [
+                                  ...(details.childNationalities || []),
+                                ];
+                                next.splice(idx, 1);
+                                patchDetails({
+                                  childNationalities: next.length
+                                    ? next
+                                    : undefined,
+                                });
+                              }}
+                              title="Remove"
+                            >
+                              {hotelNationalityLabelUi(code)}
+                              {!readOnly ? (
+                                <span
+                                  className="text-muted-foreground"
+                                  aria-hidden
+                                >
+                                  ×
+                                </span>
+                              ) : null}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                      <Combobox
+                        value=""
+                        disabled={readOnly}
+                        onChange={(v) => {
+                          const code = normalizeHotelNationalityUi(v);
+                          if (!code) return;
+                          patchDetails({
+                            childNationalities: [
+                              ...(details.childNationalities || []),
+                              code,
+                            ],
+                          });
+                        }}
+                        options={HOTEL_NATIONALITY_GUEST_OPTIONS}
+                        placeholder="Add child nationality…"
+                        searchable
+                      />
+                    </div>
+                  </FormField>
+                  <FormField
                     label="Children without bed"
                     description={`0–${details.children} · remaining children priced with bed when the rate chart has extras`}
                     error={

@@ -19,6 +19,12 @@ export type HotelOccupancyExtraCalc = {
   composition?: string | null;
   /** Display name for who takes the SGL on uneven boards. */
   aloneTravellerName?: string | null;
+  /** Per-child nationality extra shares from Match. */
+  childNationalityExtras?: Array<{
+    nationality?: string | null;
+    withBed?: boolean | null;
+    total?: number | null;
+  }> | null;
 };
 
 export function formatHotelAdultBandNote(
@@ -108,6 +114,18 @@ function occupancyExtraBits(
   );
   if (withoutBed > 0) {
     bits.push(`${withoutBed} child w/o bed`);
+  }
+
+  const childNat = Array.isArray(calc?.childNationalityExtras)
+    ? calc!.childNationalityExtras!
+    : [];
+  if (childNat.length > 1) {
+    const markets = childNat
+      .map((s) => String(s.nationality || '').trim().toUpperCase())
+      .filter(Boolean);
+    if (markets.length > 1) {
+      bits.push(`child mkts ${[...new Set(markets)].join('+')}`);
+    }
   }
   return bits;
 }

@@ -27,6 +27,14 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-child-nationality-extras',
+    date: '2026-07-20',
+    title: 'Child occupancy extras by nationality',
+    summary:
+      'Hotel Match can price each child’s with/without-bed extra from that child’s market tip when Child nationalities are set on the line. Occupancy shows child mkts when mixed.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-named-alone-traveller',
     date: '2026-07-20',
     title: 'Name who sleeps alone on uneven rooming',
