@@ -130,7 +130,7 @@ Scores: **Y** = acceptable · **~** = partial / thin · **N** = not yet · **—
 |------------|---|---|---|---|---|---|--------------------|
 | Lead / enquiry intake + SLA cues | Y | ~ | Y | Y | ~ | ~ | Journey near; enquiry desk SLA parity; adoption still ~ |
 | Omnichannel inbox | Y | ~ | ~ | ~ | ~ | ~ | Foundation ours; depth mixed |
-| Guided FIT quote (package → Match → send) | Y | ~ | ~ | Y | N | N | Eng thin-complete; claim Testing; adoption N |
+| Guided FIT quote (package → Match → send) | Y | ~ | Y | Y | N | N | Rooms + inquiry rooms stamp; claim Testing; adoption N |
 | Quote revise (dates / pax / hotel / margin delta) | Y | ~ | Y | Y | N | N | Moves + alts + priced previews + Why; adoption N |
 | Supplier rate contracting (hotel/T/A) | Y | ~ | Y | Y | ~ | ~ | Daily thin strong; Why this rate; dense workbook ~ |
 | Accept → enquiry → voucher / movement | Y | ~ | Y | Y | ~ | ~ | Next Action + operate-through kit; real-agency proof still ~ |
@@ -870,7 +870,17 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Use-template + New-trip package **Rooms** (syncs when Adults change); toast shows ·NR |
 | **3 Proof** | **Done** | quote-template-content + createTripFromPackage specs; release note; this ladder; Guided FIT Ease nudge |
 
-**Defer:** denser SGL/DBL/TPL composer grid · inquiry stamp rooms mirror.
+**Defer:** denser SGL/DBL/TPL composer grid · *(inquiry stamp rooms mirror closed below)*.
+
+#### Prod-ready ladder — Inquiry stamp rooms mirror (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `resolveInquiryPaxForStamp` + `stampInquiryPaxOntoQuoteLines` stamp hotel `details.rooms` (default `ceil(adults/2)`); transfer/activity pax only |
+| **2 Channels / UI** | **Done** | Revise **Apply NA+NC · NR**; Use-template prefills Adults/Children/Rooms from trip inquiry; apply toast shows ·NR |
+| **3 Proof** | **Done** | stamp + fitReviseMoves specs; release note; this ladder; Guided FIT Ease nudge |
+
+**Defer:** Inquiry.rooms column / create-edit Rooms field · denser SGL/DBL/TPL composer · Packages page.
 
 #### Prod-ready ladder — Onboarding: quote empty-state Install pack (**done**)
 

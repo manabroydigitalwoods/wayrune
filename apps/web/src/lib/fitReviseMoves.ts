@@ -27,8 +27,8 @@ export type BuildFitReviseMovesInput = {
   rateDriftCount: number;
   firstUnmatchedLineId: string | null;
   firstHotelLineId: string | null;
-  /** Inquiry adults/children when both known enough to stamp. */
-  inquiryPax: { adults: number; children: number } | null;
+  /** Inquiry adults/children/rooms when known enough to stamp. */
+  inquiryPax: { adults: number; children: number; rooms: number } | null;
   canTripWrite: boolean;
   canQuoteWrite: boolean;
   /** Accepted → reviseFromAccepted; otherwise revise as new version. */
@@ -141,8 +141,8 @@ export function buildFitReviseMoves(
   if (input.inquiryPax) {
     actions.push({
       id: 'apply_inquiry_pax',
-      label: `Apply ${input.inquiryPax.adults}A+${input.inquiryPax.children}C`,
-      hint: 'Stamp inquiry party onto hotel/transfer/activity lines, then rematch',
+      label: `Apply ${input.inquiryPax.adults}A+${input.inquiryPax.children}C · ${input.inquiryPax.rooms}R`,
+      hint: 'Stamp inquiry party + hotel rooms onto lines, then rematch',
     });
   }
 

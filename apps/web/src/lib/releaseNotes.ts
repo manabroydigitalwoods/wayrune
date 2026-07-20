@@ -27,6 +27,14 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-inquiry-rooms-stamp',
+    date: '2026-07-20',
+    title: 'Apply inquiry party — hotel rooms',
+    summary:
+      'Revise Apply inquiry party stamps hotel rooms (ceil(adults ÷ 2)) like Use template. Use-template prefills Adults/Children/Rooms from the linked inquiry. No inquiry Rooms field yet.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-report-pack-delivery-honesty',
     date: '2026-07-20',
     title: 'Report pack last emailed · next due',

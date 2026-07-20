@@ -188,7 +188,7 @@ import {
   readQuoteLocalDraft,
   writeQuoteLocalDraft,
 } from '../lib/quoteLocalDraft';
-import { parseApplyChildAgesCsv } from '../lib/createTripFromPackage';
+import { parseApplyChildAgesCsv, defaultRoomsFromAdults } from '../lib/createTripFromPackage';
 import {
   countMarginPolicyViolations,
   lineMarginPolicyViolation,
@@ -2692,9 +2692,19 @@ export function TripWorkspacePage() {
   async function openUseTemplateDialog() {
     const existing = String(trip?.startDate || '').slice(0, 10);
     setTemplateApplyStartDate(/^\d{4}-\d{2}-\d{2}$/.test(existing) ? existing : '');
-    setTemplateApplyAdults(2);
-    setTemplateApplyRooms(1);
-    setTemplateApplyChildren(0);
+    const inquiryAdults = Number(trip?.inquiry?.adults);
+    const adults =
+      Number.isFinite(inquiryAdults) && inquiryAdults >= 1
+        ? Math.min(99, Math.round(inquiryAdults))
+        : 2;
+    const inquiryChildren = Number(trip?.inquiry?.children);
+    const children =
+      Number.isFinite(inquiryChildren) && inquiryChildren >= 0
+        ? Math.min(99, Math.round(inquiryChildren))
+        : 0;
+    setTemplateApplyAdults(adults);
+    setTemplateApplyRooms(defaultRoomsFromAdults(adults));
+    setTemplateApplyChildren(children);
     setTemplateHistoryForId(null);
     setTemplateHistoryItems([]);
     setUseTemplateOpen(true);
@@ -5283,7 +5293,7 @@ export function TripWorkspacePage() {
                     }
                     setQuoteItems(items as typeof quoteItems);
                     toastSuccess(
-                      `Applied ${pax.adults}A+${pax.children}C to ${stampedCount} line${
+                      `Applied ${pax.adults}A+${pax.children}C · ${pax.rooms}R to ${stampedCount} line${
                         stampedCount === 1 ? '' : 's'
                       } — rematching…`,
                     );

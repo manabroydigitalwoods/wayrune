@@ -48,7 +48,7 @@ describe('fitReviseMoves', () => {
       rateDriftCount: 2,
       firstUnmatchedLineId: 'u1',
       firstHotelLineId: 'h1',
-      inquiryPax: { adults: 2, children: 1 },
+      inquiryPax: { adults: 2, children: 1, rooms: 1 },
       canTripWrite: true,
       canQuoteWrite: true,
     });
@@ -62,7 +62,7 @@ describe('fitReviseMoves', () => {
       'apply_inquiry_pax',
     ]);
     expect(moves.actions.find((a) => a.id === 'apply_inquiry_pax')?.label).toBe(
-      'Apply 2A+1C',
+      'Apply 2A+1C · 1R',
     );
   });
 
