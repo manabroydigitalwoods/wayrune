@@ -3068,6 +3068,8 @@ export function TripWorkspacePage() {
           children: Number(trip?.inquiry?.children) || undefined,
           infants: Number(trip?.inquiry?.infants) || undefined,
           partyId: trip?.party?.id || undefined,
+          destinationPlaceOfSupply:
+            trip?.destinationPlaceOfSupply || undefined,
           items: resolveItems,
         }),
       });
@@ -5838,6 +5840,7 @@ export function TripWorkspacePage() {
         partyChildren={Number(trip?.inquiry?.children) || undefined}
         partyInfants={Number(trip?.inquiry?.infants) || undefined}
         partyId={trip?.party?.id}
+        destinationPlaceOfSupply={trip?.destinationPlaceOfSupply}
         onConfirm={confirmImportFromItinerary}
       />
 
@@ -5861,6 +5864,7 @@ export function TripWorkspacePage() {
         defaultMarkupPercent={quoteDefaultMarkupPercent()}
         partyId={trip?.party?.id}
         tripTravellers={trip?.travellers || null}
+        destinationPlaceOfSupply={trip?.destinationPlaceOfSupply}
         seedDetails={(() => {
           if (!quoteDetailLineId?.startsWith('itin-')) return null;
           const itinId = quoteDetailLineId.slice(5);

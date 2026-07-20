@@ -3089,6 +3089,11 @@ export const HotelOccupancyPricingSchema = z
     minStayNights: z.number().int().min(1).max(30).optional(),
     /** IN | INTL — blank/omit = any nationality. */
     nationality: z.string().max(8).optional(),
+    /**
+     * Destination place of supply for this buy tip (e.g. KA, MH).
+     * Blank/omit = any. Match prefers exact dest POS, then any.
+     */
+    placeOfSupply: z.string().max(40).optional(),
   })
   .nullable()
   .optional();
@@ -3450,6 +3455,14 @@ export const ResolveRatesSchema = z.object({
   nationality: z.preprocess(blankToNull, z.string().nullable()).optional(),
   /** Multi-guest nationalities when party has mixed markets. */
   nationalities: z.array(z.string()).max(12).optional(),
+  /**
+   * Trip destination place of supply for hotel buy tip Match
+   * (prefer tip tagged with same POS; blank tip = any).
+   */
+  destinationPlaceOfSupply: z.preprocess(
+    blankToNull,
+    z.string().nullable(),
+  ).optional(),
   /** When set, resolve may use agentMarkupPercent for trade/B2B parties. */
   partyId: z.preprocess(blankToNull, z.string().nullable()).optional(),
   items: z.array(ResolveRatesItemSchema).min(1).max(200),

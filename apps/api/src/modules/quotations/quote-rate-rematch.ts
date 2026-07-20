@@ -264,6 +264,8 @@ export function buildResolveRatesInput(opts: {
   /** Trip/traveller guest nationality fallback when lines omit nationality. */
   nationality?: string | null;
   nationalities?: string[] | null;
+  /** Trip destination POS for hotel buy tip Match. */
+  destinationPlaceOfSupply?: string | null;
 }): ResolveRatesInput | null {
   const resolveItems = opts.items
     .map((item) => resolvePayloadFromQuoteItem(item, opts.startDate))
@@ -279,6 +281,8 @@ export function buildResolveRatesInput(opts: {
     nationalities: opts.nationalities?.length
       ? opts.nationalities
       : undefined,
+    destinationPlaceOfSupply:
+      opts.destinationPlaceOfSupply?.trim() || undefined,
     items: resolveItems,
   };
 }
@@ -445,6 +449,7 @@ export async function rematchQuoteItemsFromRates(
     partyId?: string | null;
     nationality?: string | null;
     nationalities?: string[] | null;
+    destinationPlaceOfSupply?: string | null;
   },
 ): Promise<{
   items: QuotationItem[];
@@ -460,6 +465,7 @@ export async function rematchQuoteItemsFromRates(
     partyId: opts.partyId,
     nationality: opts.nationality,
     nationalities: opts.nationalities,
+    destinationPlaceOfSupply: opts.destinationPlaceOfSupply,
   });
   if (!input) {
     return { items, matchedCount: 0, unmatchedCount: 0 };

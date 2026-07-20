@@ -99,6 +99,12 @@ import {
   guestNationalitiesAreMixed,
 } from './hotel-nationality';
 import {
+  filterHotelByPlaceOfSupply,
+  hotelPlaceOfSupplyMatchAccepted,
+  normalizePlaceOfSupply,
+  placeOfSupplyFromOccupancy,
+} from './hotel-place-of-supply';
+import {
   hotelPaxBuySplitMatchAccepted,
   tryHotelPaxBuySplit,
 } from './hotel-pax-buy-split';
@@ -576,6 +582,9 @@ export class RatesService {
       nationality:
         occupancyPricingToJson(input.occupancyPricing ?? null)?.nationality ??
         null,
+      placeOfSupply:
+        occupancyPricingToJson(input.occupancyPricing ?? null)?.placeOfSupply ??
+        null,
       startDate,
       endDate,
     });
@@ -704,6 +713,10 @@ export class RatesService {
       input.occupancyPricing !== undefined
         ? occupancyPricingToJson(input.occupancyPricing)?.nationality ?? null
         : nationalityFromOccupancy(existing.occupancyPricingJson);
+    const nextPlaceOfSupply =
+      input.occupancyPricing !== undefined
+        ? occupancyPricingToJson(input.occupancyPricing)?.placeOfSupply ?? null
+        : placeOfSupplyFromOccupancy(existing.occupancyPricingJson);
 
     await this.assertNoHotelRateSeasonOverlap({
       organizationId: existing.organizationId,
@@ -715,6 +728,7 @@ export class RatesService {
       roomType: nextRoomType,
       mealPlan: nextMeal,
       nationality: nextNationality,
+      placeOfSupply: nextPlaceOfSupply,
       startDate: nextStart,
       endDate: nextEnd,
       excludeRateId: rateId,
@@ -3697,6 +3711,8 @@ export class RatesService {
     mealPlan: string | null;
     /** Rate market segment (IN / INTL); null = any. */
     nationality?: string | null;
+    /** Destination place of supply tip; null = any. */
+    placeOfSupply?: string | null;
     startDate: Date | null;
     endDate: Date | null;
     excludeRateId?: string;
@@ -3704,6 +3720,7 @@ export class RatesService {
     const mealNorm = (opts.mealPlan || '').trim().toLowerCase();
     const roomNorm = (opts.roomType || '').trim().toLowerCase();
     const natNorm = normalizeHotelNationality(opts.nationality);
+    const posNorm = normalizePlaceOfSupply(opts.placeOfSupply);
     const candidates = await this.prisma.supplierHotelRate.findMany({
       where: {
         deletedAt: null,
@@ -3744,6 +3761,10 @@ export class RatesService {
         nationalityFromOccupancy(r.occupancyPricingJson),
       );
       if (rNat !== natNorm) return false;
+      const rPos = normalizePlaceOfSupply(
+        placeOfSupplyFromOccupancy(r.occupancyPricingJson),
+      );
+      if (rPos !== posNorm) return false;
       return hotelSeasonWindowsOverlap(
         opts.startDate,
         opts.endDate,
@@ -3754,7 +3775,7 @@ export class RatesService {
 
     if (overlaps.length) {
       throw new BadRequestException(
-        'Season overlaps an existing rate for the same contract, room, meal plan, and nationality. Adjust dates or archive the other season first.',
+        'Season overlaps an existing rate for the same contract, room, meal plan, nationality, and place of supply. Adjust dates or archive the other season first.',
       );
     }
   }
@@ -4022,6 +4043,8 @@ export class RatesService {
         nationalities: Array.isArray(input.nationalities)
           ? input.nationalities
           : null,
+        destinationPlaceOfSupply:
+          input.destinationPlaceOfSupply?.trim() || null,
         blackoutsBySupplier,
         contractStopSaleBySupplier,
         stopSellByAsset,
@@ -4064,6 +4087,7 @@ export class RatesService {
       infants: number;
       nationality: string | null;
       nationalities: Array<string | null> | null;
+      destinationPlaceOfSupply: string | null;
       blackoutsBySupplier: Map<string, BlackoutRange[]>;
       contractStopSaleBySupplier: Map<string, StopSaleRange[]>;
       stopSellByAsset: Map<string, DateWindow[]>;
@@ -4103,6 +4127,9 @@ export class RatesService {
       const guestCodes = lineGuestCodes.length ? lineGuestCodes : ctxGuestCodes;
       const guestNationality = effectiveGuestNationality(guestCodes);
       const guestMixed = guestNationalitiesAreMixed(guestCodes);
+      const destinationPos = normalizePlaceOfSupply(
+        ctx.destinationPlaceOfSupply,
+      );
       const stayNights = eachStayNight(asOf, nightsCount);
 
       const policyBlock = (sid: string | null | undefined) => {
@@ -4193,14 +4220,17 @@ export class RatesService {
 
       const matchDims = (pool: HotelRow[]) =>
         pickBest(
-          filterHotelByNationality(
-            filterHotelByRoomAndMeal(
-              pool,
-              roomWanted,
-              mealWanted,
-              roomProductIdWanted,
+          filterHotelByPlaceOfSupply(
+            filterHotelByNationality(
+              filterHotelByRoomAndMeal(
+                pool,
+                roomWanted,
+                mealWanted,
+                roomProductIdWanted,
+              ),
+              guestNationality,
             ),
-            guestNationality,
+            destinationPos,
           ),
         );
 
@@ -4428,7 +4458,10 @@ export class RatesService {
           childNationalities,
           pickPricing: (code) => {
             const tip = pickBest(
-              filterHotelByNationality(splitRoomMealPool, code),
+              filterHotelByPlaceOfSupply(
+                filterHotelByNationality(splitRoomMealPool, code),
+                destinationPos,
+              ),
             );
             if (!tip) return null;
             const pricing = parseOccupancyPricing(tip.occupancyPricingJson);
@@ -4532,6 +4565,12 @@ export class RatesService {
           mixed: guestMixed,
         }),
       );
+      const ratePlaceOfSupply = placeOfSupplyFromOccupancy(
+        best.occupancyPricingJson,
+      );
+      accepted.push(
+        ...hotelPlaceOfSupplyMatchAccepted(ratePlaceOfSupply, destinationPos),
+      );
       if (paxSplit) {
         accepted.push(...hotelPaxBuySplitMatchAccepted(paxSplit));
       }
@@ -4618,6 +4657,7 @@ export class RatesService {
           contractVersionNumber: best.contract?.versionNumber ?? null,
           rateVersionNumber: best.versionNumber ?? 1,
           nationality: rateNationality,
+          placeOfSupply: ratePlaceOfSupply,
           guestNationality,
           guestNationalities: guestCodes.length ? guestCodes : undefined,
           guestNationalityMixed: guestMixed || undefined,

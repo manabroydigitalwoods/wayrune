@@ -2,6 +2,7 @@
 
 import { parseMinStayNights } from './hotel-min-stay';
 import { normalizeHotelNationality } from './hotel-nationality';
+import { normalizePlaceOfSupply } from './hotel-place-of-supply';
 
 export type AdultBand = {
   /** Adults covered by this per-room base (1=SGL, 2=DBL, 3=TPL). */
@@ -31,6 +32,8 @@ export type OccupancyPricing = {
   minStayNights?: number;
   /** Market segment: IN | INTL (blank/any when omitted). */
   nationality?: string;
+  /** Destination place of supply for this buy tip (blank/any when omitted). */
+  placeOfSupply?: string;
 };
 
 export type OccupancyApplyInput = {
@@ -224,6 +227,9 @@ export function parseOccupancyPricing(raw: unknown): OccupancyPricing | null {
   const nationality = normalizeHotelNationality(
     typeof o.nationality === 'string' ? o.nationality : null,
   );
+  const placeOfSupply = normalizePlaceOfSupply(
+    typeof o.placeOfSupply === 'string' ? o.placeOfSupply : null,
+  );
   if (
     extraAdultPerNight == null &&
     childWithBedPerNight == null &&
@@ -233,7 +239,8 @@ export function parseOccupancyPricing(raw: unknown): OccupancyPricing | null {
     childAgeMax == null &&
     adultBands.length === 0 &&
     minStayNights == null &&
-    nationality == null
+    nationality == null &&
+    placeOfSupply == null
   ) {
     if (
       o.extraAdultPerNight == null &&
@@ -243,7 +250,8 @@ export function parseOccupancyPricing(raw: unknown): OccupancyPricing | null {
       o.baseChildren == null &&
       o.adultBands == null &&
       o.minStayNights == null &&
-      o.nationality == null
+      o.nationality == null &&
+      o.placeOfSupply == null
     ) {
       return null;
     }
@@ -258,6 +266,7 @@ export function parseOccupancyPricing(raw: unknown): OccupancyPricing | null {
     ...(adultBands.length ? { adultBands } : {}),
     ...(minStayNights != null ? { minStayNights } : {}),
     ...(nationality != null ? { nationality } : {}),
+    ...(placeOfSupply != null ? { placeOfSupply } : {}),
   };
 }
 

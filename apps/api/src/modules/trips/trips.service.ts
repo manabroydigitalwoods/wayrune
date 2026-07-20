@@ -280,6 +280,7 @@ export class TripsService {
             startDate: startIso,
             partyId: trip.partyId ?? null,
             ...travellerNat,
+            destinationPlaceOfSupply: trip.destinationPlaceOfSupply ?? null,
           },
         );
         const totals = calcQuoteTotals(
@@ -431,6 +432,13 @@ export class TripsService {
         startDate: startIso,
         partyId,
         ...resolveNationalityOptsFromTripTravellers(tripTravellerRows),
+        destinationPlaceOfSupply:
+          (
+            await this.prisma.trip.findFirst({
+              where: { id: tripId },
+              select: { destinationPlaceOfSupply: true },
+            })
+          )?.destinationPlaceOfSupply ?? null,
       },
     );
     const totals = calcQuoteTotals(

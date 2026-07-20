@@ -46,6 +46,10 @@ import {
   normalizeHotelNationalityUi,
 } from '../../lib/hotelNationalityNote';
 import {
+  HOTEL_PLACE_OF_SUPPLY_OPTIONS,
+  normalizeHotelPlaceOfSupplyUi,
+} from '../../lib/hotelPlaceOfSupply';
+import {
   buildHotelRateTipDiffRows,
   formatHotelRateTipDiffCue,
   formatHotelRateVersionHistoryLine,
@@ -146,6 +150,7 @@ function emptyForm(defaultContractId = '') {
     galaRows: emptyGalaRows(),
     minStayNights: '',
     nationality: '',
+    placeOfSupply: '',
     place: null as PlaceRef | null,
     startDate: '',
     endDate: '',
@@ -165,6 +170,7 @@ function occupancyFromRate(rate: HotelRate) {
       galaRows: emptyGalaRows(),
       minStayNights: '',
       nationality: '',
+      placeOfSupply: '',
     };
   }
   const supplements = Array.isArray(o.dateSupplements) ? o.dateSupplements : [];
@@ -225,6 +231,9 @@ function occupancyFromRate(rate: HotelRate) {
         : '',
     nationality: normalizeHotelNationalityUi(
       typeof o.nationality === 'string' ? o.nationality : '',
+    ),
+    placeOfSupply: normalizeHotelPlaceOfSupplyUi(
+      typeof o.placeOfSupply === 'string' ? o.placeOfSupply : '',
     ),
   };
 }
@@ -939,6 +948,8 @@ export function SupplierHotelRatesPanel({
       minStayNights = Math.floor(n);
     }
     const nationality = normalizeHotelNationalityUi(form.nationality) || undefined;
+    const placeOfSupply =
+      normalizeHotelPlaceOfSupplyUi(form.placeOfSupply) || undefined;
     const dblBand = adultBands.find((b) => b.adults === 2);
     const chartWeekendFromBand =
       dblBand?.weekendUnitCostPerNight ??
@@ -956,7 +967,8 @@ export function SupplierHotelRatesPanel({
       dateSupplements.length > 0 ||
       adultBands.length > 0 ||
       minStayNights != null ||
-      nationality != null;
+      nationality != null ||
+      placeOfSupply != null;
     const occupancyPricing = hasOcc
       ? {
           baseAdults,
@@ -967,6 +979,7 @@ export function SupplierHotelRatesPanel({
           ...(adultBands.length ? { adultBands } : {}),
           ...(minStayNights != null ? { minStayNights } : {}),
           ...(nationality ? { nationality } : {}),
+          ...(placeOfSupply ? { placeOfSupply } : {}),
           ...(dateSupplements.length ? { dateSupplements } : {}),
         }
       : null;
@@ -1169,6 +1182,18 @@ export function SupplierHotelRatesPanel({
                     return nat ? (
                       <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                         {nat}
+                      </span>
+                    ) : null;
+                  })()}
+                  {(() => {
+                    const pos = normalizeHotelPlaceOfSupplyUi(
+                      typeof r.occupancyPricingJson?.placeOfSupply === 'string'
+                        ? r.occupancyPricingJson.placeOfSupply
+                        : '',
+                    );
+                    return pos ? (
+                      <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                        POS {pos}
                       </span>
                     ) : null;
                   })()}
@@ -1479,6 +1504,24 @@ export function SupplierHotelRatesPanel({
                   searchable
                 />
               </div>
+            </FormField>
+
+            <FormField
+              label="Place of supply tip"
+              description="Optional dest POS for this buy tip (e.g. KA). Match prefers the tip matching the trip destination POS, then any blank tip. Does not change tax filing."
+            >
+              <Combobox
+                value={normalizeHotelPlaceOfSupplyUi(form.placeOfSupply)}
+                onChange={(placeOfSupply) =>
+                  setForm({
+                    ...form,
+                    placeOfSupply: normalizeHotelPlaceOfSupplyUi(placeOfSupply),
+                  })
+                }
+                options={HOTEL_PLACE_OF_SUPPLY_OPTIONS}
+                placeholder="Any (no POS tip)"
+                searchable
+              />
             </FormField>
 
             <FormGrid>

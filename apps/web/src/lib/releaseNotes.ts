@@ -27,6 +27,14 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-pos-hotel-buy-match',
+    date: '2026-07-20',
+    title: 'Hotel buy tips can follow destination place of supply',
+    summary:
+      'Tag a hotel rate tip with a place of supply (e.g. KA). Match prefers that tip when the trip destination POS matches, otherwise any blank tip. Chart shows a POS chip. This is Match-only — it does not create an e-invoice or change tax filing.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-package-folder-index',
     date: '2026-07-20',
     title: 'Empty package folders stay in the library nav',

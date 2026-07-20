@@ -1347,6 +1347,7 @@ export class QuotationsService {
         children: applyPax?.children,
         partyId: trip.partyId ?? null,
         ...resolveNationalityOptsFromTripTravellers(tripTravellerRows),
+        destinationPlaceOfSupply: trip.destinationPlaceOfSupply ?? null,
       },
     );
     const items = rematch.items;

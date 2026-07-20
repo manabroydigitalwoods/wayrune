@@ -182,6 +182,7 @@ export function QuoteImportReviewDialog({
   partyChildren,
   partyInfants,
   partyId,
+  destinationPlaceOfSupply,
   onConfirm,
 }: {
   open: boolean;
@@ -193,6 +194,7 @@ export function QuoteImportReviewDialog({
   partyChildren?: number;
   partyInfants?: number;
   partyId?: string | null;
+  destinationPlaceOfSupply?: string | null;
   onConfirm: (selected: QuoteImportCandidate[]) => void | Promise<void>;
 }) {
   const initial = useMemo(
@@ -243,6 +245,7 @@ export function QuoteImportReviewDialog({
             children: partyChildren || undefined,
             infants: partyInfants || undefined,
             partyId: partyId || undefined,
+            destinationPlaceOfSupply: destinationPlaceOfSupply || undefined,
             items: resolvable.map((r) => r.resolveItem!),
           }),
         });
@@ -310,7 +313,7 @@ export function QuoteImportReviewDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, initial, tripStartDate, partyAdults, partyChildren, partyInfants, partyId]);
+  }, [open, initial, tripStartDate, partyAdults, partyChildren, partyInfants, partyId, destinationPlaceOfSupply]);
 
   const selectedCount = rows.filter((r) => r.selected).length;
   const commercial = rows.filter((r) => r.disposition === 'import_as_service');

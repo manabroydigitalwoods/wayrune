@@ -430,6 +430,7 @@ export function QuoteServiceDetailSheet({
   defaultMarkupPercent = 20,
   seedDetails,
   tripTravellers,
+  destinationPlaceOfSupply,
   onSave,
   attentionQueue = null,
   onNextAttention,
@@ -462,6 +463,8 @@ export function QuoteServiceDetailSheet({
       nationality?: string | null;
     } | null;
   }> | null;
+  /** Trip destination POS — hotel buy tip Match prefers matching tip. */
+  destinationPlaceOfSupply?: string | null;
   defaultMarkupPercent?: number;
   seedDetails?: QuoteServiceDetails | null;
   onSave: (patch: Partial<QuoteServiceDetailLine> & { id: string }) => void;
@@ -1578,6 +1581,7 @@ export function QuoteServiceDetailSheet({
           nationality: matchNat.nationality || undefined,
           nationalities: matchNat.nationalities || undefined,
           partyId: partyId || undefined,
+          destinationPlaceOfSupply: destinationPlaceOfSupply || undefined,
           items: [payload],
         }),
       });

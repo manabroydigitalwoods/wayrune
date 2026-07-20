@@ -830,7 +830,17 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Settings destination POS; workspace + proposal PDF/email/public preview show breakdown + “not a GST invoice claim” cue |
 | **3 Proof** | **Done** | tax-display-split + org-tax-identity specs; claim registry; About note; this ladder in memo |
 
-**Defer:** *(closed — see Trip destination POS override + freeze/infer below)* · place-of-supply–driven hotel buy rates; e-invoice / GSTR; GST compliance claim (stays do-not-claim).
+**Defer:** *(closed — see Place-of-supply hotel buy tip Match below)* · e-invoice / GSTR; GST compliance claim (stays do-not-claim).
+
+#### Prod-ready ladder — Place-of-supply hotel buy tip Match (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `placeOfSupply` on `occupancyPricingJson`; Match prefers tip matching trip `destinationPlaceOfSupply`, else any blank tip; season overlap treats POS as a dimension; resolve accepts `destinationPlaceOfSupply` |
+| **2 Channels / UI** | **Done** | Rate chart **Place of supply tip** + POS chip; resolve from workspace / drawer / import / rematch passes trip dest POS |
+| **3 Proof** | **Done** | hotel-place-of-supply specs; About note (match-only claim); this ladder in memo |
+
+**Defer:** e-invoice / GSTR; GST compliance claim (stays do-not-claim).
 
 #### Prod-ready ladder — Trip destination POS override (**done**)
 
@@ -860,7 +870,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Finance accepted-quote card shows sell-ex-tax, tax label/total, CGST/SGST or IGST lines, identity + display-only cue (mirror Quotes) |
 | **3 Proof** | **Done** | quote-tax-identity display resolve specs; claim registry; About release note; this ladder in memo |
 
-**Defer:** place-of-supply hotel buy rates; *(pay-page + receivable CD tax closed below)* · e-invoice / GSTR / full GL (do not claim).
+**Defer:** *(pay-page + receivable CD tax closed below)* · e-invoice / GSTR / full GL (do not claim); *(hotel buy POS closed — see Place-of-supply hotel buy tip Match)*.
 
 #### Prod-ready ladder — Public pay-page tax breakdown (**done**)
 
@@ -870,7 +880,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Public `/pay/:token` shows before-tax / tax / split + GSTIN/POS + display-only cue |
 | **3 Proof** | **Done** | payment-link-tax-display specs; claim registry; About note; this ladder in memo |
 
-**Defer:** place-of-supply hotel buy rates; *(commercial-document closed below)* · e-invoice / GSTR / full GL (do not claim).
+**Defer:** *(commercial-document closed below)* · e-invoice / GSTR / full GL (do not claim); *(hotel buy POS closed — see Place-of-supply hotel buy tip Match)*.
 
 #### Prod-ready ladder — Commercial-document instalment tax split (**done**)
 
@@ -880,7 +890,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Commerce Invoices list shows total + tax when set |
 | **3 Proof** | **Done** | hotel-payable-settle + payment-link-tax-display specs; claim registry; About note; this ladder in memo |
 
-**Defer:** place-of-supply hotel buy rates; **Parked** e-invoice / GSTR / full GL (**do not claim** — display path thin-complete).
+**Defer:** **Parked** e-invoice / GSTR / full GL (**do not claim** — display path thin-complete); *(hotel buy POS closed — see Place-of-supply hotel buy tip Match)*.
 
 #### Prod-ready ladder — FIT &lt;3m claim protocol gate (**done**)
 
@@ -1581,6 +1591,7 @@ Then introduce differentiators: connected WhatsApp and email → agency website 
 | CGST/SGST/IGST display split (POS-driven) | **Proven** (thin · display only) |
 | Trip destination POS override | **Proven** (thin · display only) |
 | Quote tax identity freeze + destination POS infer | **Proven** (thin · display only) |
+| Place-of-supply hotel buy tip Match | **Proven** (thin · match only; not filing) |
 | Trip Finance accepted-quote tax display parity | **Proven** (thin · display only) |
 | Public pay-page tax breakdown | **Proven** (thin · display only) |
 | Receivable CD instalment tax split | **Proven** (thin · display only) |
