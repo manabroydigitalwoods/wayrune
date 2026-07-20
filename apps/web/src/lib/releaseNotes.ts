@@ -27,6 +27,14 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-uneven-6a4r-board',
+    date: '2026-07-20',
+    title: 'Uneven hotel rooming for 6 adults / 4 rooms',
+    summary:
+      'Mixed-nationality Match now composes 2DBL+2SGL (and other rooms < adults < 2×rooms boards) without multiplying the night buy by room count. Singles-last control pins who takes a single.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-transfer-activity-activation-task',
     date: '2026-07-20',
     title: 'Tasks when transfer or activity tips need Activate',

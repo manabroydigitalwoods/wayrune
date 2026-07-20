@@ -56,9 +56,18 @@ export function formatHotelPaxBuySplitNote(
   const totalBit =
     Number.isFinite(total) && total >= 0 ? ` = ${fmt(total)}/n` : '';
   const rooms = Math.max(0, Math.round(Number(calc.rooms) || 0));
+  const adults = shares.length;
+  let dblSglLabel = 'DBL+SGL';
+  if (rooms >= 2 && adults > rooms && adults < 2 * rooms) {
+    const doubles = adults - rooms;
+    const singles = 2 * rooms - adults;
+    const dBit = doubles <= 1 ? 'DBL' : `${doubles}DBL`;
+    const sBit = singles <= 1 ? 'SGL' : `${singles}SGL`;
+    dblSglLabel = `${dBit}+${sBit}`;
+  }
   const suffix =
     calc.composition === 'dbl_sgl'
-      ? ' · DBL+SGL'
+      ? ` · ${dblSglLabel}`
       : rooms > 1
         ? ` · × ${rooms} rooms`
         : '';

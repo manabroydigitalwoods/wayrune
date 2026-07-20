@@ -69,7 +69,7 @@ Maturity labels: **early** | **partial** | **mature** | **structural** (architec
 2. **Quote speed productisation** — measured sub-3-minute FIT median + public claim gated by `fitClaimProtocol` (demo-travel seed can clear n≥20 locally; production waits on real samples)  
 3. **Market credibility** — *(About + public `/changelog` thin-complete)* · docs / scale proof still open
 4. **Partner fleet OS** — *(booking-linked holds + allocate UI thin-complete)* · full unit board / utilization still deal-gated
-5. **Rate-grid leftovers** — *(per-pax depth through rooming / multiplicity / 3A×N thin-complete)* · uneven 6A/4R board + named pax slots deferred
+5. **Rate-grid leftovers** — *(per-pax depth through rooming / multiplicity / 3A×N / uneven 6A/4R thin-complete)* · named pax slots deferred
 
 ---
 
@@ -730,7 +730,17 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Quote drawer **Alone (single)** when 3A/2R; traveller seed preserves multiplicity |
 | **3 Proof** | **Done** | hotel-nationality + hotel-pax-buy-split + web nationality specs; claim registry; About note; this ladder in memo |
 
-**Defer:** uneven 6A/4R rooming board; named travellers on slots; per-child nationality tips; full Sembark matrix.
+**Defer:** *(closed — see Uneven 6A/4R DBL+SGL board below)* · named travellers on slots; per-child nationality tips; full Sembark matrix.
+
+#### Prod-ready ladder — Uneven 6A/4R DBL+SGL board (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | General uneven board when `rooms < adults < 2×rooms` (3A/2R, 6A/4R, 5A/3R, …); last `singles` bag slots = SGL; stayRooms=1; cue `2DBL+2SGL` |
+| **2 Channels / UI** | **Done** | Quote drawer Alone / Singles-last when uneven; Occupancy cue uses board label |
+| **3 Proof** | **Done** | hotel-pax-buy-split + cue specs; About note; this ladder in memo |
+
+**Defer:** named travellers on slots; per-child nationality tips; full Sembark matrix.
 
 #### Prod-ready ladder — Tax identity on proposals (**done**)
 

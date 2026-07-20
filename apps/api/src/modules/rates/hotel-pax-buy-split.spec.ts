@@ -457,6 +457,44 @@ describe('hotel-pax-buy-split', () => {
     });
   });
 
+  it('composes 2DBL+2SGL for 6 adults / 4 rooms without ×4 rooms', () => {
+    const pool = [
+      tip({ id: 'in', unitCost: 4000, nationality: 'IN', dbl: 4500, sgl: 3600 }),
+      tip({ id: 'us', unitCost: 6000, nationality: 'US', dbl: 6200, sgl: 4800 }),
+      tip({ id: 'gb', unitCost: 5500, nationality: 'GB', dbl: 5800, sgl: 3800 }),
+    ];
+    const split = tryHotelPaxBuySplit({
+      guestCodes: ['IN', 'IN', 'US', 'US', 'GB', 'GB'],
+      adults: 6,
+      children: 0,
+      rooms: 4,
+      stayDates: [new Date('2026-04-10T00:00:00.000Z')],
+      candidatePool: pool,
+      pickBest: (rows) => rows[0],
+    });
+    expect(split).not.toBeNull();
+    expect(split!.composition).toBe('dbl_sgl');
+    expect(split!.rooms).toBe(4);
+    expect(split!.bandAdults).toBe(2);
+    expect(split!.paxBuySplits).toHaveLength(6);
+    expect(split!.paxBuySplits.map((s) => s.tipBandAdults)).toEqual([
+      2, 2, 2, 2, 1, 1,
+    ]);
+    expect(split!.paxBuySplits.map((s) => s.nationality)).toEqual([
+      'IN',
+      'IN',
+      'US',
+      'US',
+      'GB',
+      'GB',
+    ]);
+    // DBL halves: 2250+2250+3100+3100 + SGL 3800+3800 = 18300
+    expect(split!.paxBuySplitTotalPerNight).toBe(18300);
+    expect(split!.totalBuy).toBe(18300);
+    expect(hotelPaxBuySplitMatchAccepted(split!)[0]).toMatch(/2DBL\+2SGL/);
+    expect(hotelPaxBuySplitMatchAccepted(split!)[0]).not.toMatch(/× 4 rooms/);
+  });
+
   it('multiplies TPL/3 by rooms for 3A×N (6 adults / 2 rooms)', () => {
     const pool = [
       tip({ id: 'in', unitCost: 4000, nationality: 'IN', tpl: 6600 }),
@@ -481,21 +519,29 @@ describe('hotel-pax-buy-split', () => {
     expect(hotelPaxBuySplitMatchAccepted(split!)[0]).toMatch(/× 2 rooms/);
   });
 
-  it('does not treat 6A/4R as 3A×N (uneven — still null)', () => {
+  it('does not treat 6A/4R as TPL×N (uses 2DBL+2SGL board)', () => {
     const pool = [
-      tip({ id: 'in', unitCost: 4000, nationality: 'IN', tpl: 6600 }),
-      tip({ id: 'us', unitCost: 6000, nationality: 'US', tpl: 7200 }),
+      tip({ id: 'in', unitCost: 4000, nationality: 'IN', dbl: 4500, sgl: 3600 }),
+      tip({ id: 'us', unitCost: 6000, nationality: 'US', dbl: 6200, sgl: 4800 }),
     ];
-    expect(
-      tryHotelPaxBuySplit({
-        guestCodes: ['IN', 'US'],
-        adults: 6,
-        children: 0,
-        rooms: 4,
-        stayDates: [new Date('2026-04-10T00:00:00.000Z')],
-        candidatePool: pool,
-        pickBest: (rows) => rows[0],
-      }),
-    ).toBeNull();
+    const split = tryHotelPaxBuySplit({
+      guestCodes: ['IN', 'US'],
+      adults: 6,
+      children: 0,
+      rooms: 4,
+      stayDates: [new Date('2026-04-10T00:00:00.000Z')],
+      candidatePool: pool,
+      pickBest: (rows) => rows[0],
+    });
+    expect(split).not.toBeNull();
+    expect(split!.composition).toBe('dbl_sgl');
+    expect(split!.rooms).toBe(4);
+    expect(split!.bandAdults).toBe(2);
+    expect(split!.paxBuySplits).toHaveLength(6);
+    expect(split!.paxBuySplits.filter((s) => s.tipBandAdults === 1)).toHaveLength(
+      2,
+    );
+    expect(hotelPaxBuySplitMatchAccepted(split!)[0]).toMatch(/2DBL\+2SGL/);
+    expect(hotelPaxBuySplitMatchAccepted(split!)[0]).not.toMatch(/× 4 rooms/);
   });
 });

@@ -2291,9 +2291,24 @@ export function QuoteServiceDetailSheet({
                       const aloneCode = bag.length
                         ? bag[bag.length - 1]!
                         : selected[selected.length - 1] || '';
+                      const roomsN = Math.max(
+                        1,
+                        Math.floor(Number(details.rooms) || 1),
+                      );
+                      const adultsN = Math.max(
+                        0,
+                        Math.floor(Number(details.adults) || 0),
+                      );
+                      const unevenDblSgl =
+                        roomsN >= 2 &&
+                        adultsN > roomsN &&
+                        adultsN < 2 * roomsN;
+                      const singlesN = unevenDblSgl
+                        ? 2 * roomsN - adultsN
+                        : 0;
                       const showAlone =
-                        Number(details.rooms) === 2 &&
-                        Number(details.adults) === 3 &&
+                        unevenDblSgl &&
+                        singlesN >= 1 &&
                         selected.length >= 2;
                       return (
                         <>
@@ -2355,8 +2370,16 @@ export function QuoteServiceDetailSheet({
                           />
                           {showAlone ? (
                             <FormField
-                              label="Alone (single)"
-                              description="Who sleeps alone — last market on DBL+SGL."
+                              label={
+                                singlesN === 1
+                                  ? 'Alone (single)'
+                                  : `Singles (last ${singlesN})`
+                              }
+                              description={
+                                singlesN === 1
+                                  ? 'Who sleeps alone — last market on DBL+SGL.'
+                                  : `Last ${singlesN} bag markets take SGL. Pin one market to the end with this control.`
+                              }
                             >
                               <Combobox
                                 value={aloneCode}

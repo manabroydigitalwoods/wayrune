@@ -2,7 +2,8 @@
  * Thin mixed-nationality hotel buy: equal share from each guest tip's occupancy band.
  * Gates:
  * - DBL/2: adults === 2 × rooms, exactly two distinct codes
- * - DBL+SGL: 2 rooms, 3 adults (last slot = alone / SGL)
+ * - Uneven DBL+SGL board: rooms ≥ 2 and rooms < adults < 2×rooms
+ *   (3A/2R, 6A/4R, 5A/3R, … — last `singles` bag slots = SGL)
  * - TPL/3 × N: adults === 3 × rooms (bag multiplicity or lead-weighted 2-code)
  * Children allowed — extras compose via applyOccupancyPricing after the split.
  */
@@ -97,28 +98,88 @@ function money(v: number | string | null | undefined): number {
 export function expandThreeAdultNationalitySlots(
   codes: string[],
 ): string[] | null {
+  return expandAdultNationalitySlots(codes, 3);
+}
+
+/**
+ * Expand guest codes into `adultsNeeded` adult slots for mixed-nationality buy.
+ * - Bag length matches → use bag (multiplicity / alone / singles-last order)
+ * - Distinct count matches → one each
+ * - Exactly 2 distinct → majority / lead-weighted fill
+ */
+export function expandAdultNationalitySlots(
+  codes: string[],
+  adultsNeeded: number,
+): string[] | null {
+  const n = Math.max(0, Math.floor(adultsNeeded) || 0);
+  if (n < 2) return null;
   const bag = collectGuestNationalityBag({ nationalities: codes });
   const distinct = collectGuestNationalityCodes({ nationalities: codes });
   if (distinct.length < 2) return null;
 
-  if (bag.length === 3 && distinct.length >= 2 && distinct.length <= 3) {
+  if (bag.length === n && distinct.length >= 2) {
     return bag;
   }
 
-  if (distinct.length === 3) return [...distinct];
+  if (distinct.length === n) return [...distinct];
 
   if (distinct.length === 2) {
     const c0 = distinct[0]!;
     const c1 = distinct[1]!;
     const n0 = bag.filter((c) => c === c0).length;
     const n1 = bag.filter((c) => c === c1).length;
-    if (n0 > n1) return [c0, c0, c1];
-    if (n1 > n0) return [c1, c1, c0];
-    // Tie or distinct-only list → first (lead) twice
-    return [c0, c0, c1];
+    if (n === 3) {
+      if (n0 > n1) return [c0, c0, c1];
+      if (n1 > n0) return [c1, c1, c0];
+      return [c0, c0, c1];
+    }
+    // Larger parties: scale bag counts, or split half/half with lead ceil
+    let a0: number;
+    let a1: number;
+    if (n0 + n1 >= 2 && bag.length >= 2) {
+      const total = n0 + n1;
+      a0 = Math.round((n0 / total) * n);
+      a1 = n - a0;
+      if (a0 < 1) {
+        a0 = 1;
+        a1 = n - 1;
+      } else if (a1 < 1) {
+        a1 = 1;
+        a0 = n - 1;
+      }
+    } else {
+      a0 = Math.ceil(n / 2);
+      a1 = n - a0;
+    }
+    return [...Array(a0).fill(c0), ...Array(a1).fill(c1)];
   }
 
   return null;
+}
+
+/** Cue bit for uneven DBL+SGL board (1DBL+1SGL → DBL+SGL). */
+export function formatDblSglCompositionLabel(
+  doubles: number,
+  singles: number,
+): string {
+  const d = Math.max(0, Math.floor(doubles) || 0);
+  const s = Math.max(0, Math.floor(singles) || 0);
+  const dBit = d <= 1 ? 'DBL' : `${d}DBL`;
+  const sBit = s <= 1 ? 'SGL' : `${s}SGL`;
+  return `${dBit}+${sBit}`;
+}
+
+export function dblSglRoomCounts(opts: {
+  rooms: number;
+  adults: number;
+}): { doubles: number; singles: number } | null {
+  const rooms = Math.max(0, Math.floor(opts.rooms) || 0);
+  const adults = Math.max(0, Math.floor(opts.adults) || 0);
+  if (rooms < 2 || adults <= rooms || adults >= 2 * rooms) return null;
+  return {
+    doubles: adults - rooms,
+    singles: 2 * rooms - adults,
+  };
 }
 
 /**
@@ -135,26 +196,37 @@ export function hotelPaxBuySplitPlan(
   const distinct = collectGuestNationalityCodes({ nationalities: guestCodes });
   if (!guestNationalitiesAreMixed(distinct)) return null;
 
-  // Uneven 3A/2R first (not TPL×2): last expanded slot is SGL
-  if (rooms === 2 && adults === 3) {
-    const expanded = expandThreeAdultNationalitySlots(bag.length ? bag : distinct);
-    if (!expanded) return null;
+  // Uneven DBL+SGL board before TPL (e.g. 3A/2R, 6A/4R — not 6A/2R TPL×2)
+  const board = dblSglRoomCounts({ rooms, adults });
+  if (board) {
+    const expanded = expandAdultNationalitySlots(
+      bag.length ? bag : distinct,
+      adults,
+    );
+    if (!expanded || expanded.length !== adults) return null;
+    const slots: HotelPaxBuySplitSlot[] = [];
+    const dblAdultSlots = board.doubles * 2;
+    for (let i = 0; i < dblAdultSlots; i++) {
+      slots.push({ code: expanded[i]!, bandAdults: 2 });
+    }
+    for (let i = dblAdultSlots; i < adults; i++) {
+      slots.push({ code: expanded[i]!, bandAdults: 1 });
+    }
     return {
-      slots: [
-        { code: expanded[0]!, bandAdults: 2 },
-        { code: expanded[1]!, bandAdults: 2 },
-        { code: expanded[2]!, bandAdults: 1 },
-      ],
+      slots,
       bandAdults: 2,
       composition: 'dbl_sgl',
-      displayRooms: 2,
+      displayRooms: rooms,
       stayRooms: 1,
     };
   }
 
   // TPL/3 × N rooms (1R/3A, 2R/6A, 3R/9A, …)
   if (adults === 3 * rooms) {
-    const expanded = expandThreeAdultNationalitySlots(bag.length ? bag : distinct);
+    const expanded = expandAdultNationalitySlots(
+      bag.length ? bag : distinct,
+      3,
+    );
     if (!expanded) return null;
     return {
       slots: expanded.map((code) => ({ code, bandAdults: 3 })),
@@ -349,9 +421,14 @@ export function hotelPaxBuySplitMatchAccepted(
     (s) => `${s.nationality} ${fmt(s.sharePerNight)}`,
   );
   const rooms = Math.max(1, Math.floor(Number(split.rooms) || 1));
+  const adults = split.paxBuySplits.length;
+  const board = dblSglRoomCounts({ rooms, adults });
   const suffix =
     split.composition === 'dbl_sgl'
-      ? ' · DBL+SGL'
+      ? ` · ${formatDblSglCompositionLabel(
+          board?.doubles ?? 1,
+          board?.singles ?? 1,
+        )}`
       : rooms > 1
         ? ` · × ${rooms} rooms`
         : '';
