@@ -57,7 +57,7 @@ Maturity labels: **early** | **partial** | **mature** | **structural** (architec
 
 | Gap that used to be “Sembark” | Now |
 |-------------------------------|-----|
-| FX stub / no live rates | **Quote lock + Settings Frankfurter refresh + cross-pair via org rates** — still no auto-cron / AED feed |
+| FX stub / no live rates | **Quote lock + Settings Frankfurter refresh + worker weekly auto-cron + Lock FX live fetch** — still no AED alternate feed |
 | Package library depth | **Versioning + history/diff (side-by-side) + tags + slash-path folder nav + folder rename/move + empty folder index** — still no DnD |
 | Onboarding “no product” | **Checklist + FIT pack + empty-state Install** — still no consultant implementation centre |
 | Movement / vouchers “missing” | **Board + vouchers + DriverJob sync thin-complete** |
@@ -412,7 +412,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Lock FX line convert passes org rates (no new control) |
 | **3 Proof** | **Done** | `quote-fx` cross-pair specs; About note; this ladder in memo |
 
-**Defer:** auto-cron FX; live fetch inside Lock FX; paid providers; portfolio multi-currency rollup; AED alternate feed.
+**Defer:** *(closed — see FX auto-cron / Lock FX live fetch)* · paid providers; portfolio multi-currency rollup; AED alternate feed.
 
 #### Prod-ready ladder — Portfolio FX honesty (**done**)
 
@@ -1859,7 +1859,7 @@ Protocol for claim flip (ops, not engineering):
 | One-click branded proposal | PDF + email already | WhatsApp Cloud send (`POST …/send-whatsapp`) with public proposal link; **cold send requires Meta template** designated via Integrations `quoteProposalTemplateId` (or name/`quote_proposal` fallback); `wa.me` fallback + **Mark as sent** when Cloud is off; Send dialog readiness cue |
 | Quote revision UX polish | Versioning + revise-from-accepted | **Thin slice complete:** org `defaultQuoteValidityDays` stamped on create/clone/template/revise; **missing `validUntil` blocks send**; **near-expiry / grace extend is opt-in** on send, request-approval, and mark-sent; **post-expiry grace** keeps date in-window; **past grace blocks send** (reset required); Reset to org default + cues; attention click-through + Save & next; rate-drift strip/preflight; **attention table auto-scroll**; **version label display + edit + preset picker**. Defer: *(validity extend opt-in closed)* |
 
-**Defer past R1:** live FX auto-cron / quote-path fetch / AED feed (manual refresh thin-complete); country tax regimes (beyond org default %); full adult/child matrix everywhere; customer-facing quote comparison UI.
+**Defer past R1:** AED alternate feed; paid FX providers; country tax regimes (beyond org default %); full adult/child matrix everywhere; customer-facing quote comparison UI.
 
 ### Release 2 — Hotel + transfer contracting (days 31–60)
 
@@ -1940,7 +1940,7 @@ Hosted agency websites, forms→CRM, customer portal, hotel/DMC/driver partner o
 - Activity rate catalog → **shipped** (`SupplierActivityRate`: resolve Match rate, Rates CRUD, child age bounds, contract blackout/stop-sale, CSV/XLSX import)
 - Guided implementation / onboarding centre → **checklist + first-quote walkthrough shipped**; **sample FIT starter pack shipped** (`POST /organizations/starter-packs/fit_templates_v1/install` → Darjeeling + Goa templates **+ `TRP-DEMO-01` sample planning trip** with draft quote). Partner seed still seed-only
 - Org-wide ledger and scheduled report packs → **CSV + personal presets + org-shared packs + weekly scheduled email shipped** (`delivery` on pack + worker tick + `POST …/report-packs/:id/send`)
-- Live FX auto-cron / quote-path fetch / AED alternate feed (Settings refresh + quote lock thin-complete) and place-of-supply tax regimes
+- AED alternate feed / paid FX providers (Settings refresh + weekly auto-cron + Lock FX live fetch thin-complete) and place-of-supply tax regimes
 
 ---
 
@@ -1989,7 +1989,7 @@ Then introduce differentiators: connected WhatsApp and email → agency website 
 | Multi-organization travel operating platform | **Architecture proven** — do not claim finished partner network |
 | Automated GST-compliant / full accounting ledger | **Do not claim** |
 | Full supplier / partner network | **Do not claim yet** |
-| Live FX market refresh (Settings) | **Proven** (manual Frankfurter refresh; not auto-cron) |
+| Live FX market refresh (Settings) | **Proven** (manual + weekly auto-cron + Lock FX live fetch; not paid providers / AED feed) |
 | Hotel SGL/DBL/TPL contracted bases on Match | **Proven** (thin) |
 | Meal × occupancy matrix (Rate chart) | **Proven** (thin) |
 | Hotel weekend-per-band on Match | **Proven** (thin) |
