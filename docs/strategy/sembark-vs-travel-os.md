@@ -137,7 +137,7 @@ Scores: **Y** = acceptable · **~** = partial / thin · **N** = not yet · **—
 | Collect / chase / instalments / refunds | Y | ~ | Y | Y | N | ~ | Missing-instalments cue; ledger breadth N |
 | Full accounting / GST filing / IRN | ~ | N | N | ~ | N | N | Do not claim; segment-gated |
 | Self-serve + human-assisted launch | Y | ~ | Y | ~ | ~ | ~ | Checklist + Bring your data cues; consultant centre N |
-| Reporting / owner visibility | Y | ~ | ~ | Y | N | ~ | Packs thin; Sembark breadth lead |
+| Reporting / owner visibility | Y | ~ | Y | Y | N | ~ | Delivery last/next cues; Sembark breadth lead |
 | Market docs / scale / testimonials | Y | ~ | — | Y | ~ | ~ | Migration story Y; scale/testimonials N |
 | Multi-org / Presence / partner network | Y | ~ | — | ~ | N | N | Structural; **not** the agency-parity wedge |
 
@@ -610,7 +610,17 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Use-template History Diff expands side-by-side table (bullet fallback if no rows) |
 | **3 Proof** | **Done** | Diff row + History helper specs; this ladder in memo |
 
-**Defer:** *(closed — see Package folder rename/move + folder index + drag-drop / template-row DnD)* · itinerary day-level Diff.
+**Defer:** *(closed — see Package itinerary day-level Diff below)*.
+
+#### Prod-ready ladder — Package itinerary day-level Diff (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `itineraryDayDiffRows` / `parseTemplateStoryDays` — Day N title + item-count vs active; meta cue when story content differs; History rows cap 36 |
+| **2 Channels / UI** | **Done** | Use-template History Diff table shows Day N rows (existing side-by-side) |
+| **3 Proof** | **Done** | quote-template-diff specs; release note; this ladder |
+
+**Defer:** dedicated Packages page (parked) · full item-title text in Diff cells.
 
 #### Prod-ready ladder — Package folder rename/move (**done**)
 
@@ -850,7 +860,17 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Use-template dialog requires travel start DatePicker; Use disabled until set; walkthrough copy “Set travel start · Use template” |
 | **3 Proof** | **Done** | `resolveTemplateApplyTravelStart` unit specs; this ladder in memo |
 
-**Defer:** *(closed — see Onboarding Install pack CTAs below)* · occupancy grid.
+**Defer:** *(closed — see Rooms on Use-template below)*.
+
+#### Prod-ready ladder — Rooms on Use-template / apply (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `rooms` on ApplyQuoteTemplate + CreateTripFromPackage; `defaultRoomsFromAdults` = ceil(adults/2); stamp hotel `details.rooms` only |
+| **2 Channels / UI** | **Done** | Use-template + New-trip package **Rooms** (syncs when Adults change); toast shows ·NR |
+| **3 Proof** | **Done** | quote-template-content + createTripFromPackage specs; release note; this ladder; Guided FIT Ease nudge |
+
+**Defer:** denser SGL/DBL/TPL composer grid · inquiry stamp rooms mirror.
 
 #### Prod-ready ladder — Onboarding: quote empty-state Install pack (**done**)
 
@@ -870,7 +890,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Trips list empty (planning) shows **Install sample FIT pack** when no templates; navigates to demo trip quotations after install |
 | **3 Proof** | **Done** | Helper specs; this ladder in memo |
 
-**Defer:** *(closed — Bring your data / safe migration story)* · occupancy grid.
+**Defer:** *(closed — see Rooms on Use-template / apply above)*.
 
 #### Prod-ready ladder — New trip travel dates (**done**)
 
@@ -2184,6 +2204,16 @@ Protocol for claim flip (ops, not engineering):
 | **2 Channels / UI** | **Done** | Dashboard Finance cards: Open / Overdue AR + Supplier AP labels show `· N FX excl.` when mixed |
 | **3 Proof** | **Done** | `agingHomeStatLabel` specs; this ladder in memo |
 
+#### Prod-ready ladder — Report pack delivery honesty (**done**)
+
+| Gate | Status | Notes |
+|------|--------|-------|
+| **1 Integrity** | **Done** | `financeReportPackNextDueAt` (+ due via next); `lastSentAt` remains worker SMTP success only |
+| **2 Channels / UI** | **Done** | Aging + portfolio org-pack chips: cadence · last emailed · next due; Email now toast with queue timestamp |
+| **3 Proof** | **Done** | contracts + web cue specs; release note; matrix Reporting Ease nudge |
+
+**Defer:** inventing delivery SLAs / open-rate analytics; full ops report suite.
+
 | Work item | Build on | Notes |
 |-----------|----------|-------|
 | Reusable itinerary / quote templates + package clone | `QuoteTemplate` (seeded packages) | Seed: Darjeeling + Goa priced FIT packages; trip UI sorts by destination match; save-as-template stores `destinationHint`. **Thin slice complete:** apply (`POST …/from-template`) shifts line `checkIn`/`checkOut`/`serviceDate`/`activityDate` from template anchor → trip `startDate`, clears rate snapshots, then **server rematch** in `createFromTemplate` via `RatesService.resolve` (from-package + workspace); **reanchors existing story itinerary `day.date`** to trip start + (dayNumber−1); **save embeds trip Story days/meta** into `contentJson.itinerary` (`tripId` / `versionId`); **apply seeds empty trip Story** from template (reminted ids + date reanchor; story meta if missing); **else scaffolds days from hotel lines** (check-in→check-out span + Check-in items). **Versioning thin-complete:** supersede-on-save + active-only list. **History + restore thin-complete:** versions API + Use-template History/Restore. **Travel-start gate thin-complete:** apply requires/stamps `startDate` so undated trips still shift. **New trip dates thin-complete:** create sheet optional Travel start/end → POST. **Edit trip dates thin-complete:** `PATCH /trips/:id/dates` + workspace sheet (no auto line shift). **One-shot create+package thin-complete:** New trip optional Package → create + apply → Quotations. **Pax in apply thin-complete:** adults/children stamp hotel/transfer/activity before rematch. **Folder hierarchy thin-complete:** slash-path `contentJson.folder` + breadcrumb/prefix filter. **History Diff side-by-side thin-complete.** **Folder index + folder/template DnD thin-complete.** **Sibling sort thin-complete.** Defer: date-shift-on-edit; dedicated Packages page |
@@ -2231,7 +2261,7 @@ Compose existing surfaces — do **not** rebuild booking.
 
 ### Priority 1 (after P0 wedge)
 
-- Trip finance panel: payment links · org AR/AP aging · portfolio profitability — **thin slices shipped.** CSV download on aging + portfolio; personal portfolio presets (local) + **org-shared report packs** with optional **weekly scheduled CSV email** (worker hourly tick) + **Email now**. Public pay page + guest companion QR use Razorpay Checkout.js when keys are set. **Aging chase:** Copy payment link / Send WhatsApp from receivables & overdue rows (same APIs as trip Finance). **Age bucket chips** toggle `?bucket=` → Age facet. **Payables settle:** Mark paid + **Unmark** (toast Undo + sticky strip) from `/finance/payables` (same paid/unmark APIs + CD sync as trip Finance). **Home finance stats:** AR/AP cards show `· N FX excl.` when aging totals omit other currencies (parity with portfolio).
+- Trip finance panel: payment links · org AR/AP aging · portfolio profitability — **thin slices shipped.** CSV download on aging + portfolio; personal portfolio presets (local) + **org-shared report packs** with optional **weekly scheduled CSV email** (worker hourly tick) + **Email now** + **last emailed / next due cues**. Public pay page + guest companion QR use Razorpay Checkout.js when keys are set. **Aging chase:** Copy payment link / Send WhatsApp from receivables & overdue rows (same APIs as trip Finance). **Age bucket chips** toggle `?bucket=` → Age facet. **Payables settle:** Mark paid + **Unmark** (toast Undo + sticky strip) from `/finance/payables` (same paid/unmark APIs + CD sync as trip Finance). **Home finance stats:** AR/AP cards show `· N FX excl.` when aging totals omit other currencies (parity with portfolio).
 - Role dashboards — **thin slice shipped**
 - Guided onboarding — **thin slice shipped** (checklist + first-quote walkthrough + sample FIT starter pack)
 - Downloadable / saved report presets — **thin slice shipped** (finance CSV + personal portfolio presets + org-shared packs + scheduled delivery)

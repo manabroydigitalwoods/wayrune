@@ -838,6 +838,7 @@ export function TripWorkspacePage() {
   const [templateFolderFilter, setTemplateFolderFilter] = useState('');
   const [templateApplyStartDate, setTemplateApplyStartDate] = useState('');
   const [templateApplyAdults, setTemplateApplyAdults] = useState(2);
+  const [templateApplyRooms, setTemplateApplyRooms] = useState(1);
   const [templateApplyChildren, setTemplateApplyChildren] = useState(0);
   const [templateApplyChildAgesCsv, setTemplateApplyChildAgesCsv] = useState('');
   const [templateApplyChildrenWithoutBed, setTemplateApplyChildrenWithoutBed] =
@@ -2692,6 +2693,7 @@ export function TripWorkspacePage() {
     const existing = String(trip?.startDate || '').slice(0, 10);
     setTemplateApplyStartDate(/^\d{4}-\d{2}-\d{2}$/.test(existing) ? existing : '');
     setTemplateApplyAdults(2);
+    setTemplateApplyRooms(1);
     setTemplateApplyChildren(0);
     setTemplateHistoryForId(null);
     setTemplateHistoryItems([]);
@@ -2878,6 +2880,7 @@ export function TripWorkspacePage() {
         applyAdults?: number | null;
         applyChildren?: number | null;
         applyChildAges?: number[] | null;
+        applyRooms?: number | null;
         paxStampedCount?: number;
         rematchMatched?: number;
         rematchUnmatched?: number;
@@ -2892,6 +2895,7 @@ export function TripWorkspacePage() {
           startDate,
           adults: Math.max(1, Math.round(templateApplyAdults) || 2),
           children,
+          rooms: Math.max(1, Math.round(templateApplyRooms) || 1),
           ...(children > 0 && childAges.length ? { childAges } : {}),
           ...(childrenWithoutBed > 0 ? { childrenWithoutBed } : {}),
         }),
@@ -2921,7 +2925,9 @@ export function TripWorkspacePage() {
           ? ` ages ${quotation.applyChildAges.join(',')}`
           : '';
         bits.push(
-          `${quotation.applyAdults}A${kids ? `+${kids}C` : ''}${ages} on ${quotation.paxStampedCount} lines`,
+          `${quotation.applyAdults}A${kids ? `+${kids}C` : ''}${ages}${
+            quotation.applyRooms != null ? ` · ${quotation.applyRooms}R` : ''
+          } on ${quotation.paxStampedCount} lines`,
         );
       }
       if (shiftDays) {
@@ -6939,7 +6945,7 @@ export function TripWorkspacePage() {
             Required so hotel nights and transfers land on the right dates (then auto-rematch).
           </p>
         ) : null}
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-3 gap-3">
           <FormField label="Adults" required>
             <Input
               type="number"
@@ -6947,8 +6953,25 @@ export function TripWorkspacePage() {
               max={99}
               className="h-9"
               value={templateApplyAdults}
+              onChange={(e) => {
+                const adults = Math.max(
+                  1,
+                  Math.min(99, Number(e.target.value) || 1),
+                );
+                setTemplateApplyAdults(adults);
+                setTemplateApplyRooms(Math.max(1, Math.ceil(adults / 2)));
+              }}
+            />
+          </FormField>
+          <FormField label="Rooms" required>
+            <Input
+              type="number"
+              min={1}
+              max={99}
+              className="h-9"
+              value={templateApplyRooms}
               onChange={(e) =>
-                setTemplateApplyAdults(
+                setTemplateApplyRooms(
                   Math.max(1, Math.min(99, Number(e.target.value) || 1)),
                 )
               }
@@ -6972,6 +6995,9 @@ export function TripWorkspacePage() {
             />
           </FormField>
         </div>
+        <p className="text-xs text-muted-foreground">
+          Rooms default to ceil(adults ÷ 2). Stamped onto hotel lines; adults/children onto hotel, transfer, and activity before rematch.
+        </p>
         {templateApplyChildren > 0 ? (
           <div className="grid grid-cols-2 gap-3">
             <FormField
@@ -7007,9 +7033,6 @@ export function TripWorkspacePage() {
             </FormField>
           </div>
         ) : null}
-        <p className="text-xs text-muted-foreground">
-          Stamped onto hotel, transfer, and activity lines before rematch.
-        </p>
         {loadingTemplates ? (
           <p className="text-sm text-muted-foreground">Loading templates…</p>
         ) : quoteTemplates.length === 0 ? (

@@ -1193,6 +1193,8 @@ export const CreateTripFromPackageSchema = z
     children: z.number().int().min(0).max(99).optional(),
     childAges: z.array(z.number().int().min(0).max(17)).max(99).optional(),
     childrenWithoutBed: z.number().int().min(0).max(99).optional(),
+    /** Hotel rooms (default ceil(adults/2) when party is stamped). */
+    rooms: z.number().int().min(1).max(99).optional(),
   })
   .refine((v) => tripTravelEndOnOrAfterStart(v.startDate, v.endDate), {
     message: 'Travel end must be on or after travel start',
@@ -3814,6 +3816,8 @@ export const ApplyQuoteTemplateSchema = z.object({
   childAges: z.array(z.number().int().min(0).max(17)).max(99).optional(),
   /** Hotel occupancy: children priced without bed (≤ children). */
   childrenWithoutBed: z.number().int().min(0).max(99).optional(),
+  /** Hotel rooms stamped onto hotel lines before rematch (default ceil(adults/2)). */
+  rooms: z.number().int().min(1).max(99).optional(),
 });
 
 export const CloneQuotationSchema = z.object({
@@ -4379,6 +4383,7 @@ export {
   FINANCE_REPORT_PACKS_MAX,
   parseFinanceReportPacks,
   financeReportPackDeliveryDue,
+  financeReportPackNextDueAt,
   type FinanceReportPack,
   type FinanceReportPackDelivery,
   type CreateFinanceReportPackInput,

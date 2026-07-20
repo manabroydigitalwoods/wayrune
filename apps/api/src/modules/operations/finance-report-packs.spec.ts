@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  financeReportPackDeliveryDue,
+  financeReportPackNextDueAt,
+} from '@wayrune/contracts';
+import {
   listFinanceReportPacksFromSettings,
   upsertFinanceReportPackInSettings,
   FINANCE_REPORT_PACKS_MAX,
@@ -133,5 +137,25 @@ describe('finance-report-packs', () => {
       removeId: id,
     });
     expect(removed.packs).toHaveLength(0);
+  });
+
+  it('computes next due from lastSentAt cadence', () => {
+    const now = new Date('2026-07-20T10:00:00.000Z');
+    const delivery = {
+      enabled: true as const,
+      cadence: 'weekly' as const,
+      toEmails: ['ops@demo.travel'],
+      lastSentAt: '2026-07-19T12:00:00.000Z',
+    };
+    expect(financeReportPackNextDueAt(delivery, now)).toBe(
+      '2026-07-26T12:00:00.000Z',
+    );
+    expect(financeReportPackDeliveryDue(delivery, now)).toBe(false);
+    expect(
+      financeReportPackDeliveryDue(
+        { ...delivery, lastSentAt: undefined },
+        now,
+      ),
+    ).toBe(true);
   });
 });

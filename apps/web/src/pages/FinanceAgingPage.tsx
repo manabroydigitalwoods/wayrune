@@ -34,6 +34,7 @@ import {
   createFinanceReportPack,
   deleteFinanceReportPack,
   listFinanceReportPacks,
+  packDeliveryHonestyCue,
   sendFinanceReportPack,
   updateFinanceReportPack,
   type FinanceReportPack,
@@ -585,9 +586,16 @@ export function FinanceAgingPage() {
     setSendingPackId(pack.id);
     try {
       const res = await sendFinanceReportPack(pack.id);
+      const when = new Date().toLocaleString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      });
       toastSuccess(
-        `Report queued to ${res.toEmails.join(', ')} · ${res.attachmentCount} CSV`,
+        `Queued ${when} → ${res.toEmails.join(', ')} · ${res.attachmentCount} CSV`,
       );
+      await refreshOrgPacks();
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Could not email pack');
     } finally {
@@ -690,10 +698,13 @@ export function FinanceAgingPage() {
         </div>
         {orgPacks.length ? (
           <div className="flex flex-wrap gap-1.5">
-            {orgPacks.map((p) => (
+            {orgPacks.map((p) => {
+              const deliveryCue = packDeliveryHonestyCue(p);
+              return (
               <span
                 key={p.id}
                 className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2 py-1 text-xs"
+                title={deliveryCue || undefined}
               >
                 <Users className="size-3 text-primary" aria-hidden />
                 <button
@@ -702,7 +713,7 @@ export function FinanceAgingPage() {
                   onClick={() => applyOrgPack(p)}
                 >
                   {p.name}
-                  {p.delivery?.enabled ? ' · weekly' : ''}
+                  {deliveryCue ? ` · ${deliveryCue}` : ''}
                 </button>
                 <button
                   type="button"
@@ -728,7 +739,8 @@ export function FinanceAgingPage() {
                   ×
                 </button>
               </span>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <span className="text-xs text-muted-foreground">

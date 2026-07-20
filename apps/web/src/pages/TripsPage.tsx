@@ -121,6 +121,7 @@ const EMPTY_FORM = {
   endDate: '',
   templateId: '',
   adults: 2,
+  rooms: 1,
   children: 0,
   childAgesCsv: '',
   childrenWithoutBed: 0,
@@ -512,6 +513,7 @@ export function TripsPage() {
       endDate: form.endDate || undefined,
       templateId: form.templateId || undefined,
       adults: form.adults,
+      rooms: form.rooms,
       children: form.children,
       childAges: parseApplyChildAgesCsv(form.childAgesCsv),
       childrenWithoutBed: form.childrenWithoutBed,
@@ -1185,10 +1187,32 @@ export function TripsPage() {
                     min={1}
                     max={99}
                     value={form.adults}
+                    onChange={(e) => {
+                      const adults = Math.max(
+                        1,
+                        Math.min(99, Number(e.target.value) || 1),
+                      );
+                      setForm({
+                        ...form,
+                        adults,
+                        rooms: Math.max(1, Math.ceil(adults / 2)),
+                      });
+                    }}
+                  />
+                </FormField>
+                <FormField label="Rooms" required>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={99}
+                    value={form.rooms}
                     onChange={(e) =>
                       setForm({
                         ...form,
-                        adults: Math.max(1, Math.min(99, Number(e.target.value) || 1)),
+                        rooms: Math.max(
+                          1,
+                          Math.min(99, Number(e.target.value) || 1),
+                        ),
                       })
                     }
                   />

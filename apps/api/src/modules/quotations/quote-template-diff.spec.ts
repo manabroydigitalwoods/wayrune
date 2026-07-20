@@ -122,6 +122,77 @@ describe('diffQuoteTemplateContent', () => {
     expect(diff.metaChanges).toEqual(expect.arrayContaining(['destination', 'inclusions']));
     expect(diff.summary).toMatch(/meta:/);
   });
+
+  it('diffs story days by dayNumber (title + item count)', () => {
+    const prior: QuoteTemplateContent = {
+      items: [],
+      itinerary: {
+        days: [
+          {
+            id: 'd1',
+            dayNumber: 1,
+            title: 'Arrive',
+            items: [{ id: 'i1', type: 'sightseeing', title: 'Check-in' }],
+          },
+          {
+            id: 'd2',
+            dayNumber: 2,
+            title: 'Explore',
+            items: [
+              { id: 'i2', type: 'sightseeing', title: 'Market' },
+              { id: 'i3', type: 'sightseeing', title: 'Sunset' },
+            ],
+          },
+        ],
+      },
+    };
+    const active: QuoteTemplateContent = {
+      items: [],
+      itinerary: {
+        days: [
+          {
+            id: 'd1b',
+            dayNumber: 1,
+            title: 'Arrival',
+            items: [{ id: 'i1b', type: 'sightseeing', title: 'Check-in' }],
+          },
+          {
+            id: 'd2b',
+            dayNumber: 2,
+            title: 'Explore',
+            items: [{ id: 'i2b', type: 'sightseeing', title: 'Market' }],
+          },
+          {
+            id: 'd3b',
+            dayNumber: 3,
+            title: 'Depart',
+            items: [],
+          },
+        ],
+      },
+    };
+    const diff = diffQuoteTemplateContent(prior, active);
+    expect(diff.metaChanges.some((m) => m.includes('story days'))).toBe(true);
+    expect(diff.rows).toEqual(
+      expect.arrayContaining([
+        {
+          field: 'Day 1 · title',
+          thisTip: 'Arrive',
+          current: 'Arrival',
+        },
+        {
+          field: 'Day 2 · items',
+          thisTip: '2 items',
+          current: '1 item',
+        },
+        {
+          field: 'Day 3',
+          thisTip: '—',
+          current: 'Depart',
+        },
+      ]),
+    );
+  });
 });
 
 describe('formatQuoteTemplateDiffSummary', () => {

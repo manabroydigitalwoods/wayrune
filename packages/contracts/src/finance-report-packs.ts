@@ -22,7 +22,7 @@ export const FinanceReportPackDeliverySchema = z.object({
     .array(z.string().trim().email('Enter a valid email'))
     .min(1, 'Add at least one email')
     .max(5),
-  /** ISO timestamp written by the worker after a successful/attempted send. */
+  /** ISO timestamp written by the worker after a successful SMTP send. */
   lastSentAt: z.string().min(1).optional(),
 });
 
@@ -103,17 +103,35 @@ export function parseFinanceReportPacks(settingsJson: unknown): FinanceReportPac
   return out;
 }
 
+function financeReportPackCadenceMs(cadence: 'daily' | 'weekly'): number {
+  const day = 24 * 60 * 60 * 1000;
+  return cadence === 'weekly' ? 7 * day : day;
+}
+
+/**
+ * Next eligible send time for an enabled pack (ISO).
+ * Never-sent / invalid lastSentAt → `now` (due immediately).
+ * Null when delivery is off or has no recipients.
+ */
+export function financeReportPackNextDueAt(
+  delivery: FinanceReportPackDelivery | undefined,
+  now = new Date(),
+): string | null {
+  if (!delivery?.enabled) return null;
+  if (!delivery.toEmails?.length) return null;
+  const interval = financeReportPackCadenceMs(delivery.cadence);
+  if (!delivery.lastSentAt) return now.toISOString();
+  const last = new Date(delivery.lastSentAt);
+  if (Number.isNaN(last.getTime())) return now.toISOString();
+  return new Date(last.getTime() + interval).toISOString();
+}
+
 /** Whether a pack with delivery.enabled is due for another send. */
 export function financeReportPackDeliveryDue(
   delivery: FinanceReportPackDelivery | undefined,
   now = new Date(),
 ): boolean {
-  if (!delivery?.enabled) return false;
-  if (!delivery.toEmails?.length) return false;
-  if (!delivery.lastSentAt) return true;
-  const last = new Date(delivery.lastSentAt);
-  if (Number.isNaN(last.getTime())) return true;
-  const ms = now.getTime() - last.getTime();
-  const day = 24 * 60 * 60 * 1000;
-  return delivery.cadence === 'weekly' ? ms >= 7 * day : ms >= day;
+  const next = financeReportPackNextDueAt(delivery, now);
+  if (!next) return false;
+  return new Date(next).getTime() <= now.getTime();
 }

@@ -1,4 +1,5 @@
 import type { FinanceReportPack } from '@wayrune/contracts';
+import { financeReportPackNextDueAt } from '@wayrune/contracts';
 import { api } from '../api';
 
 export type { FinanceReportPack };
@@ -75,4 +76,35 @@ export function agingPackHref(aging: {
   if (aging.direction === 'supplier') return '/finance/payables';
   if (aging.overdueOnly) return '/finance/overdue';
   return '/finance';
+}
+
+function shortDayLabel(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+/**
+ * Chip cue for scheduled packs: cadence · last emailed · next due.
+ * lastSentAt is worker SMTP success only — Email now does not advance it.
+ */
+export function packDeliveryHonestyCue(
+  pack: FinanceReportPack,
+  now = new Date(),
+): string {
+  const d = pack.delivery;
+  if (!d?.enabled) return '';
+  const cadence = d.cadence === 'daily' ? 'daily' : 'weekly';
+  const last = d.lastSentAt
+    ? `last ${shortDayLabel(d.lastSentAt)}`
+    : 'never emailed';
+  const nextIso = financeReportPackNextDueAt(d, now);
+  let next = '';
+  if (nextIso) {
+    next =
+      new Date(nextIso).getTime() <= now.getTime()
+        ? 'next due now'
+        : `next ${shortDayLabel(nextIso)}`;
+  }
+  return [cadence, last, next].filter(Boolean).join(' · ');
 }

@@ -414,11 +414,13 @@ describe('quote-template-content', () => {
     expect(resolveApplyPax({ adults: 3, children: 1 })).toEqual({
       adults: 3,
       children: 1,
+      rooms: 2,
       childAges: [8],
     });
     expect(resolveApplyPax({ children: 2 })).toEqual({
       adults: 2,
       children: 2,
+      rooms: 1,
       childAges: [8, 8],
     });
     expect(
@@ -431,8 +433,14 @@ describe('quote-template-content', () => {
     ).toEqual({
       adults: 2,
       children: 2,
+      rooms: 1,
       childAges: [5, 11],
       childrenWithoutBed: 1,
+    });
+    expect(resolveApplyPax({ adults: 5, children: 0, rooms: 3 })).toEqual({
+      adults: 5,
+      children: 0,
+      rooms: 3,
     });
 
     const reminted = remintQuoteItems([
@@ -445,7 +453,18 @@ describe('quote-template-content', () => {
         taxPercent: 0,
         pricingUnit: 'per_room',
         serviceType: 'hotel',
-        details: { adults: 2, children: 0, childAges: [8] },
+        details: { adults: 2, children: 0, childAges: [8], rooms: 1 },
+      },
+      {
+        id: 't1',
+        description: 'Transfer',
+        quantity: 1,
+        unitCost: 500,
+        unitSell: 600,
+        taxPercent: 0,
+        pricingUnit: 'per_service',
+        serviceType: 'transfer',
+        details: { adults: 2, children: 0 },
       },
       {
         id: 'c1',
@@ -461,20 +480,26 @@ describe('quote-template-content', () => {
     const { items, stampedCount } = stampApplyPaxOntoQuoteItems(reminted, {
       adults: 3,
       children: 0,
+      rooms: 2,
     });
-    expect(stampedCount).toBe(1);
+    expect(stampedCount).toBe(2);
     expect(items[0]?.details?.adults).toBe(3);
     expect(items[0]?.details?.children).toBe(0);
+    expect(items[0]?.details?.rooms).toBe(2);
     expect(items[0]?.details?.childAges).toBeUndefined();
-    expect(items[1]?.details?.adults).toBeUndefined();
+    expect(items[1]?.details?.adults).toBe(3);
+    expect(items[1]?.details?.rooms).toBeUndefined();
+    expect(items[2]?.details?.adults).toBeUndefined();
 
     const withAges = stampApplyPaxOntoQuoteItems(reminted, {
       adults: 2,
       children: 2,
+      rooms: 1,
       childAges: [6, 9],
       childrenWithoutBed: 1,
     });
     expect(withAges.items[0]?.details?.childAges).toEqual([6, 9]);
     expect(withAges.items[0]?.details?.childrenWithoutBed).toBe(1);
+    expect(withAges.items[0]?.details?.rooms).toBe(1);
   });
 });

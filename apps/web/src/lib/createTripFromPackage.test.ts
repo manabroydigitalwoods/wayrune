@@ -47,6 +47,7 @@ describe('planCreateTripFromPackage', () => {
         startDate: '2026-12-10',
         adults: 3,
         children: 1,
+        rooms: 2,
       });
       expect(plan.createBody.startDate).toBe('2026-12-10');
       expect(fromPackageRequestBody(plan)).toEqual({
@@ -56,7 +57,23 @@ describe('planCreateTripFromPackage', () => {
         templateId: 'tmpl-1',
         adults: 3,
         children: 1,
+        rooms: 2,
       });
+    }
+  });
+
+  it('forwards explicit rooms on apply', () => {
+    const plan = planCreateTripFromPackage({
+      title: 'Goa FIT',
+      templateId: 'tmpl-1',
+      startDate: '2026-12-10',
+      adults: 4,
+      children: 0,
+      rooms: 3,
+    });
+    expect(plan.ok).toBe(true);
+    if (plan.ok) {
+      expect(plan.apply?.rooms).toBe(3);
     }
   });
 

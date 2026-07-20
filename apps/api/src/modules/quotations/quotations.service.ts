@@ -1511,7 +1511,7 @@ export class QuotationsService {
                 removedTitles: diff.removedTitles.slice(0, 5),
                 changedTitles: diff.changedTitles.slice(0, 5),
                 metaChanges: diff.metaChanges,
-                rows: diff.rows.slice(0, 24),
+                rows: diff.rows.slice(0, 36),
               };
             })()
           : undefined;
@@ -1646,6 +1646,7 @@ export class QuotationsService {
       children: input.children,
       childAges: input.childAges,
       childrenWithoutBed: input.childrenWithoutBed,
+      rooms: input.rooms,
     });
     const { items: stampedItems, stampedCount: paxStampedCount } = applyPax
       ? stampApplyPaxOntoQuoteItems(shifted, applyPax)
@@ -1734,6 +1735,7 @@ export class QuotationsService {
           applyChildren: applyPax?.children ?? null,
           applyChildAges: applyPax?.childAges ?? null,
           applyChildrenWithoutBed: applyPax?.childrenWithoutBed ?? null,
+          applyRooms: applyPax?.rooms ?? null,
           paxStampedCount,
           rematchMatched: rematch.matchedCount,
           rematchUnmatched: rematch.unmatchedCount,
@@ -1753,6 +1755,7 @@ export class QuotationsService {
       applyChildren: applyPax?.children ?? null,
       applyChildAges: applyPax?.childAges ?? null,
       applyChildrenWithoutBed: applyPax?.childrenWithoutBed ?? null,
+      applyRooms: applyPax?.rooms ?? null,
       paxStampedCount,
       rematchMatched: rematch.matchedCount,
       rematchUnmatched: rematch.unmatchedCount,
@@ -1791,6 +1794,7 @@ export class QuotationsService {
           children: input.children,
           childAges: input.childAges,
           childrenWithoutBed: input.childrenWithoutBed,
+          rooms: input.rooms,
         },
         tx,
       );

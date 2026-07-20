@@ -44,11 +44,20 @@ describe('releaseNotes', () => {
     ).toBe(true);
     // Newest array entries surface first on the About strip.
     const top = visibleReleaseNotes(RELEASE_NOTES, { limit: 5 });
-    expect(top[0]?.id).toBe('2026-07-20-enquiry-sla-parity');
-    expect(top[1]?.id).toBe('2026-07-20-priced-alts-child-extras');
-    expect(top[2]?.id).toBe('2026-07-20-priced-alts-split-preview');
-    expect(top[3]?.id).toBe('2026-07-20-why-rate-noise-filter');
-    expect(top[4]?.id).toBe('2026-07-20-operate-through-dogfood');
+    expect(top[0]?.id).toBe('2026-07-20-report-pack-delivery-honesty');
+    expect(top[1]?.id).toBe('2026-07-20-package-story-day-diff');
+    expect(top[2]?.id).toBe('2026-07-20-rooms-on-template-apply');
+    expect(top[3]?.id).toBe('2026-07-20-enquiry-sla-parity');
+    expect(top[4]?.id).toBe('2026-07-20-priced-alts-child-extras');
+    expect(
+      allBuyer.some((n) => n.id === '2026-07-20-report-pack-delivery-honesty'),
+    ).toBe(true);
+    expect(
+      allBuyer.some((n) => n.id === '2026-07-20-package-story-day-diff'),
+    ).toBe(true);
+    expect(
+      allBuyer.some((n) => n.id === '2026-07-20-rooms-on-template-apply'),
+    ).toBe(true);
     expect(
       allBuyer.some((n) => n.id === '2026-07-20-enquiry-sla-parity'),
     ).toBe(true);

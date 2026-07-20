@@ -13,6 +13,7 @@ export type CreateTripFromPackageForm = {
   children?: number;
   childAges?: number[];
   childrenWithoutBed?: number;
+  rooms?: number;
 };
 
 export type CreateTripFromPackagePlan = {
@@ -28,6 +29,7 @@ export type CreateTripFromPackagePlan = {
     startDate: string;
     adults: number;
     children: number;
+    rooms: number;
     childAges?: number[];
     childrenWithoutBed?: number;
   };
@@ -44,6 +46,11 @@ export function parseApplyChildAgesCsv(raw: string): number[] {
     .split(/[,\s]+/)
     .map((x) => Math.round(Number(x)))
     .filter((n) => Number.isFinite(n) && n >= 0 && n <= 17);
+}
+
+export function defaultRoomsFromAdults(adults: number): number {
+  const a = Math.max(1, Math.round(Number(adults) || 1));
+  return Math.max(1, Math.ceil(a / 2));
 }
 
 /** Validate create (+ optional package) before POST /trips or /trips/from-package. */
@@ -86,6 +93,11 @@ export function planCreateTripFromPackage(
 
   const adults = Math.max(1, Math.round(Number(input.adults) || 2));
   const children = Math.max(0, Math.round(Number(input.children) || 0));
+  const roomsRaw = input.rooms != null ? Math.round(Number(input.rooms)) : NaN;
+  const rooms =
+    Number.isFinite(roomsRaw) && roomsRaw >= 1
+      ? Math.min(99, roomsRaw)
+      : defaultRoomsFromAdults(adults);
   const childAges =
     children > 0 && input.childAges?.length
       ? input.childAges.filter((n) => Number.isFinite(n) && n >= 0 && n <= 17)
@@ -109,6 +121,7 @@ export function planCreateTripFromPackage(
       startDate,
       adults,
       children,
+      rooms,
       ...(childAges?.length ? { childAges } : {}),
       ...(childrenWithoutBed != null ? { childrenWithoutBed } : {}),
     },
@@ -126,6 +139,7 @@ export function fromPackageRequestBody(
     startDate: plan.apply.startDate,
     adults: plan.apply.adults,
     children: plan.apply.children,
+    rooms: plan.apply.rooms,
     ...(plan.apply.childAges?.length ? { childAges: plan.apply.childAges } : {}),
     ...(plan.apply.childrenWithoutBed != null
       ? { childrenWithoutBed: plan.apply.childrenWithoutBed }

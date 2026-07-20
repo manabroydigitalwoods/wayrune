@@ -27,6 +27,30 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-report-pack-delivery-honesty',
+    date: '2026-07-20',
+    title: 'Report pack last emailed · next due',
+    summary:
+      'Aging and portfolio org packs show cadence, last successful email, and next due. Email now toasts a queue timestamp; lastSentAt still advances only after SMTP succeeds.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-package-story-day-diff',
+    date: '2026-07-20',
+    title: 'Package History — story day Diff',
+    summary:
+      'Use-template History Diff compares story days by day number (title + item count) against the current tip — not only total day count.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-rooms-on-template-apply',
+    date: '2026-07-20',
+    title: 'Rooms on Use template',
+    summary:
+      'Start from template and New-trip package ask for Rooms (defaults to ceil(adults ÷ 2)). Hotel lines get details.rooms before rematch — no denser occupancy composer.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-enquiry-sla-parity',
     date: '2026-07-20',
     title: 'Enquiry desk Response SLA',

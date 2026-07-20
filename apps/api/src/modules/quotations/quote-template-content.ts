@@ -112,15 +112,23 @@ export function normalizeApplyChildAges(
 /**
  * When apply sends adults and/or children, resolve a stamp party.
  * Omitted both → null (keep template line pax).
+ * Rooms default to max(1, ceil(adults/2)) when omitted.
  */
+export function defaultRoomsFromAdults(adults: number): number {
+  const a = Math.max(1, Math.round(Number(adults) || 1));
+  return Math.max(1, Math.ceil(a / 2));
+}
+
 export function resolveApplyPax(input: {
   adults?: number | null;
   children?: number | null;
   childAges?: number[] | null;
   childrenWithoutBed?: number | null;
+  rooms?: number | null;
 }): {
   adults: number;
   children: number;
+  rooms: number;
   childAges?: number[];
   childrenWithoutBed?: number;
 } | null {
@@ -135,20 +143,27 @@ export function resolveApplyPax(input: {
       childrenWithoutBed = Math.min(n, children);
     }
   }
+  const roomsRaw = input.rooms != null ? Math.round(Number(input.rooms)) : NaN;
+  const rooms =
+    Number.isFinite(roomsRaw) && roomsRaw >= 1
+      ? Math.min(99, roomsRaw)
+      : defaultRoomsFromAdults(adults);
   return {
     adults,
     children,
+    rooms,
     ...(childAges ? { childAges } : {}),
     ...(childrenWithoutBed != null ? { childrenWithoutBed } : {}),
   };
 }
 
-/** Stamp adults/children (+ ages / without-bed) onto hotel / transfer / activity lines. */
+/** Stamp adults/children (+ ages / without-bed) onto hotel / transfer / activity; rooms on hotel only. */
 export function stampApplyPaxOntoQuoteItems(
   items: QuotationItem[],
   pax: {
     adults: number;
     children: number;
+    rooms: number;
     childAges?: number[];
     childrenWithoutBed?: number;
   },
@@ -163,6 +178,9 @@ export function stampApplyPaxOntoQuoteItems(
       adults: pax.adults,
       children: pax.children,
     };
+    if (kind === 'hotel') {
+      details.rooms = Math.max(1, Math.round(Number(pax.rooms) || 1));
+    }
     if (pax.children <= 0) {
       delete details.childAges;
       delete details.childrenWithoutBed;

@@ -50,6 +50,135 @@ function itineraryDayCount(content: QuoteTemplateContent): number {
   return Array.isArray(days) ? days.length : 0;
 }
 
+type StoryDaySnap = {
+  dayNumber: number;
+  title: string;
+  itemTitles: string;
+};
+
+/** Loose template story days → comparable snaps (by dayNumber). */
+export function parseTemplateStoryDays(
+  content: QuoteTemplateContent,
+): StoryDaySnap[] {
+  const raw = content.itinerary?.days;
+  if (!Array.isArray(raw)) return [];
+  return raw.slice(0, 90).map((d, i) => {
+    const rec =
+      d && typeof d === 'object' ? (d as Record<string, unknown>) : {};
+    const dayNumber = Math.max(
+      1,
+      Math.floor(Number(rec.dayNumber) || i + 1),
+    );
+    const title = typeof rec.title === 'string' ? rec.title.trim() : '';
+    const items = Array.isArray(rec.items) ? rec.items : [];
+    const itemTitles = items
+      .map((it) => {
+        if (!it || typeof it !== 'object') return '';
+        const t = (it as Record<string, unknown>).title;
+        return typeof t === 'string' ? t.trim().toLowerCase() : '';
+      })
+      .filter(Boolean)
+      .join('|');
+    return { dayNumber, title, itemTitles };
+  });
+}
+
+const STORY_DAY_ROW_CAP = 12;
+
+/**
+ * Per-day title / item-fingerprint rows + compact meta cue when story differs.
+ */
+export function itineraryDayDiffRows(
+  prior: QuoteTemplateContent,
+  active: QuoteTemplateContent,
+): { rows: QuoteTemplateDiffRow[]; metaCue: string | null } {
+  const priorDays = parseTemplateStoryDays(prior);
+  const activeDays = parseTemplateStoryDays(active);
+  if (!priorDays.length && !activeDays.length) {
+    return { rows: [], metaCue: null };
+  }
+
+  const activeByNum = new Map<number, StoryDaySnap[]>();
+  for (const day of activeDays) {
+    const bucket = activeByNum.get(day.dayNumber) ?? [];
+    bucket.push(day);
+    activeByNum.set(day.dayNumber, bucket);
+  }
+
+  const rows: QuoteTemplateDiffRow[] = [];
+  const matched = new Set<StoryDaySnap>();
+  let changedDays = 0;
+  let removedDays = 0;
+  let addedDays = 0;
+
+  const pushRow = (row: QuoteTemplateDiffRow) => {
+    if (rows.length >= STORY_DAY_ROW_CAP) return;
+    rows.push(row);
+  };
+
+  for (const day of priorDays) {
+    const bucket = activeByNum.get(day.dayNumber) ?? [];
+    const match = bucket.find((a) => !matched.has(a));
+    if (!match) {
+      removedDays += 1;
+      pushRow({
+        field: `Day ${day.dayNumber}`,
+        thisTip: truncateDisplay(day.title || 'in this version'),
+        current: '—',
+      });
+      continue;
+    }
+    matched.add(match);
+    const titleChanged = day.title !== match.title;
+    const itemsChanged = day.itemTitles !== match.itemTitles;
+    if (!titleChanged && !itemsChanged) continue;
+    changedDays += 1;
+    if (titleChanged) {
+      pushRow({
+        field: `Day ${day.dayNumber} · title`,
+        thisTip: truncateDisplay(day.title || ''),
+        current: truncateDisplay(match.title || ''),
+      });
+    }
+    if (itemsChanged) {
+      const priorCount = day.itemTitles
+        ? day.itemTitles.split('|').filter(Boolean).length
+        : 0;
+      const activeCount = match.itemTitles
+        ? match.itemTitles.split('|').filter(Boolean).length
+        : 0;
+      pushRow({
+        field: `Day ${day.dayNumber} · items`,
+        thisTip: priorCount ? `${priorCount} item${priorCount === 1 ? '' : 's'}` : '—',
+        current: activeCount
+          ? `${activeCount} item${activeCount === 1 ? '' : 's'}`
+          : '—',
+      });
+    }
+  }
+
+  for (const day of activeDays) {
+    if (matched.has(day)) continue;
+    addedDays += 1;
+    pushRow({
+      field: `Day ${day.dayNumber}`,
+      thisTip: '—',
+      current: truncateDisplay(day.title || 'in current'),
+    });
+  }
+
+  if (!changedDays && !removedDays && !addedDays) {
+    return { rows: [], metaCue: null };
+  }
+
+  const parts: string[] = [];
+  if (addedDays) parts.push(`+${addedDays}`);
+  if (removedDays) parts.push(`−${removedDays}`);
+  if (changedDays) parts.push(`~${changedDays}`);
+  const metaCue = `story days (${parts.join(' / ')})`;
+  return { rows, metaCue };
+}
+
 function displayScalar(value: unknown, empty = '—'): string {
   if (value == null) return empty;
   if (typeof value === 'number') {
@@ -260,7 +389,18 @@ export function diffQuoteTemplateContent(
     );
   }
 
+  const dayDiff = itineraryDayDiffRows(prior, active);
+  if (dayDiff.metaCue && !metaChanges.some((m) => m.startsWith('story days'))) {
+    metaChanges.push(dayDiff.metaCue);
+  } else if (
+    dayDiff.metaCue &&
+    metaChanges.some((m) => m === 'story days' || m.startsWith('story days ('))
+  ) {
+    // Count change already noted — keep day-detail rows without duplicating meta.
+  }
+
   rows.push(...metaChangeRows(prior, active, metaChanges));
+  rows.push(...dayDiff.rows);
 
   const summary = formatQuoteTemplateDiffSummary({
     addedTitles,
