@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  markupDetailsFromPreset,
   markupPresetSummary,
   normalizeMarkupPresets,
   sellFromMarkupPreset,
@@ -31,5 +32,22 @@ describe('markup-presets', () => {
     expect(
       markupPresetSummary({ label: 'Premium', mode: 'fixed', value: 500 }),
     ).toBe('Premium (+₹500)');
+  });
+
+  it('stamps preset fields onto quote line details', () => {
+    expect(
+      markupDetailsFromPreset({
+        id: 'retail',
+        label: 'Retail',
+        mode: 'percent',
+        value: 18,
+      }),
+    ).toEqual({
+      markupMode: 'percent',
+      markupValue: 18,
+      markupPresetId: 'retail',
+      markupPresetLabel: 'Retail',
+      sellManual: false,
+    });
   });
 });

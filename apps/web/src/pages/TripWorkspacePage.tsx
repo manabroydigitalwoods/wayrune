@@ -6017,6 +6017,7 @@ export function TripWorkspacePage() {
         partyChildren={Number(trip?.inquiry?.children) || undefined}
         partyInfants={Number(trip?.inquiry?.infants) || undefined}
         defaultMarkupPercent={quoteDefaultMarkupPercent()}
+        markupPresets={quoteMarkupPresets()}
         partyId={trip?.party?.id}
         tripTravellers={trip?.travellers || null}
         destinationPlaceOfSupply={trip?.destinationPlaceOfSupply}

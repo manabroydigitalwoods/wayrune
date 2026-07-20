@@ -1,5 +1,6 @@
 export {
   type MarkupPreset,
+  markupDetailsFromPreset,
   markupPresetSummary,
   normalizeMarkupPresets,
   resolveOrgMarkupPresets,

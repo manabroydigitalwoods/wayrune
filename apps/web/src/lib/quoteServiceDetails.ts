@@ -156,6 +156,8 @@ export function parseQuoteServiceDetails(raw: unknown): QuoteServiceDetails | un
         : undefined,
     markupMode: markupMode === 'percent' || markupMode === 'fixed' ? markupMode : undefined,
     markupValue: num(d.markupValue),
+    markupPresetId: str(d.markupPresetId),
+    markupPresetLabel: str(d.markupPresetLabel),
     sellManual: typeof d.sellManual === 'boolean' ? d.sellManual : undefined,
     priceSource:
       priceSource &&

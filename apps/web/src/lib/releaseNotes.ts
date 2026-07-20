@@ -27,6 +27,14 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-per-line-markup-presets',
+    date: '2026-07-20',
+    title: 'Markup presets on individual quote lines',
+    summary:
+      'Quote service detail can apply org markup library presets to a single hotel, transfer, activity, or custom line. Stamps markupPresetId/label on the line details; toolbar bulk Apply still covers missing-sell lines.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-non-net-payment-terms',
     date: '2026-07-20',
     title: 'Non-Net payment terms auto due dates',

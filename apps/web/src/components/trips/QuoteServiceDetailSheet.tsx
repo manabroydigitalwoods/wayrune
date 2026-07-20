@@ -22,6 +22,11 @@ import {
 import { api, type SupplierHotelRateRow } from '../../api';
 import { PlaceSinglePicker } from '../places/PlacePicker';
 import { formatDateInput, parseDateInput } from '../../lib/dateInput';
+import {
+  markupDetailsFromPreset,
+  markupPresetSummary,
+  type MarkupPreset,
+} from '../../lib/markupPresets';
 import { serviceTypeLabel } from '../../lib/quoteImportFromItinerary';
 import {
   EXPERIENCE_SUPPLIER_TYPE_QUERY,
@@ -428,6 +433,7 @@ export function QuoteServiceDetailSheet({
   partyInfants,
   partyId,
   defaultMarkupPercent = 20,
+  markupPresets = [],
   seedDetails,
   tripTravellers,
   destinationPlaceOfSupply,
@@ -466,6 +472,8 @@ export function QuoteServiceDetailSheet({
   /** Trip destination POS — hotel buy tip Match prefers matching tip. */
   destinationPlaceOfSupply?: string | null;
   defaultMarkupPercent?: number;
+  /** Org markup preset library — apply to this line only. */
+  markupPresets?: MarkupPreset[];
   seedDetails?: QuoteServiceDetails | null;
   onSave: (patch: Partial<QuoteServiceDetailLine> & { id: string }) => void;
   /** When set, footer shows Next issue · N of M for attention-strip queue. */
@@ -1000,8 +1008,20 @@ export function QuoteServiceDetailSheet({
     }
   }
 
-  function onMarkupChange(mode: QuoteMarkupMode, value: number | undefined) {
-    patchDetails({ markupMode: mode, markupValue: value, sellManual: false });
+  function onMarkupChange(
+    mode: QuoteMarkupMode,
+    value: number | undefined,
+    opts?: { preset?: MarkupPreset | null },
+  ) {
+    const preset = opts?.preset;
+    patchDetails({
+      markupMode: mode,
+      markupValue: value,
+      sellManual: false,
+      ...(preset
+        ? markupDetailsFromPreset(preset)
+        : { markupPresetId: undefined, markupPresetLabel: undefined }),
+    });
     if (serviceType === 'hotel') {
       const base = hotelBaseCost(buyUnit, { ...details, markupMode: mode, markupValue: value });
       const suggested = suggestedSellFromMarkup(base, mode, value);
@@ -1032,6 +1052,35 @@ export function QuoteServiceDetailSheet({
         setUnitSell(String(Math.round((suggested / customQtyN) * 100) / 100));
       }
     }
+  }
+
+  function applyLineMarkupPreset(preset: MarkupPreset) {
+    onMarkupChange(preset.mode, preset.value, { preset });
+  }
+
+  function renderMarkupPresetChips() {
+    if (readOnly || !markupPresets.length) return null;
+    const selectedId =
+      typeof details.markupPresetId === 'string' ? details.markupPresetId : null;
+    return (
+      <div className="space-y-1">
+        <p className="text-[11px] text-muted-foreground">Org presets (this line)</p>
+        <div className="flex flex-wrap gap-1.5">
+          {markupPresets.map((preset) => (
+            <Button
+              key={preset.id}
+              type="button"
+              size="sm"
+              variant={selectedId === preset.id ? 'secondary' : 'ghost'}
+              className="h-7"
+              onClick={() => applyLineMarkupPreset(preset)}
+            >
+              {markupPresetSummary(preset)}
+            </Button>
+          ))}
+        </div>
+      </div>
+    );
   }
 
   function requestServiceTypeChange(next: QuoteServiceType) {
@@ -2792,7 +2841,9 @@ export function QuoteServiceDetailSheet({
                   onChange={onBuyUnitChange}
                 />
               </FormField>
-              <FormField label="Markup %">
+              <FormField
+                label={markupMode === 'fixed' ? 'Markup amount' : 'Markup %'}
+              >
                 <Input
                   type="number"
                   min={0}
@@ -2800,12 +2851,13 @@ export function QuoteServiceDetailSheet({
                   value={markupValue}
                   onChange={(e) =>
                     onMarkupChange(
-                      'percent',
+                      markupMode === 'fixed' ? 'fixed' : 'percent',
                       e.target.value === '' ? undefined : Number(e.target.value),
                     )
                   }
                 />
               </FormField>
+              {renderMarkupPresetChips()}
               <FormField label="Sell unit rate" description="Calculated from buy × markup">
                 <PriceField
                   currency={currency}
@@ -3786,7 +3838,9 @@ export function QuoteServiceDetailSheet({
                   }}
                 />
               </FormField>
-              <FormField label="Markup %">
+              <FormField
+                label={markupMode === 'fixed' ? 'Markup amount' : 'Markup %'}
+              >
                 <Input
                   type="number"
                   min={0}
@@ -3794,12 +3848,13 @@ export function QuoteServiceDetailSheet({
                   value={markupValue}
                   onChange={(e) =>
                     onMarkupChange(
-                      'percent',
+                      markupMode === 'fixed' ? 'fixed' : 'percent',
                       e.target.value === '' ? undefined : Number(e.target.value),
                     )
                   }
                 />
               </FormField>
+              {renderMarkupPresetChips()}
               <FormField label="Sell unit rate" description="Calculated from buy × markup">
                 <PriceField
                   currency={currency}
@@ -4319,7 +4374,9 @@ export function QuoteServiceDetailSheet({
                     onChange={onBuyUnitChange}
                   />
                 </FormField>
-                <FormField label="Markup %">
+                <FormField
+                  label={markupMode === 'fixed' ? 'Markup amount' : 'Markup %'}
+                >
                   <Input
                     type="number"
                     min={0}
@@ -4327,12 +4384,13 @@ export function QuoteServiceDetailSheet({
                     value={markupValue}
                     onChange={(e) =>
                       onMarkupChange(
-                        'percent',
+                        markupMode === 'fixed' ? 'fixed' : 'percent',
                         e.target.value === '' ? undefined : Number(e.target.value),
                       )
                     }
                   />
                 </FormField>
+                {renderMarkupPresetChips()}
                 <FormField label="Sell / person" description="Calculated from buy × markup">
                   <PriceField
                     currency={currency}
@@ -4452,6 +4510,7 @@ export function QuoteServiceDetailSheet({
                 />
               </FormField>
             </FormGrid>
+            {renderMarkupPresetChips()}
             <p className="text-xs text-muted-foreground">
               Suggested sell:{' '}
               {customSuggested != null ? formatCurrency(customSuggested) : '—'}

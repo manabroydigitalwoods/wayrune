@@ -35,6 +35,23 @@ export function sellFromMarkupPreset(
   return Math.round(unitCost * (1 + preset.value / 100) * 100) / 100;
 }
 
+/** Stamp org preset onto a quote line's detailsJson markup fields. */
+export function markupDetailsFromPreset(preset: MarkupPreset): {
+  markupMode: MarkupPreset['mode'];
+  markupValue: number;
+  markupPresetId: string;
+  markupPresetLabel: string;
+  sellManual: false;
+} {
+  return {
+    markupMode: preset.mode,
+    markupValue: preset.value,
+    markupPresetId: preset.id,
+    markupPresetLabel: preset.label,
+    sellManual: false,
+  };
+}
+
 export function markupPresetSummary(
   preset: Pick<MarkupPreset, 'label' | 'mode' | 'value'>,
 ): string {

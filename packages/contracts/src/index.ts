@@ -2883,6 +2883,9 @@ export const QuotationItemDetailsSchema = z
     rateBasis: QuoteHotelRateBasisSchema.optional(),
     markupMode: QuoteMarkupModeSchema.optional(),
     markupValue: z.number().optional(),
+    /** Org preset id when sell was set from the markup library (this line). */
+    markupPresetId: z.string().max(48).optional(),
+    markupPresetLabel: z.string().max(80).optional(),
     /** True when sell was typed manually instead of following markup. */
     sellManual: z.boolean().optional(),
     priceSource: QuotePriceSourceSchema.optional(),
