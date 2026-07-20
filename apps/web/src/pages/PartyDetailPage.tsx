@@ -29,6 +29,7 @@ import { inquiryStatusLabel, tripStatusLabel } from '../lib/agencyStatusLabels';
 import { usePermissions } from '../lib/permissions';
 import { type PartyDetail, B2B_PARTY_TYPES } from '../lib/partyTypes';
 import { partyAgentMarkupCue } from '../lib/partyAgentMarkupCue';
+import { partyMarkupPercentOverride } from '../lib/orgMarkup';
 import { partyCreditLimitCue } from '../lib/partyCreditLimit';
 import { paymentTermsDueCue } from '../lib/paymentTerms';
 import { useTravelRequestLauncher } from '../lib/travelRequestLauncher';
@@ -111,6 +112,7 @@ export function PartyDetailPage() {
     businessType: '',
     paymentTerms: '',
     creditLimit: '',
+    markupPercent: '',
   });
   const [saving, setSaving] = useState(false);
   const [contactForm, setContactForm] = useState({ fullName: '', email: '', phone: '' });
@@ -142,6 +144,10 @@ export function PartyDetailPage() {
           res.creditLimit != null && Number(res.creditLimit) > 0
             ? String(Number(res.creditLimit))
             : '',
+        markupPercent: (() => {
+          const override = partyMarkupPercentOverride(res);
+          return override != null ? String(override) : '';
+        })(),
       });
     } catch (e) {
       reportError(e, 'Could not load customer');
@@ -173,6 +179,9 @@ export function PartyDetailPage() {
           paymentTerms: editForm.paymentTerms.trim() || null,
           creditLimit: editForm.creditLimit.trim()
             ? Number(editForm.creditLimit)
+            : null,
+          markupPercent: editForm.markupPercent.trim()
+            ? Number(editForm.markupPercent)
             : null,
         }),
       });
@@ -655,6 +664,23 @@ export function PartyDetailPage() {
                 setEditForm((f) => ({ ...f, creditLimit: e.target.value }))
               }
               placeholder="Optional"
+            />
+          </FormField>
+          <FormField
+            label="Markup override %"
+            description="Optional. Overrides org default / agent markup on Match and Apply default for this client. Clear to use org settings."
+          >
+            <Input
+              type="number"
+              min={0}
+              max={500}
+              step={0.5}
+              value={editForm.markupPercent}
+              disabled={!canWrite}
+              onChange={(e) =>
+                setEditForm((f) => ({ ...f, markupPercent: e.target.value }))
+              }
+              placeholder="Use org default"
             />
           </FormField>
         </FormGrid>

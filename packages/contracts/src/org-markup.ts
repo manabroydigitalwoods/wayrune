@@ -9,6 +9,9 @@ export const AGENT_MARKUP_BUSINESS_TYPES = [
 export type AgentMarkupPartyLike = {
   businessType?: string | null;
   type?: string | null;
+  /** Per-party override % (takes precedence over org default / agent %). */
+  markupPercent?: number | null;
+  metadataJson?: unknown;
 } | null;
 
 export function partyUsesAgentMarkup(party: AgentMarkupPartyLike): boolean {
@@ -18,6 +21,32 @@ export function partyUsesAgentMarkup(party: AgentMarkupPartyLike): boolean {
   return (AGENT_MARKUP_BUSINESS_TYPES as readonly string[]).includes(bt);
 }
 
+/** Read optional per-party markup % from a top-level field or metadataJson. */
+export function partyMarkupPercentOverride(
+  party: AgentMarkupPartyLike,
+): number | null {
+  if (!party) return null;
+  const direct = Number(party.markupPercent);
+  if (Number.isFinite(direct) && direct >= 0) return direct;
+
+  const meta =
+    party.metadataJson &&
+    typeof party.metadataJson === 'object' &&
+    !Array.isArray(party.metadataJson)
+      ? (party.metadataJson as Record<string, unknown>)
+      : null;
+  if (!meta) return null;
+  const fromMeta = Number(meta.markupPercent);
+  if (Number.isFinite(fromMeta) && fromMeta >= 0) return fromMeta;
+  return null;
+}
+
+/**
+ * Resolve markup % for Match / Apply default:
+ * 1. Party override (any client type)
+ * 2. Org agentMarkupPercent for trade B2B types
+ * 3. Org defaultMarkupPercent (fallback 20)
+ */
 export function resolveOrgMarkupPercent(
   settings: {
     defaultMarkupPercent?: unknown;
@@ -30,6 +59,9 @@ export function resolveOrgMarkupPercent(
   const defRaw = Number(settings?.defaultMarkupPercent);
   const defaultPct = Number.isFinite(defRaw) ? defRaw : fallback;
 
+  const partyOverride = partyMarkupPercentOverride(opts?.party ?? null);
+  if (partyOverride != null) return partyOverride;
+
   if (!partyUsesAgentMarkup(opts?.party ?? null)) {
     return defaultPct;
   }
@@ -37,4 +69,13 @@ export function resolveOrgMarkupPercent(
   const agentRaw = Number(settings?.agentMarkupPercent);
   if (!Number.isFinite(agentRaw)) return defaultPct;
   return agentRaw;
+}
+
+export function partyMarkupCue(party: AgentMarkupPartyLike): string | null {
+  const override = partyMarkupPercentOverride(party);
+  if (override != null) {
+    return `Custom markup ${override}% applies on Match rates for this client (overrides org default / agent %).`;
+  }
+  if (!partyUsesAgentMarkup(party)) return null;
+  return 'Agent markup applies on Match rates for this B2B client (Settings → Agent markup %).';
 }

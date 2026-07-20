@@ -405,11 +405,14 @@ export class RatesService {
       org?.settingsJson && typeof org.settingsJson === 'object'
         ? (org.settingsJson as Record<string, unknown>)
         : {};
-    let party: { businessType: string | null } | null = null;
+    let party: {
+      businessType: string | null;
+      metadataJson: unknown;
+    } | null = null;
     if (opts?.partyId) {
       party = await this.prisma.party.findFirst({
         where: { id: opts.partyId, organizationId, deletedAt: null },
-        select: { businessType: true },
+        select: { businessType: true, metadataJson: true },
       });
     }
     const markup = resolveOrgMarkupPercent(settings, { party });

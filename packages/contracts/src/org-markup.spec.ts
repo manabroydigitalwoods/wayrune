@@ -4,7 +4,7 @@ import {
   partyMarkupPercentOverride,
   partyUsesAgentMarkup,
   resolveOrgMarkupPercent,
-} from './orgMarkup';
+} from './org-markup';
 
 describe('partyUsesAgentMarkup', () => {
   it('detects trade / agent business types', () => {
@@ -14,6 +14,18 @@ describe('partyUsesAgentMarkup', () => {
     expect(partyUsesAgentMarkup({ businessType: 'corporate' })).toBe(false);
     expect(partyUsesAgentMarkup({ businessType: null })).toBe(false);
     expect(partyUsesAgentMarkup(null)).toBe(false);
+  });
+});
+
+describe('partyMarkupPercentOverride', () => {
+  it('reads top-level or metadataJson.markupPercent', () => {
+    expect(partyMarkupPercentOverride({ markupPercent: 8 })).toBe(8);
+    expect(
+      partyMarkupPercentOverride({
+        metadataJson: { markupPercent: 15 },
+      }),
+    ).toBe(15);
+    expect(partyMarkupPercentOverride({ businessType: 'dmc' })).toBeNull();
   });
 });
 
@@ -43,19 +55,31 @@ describe('resolveOrgMarkupPercent', () => {
     expect(resolveOrgMarkupPercent(null)).toBe(20);
   });
 
-  it('prefers per-party markup override', () => {
-    expect(partyMarkupPercentOverride({ markupPercent: 11 })).toBe(11);
+  it('prefers per-party override over org agent and default', () => {
     expect(
       resolveOrgMarkupPercent(
         { defaultMarkupPercent: 25, agentMarkupPercent: 12 },
         {
           party: {
             businessType: 'travel_agency',
-            metadataJson: { markupPercent: 6 },
+            metadataJson: { markupPercent: 7 },
           },
         },
       ),
-    ).toBe(6);
-    expect(partyMarkupCue({ markupPercent: 6 })).toMatch(/Custom markup 6%/);
+    ).toBe(7);
+    expect(
+      resolveOrgMarkupPercent(
+        { defaultMarkupPercent: 25 },
+        { party: { markupPercent: 30 } },
+      ),
+    ).toBe(30);
+  });
+});
+
+describe('partyMarkupCue', () => {
+  it('names custom override or agent default', () => {
+    expect(partyMarkupCue({ markupPercent: 9 })).toMatch(/Custom markup 9%/);
+    expect(partyMarkupCue({ businessType: 'dmc' })).toMatch(/Agent markup/);
+    expect(partyMarkupCue({ businessType: 'corporate' })).toBeNull();
   });
 });

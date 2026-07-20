@@ -27,6 +27,14 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-party-markup-override',
+    date: '2026-07-20',
+    title: 'Per-party markup override',
+    summary:
+      'Customer hub can set a markup % that overrides org default and agent markup on Match rates and Apply default. Stored in party metadataJson; clear the field to fall back to org settings.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-credit-limit-gates',
     date: '2026-07-20',
     title: 'Customer credit limit enforcement',

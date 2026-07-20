@@ -1,9 +1,10 @@
-import { partyUsesAgentMarkup } from './orgMarkup';
+import { partyMarkupCue } from './orgMarkup';
 
-/** Buyer-facing cue on customer hub when agent markup applies on Match. */
+/** Buyer-facing cue on customer hub when custom or agent markup applies on Match. */
 export function partyAgentMarkupCue(party: {
   businessType?: string | null;
+  markupPercent?: number | null;
+  metadataJson?: unknown;
 }): string | null {
-  if (!partyUsesAgentMarkup(party)) return null;
-  return 'Agent markup applies on Match rates for this B2B client (Settings → Agent markup %).';
+  return partyMarkupCue(party);
 }

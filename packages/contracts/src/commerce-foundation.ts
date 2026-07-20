@@ -467,6 +467,11 @@ export const UpdatePartySchema = z.object({
   businessType: z.preprocess(blankToNull, z.string().nullable()).optional(),
   creditLimit: z.number().nonnegative().nullable().optional(),
   paymentTerms: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  /**
+   * Per-party Match / Apply-default markup % override.
+   * Stored in metadataJson.markupPercent; null clears the override.
+   */
+  markupPercent: z.number().min(0).max(500).nullable().optional(),
   notes: z.preprocess(blankToNull, z.string().nullable()).optional(),
   metadataJson: z.record(z.unknown()).optional(),
 });

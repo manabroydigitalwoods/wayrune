@@ -12,6 +12,7 @@ export type Party = {
 export type PartyDetail = Party & {
   creditLimit?: string | number | null;
   paymentTerms?: string | null;
+  metadataJson?: Record<string, unknown> | null;
   contacts?: Array<{
     id: string;
     fullName: string;

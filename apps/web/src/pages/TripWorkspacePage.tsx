@@ -179,6 +179,7 @@ import {
   quoteAttentionReasonLabel,
 } from '../lib/quoteAttentionLines';
 import {
+  partyMarkupPercentOverride,
   partyUsesAgentMarkup,
   resolveOrgMarkupPercent,
 } from '../lib/orgMarkup';
@@ -3640,16 +3641,21 @@ export function TripWorkspacePage() {
     );
   }
 
+  function quoteMarkupSourceLabel(): string {
+    const party = trip?.party as {
+      businessType?: string | null;
+      metadataJson?: unknown;
+    } | null;
+    if (partyMarkupPercentOverride(party) != null) return 'client override';
+    if (partyUsesAgentMarkup(party)) return 'agent / B2B';
+    return 'org default';
+  }
+
   function confirmApplyDefaultMarkup() {
     confirmApplyMarkup({
       mode: 'percent',
       value: quoteDefaultMarkupPercent(),
-      label:
-        partyUsesAgentMarkup(
-          trip?.party as { businessType?: string | null } | null,
-        )
-          ? 'agent / B2B default'
-          : 'org default',
+      label: quoteMarkupSourceLabel(),
     });
   }
 
@@ -3819,7 +3825,10 @@ export function TripWorkspacePage() {
       | null
       | undefined;
     return resolveOrgMarkupPercent(settings, {
-      party: trip?.party as { businessType?: string | null } | null,
+      party: trip?.party as {
+        businessType?: string | null;
+        metadataJson?: unknown;
+      } | null,
     });
   }
 
@@ -6070,13 +6079,7 @@ export function TripWorkspacePage() {
         description={`Apply ${
           markupApplyTarget.kind === 'preset'
             ? markupPresetSummary(markupApplyTarget.preset)
-            : `${quoteDefaultMarkupPercent()}% (${
-                partyUsesAgentMarkup(
-                  trip?.party as { businessType?: string | null } | null,
-                )
-                  ? 'agent / B2B'
-                  : 'org default'
-              })`
+            : `${quoteDefaultMarkupPercent()}% (${quoteMarkupSourceLabel()})`
         } to ${
           quoteItems.filter((l) => l.unitCost != null && l.unitSell == null).length
         } service(s) that already have a cost? Manually entered sell prices will not be changed.`}

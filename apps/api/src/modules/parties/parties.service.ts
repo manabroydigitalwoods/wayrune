@@ -209,7 +209,29 @@ export class PartiesService {
     id: string,
     input: UpdatePartyInput,
   ) {
-    await this.requireParty(organizationId, id);
+    const existing = await this.requireParty(organizationId, id);
+    let metadataJson: Prisma.InputJsonValue | undefined =
+      input.metadataJson as Prisma.InputJsonValue | undefined;
+    if (input.markupPercent !== undefined) {
+      const prior =
+        existing.metadataJson &&
+        typeof existing.metadataJson === 'object' &&
+        !Array.isArray(existing.metadataJson)
+          ? { ...(existing.metadataJson as Record<string, unknown>) }
+          : {};
+      const merged =
+        input.metadataJson &&
+        typeof input.metadataJson === 'object' &&
+        !Array.isArray(input.metadataJson)
+          ? { ...prior, ...(input.metadataJson as Record<string, unknown>) }
+          : prior;
+      if (input.markupPercent == null) {
+        delete merged.markupPercent;
+      } else {
+        merged.markupPercent = input.markupPercent;
+      }
+      metadataJson = merged as Prisma.InputJsonValue;
+    }
     const party = await this.prisma.party.update({
       where: { id },
       data: {
@@ -222,7 +244,7 @@ export class PartiesService {
         creditLimit: input.creditLimit,
         paymentTerms: input.paymentTerms,
         notes: input.notes,
-        metadataJson: input.metadataJson as Prisma.InputJsonValue | undefined,
+        ...(metadataJson !== undefined ? { metadataJson } : {}),
         updatedBy: userId,
       },
     });
