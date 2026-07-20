@@ -1,11 +1,18 @@
 /** Pure helpers for package template History / Restore / Diff UI. */
 
+export type TemplateHistoryDiffRow = {
+  field: string;
+  thisTip: string;
+  current: string;
+};
+
 export type TemplateVersionDiffVsActive = {
   summary: string | null;
   addedTitles?: string[];
   removedTitles?: string[];
   changedTitles?: string[];
   metaChanges?: string[];
+  rows?: TemplateHistoryDiffRow[];
 };
 
 export type TemplateVersionListItem = {
@@ -57,7 +64,21 @@ export function showTemplateHistoryDiffCue(
   return item.diffVsActive != null;
 }
 
-/** Compact Diff body lines for History expand. */
+/** Prefer side-by-side table when API stamped rows. */
+export function buildTemplateHistoryDiffRows(
+  diff: TemplateVersionDiffVsActive | null | undefined,
+): TemplateHistoryDiffRow[] {
+  if (!diff?.rows?.length) return [];
+  return diff.rows.filter(
+    (r) =>
+      typeof r?.field === 'string' &&
+      r.field.trim() &&
+      typeof r.thisTip === 'string' &&
+      typeof r.current === 'string',
+  );
+}
+
+/** Compact Diff body lines for History expand (legacy / fallback). */
 export function formatTemplateHistoryDiffLines(
   diff: TemplateVersionDiffVsActive | null | undefined,
 ): string[] {

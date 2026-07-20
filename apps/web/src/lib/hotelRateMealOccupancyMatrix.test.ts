@@ -6,6 +6,7 @@ import {
   hotelRateSeasonKey,
   occupancyJsonWithAdultBands,
   setMatrixCellCost,
+  setMatrixCellWeekendCost,
 } from './hotelRateMealOccupancyMatrix';
 
 const springMap = {
@@ -21,9 +22,21 @@ const springMap = {
   occupancyPricingJson: {
     baseAdults: 2,
     adultBands: [
-      { adults: 1, unitCostPerNight: 3600 },
-      { adults: 2, unitCostPerNight: 4500 },
-      { adults: 3, unitCostPerNight: 5800 },
+      {
+        adults: 1,
+        unitCostPerNight: 3600,
+        weekendUnitCostPerNight: 4100,
+      },
+      {
+        adults: 2,
+        unitCostPerNight: 4500,
+        weekendUnitCostPerNight: 5200,
+      },
+      {
+        adults: 3,
+        unitCostPerNight: 5800,
+        weekendUnitCostPerNight: 6600,
+      },
     ],
   },
 };
@@ -68,7 +81,7 @@ describe('hotelRateSeasonKey', () => {
 });
 
 describe('buildMealOccupancyMatrix', () => {
-  it('fills CP and MAP band cells from siblings', () => {
+  it('fills CP and MAP band cells from siblings including weekends', () => {
     const built = buildMealOccupancyMatrix(
       [springMap, springCp, autumnMap],
       springMap,
@@ -79,6 +92,9 @@ describe('buildMealOccupancyMatrix', () => {
     const mapDbl = built.cells.find(
       (c) => c.mealPlan === 'MAP' && c.adults === 2,
     );
+    const mapSgl = built.cells.find(
+      (c) => c.mealPlan === 'MAP' && c.adults === 1,
+    );
     const cpSgl = built.cells.find(
       (c) => c.mealPlan === 'CP' && c.adults === 1,
     );
@@ -86,7 +102,10 @@ describe('buildMealOccupancyMatrix', () => {
       (c) => c.mealPlan === 'EP' && c.adults === 2,
     );
     expect(mapDbl?.unitCost).toBe('4500');
+    expect(mapDbl?.weekendUnitCost).toBe('5200');
+    expect(mapSgl?.weekendUnitCost).toBe('4100');
     expect(cpSgl?.unitCost).toBe('3240');
+    expect(cpSgl?.weekendUnitCost).toBe('');
     expect(epDbl?.unitCost).toBe('');
     expect(countFilledMatrixCells(built.cells)).toBe(6);
   });
@@ -101,11 +120,14 @@ describe('buildMealOccupancyMatrix', () => {
       startDate: '2026-04-01',
       endDate: '2026-06-30',
       unitCost: 3700,
+      weekendUnitCost: 4100,
     };
     const built = buildMealOccupancyMatrix([bare], bare);
-    expect(
-      built.cells.find((c) => c.mealPlan === 'EP' && c.adults === 2)?.unitCost,
-    ).toBe('3700');
+    const epDbl = built.cells.find(
+      (c) => c.mealPlan === 'EP' && c.adults === 2,
+    );
+    expect(epDbl?.unitCost).toBe('3700');
+    expect(epDbl?.weekendUnitCost).toBe('4100');
   });
 });
 
@@ -137,15 +159,39 @@ describe('diffMealOccupancyMatrix', () => {
     expect(cp?.changed).toBe(false);
   });
 
-  it('reports invalid costs', () => {
+  it('patches when only weekend-per-band changes', () => {
     const built = buildMealOccupancyMatrix([springMap], springMap);
-    const cells = setMatrixCellCost(built.cells, 'AP', 1, 'abc');
+    const cells = setMatrixCellWeekendCost(built.cells, 'MAP', 1, '4300');
+    const { upserts, errors } = diffMealOccupancyMatrix({
+      cells,
+      byMeal: built.byMeal,
+      anchor: springMap,
+    });
+    expect(errors).toEqual([]);
+    const map = upserts.find((u) => u.mealPlan === 'MAP');
+    expect(map?.changed).toBe(true);
+    expect(map?.adultBands).toEqual(
+      expect.arrayContaining([
+        {
+          adults: 1,
+          unitCostPerNight: 3600,
+          weekendUnitCostPerNight: 4300,
+        },
+      ]),
+    );
+  });
+
+  it('reports invalid costs and weekend-without-weekday', () => {
+    const built = buildMealOccupancyMatrix([springMap], springMap);
+    let cells = setMatrixCellCost(built.cells, 'AP', 1, 'abc');
+    cells = setMatrixCellWeekendCost(cells, 'EP', 2, '4000');
     const { errors } = diffMealOccupancyMatrix({
       cells,
       byMeal: built.byMeal,
       anchor: springMap,
     });
-    expect(errors[0]).toMatch(/AP 1A/);
+    expect(errors.some((e) => /AP 1A/.test(e))).toBe(true);
+    expect(errors.some((e) => /EP 2A needs a weekday/.test(e))).toBe(true);
   });
 });
 
@@ -184,6 +230,20 @@ describe('occupancyJsonWithAdultBands', () => {
         adults: 1,
         unitCostPerNight: 3600,
         weekendUnitCostPerNight: Math.round(3600 * (5200 / 4500)),
+      },
+    ]);
+  });
+
+  it('honours explicit weekend from matrix cells', () => {
+    const next = occupancyJsonWithAdultBands(
+      { adultBands: [{ adults: 1, unitCostPerNight: 3600, weekendUnitCostPerNight: 4100 }] },
+      [{ adults: 1, unitCostPerNight: 3600, weekendUnitCostPerNight: 4300 }],
+    );
+    expect(next.adultBands).toEqual([
+      {
+        adults: 1,
+        unitCostPerNight: 3600,
+        weekendUnitCostPerNight: 4300,
       },
     ]);
   });

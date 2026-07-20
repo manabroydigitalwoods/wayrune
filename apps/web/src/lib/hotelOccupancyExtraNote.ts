@@ -56,46 +56,53 @@ export function formatHotelPaxBuySplitNote(
   return `Split · ${bits.join(' + ')}${totalBit}`;
 }
 
+function occupancyExtraBits(
+  calc: HotelOccupancyExtraCalc | null | undefined,
+  opts?: { formatAmount?: (n: number) => string },
+): string[] {
+  const total = Number(calc?.occupancyExtraTotal);
+  if (!Number.isFinite(total) || total <= 0) return [];
+  const bits: string[] = [];
+  const amount =
+    opts?.formatAmount?.(total) ??
+    `₹${Math.round(total).toLocaleString('en-IN')}`;
+  bits.push(`+${amount}`);
+
+  const adults = Math.max(0, Math.round(Number(calc?.extraAdultCount) || 0));
+  if (adults > 0) {
+    bits.push(`${adults} extra adult${adults === 1 ? '' : 's'}`);
+  }
+
+  const withBed = Math.max(0, Math.round(Number(calc?.childWithBedCount) || 0));
+  if (withBed > 0) {
+    bits.push(`${withBed} child w/ bed`);
+  }
+
+  const withoutBed = Math.max(
+    0,
+    Math.round(Number(calc?.childWithoutBedCount) || 0),
+  );
+  if (withoutBed > 0) {
+    bits.push(`${withoutBed} child w/o bed`);
+  }
+  return bits;
+}
+
 export function formatHotelOccupancyExtraNote(
   calc: HotelOccupancyExtraCalc | null | undefined,
   opts?: { formatAmount?: (n: number) => string },
 ): string | null {
   const split = formatHotelPaxBuySplitNote(calc, opts);
-  if (split) return split;
+  const extras = occupancyExtraBits(calc, opts);
+  if (split) {
+    return extras.length ? `${split} · ${extras.join(' · ')}` : split;
+  }
 
   const band = formatHotelAdultBandNote(calc, opts);
-  const total = Number(calc?.occupancyExtraTotal);
-  const hasExtras = Number.isFinite(total) && total > 0;
-
-  if (!band && !hasExtras) return null;
+  if (!band && !extras.length) return null;
 
   const bits: string[] = [];
   if (band) bits.push(band);
-
-  if (hasExtras) {
-    const amount =
-      opts?.formatAmount?.(total) ??
-      `₹${Math.round(total).toLocaleString('en-IN')}`;
-    bits.push(`+${amount}`);
-
-    const adults = Math.max(0, Math.round(Number(calc?.extraAdultCount) || 0));
-    if (adults > 0) {
-      bits.push(`${adults} extra adult${adults === 1 ? '' : 's'}`);
-    }
-
-    const withBed = Math.max(0, Math.round(Number(calc?.childWithBedCount) || 0));
-    if (withBed > 0) {
-      bits.push(`${withBed} child w/ bed`);
-    }
-
-    const withoutBed = Math.max(
-      0,
-      Math.round(Number(calc?.childWithoutBedCount) || 0),
-    );
-    if (withoutBed > 0) {
-      bits.push(`${withoutBed} child w/o bed`);
-    }
-  }
-
+  bits.push(...extras);
   return bits.join(' · ');
 }

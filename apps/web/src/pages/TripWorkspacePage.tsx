@@ -96,6 +96,7 @@ import {
 } from '../lib/orgTaxIdentity';
 import {
   canUseTemplateHistoryVersion,
+  buildTemplateHistoryDiffRows,
   formatTemplateHistoryDiffLines,
   formatTemplateVersionWhen,
   showTemplateHistoryCue,
@@ -6545,9 +6546,13 @@ export function TripWorkspacePage() {
                               canUseTemplateHistoryVersion(v.status) && canQuoteWrite;
                             const canDiff = showTemplateHistoryDiffCue(v);
                             const diffOpen = templateDiffOpenId === v.id;
-                            const diffLines = formatTemplateHistoryDiffLines(
+                            const diffRows = buildTemplateHistoryDiffRows(
                               v.diffVsActive,
                             );
+                            const diffLines =
+                              diffRows.length === 0
+                                ? formatTemplateHistoryDiffLines(v.diffVsActive)
+                                : [];
                             return (
                               <li key={v.id} className="space-y-1 text-xs">
                                 <div className="flex items-center justify-between gap-2">
@@ -6625,7 +6630,44 @@ export function TripWorkspacePage() {
                                   </Button>
                                 ) : null}
                                 </div>
-                                {diffOpen && diffLines.length ? (
+                                {diffOpen && diffRows.length ? (
+                                  <div className="overflow-x-auto rounded border border-border/50 bg-background/60">
+                                    <table className="w-full min-w-[260px] text-left text-[11px]">
+                                      <thead>
+                                        <tr className="border-b border-border/40 text-muted-foreground">
+                                          <th className="px-2 py-1.5 font-medium">
+                                            Field
+                                          </th>
+                                          <th className="px-2 py-1.5 font-medium">
+                                            This tip
+                                          </th>
+                                          <th className="px-2 py-1.5 font-medium">
+                                            Current
+                                          </th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {diffRows.map((row) => (
+                                          <tr
+                                            key={`${row.field}:${row.thisTip}:${row.current}`}
+                                            className="border-b border-border/30 last:border-0"
+                                          >
+                                            <td className="px-2 py-1.5 text-muted-foreground">
+                                              {row.field}
+                                            </td>
+                                            <td className="px-2 py-1.5 text-foreground">
+                                              {row.thisTip}
+                                            </td>
+                                            <td className="px-2 py-1.5 text-foreground">
+                                              {row.current}
+                                            </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                ) : null}
+                                {diffOpen && !diffRows.length && diffLines.length ? (
                                   <ul className="rounded border border-border/50 bg-background/60 px-2 py-1.5 text-[11px] text-muted-foreground">
                                     {diffLines.map((line) => (
                                       <li key={line}>{line}</li>

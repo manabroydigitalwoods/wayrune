@@ -1,7 +1,8 @@
 /**
  * Thin mixed-nationality hotel buy: DBL/2 share per adult from each guest's tip.
- * Gate: 1 room, 2 adults, 0 children, exactly two distinct guest nationality codes,
+ * Gate: 1 room, 2 adults, exactly two distinct guest nationality codes,
  * and a compatible tip for each code in the candidate pool.
+ * Children allowed — extras compose via applyOccupancyPricing after the split.
  */
 
 import {
@@ -64,8 +65,8 @@ export function hotelPaxBuySplitAdultSlots(
 ): string[] | null {
   const rooms = Math.max(1, Math.floor(opts.rooms) || 1);
   const adults = Math.max(0, Math.floor(opts.adults) || 0);
-  const children = Math.max(0, Math.floor(opts.children) || 0);
-  if (rooms !== 1 || adults !== 2 || children !== 0) return null;
+  void opts.children; // allowed; child extras apply after split on Match tip
+  if (rooms !== 1 || adults !== 2) return null;
   const codes = collectGuestNationalityCodes({ nationalities: guestCodes });
   if (!guestNationalitiesAreMixed(codes)) return null;
   if (codes.length !== 2) return null;

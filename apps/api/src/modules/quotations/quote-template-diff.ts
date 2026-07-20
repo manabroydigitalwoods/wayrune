@@ -1,11 +1,19 @@
 import type { QuotationItem, QuoteTemplateContent } from '@wayrune/contracts';
 import { checklistToText } from './quote-template-content';
 
+export type QuoteTemplateDiffRow = {
+  field: string;
+  thisTip: string;
+  current: string;
+};
+
 export type QuoteTemplateDiffSummary = {
   addedTitles: string[];
   removedTitles: string[];
   changedTitles: string[];
   metaChanges: string[];
+  /** Side-by-side Field / This tip / Current (prior vs active). */
+  rows: QuoteTemplateDiffRow[];
   /** Compact one-liner for History, or null when identical. */
   summary: string | null;
 };
@@ -42,6 +50,115 @@ function itineraryDayCount(content: QuoteTemplateContent): number {
   return Array.isArray(days) ? days.length : 0;
 }
 
+function displayScalar(value: unknown, empty = '—'): string {
+  if (value == null) return empty;
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? String(value) : empty;
+  }
+  const t = String(value).trim();
+  return t || empty;
+}
+
+function truncateDisplay(raw: string, max = 56): string {
+  const t = raw.trim();
+  if (!t) return '—';
+  return t.length > max ? `${t.slice(0, max - 1)}…` : t;
+}
+
+function commercialChangeRows(
+  prior: QuotationItem,
+  active: QuotationItem,
+  title: string,
+): QuoteTemplateDiffRow[] {
+  const rows: QuoteTemplateDiffRow[] = [];
+  const push = (
+    suffix: string,
+    thisVal: unknown,
+    currentVal: unknown,
+  ) => {
+    const thisTip = displayScalar(thisVal);
+    const current = displayScalar(currentVal);
+    if (thisTip === current) return;
+    rows.push({ field: `${title} · ${suffix}`, thisTip, current });
+  };
+  push('qty', prior.quantity ?? 0, active.quantity ?? 0);
+  push('unit cost', prior.unitCost, active.unitCost);
+  push('unit sell', prior.unitSell, active.unitSell);
+  push('tax %', prior.taxPercent ?? 0, active.taxPercent ?? 0);
+  push('unit', prior.pricingUnit || '—', active.pricingUnit || '—');
+  return rows;
+}
+
+function metaChangeRows(
+  prior: QuoteTemplateContent,
+  active: QuoteTemplateContent,
+  metaChanges: string[],
+): QuoteTemplateDiffRow[] {
+  const wanted = new Set(
+    metaChanges.map((m) => m.replace(/\s*\(.*\)$/, '').trim().toLowerCase()),
+  );
+  const rows: QuoteTemplateDiffRow[] = [];
+  if (wanted.has('destination')) {
+    rows.push({
+      field: 'Destination',
+      thisTip: truncateDisplay(prior.destinationHint || ''),
+      current: truncateDisplay(active.destinationHint || ''),
+    });
+  }
+  if (wanted.has('currency')) {
+    rows.push({
+      field: 'Currency',
+      thisTip: displayScalar((prior.currency || '').toUpperCase() || null),
+      current: displayScalar((active.currency || '').toUpperCase() || null),
+    });
+  }
+  if (wanted.has('folder')) {
+    rows.push({
+      field: 'Folder',
+      thisTip: truncateDisplay(prior.folder || ''),
+      current: truncateDisplay(active.folder || ''),
+    });
+  }
+  if (wanted.has('tags')) {
+    const fmt = (tags: string[] | undefined) =>
+      tags?.length ? truncateDisplay(tags.join(', ')) : '—';
+    rows.push({
+      field: 'Tags',
+      thisTip: fmt(prior.tags),
+      current: fmt(active.tags),
+    });
+  }
+  if (wanted.has('inclusions')) {
+    rows.push({
+      field: 'Inclusions',
+      thisTip: truncateDisplay(checklistToText(prior.inclusions) || ''),
+      current: truncateDisplay(checklistToText(active.inclusions) || ''),
+    });
+  }
+  if (wanted.has('exclusions')) {
+    rows.push({
+      field: 'Exclusions',
+      thisTip: truncateDisplay(checklistToText(prior.exclusions) || ''),
+      current: truncateDisplay(checklistToText(active.exclusions) || ''),
+    });
+  }
+  if (wanted.has('terms')) {
+    rows.push({
+      field: 'Terms',
+      thisTip: truncateDisplay(prior.terms || ''),
+      current: truncateDisplay(active.terms || ''),
+    });
+  }
+  if (wanted.has('story days') || [...wanted].some((w) => w.startsWith('story days'))) {
+    rows.push({
+      field: 'Story days',
+      thisTip: String(itineraryDayCount(prior)),
+      current: String(itineraryDayCount(active)),
+    });
+  }
+  return rows;
+}
+
 /**
  * Compare a prior template version against the active tip.
  * Lines matched by type+description (multiset); commercial fields detect change.
@@ -64,6 +181,7 @@ export function diffQuoteTemplateContent(
   const addedTitles: string[] = [];
   const removedTitles: string[] = [];
   const changedTitles: string[] = [];
+  const rows: QuoteTemplateDiffRow[] = [];
   const matchedActive = new Set<QuotationItem>();
 
   for (const item of priorItems) {
@@ -71,19 +189,33 @@ export function diffQuoteTemplateContent(
     const bucket = activeByKey.get(key) ?? [];
     const matchIdx = bucket.findIndex((a) => !matchedActive.has(a));
     if (matchIdx < 0) {
-      removedTitles.push(lineTitle(item));
+      const title = lineTitle(item);
+      removedTitles.push(title);
+      rows.push({
+        field: title,
+        thisTip: 'in this version',
+        current: '—',
+      });
       continue;
     }
     const match = bucket[matchIdx]!;
     matchedActive.add(match);
     if (lineFingerprint(item) !== lineFingerprint(match)) {
-      changedTitles.push(lineTitle(item));
+      const title = lineTitle(item);
+      changedTitles.push(title);
+      rows.push(...commercialChangeRows(item, match, title));
     }
   }
 
   for (const item of activeItems) {
     if (!matchedActive.has(item)) {
-      addedTitles.push(lineTitle(item));
+      const title = lineTitle(item);
+      addedTitles.push(title);
+      rows.push({
+        field: title,
+        thisTip: '—',
+        current: 'in current',
+      });
     }
   }
 
@@ -128,6 +260,8 @@ export function diffQuoteTemplateContent(
     );
   }
 
+  rows.push(...metaChangeRows(prior, active, metaChanges));
+
   const summary = formatQuoteTemplateDiffSummary({
     addedTitles,
     removedTitles,
@@ -140,6 +274,7 @@ export function diffQuoteTemplateContent(
     removedTitles,
     changedTitles,
     metaChanges,
+    rows,
     summary,
   };
 }

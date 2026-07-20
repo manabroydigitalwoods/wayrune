@@ -72,6 +72,39 @@ describe('diffQuoteTemplateContent', () => {
     const diff = diffQuoteTemplateContent(prior, active);
     expect(diff.changedTitles).toEqual(['Innova']);
     expect(diff.summary).toMatch(/~1/);
+    expect(diff.rows).toEqual([
+      { field: 'Innova · unit sell', thisTip: '3000', current: '3500' },
+    ]);
+  });
+
+  it('builds side-by-side rows for add/remove and meta', () => {
+    const prior: QuoteTemplateContent = {
+      destinationHint: 'Goa',
+      folder: 'Beach/Goa',
+      items: [line({ description: 'Old hotel', rateKind: 'hotel' })],
+    };
+    const active: QuoteTemplateContent = {
+      destinationHint: 'North Goa',
+      folder: 'Beach/Goa North',
+      items: [line({ description: 'New hotel', rateKind: 'hotel' })],
+    };
+    const diff = diffQuoteTemplateContent(prior, active);
+    expect(diff.rows).toEqual(
+      expect.arrayContaining([
+        { field: 'Old hotel', thisTip: 'in this version', current: '—' },
+        { field: 'New hotel', thisTip: '—', current: 'in current' },
+        {
+          field: 'Destination',
+          thisTip: 'Goa',
+          current: 'North Goa',
+        },
+        {
+          field: 'Folder',
+          thisTip: 'Beach/Goa',
+          current: 'Beach/Goa North',
+        },
+      ]),
+    );
   });
 
   it('detects meta-only changes', () => {

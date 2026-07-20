@@ -15,6 +15,7 @@ export type MealOccupancyMatrixCell = {
   mealPlan: MealMatrixPlan;
   adults: MatrixAdultBand;
   unitCost: string;
+  weekendUnitCost: string;
 };
 
 export type MealOccupancyMatrixRate = {
@@ -41,12 +42,18 @@ export type MealOccupancyMatrixSeason = {
   endDate: string;
 };
 
+export type MealOccupancyMatrixBand = {
+  adults: number;
+  unitCostPerNight: number;
+  weekendUnitCostPerNight?: number;
+};
+
 export type MealOccupancyMatrixUpsert = {
   mealPlan: MealMatrixPlan;
   existingId: string | null;
   unitCost: number;
   weekendUnitCost: number | null;
-  adultBands: Array<{ adults: number; unitCostPerNight: number }>;
+  adultBands: MealOccupancyMatrixBand[];
   /** True when adult bands or chart unitCost differ from existing. */
   changed: boolean;
 };
@@ -109,14 +116,16 @@ export function emptyMealOccupancyMatrixCells(): MealOccupancyMatrixCell[] {
   const cells: MealOccupancyMatrixCell[] = [];
   for (const mealPlan of MEAL_MATRIX_PLANS) {
     for (const adults of MATRIX_ADULT_BANDS) {
-      cells.push({ mealPlan, adults, unitCost: '' });
+      cells.push({ mealPlan, adults, unitCost: '', weekendUnitCost: '' });
     }
   }
   return cells;
 }
 
-function adultBandsFromOccupancy(raw: unknown): Map<number, number> {
-  const map = new Map<number, number>();
+type BandCosts = { unitCost: number; weekendUnitCost?: number };
+
+function adultBandsFromOccupancy(raw: unknown): Map<number, BandCosts> {
+  const map = new Map<number, BandCosts>();
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return map;
   const bands = (raw as { adultBands?: unknown }).adultBands;
   if (!Array.isArray(bands)) return map;
@@ -128,12 +137,21 @@ function adultBandsFromOccupancy(raw: unknown): Map<number, number> {
         .unitCostPerNight ?? (row as { unitCost?: unknown }).unitCost,
     );
     if (
-      (adults === 1 || adults === 2 || adults === 3) &&
-      Number.isFinite(cost) &&
-      cost >= 0
+      !(adults === 1 || adults === 2 || adults === 3) ||
+      !Number.isFinite(cost) ||
+      cost < 0
     ) {
-      map.set(adults, cost);
+      continue;
     }
+    const weekend = moneyField(
+      (row as { weekendUnitCostPerNight?: unknown; weekendUnitCost?: unknown })
+        .weekendUnitCostPerNight ??
+        (row as { weekendUnitCost?: unknown }).weekendUnitCost,
+    );
+    map.set(adults, {
+      unitCost: cost,
+      ...(weekend != null ? { weekendUnitCost: weekend } : {}),
+    });
   }
   return map;
 }
@@ -164,12 +182,27 @@ export function buildMealOccupancyMatrix(
     if (!rate) return cell;
     const bands = adultBandsFromOccupancy(rate.occupancyPricingJson);
     if (bands.has(cell.adults)) {
-      return { ...cell, unitCost: String(bands.get(cell.adults)) };
+      const band = bands.get(cell.adults)!;
+      return {
+        ...cell,
+        unitCost: String(band.unitCost),
+        weekendUnitCost:
+          band.weekendUnitCost != null ? String(band.weekendUnitCost) : '',
+      };
     }
     if (cell.adults === 2 && bands.size === 0) {
       const n = Number(rate.unitCost);
       if (Number.isFinite(n) && n >= 0) {
-        return { ...cell, unitCost: String(n) };
+        const w =
+          rate.weekendUnitCost != null && rate.weekendUnitCost !== ''
+            ? Number(rate.weekendUnitCost)
+            : null;
+        return {
+          ...cell,
+          unitCost: String(n),
+          weekendUnitCost:
+            w != null && Number.isFinite(w) && w >= 0 ? String(w) : '',
+        };
       }
     }
     return cell;
@@ -197,9 +230,9 @@ function parseCellCost(raw: string): number | null {
   return n;
 }
 
-function bandsEqual(
-  a: Array<{ adults: number; unitCostPerNight: number }>,
-  b: Array<{ adults: number; unitCostPerNight: number }>,
+function bandsWeekdayEqual(
+  a: MealOccupancyMatrixBand[],
+  b: MealOccupancyMatrixBand[],
 ): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) {
@@ -213,9 +246,25 @@ function bandsEqual(
   return true;
 }
 
+/** True when an explicitly filled weekend differs from existing band weekend. */
+function weekendBandsChanged(
+  edited: MealOccupancyMatrixBand[],
+  existing: MealOccupancyMatrixBand[],
+): boolean {
+  for (const b of edited) {
+    if (b.weekendUnitCostPerNight == null) continue;
+    const prior = existing.find((e) => e.adults === b.adults);
+    if (prior?.weekendUnitCostPerNight !== b.weekendUnitCostPerNight) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Diff edited cells against existing sibling rates.
  * Empty meal rows are skipped (no delete). Invalid costs throw via caller toast.
+ * Blank weekend = preserve prior / ratio-stamp (season-form semantics).
  */
 export function diffMealOccupancyMatrix(opts: {
   cells: MealOccupancyMatrixCell[];
@@ -241,16 +290,32 @@ export function diffMealOccupancyMatrix(opts: {
 
   for (const meal of MEAL_MATRIX_PLANS) {
     const mealCells = opts.cells.filter((c) => c.mealPlan === meal);
-    const adultBands: Array<{ adults: number; unitCostPerNight: number }> = [];
+    const adultBands: MealOccupancyMatrixBand[] = [];
     for (const cell of mealCells) {
-      const raw = cell.unitCost.trim();
-      if (!raw) continue;
-      const n = parseCellCost(raw);
+      const weekdayRaw = cell.unitCost.trim();
+      const weekendRaw = cell.weekendUnitCost.trim();
+      if (!weekdayRaw && !weekendRaw) continue;
+      if (!weekdayRaw) {
+        errors.push(
+          `${meal} ${cell.adults}A needs a weekday cost before weekend`,
+        );
+        continue;
+      }
+      const n = parseCellCost(weekdayRaw);
       if (n == null) {
         errors.push(`${meal} ${cell.adults}A must be a valid cost`);
         continue;
       }
-      adultBands.push({ adults: cell.adults, unitCostPerNight: n });
+      const weekend = weekendRaw ? parseCellCost(weekendRaw) : null;
+      if (weekendRaw && weekend == null) {
+        errors.push(`${meal} ${cell.adults}A weekend must be a valid cost`);
+        continue;
+      }
+      adultBands.push({
+        adults: cell.adults,
+        unitCostPerNight: n,
+        ...(weekend != null ? { weekendUnitCostPerNight: weekend } : {}),
+      });
     }
     if (!adultBands.length) continue;
 
@@ -264,16 +329,23 @@ export function diffMealOccupancyMatrix(opts: {
           ? Number(existing.weekendUnitCost)
           : null;
 
-    const existingBands = existing
+    const existingBands: MealOccupancyMatrixBand[] = existing
       ? [...adultBandsFromOccupancy(existing.occupancyPricingJson).entries()]
           .sort((a, b) => a[0] - b[0])
-          .map(([adults, unitCostPerNight]) => ({ adults, unitCostPerNight }))
+          .map(([adults, costs]) => ({
+            adults,
+            unitCostPerNight: costs.unitCost,
+            ...(costs.weekendUnitCost != null
+              ? { weekendUnitCostPerNight: costs.weekendUnitCost }
+              : {}),
+          }))
       : [];
     const existingUnit = existing != null ? Number(existing.unitCost) : null;
     const changed =
       !existing ||
-      !bandsEqual(adultBands, existingBands) ||
-      existingUnit !== unitCost;
+      !bandsWeekdayEqual(adultBands, existingBands) ||
+      existingUnit !== unitCost ||
+      weekendBandsChanged(adultBands, existingBands);
 
     upserts.push({
       mealPlan: meal,
@@ -291,7 +363,7 @@ export function diffMealOccupancyMatrix(opts: {
   return { upserts, errors };
 }
 
-/** Count cells with a cost — for empty-state / toast. */
+/** Count cells with a weekday cost — for empty-state / toast. */
 export function countFilledMatrixCells(cells: MealOccupancyMatrixCell[]): number {
   return cells.filter((c) => c.unitCost.trim()).length;
 }
@@ -304,6 +376,19 @@ export function setMatrixCellCost(
 ): MealOccupancyMatrixCell[] {
   return cells.map((c) =>
     c.mealPlan === mealPlan && c.adults === adults ? { ...c, unitCost } : c,
+  );
+}
+
+export function setMatrixCellWeekendCost(
+  cells: MealOccupancyMatrixCell[],
+  mealPlan: MealMatrixPlan,
+  adults: MatrixAdultBand,
+  weekendUnitCost: string,
+): MealOccupancyMatrixCell[] {
+  return cells.map((c) =>
+    c.mealPlan === mealPlan && c.adults === adults
+      ? { ...c, weekendUnitCost }
+      : c,
   );
 }
 

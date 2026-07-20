@@ -60,6 +60,7 @@ import {
   diffMealOccupancyMatrix,
   occupancyJsonWithAdultBands,
   setMatrixCellCost,
+  setMatrixCellWeekendCost,
   type MealMatrixPlan,
   type MealOccupancyMatrixCell,
   type MealOccupancyMatrixRate,
@@ -1633,7 +1634,7 @@ export function SupplierHotelRatesPanel({
           title="Meal × occupancy matrix"
           description={
             matrixAnchor
-              ? `${matrixAnchor.roomType?.trim() || 'Default room'} · ${seasonLabel(matrixAnchor)}. Fill EP/CP/MAP/AP × Single/Double/Triple. Empty meal rows are skipped; new meals inherit extras/gala from this season.`
+              ? `${matrixAnchor.roomType?.trim() || 'Default room'} · ${seasonLabel(matrixAnchor)}. Fill EP/CP/MAP/AP × Single/Double/Triple weekday + weekend. Blank weekend keeps prior or scales from chart; empty meal rows are skipped.`
               : 'Compact buy grid for one season window.'
           }
           submitting={matrixSaving}
@@ -1653,13 +1654,16 @@ export function SupplierHotelRatesPanel({
           }
         >
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[20rem] border-collapse text-sm">
+            <table className="w-full min-w-[28rem] border-collapse text-sm">
               <thead>
                 <tr className="text-left text-xs text-muted-foreground">
                   <th className="pb-2 pr-2 font-medium">Meal</th>
                   {MATRIX_ADULT_BANDS.map((adults) => (
                     <th key={adults} className="pb-2 px-1 font-medium">
                       {adults === 1 ? 'SGL' : adults === 2 ? 'DBL' : 'TPL'}
+                      <span className="mt-0.5 block font-normal text-[10px]">
+                        Wk / We
+                      </span>
                     </th>
                   ))}
                 </tr>
@@ -1680,21 +1684,38 @@ export function SupplierHotelRatesPanel({
                       );
                       return (
                         <td key={adults} className="py-2 px-1 align-middle">
-                          <PriceField
-                            value={cell?.unitCost ?? ''}
-                            onChange={(unitCost) =>
-                              setMatrixCells((prev) =>
-                                setMatrixCellCost(
-                                  prev,
-                                  meal,
-                                  adults as MatrixAdultBand,
-                                  unitCost,
-                                ),
-                              )
-                            }
-                            placeholder="—"
-                            showCurrency={false}
-                          />
+                          <div className="space-y-1">
+                            <PriceField
+                              value={cell?.unitCost ?? ''}
+                              onChange={(unitCost) =>
+                                setMatrixCells((prev) =>
+                                  setMatrixCellCost(
+                                    prev,
+                                    meal,
+                                    adults as MatrixAdultBand,
+                                    unitCost,
+                                  ),
+                                )
+                              }
+                              placeholder="Wk"
+                              showCurrency={false}
+                            />
+                            <PriceField
+                              value={cell?.weekendUnitCost ?? ''}
+                              onChange={(weekendUnitCost) =>
+                                setMatrixCells((prev) =>
+                                  setMatrixCellWeekendCost(
+                                    prev,
+                                    meal,
+                                    adults as MatrixAdultBand,
+                                    weekendUnitCost,
+                                  ),
+                                )
+                              }
+                              placeholder="We"
+                              showCurrency={false}
+                            />
+                          </div>
                         </td>
                       );
                     })}

@@ -78,4 +78,21 @@ describe('formatHotelOccupancyExtraNote', () => {
       }),
     ).toMatch(/^Split ·/);
   });
+
+  it('appends child extras onto per-pax split cue', () => {
+    expect(
+      formatHotelOccupancyExtraNote({
+        buyMode: 'per_pax_split',
+        paxBuySplitTotalPerNight: 5350,
+        paxBuySplits: [
+          { nationality: 'IN', sharePerNight: 2250 },
+          { nationality: 'US', sharePerNight: 3100 },
+        ],
+        occupancyExtraTotal: 1800,
+        childWithBedCount: 1,
+      }),
+    ).toBe(
+      'Split · IN ₹2,250 + US ₹3,100 = ₹5,350/n · +₹1,800 · 1 child w/ bed',
+    );
+  });
 });

@@ -27,6 +27,30 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-per-pax-buy-children',
+    date: '2026-07-20',
+    title: 'Per-pax buy with children',
+    summary:
+      'Mixed-nationality DBL/2 buy still applies when the room has children. Occupancy cue shows Split plus child extras when contracted.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-matrix-weekend-columns',
+    date: '2026-07-20',
+    title: 'Matrix weekend columns',
+    summary:
+      'Meal × occupancy matrix edits weekday and weekend buy per SGL/DBL/TPL. Blank weekend keeps the prior band weekend or scales from the chart weekend.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-package-template-diff-side-by-side',
+    date: '2026-07-20',
+    title: 'Package template History Diff side-by-side',
+    summary:
+      'Use-template History Diff expands a Field / This tip / Current table for changed line prices, add/remove, and meta versus the current package tip.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-quote-tax-freeze-infer',
     date: '2026-07-20',
     title: 'Quote tax freeze + destination POS suggest',

@@ -1006,6 +1006,7 @@ export class QuotationsService {
                 removedTitles: diff.removedTitles.slice(0, 5),
                 changedTitles: diff.changedTitles.slice(0, 5),
                 metaChanges: diff.metaChanges,
+                rows: diff.rows.slice(0, 24),
               };
             })()
           : undefined;

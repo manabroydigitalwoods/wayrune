@@ -7,6 +7,7 @@ import {
   templateHistoryPriorActionsCue,
   showTemplateHistoryDiffCue,
   formatTemplateHistoryDiffLines,
+  buildTemplateHistoryDiffRows,
 } from './quoteTemplateHistory';
 
 describe('quoteTemplateHistory', () => {
@@ -81,5 +82,19 @@ describe('quoteTemplateHistory', () => {
       'Only in this version: Old hotel',
       'Meta: destination',
     ]);
+  });
+
+  it('prefers stamped side-by-side Diff rows', () => {
+    expect(
+      buildTemplateHistoryDiffRows({
+        summary: '~1 lines',
+        rows: [
+          { field: 'Innova · unit sell', thisTip: '3000', current: '3500' },
+        ],
+      }),
+    ).toEqual([
+      { field: 'Innova · unit sell', thisTip: '3000', current: '3500' },
+    ]);
+    expect(buildTemplateHistoryDiffRows({ summary: '~1 lines' })).toEqual([]);
   });
 });
