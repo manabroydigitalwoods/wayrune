@@ -27,7 +27,19 @@ export class FinanceBalanceService {
       (s, c) => s + Number(c.amount) + Number(c.taxAmount),
       0,
     );
-    const writeOffs = 0;
+    const writeOffDocs = await this.prisma.commercialDocument.findMany({
+      where: {
+        organizationId,
+        docType: 'write_off',
+        linkedEntityType: 'commercial_document',
+        linkedEntityId: documentId,
+        status: { notIn: ['cancelled', 'void', 'pending_approval'] },
+      },
+    });
+    const writeOffs = writeOffDocs.reduce(
+      (s, w) => s + Number(w.amount) + Number(w.taxAmount),
+      0,
+    );
     const outstanding = Math.max(0, total - creditTotal - allocated - writeOffs);
 
     return {

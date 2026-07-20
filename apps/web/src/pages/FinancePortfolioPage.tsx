@@ -54,6 +54,7 @@ type PortfolioBoard = {
     currency: string;
     tripCount: number;
     otherCurrencyCount?: number;
+    convertedTripCount?: number;
     sellTotal: number;
     costTotal: number;
     marginAmount: number;
@@ -543,10 +544,21 @@ export function FinancePortfolioPage() {
           <div className="rounded-lg border border-border/60 px-3 py-2">
             <div className="text-xs text-muted-foreground">Trips</div>
             <div className="text-lg font-semibold tabular-nums">{summary.tripCount}</div>
-            {(summary.otherCurrencyCount ?? 0) > 0 ? (
+            {(summary.otherCurrencyCount ?? 0) > 0 ||
+            (summary.convertedTripCount ?? 0) > 0 ? (
               <div className="text-[11px] text-muted-foreground">
-                {summary.otherCurrencyCount} other-currency trip
-                {summary.otherCurrencyCount === 1 ? '' : 's'} excluded from totals
+                {(summary.convertedTripCount ?? 0) > 0
+                  ? `${summary.convertedTripCount} converted at org FX`
+                  : null}
+                {(summary.convertedTripCount ?? 0) > 0 &&
+                (summary.otherCurrencyCount ?? 0) > 0
+                  ? ' · '
+                  : null}
+                {(summary.otherCurrencyCount ?? 0) > 0
+                  ? `${summary.otherCurrencyCount} other-currency trip${
+                      summary.otherCurrencyCount === 1 ? '' : 's'
+                    } excluded (no FX rate)`
+                  : null}
               </div>
             ) : null}
           </div>

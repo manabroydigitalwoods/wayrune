@@ -19,6 +19,7 @@ type PortfolioSummary = {
   currency: string;
   tripCount: number;
   otherCurrencyCount?: number;
+  convertedTripCount?: number;
   marginAmount: number;
   marginPercent: number | null;
 };
@@ -85,11 +86,11 @@ export function FinanceHomeStats() {
       ) : null}
       {portfolio ? (
         <StatCard
-          label={
-            (portfolio.otherCurrencyCount ?? 0) > 0
-              ? `Portfolio margin · ${portfolio.otherCurrencyCount} FX excl.`
-              : 'Portfolio margin'
-          }
+          label={agingHomeStatLabel(
+            'Portfolio margin',
+            portfolio.otherCurrencyCount,
+            portfolio.convertedTripCount,
+          )}
           value={
             portfolio.marginPercent != null
               ? `${formatCurrency(portfolio.marginAmount, portfolio.currency)} · ${portfolio.marginPercent.toFixed(1)}%`

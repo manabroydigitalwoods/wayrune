@@ -27,6 +27,30 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-write-off-workflow',
+    date: '2026-07-20',
+    title: 'Receivable write-off request → approve',
+    summary:
+      'Customer instalments support dual-control write-off: Request (amount + reason) then Approve. Outstanding and aging subtract approved write-offs; requester cannot self-approve.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-fx-cron-disable-portfolio-rollup',
+    date: '2026-07-20',
+    title: 'FX cron disable + portfolio org-rate rollup',
+    summary:
+      'Settings can turn off weekly FX auto-refresh per org (manual refresh and Lock FX still run). Portfolio totals convert foreign trips at org FX rates; missing rates stay excluded.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-transfer-csv-party-bands',
+    date: '2026-07-20',
+    title: 'Transfer CSV party-size bands',
+    summary:
+      'Transfer import accepts partyBand2/4/6UnitCost columns into pricingJson party bands. Template demos a per-vehicle Sedan with 2/4/6 tiers; chart-only rows stay unchanged.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-fx-lock-live-fetch',
     date: '2026-07-20',
     title: 'Lock FX refreshes market rates',
@@ -48,6 +72,14 @@ export const RELEASE_NOTES: ReleaseNote[] = [
     title: 'Refund request → approve → settle',
     summary:
       'Cancellation refunds need Request (reason) then Approve before Mark refund settled or Razorpay. Stamps live on the cancellation case; settle stays blocked until approved.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-package-template-row-dnd',
+    date: '2026-07-20',
+    title: 'Package template-row drag into folders',
+    summary:
+      'Packages appear under folders in the library tree. Drag a package onto a folder or All folders to move in place (no new version). Non-empty folders offer Delete… to soft-delete packages under that path.',
     claimStatus: 'proven',
   },
   {

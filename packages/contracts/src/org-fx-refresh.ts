@@ -231,6 +231,15 @@ export function parseOrgFxRatesMeta(
   };
 }
 
+/**
+ * Weekly worker auto-refresh opt-in. Missing / non-false → enabled.
+ * Manual Settings refresh and Lock FX live fetch ignore this flag.
+ */
+export function orgFxAutoRefreshEnabled(settingsJson: unknown): boolean {
+  const raw = asSettingsRecord(settingsJson).fxAutoRefreshEnabled;
+  return raw !== false;
+}
+
 /** True when meta is missing/invalid or older than maxAgeMs. */
 export function fxAutoRefreshDue(
   meta: { fetchedAt?: string | null } | null | undefined,

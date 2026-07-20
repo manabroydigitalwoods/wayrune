@@ -120,6 +120,14 @@ import {
 } from './movement-board';
 import { buildFinanceAging } from './finance-aging';
 import { buildFinancePortfolio } from './finance-portfolio';
+import { parseOrgFxRates } from '../quotations/quote-fx';
+import {
+  assertCanRequestWriteOff,
+  parseTripPaymentWriteOff,
+  planApproveWriteOff,
+  planRequestWriteOff,
+  tripPaymentOutstanding,
+} from './trip-payment-write-off';
 import {
   agingBoardToCsv,
   portfolioBoardToCsv,
@@ -4870,6 +4878,139 @@ export class OperationsService {
     return payment;
   }
 
+  async requestTripPaymentWriteOff(
+    user: AuthUser,
+    tripId: string,
+    paymentId: string,
+    input: { amount: number; reason: string },
+  ) {
+    await this.ensureTrip(user.organizationId, tripId);
+    const existing = await this.prisma.tripPayment.findFirst({
+      where: { id: paymentId, tripId, organizationId: user.organizationId },
+    });
+    if (!existing) throw new NotFoundException('Payment not found');
+    const wo = parseTripPaymentWriteOff(existing.notes);
+    const outstanding = tripPaymentOutstanding({
+      amount: Number(existing.amount),
+      amountPaid: Number(existing.amountPaid || 0),
+      notes: existing.notes,
+    });
+    try {
+      assertCanRequestWriteOff({
+        direction: existing.direction,
+        status: existing.status,
+        outstanding,
+        writeOffStatus: wo.status,
+      });
+    } catch (e) {
+      throw new BadRequestException(
+        e instanceof Error ? e.message : 'Cannot request write-off',
+      );
+    }
+    const amount = Math.min(
+      Math.round(Number(input.amount) * 100) / 100,
+      outstanding,
+    );
+    let planned: { notes: string; amount: number };
+    try {
+      planned = planRequestWriteOff({
+        notes: existing.notes,
+        amount,
+        reason: input.reason,
+        userId: user.sub,
+      });
+    } catch (e) {
+      throw new BadRequestException(
+        e instanceof Error ? e.message : 'Cannot request write-off',
+      );
+    }
+    const payment = await this.prisma.tripPayment.update({
+      where: { id: paymentId },
+      data: {
+        notes: planned.notes,
+        updatedBy: user.sub,
+      },
+      include: {
+        supplierInvoice: { select: { id: true, invoiceNumber: true } },
+        bookingComponent: { select: { id: true, title: true } },
+      },
+    });
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorUserId: user.sub,
+      action: 'payment.write_off_request',
+      entityType: 'trip_payment',
+      entityId: payment.id,
+      metadata: { tripId, amount: planned.amount, reason: input.reason },
+    });
+    return {
+      ...payment,
+      writeOff: parseTripPaymentWriteOff(payment.notes),
+      outstanding: tripPaymentOutstanding({
+        amount: Number(payment.amount),
+        amountPaid: Number(payment.amountPaid || 0),
+        notes: payment.notes,
+      }),
+    };
+  }
+
+  async approveTripPaymentWriteOff(
+    user: AuthUser,
+    tripId: string,
+    paymentId: string,
+  ) {
+    await this.ensureTrip(user.organizationId, tripId);
+    const existing = await this.prisma.tripPayment.findFirst({
+      where: { id: paymentId, tripId, organizationId: user.organizationId },
+    });
+    if (!existing) throw new NotFoundException('Payment not found');
+    let planned: { notes: string; amount: number };
+    try {
+      planned = planApproveWriteOff({
+        notes: existing.notes,
+        userId: user.sub,
+      });
+    } catch (e) {
+      throw new BadRequestException(
+        e instanceof Error ? e.message : 'Cannot approve write-off',
+      );
+    }
+    const nextOutstanding = tripPaymentOutstanding({
+      amount: Number(existing.amount),
+      amountPaid: Number(existing.amountPaid || 0),
+      notes: planned.notes,
+    });
+    const payment = await this.prisma.tripPayment.update({
+      where: { id: paymentId },
+      data: {
+        notes: planned.notes,
+        status: nextOutstanding <= 0.001 ? 'paid' : existing.status,
+        paidAt:
+          nextOutstanding <= 0.001
+            ? existing.paidAt ?? new Date()
+            : existing.paidAt,
+        updatedBy: user.sub,
+      },
+      include: {
+        supplierInvoice: { select: { id: true, invoiceNumber: true } },
+        bookingComponent: { select: { id: true, title: true } },
+      },
+    });
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorUserId: user.sub,
+      action: 'payment.write_off_approve',
+      entityType: 'trip_payment',
+      entityId: payment.id,
+      metadata: { tripId, amount: planned.amount },
+    });
+    return {
+      ...payment,
+      writeOff: parseTripPaymentWriteOff(payment.notes),
+      outstanding: nextOutstanding,
+    };
+  }
+
   private async recalcInvoiceStatus(invoiceId: string) {
     const invoice = await this.prisma.supplierInvoice.findUnique({
       where: { id: invoiceId },
@@ -5537,6 +5678,7 @@ export class OperationsService {
         currency: true,
         dueAt: true,
         status: true,
+        notes: true,
         supplierInvoiceId: true,
         bookingComponentId: true,
         trip: {
@@ -5572,6 +5714,7 @@ export class OperationsService {
         currency: p.currency || org?.currency || 'INR',
         dueAt: p.dueAt,
         status: p.status,
+        notes: p.notes,
         supplierName:
           p.supplierInvoice?.supplier?.name ||
           p.bookingComponent?.supplier?.name ||
@@ -5601,7 +5744,7 @@ export class OperationsService {
     const orgId = user.organizationId;
     const org = await this.prisma.organization.findFirst({
       where: { id: orgId },
-      select: { currency: true },
+      select: { currency: true, settingsJson: true },
     });
 
     const trips = await this.prisma.trip.findMany({
@@ -5684,6 +5827,8 @@ export class OperationsService {
       }),
       from: opts.from || null,
       to: opts.to || null,
+      bookCurrency: org?.currency || 'INR',
+      fxRates: parseOrgFxRates(org?.settingsJson),
     });
 
     return {

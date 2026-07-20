@@ -3,12 +3,14 @@ import {
   buildFolderNav,
   buildFolderTree,
   computeFolderDropRename,
+  computeTemplateDropFolder,
   folderLeafLabel,
   folderPathPrefix,
   folderPathSegments,
   normalizeTemplateFolderLabel,
   remapTemplateFolderPrefixUi,
   templateMatchesFolderFilter,
+  templatesExactInFolder,
   templatesUnderFolder,
 } from './quoteTemplateFolder';
 
@@ -140,5 +142,35 @@ describe('quoteTemplateFolder', () => {
         dropOnFolder: 'Beach',
       }),
     ).toBeNull();
+  });
+
+  it('lists templates exact-in-folder and computes drop target', () => {
+    const templates = [
+      { id: '1', name: 'Goa 3N', folder: 'Beach/Goa' },
+      { id: '2', name: 'Root pack', folder: null },
+      { id: '3', name: 'Beach shelf', folder: 'Beach' },
+    ];
+    expect(templatesExactInFolder(templates, 'Beach').map((t) => t.id)).toEqual([
+      '3',
+    ]);
+    expect(templatesExactInFolder(templates, '').map((t) => t.id)).toEqual(['2']);
+    expect(
+      computeTemplateDropFolder({
+        currentFolder: 'Beach/Goa',
+        dropOnFolder: 'Hill stations',
+      }),
+    ).toBe('Hill stations');
+    expect(
+      computeTemplateDropFolder({
+        currentFolder: 'Beach/Goa',
+        dropOnFolder: '',
+      }),
+    ).toBeNull();
+    expect(
+      computeTemplateDropFolder({
+        currentFolder: 'Beach',
+        dropOnFolder: 'Beach',
+      }),
+    ).toBeUndefined();
   });
 });

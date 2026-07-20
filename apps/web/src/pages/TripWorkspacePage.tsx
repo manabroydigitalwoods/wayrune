@@ -2395,6 +2395,56 @@ export function TripWorkspacePage() {
     }
   }
 
+  async function moveQuoteTemplateFolder(
+    templateId: string,
+    folder: string | null,
+  ) {
+    try {
+      await api(`/quote-templates/${templateId}/move-folder`, {
+        method: 'POST',
+        body: JSON.stringify({ folder }),
+      });
+      toastSuccess(
+        folder ? `Moved package into “${folder}”` : 'Moved package to library root',
+      );
+      await loadQuoteTemplates();
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not move package');
+    }
+  }
+
+  async function cascadeDeleteQuoteTemplateFolder(folderRaw: string) {
+    const folder = normalizeTemplateFolderLabel(folderRaw);
+    if (!folder) return;
+    if (
+      !window.confirm(
+        `Delete all packages under “${folder}” (and nested folders)? Soft-deletes packages; they stay in version history.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      const res = await api<{ deleted: number }>(
+        '/quote-templates/folders/cascade-delete',
+        {
+          method: 'POST',
+          body: JSON.stringify({ folder }),
+        },
+      );
+      toastSuccess(
+        res.deleted
+          ? `Deleted ${res.deleted} package${res.deleted === 1 ? '' : 's'} under “${folder}”`
+          : `Cleared folder “${folder}” from nav`,
+      );
+      setTemplateFolderFilter('');
+      await loadQuoteTemplates();
+    } catch (e) {
+      toastError(
+        e instanceof Error ? e.message : 'Could not delete folder packages',
+      );
+    }
+  }
+
   async function toggleTemplateHistory(templateId: string) {
     if (templateHistoryForId === templateId) {
       setTemplateHistoryForId(null);
@@ -6722,9 +6772,20 @@ export function TripWorkspacePage() {
                   onMove={(from, to) =>
                     void applyQuoteTemplateFolderRename(from, to)
                   }
+                  templates={quoteTemplates.map((t) => ({
+                    id: t.id,
+                    name: t.name,
+                    folder: t.content?.folder,
+                  }))}
+                  onMoveTemplate={(id, folder) =>
+                    void moveQuoteTemplateFolder(id, folder)
+                  }
                   onRename={(path) => void renameQuoteTemplateFolder(path)}
                   onRemoveEmpty={(path) =>
                     void removeEmptyQuoteTemplateFolder(path)
+                  }
+                  onCascadeDelete={(path) =>
+                    void cascadeDeleteQuoteTemplateFolder(path)
                   }
                   isEmptyFolder={(path) =>
                     !templatesUnderFolder(

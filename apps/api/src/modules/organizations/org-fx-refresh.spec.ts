@@ -5,6 +5,7 @@ import {
   fxAutoRefreshDue,
   invertFrankfurterRates,
   mergeOrgFxRatesAfterRefresh,
+  orgFxAutoRefreshEnabled,
   parseOrgFxRatesMeta,
   planOrgFxRefresh,
   roundOrgFxRate,
@@ -139,5 +140,13 @@ describe('org-fx-refresh', () => {
     });
     expect(stale.status).toBe('stale');
     expect(stale.settingsJson.fxRates).toEqual({ USD: 83, AED: 22 });
+  });
+
+  it('reads fxAutoRefreshEnabled (default on)', () => {
+    expect(orgFxAutoRefreshEnabled(null)).toBe(true);
+    expect(orgFxAutoRefreshEnabled({})).toBe(true);
+    expect(orgFxAutoRefreshEnabled({ fxAutoRefreshEnabled: false })).toBe(
+      false,
+    );
   });
 });

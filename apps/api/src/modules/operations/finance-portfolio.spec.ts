@@ -51,7 +51,7 @@ describe('finance-portfolio', () => {
     expect(board.summary.otherCurrencyCount).toBe(0);
   });
 
-  it('summarises dominant currency only (no FX mix)', () => {
+  it('summarises dominant currency only when org FX rollup not provided', () => {
     const board = buildFinancePortfolio({
       trips: [
         {
@@ -114,8 +114,92 @@ describe('finance-portfolio', () => {
     expect(board.summary.currency).toBe('INR');
     expect(board.summary.tripCount).toBe(2);
     expect(board.summary.otherCurrencyCount).toBe(1);
+    expect(board.summary.convertedTripCount).toBe(0);
     expect(board.summary.sellTotal).toBe(129085);
     expect(board.summary.marginAmount).toBe(37200);
+  });
+
+  it('rolls foreign trips into book via org FX rates', () => {
+    const board = buildFinancePortfolio({
+      bookCurrency: 'INR',
+      fxRates: { USD: 83 },
+      trips: [
+        {
+          tripId: 't1',
+          tripNumber: 'TRP-02',
+          tripTitle: 'Goa',
+          tripStatus: 'confirmed',
+          partyName: 'Sneha',
+          startDate: '2026-10-05',
+          endDate: '2026-10-10',
+          currency: 'INR',
+          sellTotal: 10000,
+          costTotal: 7000,
+          taxTotal: 0,
+          marginAmount: 3000,
+          marginPercent: 30,
+          acceptedAt: '2026-07-01',
+          quoteNumber: 'QT-02',
+          versionNumber: 1,
+        },
+        {
+          tripId: 't-usd',
+          tripNumber: 'TRP-USD',
+          tripTitle: 'Dubai',
+          tripStatus: 'confirmed',
+          partyName: 'Acme',
+          startDate: '2026-10-08',
+          endDate: '2026-10-12',
+          currency: 'USD',
+          sellTotal: 100,
+          costTotal: 60,
+          taxTotal: 0,
+          marginAmount: 40,
+          marginPercent: 40,
+          acceptedAt: '2026-07-02',
+          quoteNumber: 'QT-USD',
+          versionNumber: 1,
+        },
+      ],
+    });
+    expect(board.summary.currency).toBe('INR');
+    expect(board.summary.tripCount).toBe(2);
+    expect(board.summary.convertedTripCount).toBe(1);
+    expect(board.summary.otherCurrencyCount).toBe(0);
+    expect(board.summary.sellTotal).toBe(18300);
+    expect(board.summary.costTotal).toBe(11980);
+    expect(board.summary.marginAmount).toBe(6320);
+  });
+
+  it('excludes foreign trips when org FX rate is missing', () => {
+    const board = buildFinancePortfolio({
+      bookCurrency: 'INR',
+      fxRates: { EUR: 90 },
+      trips: [
+        {
+          tripId: 't-usd',
+          tripNumber: 'TRP-USD',
+          tripTitle: 'Dubai',
+          tripStatus: 'confirmed',
+          partyName: 'Acme',
+          startDate: '2026-10-08',
+          endDate: '2026-10-12',
+          currency: 'USD',
+          sellTotal: 100,
+          costTotal: 60,
+          taxTotal: 0,
+          marginAmount: 40,
+          marginPercent: 40,
+          acceptedAt: '2026-07-02',
+          quoteNumber: 'QT-USD',
+          versionNumber: 1,
+        },
+      ],
+    });
+    expect(board.summary.tripCount).toBe(0);
+    expect(board.summary.otherCurrencyCount).toBe(1);
+    expect(board.summary.convertedTripCount).toBe(0);
+    expect(board.summary.sellTotal).toBe(0);
   });
 
   it('filters by trip start window', () => {

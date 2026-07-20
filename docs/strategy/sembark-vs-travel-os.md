@@ -180,7 +180,17 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | CAP `refundRequest` / `refundApprove`; Changes & incidents Request (reason) → Approve → existing Settle / Razorpay when approved |
 | **3 Proof** | **Done** | approval transition + settle gate specs; About note; this ladder in memo |
 
-**Defer:** write-off workflow; multi-approver queue; amounts outside credit-note due; changing cancellation case `approvalStatus` (policy apply stays separate).
+**Defer:** *(closed — see Receivable write-off workflow below)* · multi-approver queue (parked — dual-control request≠approve sufficient); amounts outside credit-note due; changing cancellation case `approvalStatus` (policy apply stays separate).
+
+#### Prod-ready ladder — Receivable write-off workflow (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | TripPayment notes stamp `⟦wo:v1⟧` request→approve (self-approve blocked); outstanding subtracts approved write-off; aging uses same math; CD balance sums `docType=write_off` |
+| **2 Channels / UI** | **Done** | Finance panel **Request write-off** / **Approve write-off** (CAP `writeOffRequest` / `writeOffApprove`); pending/approved cues |
+| **3 Proof** | **Done** | trip-payment-write-off specs; About note; this ladder in memo |
+
+**Defer:** multi-approver / org write-off queue; amounts outside credit-note due; CancellationCase `approvalStatus` coupling.
 
 #### Prod-ready ladder — Hotel occupancy JSON field restore (**done**)
 
@@ -412,7 +422,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Lock FX line convert passes org rates (no new control) |
 | **3 Proof** | **Done** | `quote-fx` cross-pair specs; About note; this ladder in memo |
 
-**Defer:** *(closed — see FX auto-cron / Lock FX live fetch)* · paid providers; portfolio multi-currency rollup; AED alternate feed.
+**Defer:** *(closed — see FX auto-cron / Lock FX live fetch / Portfolio FX org-rate rollup)* · paid providers; AED alternate feed.
 
 #### Prod-ready ladder — Portfolio FX honesty (**done**)
 
@@ -422,7 +432,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Portfolio page exclusion cue; home stats use portfolio currency + FX-excl. label when mixed |
 | **3 Proof** | **Done** | Mixed INR+USD unit spec; this ladder in memo |
 
-**Defer:** live provider rollup of all currencies into one total; *(cross-pair closed — see Cross-pair FX convert)*.
+**Defer:** *(closed — see Portfolio FX org-rate rollup)* · live provider pull on every GET; *(cross-pair closed — see Cross-pair FX convert)*.
 
 **Next after Portfolio FX honesty:** package template versioning (done below), live FX refresh (done below), or cross-pair convert.
 
@@ -556,7 +566,17 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Expandable `@dnd-kit` folder tree on new-trip + Use-template pickers; drag folder onto folder/root; Rename/Remove on selected node |
 | **3 Proof** | **Done** | Tree + drop-rename specs; About note; this ladder in memo |
 
-**Defer:** template-row DnD; sibling sort persistence; cascade delete packages; dedicated Packages page.
+**Defer:** *(closed — see Package template-row DnD + cascade delete below)*
+
+#### Prod-ready ladder — Package template-row DnD + cascade delete (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | In-place `POST …/move-folder` (no version bump); `POST …/folders/cascade-delete` soft-supersedes under prefix + drops index prefix |
+| **2 Channels / UI** | **Done** | Packages render under folders in tree; drag package onto folder/root; **Delete…** on non-empty selected folder |
+| **3 Proof** | **Done** | Drop-target + exact-in-folder + index-prefix specs; About note; this ladder in memo |
+
+**Defer:** sibling sort persistence; dedicated Packages page (parked — not needed for Stage A pickers).
 
 #### Prod-ready ladder — Quote post-expiry grace (**done**)
 
@@ -606,7 +626,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Request-approval dialog with checkbox when near-expiry/grace; mark-sent POST includes flag; checkbox stays visible during wa.me Mark as sent |
 | **3 Proof** | **Done** | Schema parse specs; this ladder in memo |
 
-**Defer:** *(validity extend opt-in closed — larger leftovers: Meta sync; multi-band transfer)*
+**Defer:** *(validity extend opt-in closed — Meta sync + transfer multi-band + CSV party bands closed)*.
 
 #### Prod-ready ladder — Guided FIT speed: template travel-start gate (**done**)
 
@@ -1708,7 +1728,17 @@ Protocol for claim flip (ops, not engineering):
 | **2 Channels / UI** | **Done** | Rate chart optional party-size / cost rows |
 | **3 Proof** | **Done** | `transfer-party-bands.spec`; this ladder in memo |
 
-**Defer:** per-vehicle child discounts; dense Sembark transfer matrices; CSV band columns.
+**Defer:** *(closed — see Transfer CSV party-band columns below)* · per-vehicle child discounts; dense Sembark transfer matrices.
+
+#### Prod-ready ladder — Transfer CSV party-band columns (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | Optional `partyBand2/4/6UnitCost` CSV cols → `pricingJson.partyBands`; chart-only rows unchanged |
+| **2 Channels / UI** | **Done** | Transfer import template demos per_vehicle 2/4/6 bands; parser aliases `band2UnitCost` etc. |
+| **3 Proof** | **Done** | CSV→bands helper + import-commit specs; About note; this ladder in memo |
+
+**Defer:** per-vehicle child discounts; dense Sembark transfer matrices (raise band max beyond 3).
 
 #### Prod-ready ladder — Org sales SLA targets (**done**)
 
@@ -1748,7 +1778,7 @@ Protocol for claim flip (ops, not engineering):
 | **2 Channels / UI** | **Done** | Settings meta cue unchanged (shows last auto/manual fetch) |
 | **3 Proof** | **Done** | `fxAutoRefreshDue` + apply specs; About note; this ladder in memo |
 
-**Defer:** *(closed — see Lock FX live fetch below)* · paid FX APIs; true hourly rate writes; per-org disable cron; AED feed.
+**Defer:** *(closed — see Lock FX live fetch / Per-org FX cron disable / Portfolio FX rollup)* · paid FX APIs; true hourly rate writes; AED feed.
 
 #### Prod-ready ladder — Lock FX live fetch (**done**)
 
@@ -1758,7 +1788,27 @@ Protocol for claim flip (ops, not engineering):
 | **2 Channels / UI** | **Done** | Lock FX toast notes market refresh vs stale |
 | **3 Proof** | **Done** | `tryRefreshOrgFxForLock` + cue specs; About note; this ladder in memo |
 
-**Defer:** paid providers; portfolio multi-currency rollup; AED alternate feed.
+**Defer:** *(closed — see Per-org FX cron disable / Portfolio FX org-rate rollup below)* · paid providers; AED alternate feed.
+
+#### Prod-ready ladder — Per-org FX cron disable (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `settingsJson.fxAutoRefreshEnabled` (omit/true = on); worker skips org when `false`; manual refresh + Lock FX unchanged |
+| **2 Channels / UI** | **Done** | Settings → General FX toggle “Auto-refresh weekly from market” |
+| **3 Proof** | **Done** | `orgFxAutoRefreshEnabled` specs; About note; this ladder in memo |
+
+**Defer:** paid providers; true hourly writes; AED feed.
+
+#### Prod-ready ladder — Portfolio FX org-rate rollup (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | Portfolio summary converts foreign trips via org `fxRates` into book currency; missing rate stays excluded (`otherCurrencyCount`); `convertedTripCount` |
+| **2 Channels / UI** | **Done** | Portfolio + home cues: “N converted at org FX” / “N excluded (no FX rate)” |
+| **3 Proof** | **Done** | finance-portfolio convert specs; About note; this ladder in memo |
+
+**Defer:** live provider pull on every portfolio GET; paid FX APIs; AED feed.
 
 #### Prod-ready ladder — Inbox / WA: Quote proposal template designation (**done**)
 
@@ -1989,7 +2039,10 @@ Then introduce differentiators: connected WhatsApp and email → agency website 
 | Multi-organization travel operating platform | **Architecture proven** — do not claim finished partner network |
 | Automated GST-compliant / full accounting ledger | **Do not claim** |
 | Full supplier / partner network | **Do not claim yet** |
-| Live FX market refresh (Settings) | **Proven** (manual + weekly auto-cron + Lock FX live fetch; not paid providers / AED feed) |
+| Live FX market refresh (Settings) | **Proven** (manual + weekly auto-cron + Lock FX live fetch + per-org cron disable; not paid providers / AED feed) |
+| Portfolio FX org-rate rollup | **Proven** (thin · org table; missing rates excluded) |
+| Receivable write-off request → approve | **Proven** (thin) |
+| Transfer CSV party-band columns | **Proven** (thin) |
 | Hotel SGL/DBL/TPL contracted bases on Match | **Proven** (thin) |
 | Meal × occupancy matrix (Rate chart) | **Proven** (thin) |
 | Hotel weekend-per-band on Match | **Proven** (thin) |

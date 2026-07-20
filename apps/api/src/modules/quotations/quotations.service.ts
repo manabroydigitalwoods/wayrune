@@ -26,6 +26,8 @@ import type {
   RenameQuoteTemplateFolderInput,
   UpsertQuoteTemplateFolderInput,
   RemoveQuoteTemplateFolderInput,
+  MoveQuoteTemplateFolderInput,
+  CascadeDeleteQuoteTemplateFolderInput,
   SaveQuotationVersionInput,
   SendQuoteWhatsappInput,
   UpdateQuoteTemplateInput,
@@ -113,6 +115,7 @@ import {
   parsePackageFolderIndex,
   remapPackageFolderIndex,
   removePackageFolderFromIndex,
+  removePackageFolderPrefixFromIndex,
   withPackageFolderIndex,
 } from './quote-template-folder-index';
 import { rematchQuoteItemsFromRates } from './quote-rate-rematch';
@@ -1155,6 +1158,153 @@ export class QuotationsService {
       metadata: { folder },
     });
     return { ok: true as const, folder, folderIndex: next, removed: true };
+  }
+
+  /**
+   * Move one active template into a folder in-place (no new version).
+   * Empty/null folder clears to library root.
+   */
+  async moveTemplateFolder(
+    user: AuthUser,
+    templateId: string,
+    input: MoveQuoteTemplateFolderInput,
+  ) {
+    const existing = await this.prisma.quoteTemplate.findFirst({
+      where: { id: templateId, organizationId: user.organizationId },
+    });
+    if (!existing) throw new NotFoundException('Quote template not found');
+    if (existing.status !== 'active') {
+      throw new BadRequestException('Only active templates can be moved');
+    }
+    const content = parseQuoteTemplateContent(existing.contentJson);
+    const nextFolder = normalizeTemplateFolder(input.folder) ?? null;
+    const prevFolder = content.folder || null;
+    if ((prevFolder || '') === (nextFolder || '')) {
+      return {
+        ok: true as const,
+        id: existing.id,
+        folder: nextFolder,
+        changed: false,
+      };
+    }
+    const nextContent = { ...content } as Record<string, unknown>;
+    if (nextFolder) nextContent.folder = nextFolder;
+    else delete nextContent.folder;
+    await this.prisma.quoteTemplate.update({
+      where: { id: existing.id },
+      data: { contentJson: nextContent as Prisma.InputJsonValue },
+    });
+
+    let folderIndex: string[] | undefined;
+    if (nextFolder) {
+      const org = await this.prisma.organization.findFirst({
+        where: { id: user.organizationId },
+        select: { settingsJson: true },
+      });
+      const prev = parsePackageFolderIndex(org?.settingsJson);
+      const next = addPackageFolderToIndex(prev, nextFolder);
+      if (JSON.stringify(prev) !== JSON.stringify(next)) {
+        await this.prisma.organization.update({
+          where: { id: user.organizationId },
+          data: {
+            settingsJson: withPackageFolderIndex(
+              org?.settingsJson,
+              next,
+            ) as Prisma.InputJsonValue,
+          },
+        });
+        folderIndex = next;
+      } else {
+        folderIndex = prev;
+      }
+    }
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorUserId: user.sub,
+      action: 'quote.template_folder_move',
+      entityType: 'quote_template',
+      entityId: existing.id,
+      metadata: {
+        fromFolder: prevFolder,
+        toFolder: nextFolder,
+        versionNumber: existing.versionNumber,
+      },
+    });
+    return {
+      ok: true as const,
+      id: existing.id,
+      folder: nextFolder,
+      changed: true,
+      folderIndex,
+    };
+  }
+
+  /**
+   * Soft-delete all active templates under a folder prefix, then drop the
+   * path (and descendants) from the org folder index.
+   */
+  async cascadeDeleteTemplateFolder(
+    user: AuthUser,
+    input: CascadeDeleteQuoteTemplateFolderInput,
+  ) {
+    const folder = normalizeTemplateFolder(input.folder);
+    if (!folder) {
+      throw new BadRequestException('Folder is required');
+    }
+    const actives = await this.prisma.quoteTemplate.findMany({
+      where: { organizationId: user.organizationId, status: 'active' },
+    });
+    const touchedIds: string[] = [];
+    for (const row of actives) {
+      const content = parseQuoteTemplateContent(row.contentJson);
+      if (!templateFolderMatchesPrefix(content.folder, folder)) continue;
+      await this.prisma.quoteTemplate.update({
+        where: { id: row.id },
+        data: { status: 'superseded' },
+      });
+      touchedIds.push(row.id);
+    }
+
+    const org = await this.prisma.organization.findFirst({
+      where: { id: user.organizationId },
+      select: { settingsJson: true },
+    });
+    const prevIndex = parsePackageFolderIndex(org?.settingsJson);
+    const nextIndex = removePackageFolderPrefixFromIndex(prevIndex, folder);
+    const indexChanged =
+      JSON.stringify(prevIndex) !== JSON.stringify(nextIndex);
+    if (indexChanged) {
+      await this.prisma.organization.update({
+        where: { id: user.organizationId },
+        data: {
+          settingsJson: withPackageFolderIndex(
+            org?.settingsJson,
+            nextIndex,
+          ) as Prisma.InputJsonValue,
+        },
+      });
+    }
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorUserId: user.sub,
+      action: 'quote.template_folder_cascade_delete',
+      entityType: 'quote_template',
+      entityId: touchedIds[0] || folder,
+      metadata: {
+        folder,
+        deleted: touchedIds.length,
+        templateIds: touchedIds,
+        folderIndexRemapped: indexChanged,
+      },
+    });
+    return {
+      ok: true as const,
+      folder,
+      deleted: touchedIds.length,
+      folderIndex: nextIndex,
+    };
   }
 
   /** Walk supersedes chain for any template id (active or superseded). */

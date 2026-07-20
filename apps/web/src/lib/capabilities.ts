@@ -47,6 +47,8 @@ export const CAP = {
   refundExecute: ['finance.refund.execute', 'finance.payment.manage'],
   refundRequest: ['finance.refund.request'],
   refundApprove: ['finance.refund.approve'],
+  writeOffRequest: ['finance.write_off.request'],
+  writeOffApprove: ['finance.write_off.approve'],
   creditLimitOverride: ['finance.credit_limit.override'],
   ratesWrite: ['quote.write'],
   taskWrite: ['task.write'],

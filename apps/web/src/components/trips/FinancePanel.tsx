@@ -35,6 +35,10 @@ import {
 } from '../../lib/paymentTerms';
 import { partyCreditLimitCue } from '../../lib/partyCreditLimit';
 import {
+  parseTripPaymentWriteOffNotes,
+  tripPaymentOutstandingUi,
+} from '../../lib/tripPaymentWriteOff';
+import {
   copyTripPaymentLink,
   markTripPaymentLinkSent,
   sendTripPaymentLinkWhatsapp,
@@ -225,6 +229,8 @@ export function FinancePanel({
 }) {
   const { hasAny } = usePermissions();
   const canWrite = hasAny(CAP.tripWrite);
+  const canWriteOffRequest = hasAny(CAP.writeOffRequest);
+  const canWriteOffApprove = hasAny(CAP.writeOffApprove);
   const canOverrideCreditLimit = hasAny(CAP.creditLimitOverride);
   const [data, setData] = useState<FinanceSummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -538,6 +544,61 @@ export function FinancePanel({
     }
   }
 
+  async function requestWriteOff(p: Payment) {
+    const outstanding = tripPaymentOutstandingUi({
+      amount: Number(p.amount),
+      amountPaid: Number(p.amountPaid || 0),
+      notes: p.notes,
+    });
+    const amountRaw = window.prompt(
+      `Write-off amount for “${p.label}” (outstanding ${outstanding}):`,
+      String(outstanding),
+    );
+    if (amountRaw == null) return;
+    const amount = Number(amountRaw);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toastError('Enter a positive write-off amount');
+      return;
+    }
+    const reason = window.prompt('Reason for write-off (required):', '');
+    if (reason == null) return;
+    if (!reason.trim()) {
+      toastError('Reason is required');
+      return;
+    }
+    try {
+      await api(`/trips/${tripId}/payments/${p.id}/request-write-off`, {
+        method: 'POST',
+        body: JSON.stringify({ amount, reason: reason.trim() }),
+      });
+      toastSuccess('Write-off requested — awaiting approval');
+      await load();
+      await onChanged();
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not request write-off');
+    }
+  }
+
+  async function approveWriteOff(p: Payment) {
+    if (
+      !window.confirm(
+        `Approve write-off for “${p.label}”? This reduces outstanding and may close the instalment.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      await api(`/trips/${tripId}/payments/${p.id}/approve-write-off`, {
+        method: 'POST',
+      });
+      toastSuccess('Write-off approved');
+      await load();
+      await onChanged();
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not approve write-off');
+    }
+  }
+
   async function saveInvoice() {
     const amount = Number(invoiceForm.amount);
     if (!invoiceForm.supplierId || !invoiceForm.invoiceNumber.trim() || !(amount > 0)) {
@@ -603,7 +664,12 @@ export function FinancePanel({
 
   function renderPaymentRow(p: Payment) {
     const due = p.dueAt ? formatDate(p.dueAt) : null;
-    const outstanding = Math.max(0, Number(p.amount) - Number(p.amountPaid || 0));
+    const outstanding = tripPaymentOutstandingUi({
+      amount: Number(p.amount),
+      amountPaid: Number(p.amountPaid || 0),
+      notes: p.notes,
+    });
+    const writeOff = parseTripPaymentWriteOffNotes(p.notes);
     return (
       <li
         key={p.id}
@@ -613,6 +679,16 @@ export function FinancePanel({
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-medium">{p.label}</span>
             <StatusBadge value={p.status} showIcon />
+            {writeOff.status === 'awaiting_approval' ? (
+              <span className="rounded bg-amber-500/15 px-1.5 py-px text-[10px] font-medium text-amber-800 dark:text-amber-200">
+                Write-off pending · {formatCurrency(writeOff.amount, p.currency)}
+              </span>
+            ) : null}
+            {writeOff.status === 'approved' ? (
+              <span className="rounded bg-muted px-1.5 py-px text-[10px] font-medium text-muted-foreground">
+                Written off · {formatCurrency(writeOff.amount, p.currency)}
+              </span>
+            ) : null}
           </div>
           <div className="mt-0.5 text-xs text-muted-foreground tabular-nums">
             {formatCurrency(p.amount, p.currency)}
@@ -663,6 +739,26 @@ export function FinancePanel({
                       {markingSentId === p.id ? 'Marking…' : 'Mark as sent'}
                     </Button>
                   ) : null}
+                  {canWriteOffRequest &&
+                  writeOff.status === 'none' &&
+                  outstanding > 0.001 ? (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => void requestWriteOff(p)}
+                    >
+                      Request write-off
+                    </Button>
+                  ) : null}
+                  {canWriteOffApprove && writeOff.status === 'awaiting_approval' ? (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => void approveWriteOff(p)}
+                    >
+                      Approve write-off
+                    </Button>
+                  ) : null}
                 </>
               ) : null}
               <Button size="sm" variant="secondary" onClick={() => void markPaid(p.id)}>
@@ -679,6 +775,18 @@ export function FinancePanel({
             </Button>
           )}
           </>
+          ) : null}
+          {!canWrite &&
+          p.direction === 'customer' &&
+          canWriteOffApprove &&
+          writeOff.status === 'awaiting_approval' ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => void approveWriteOff(p)}
+            >
+              Approve write-off
+            </Button>
           ) : null}
         </div>
       </li>

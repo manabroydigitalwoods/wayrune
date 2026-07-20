@@ -33,6 +33,29 @@ export function parseTransferPartyBands(raw: unknown): TransferPartyBand[] {
   return out.slice(-3);
 }
 
+/**
+ * Optional CSV cols `partyBand2/4/6UnitCost` → `pricingJson.partyBands`.
+ * Blank / missing cols → null (chart-only row unchanged).
+ */
+export function buildPartyBandsFromTransferCsvRow(row: {
+  partyBand2UnitCost?: number | null;
+  partyBand4UnitCost?: number | null;
+  partyBand6UnitCost?: number | null;
+}): TransferPartyBand[] | null {
+  const candidates: Array<{ partySize: number; raw: number | null | undefined }> =
+    [
+      { partySize: 2, raw: row.partyBand2UnitCost },
+      { partySize: 4, raw: row.partyBand4UnitCost },
+      { partySize: 6, raw: row.partyBand6UnitCost },
+    ];
+  const bands: TransferPartyBand[] = [];
+  for (const c of candidates) {
+    if (c.raw == null || !Number.isFinite(c.raw) || c.raw < 0) continue;
+    bands.push({ partySize: c.partySize, unitCost: Math.round(c.raw * 100) / 100 });
+  }
+  return bands.length ? bands : null;
+}
+
 /** Highest band with partySize ≤ party; else lowest band; null if empty. */
 export function pickTransferPartyBand(opts: {
   bands: TransferPartyBand[];

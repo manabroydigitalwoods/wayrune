@@ -14,6 +14,8 @@ import {
   RenameQuoteTemplateFolderSchema,
   UpsertQuoteTemplateFolderSchema,
   RemoveQuoteTemplateFolderSchema,
+  MoveQuoteTemplateFolderSchema,
+  CascadeDeleteQuoteTemplateFolderSchema,
   RestoreQuoteTemplateSchema,
   SaveQuotationVersionSchema,
   SendQuoteEmailSchema,
@@ -86,6 +88,32 @@ export class QuotationsController {
     return this.quotations.removeTemplateFolder(
       user,
       RemoveQuoteTemplateFolderSchema.parse(body),
+    );
+  }
+
+  @Post('quote-templates/folders/cascade-delete')
+  @RequirePermissions('quote.write')
+  cascadeDeleteTemplateFolder(
+    @CurrentUser() user: AuthUser,
+    @Body() body: unknown,
+  ) {
+    return this.quotations.cascadeDeleteTemplateFolder(
+      user,
+      CascadeDeleteQuoteTemplateFolderSchema.parse(body),
+    );
+  }
+
+  @Post('quote-templates/:id/move-folder')
+  @RequirePermissions('quote.write')
+  moveTemplateFolder(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    return this.quotations.moveTemplateFolder(
+      user,
+      id,
+      MoveQuoteTemplateFolderSchema.parse(body),
     );
   }
 

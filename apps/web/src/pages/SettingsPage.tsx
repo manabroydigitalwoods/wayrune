@@ -425,6 +425,7 @@ export function SettingsPage({
   const { toOrgPath, navigate } = useOrgNavigate();
   const { hasAny } = usePermissions();
   const canUserManage = hasAny(CAP.userManage);
+  const canOrgSettingsWrite = hasAny(CAP.orgSettingsWrite);
   const [showAdvancedByDefault, setShowAdvancedByDefault] = useAdvancedToolsPreference();
   const visibleSections = useMemo(
     () =>
@@ -480,6 +481,7 @@ export function SettingsPage({
     Object.fromEntries(ORG_FX_CODES.map((c) => [c, String(ORG_FX_DEFAULTS[c])])),
   );
   const [fxRatesMeta, setFxRatesMeta] = useState<OrgFxRatesMetaCue | null>(null);
+  const [fxAutoRefreshEnabled, setFxAutoRefreshEnabled] = useState(true);
   const [refreshingFx, setRefreshingFx] = useState(false);
   const [branding, setBranding] = useState<BrandingForm>({
     companyName: '',
@@ -615,6 +617,7 @@ export function SettingsPage({
             }
           : null,
       );
+      setFxAutoRefreshEnabled(settings.fxAutoRefreshEnabled !== false);
     }
     setDisplay(nextDisplay);
     setDateTimePrefs(nextDisplay);
@@ -783,6 +786,7 @@ export function SettingsPage({
           fitBuildTargetMinutes: optionalTarget(fitBuildTargetMinutes, 1440),
           minMarginPercent,
           fxRates,
+          fxAutoRefreshEnabled,
           itinerary,
           display,
         },
@@ -1263,6 +1267,21 @@ export function SettingsPage({
                             {fxMetaCue ? (
                               <p className="text-xs text-muted-foreground">{fxMetaCue}</p>
                             ) : null}
+                          </div>
+                          <div className="flex items-center gap-3 pt-1">
+                            <Switch
+                              id="fx-auto-refresh"
+                              checked={fxAutoRefreshEnabled}
+                              onCheckedChange={setFxAutoRefreshEnabled}
+                              disabled={!canOrgSettingsWrite}
+                            />
+                            <label
+                              htmlFor="fx-auto-refresh"
+                              className="cursor-pointer text-sm text-muted-foreground"
+                            >
+                              Auto-refresh weekly from market (worker). Manual refresh and Lock FX
+                              still run when off.
+                            </label>
                           </div>
                         </div>
                       </FormField>

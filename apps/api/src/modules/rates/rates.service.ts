@@ -99,6 +99,7 @@ import {
 import {
   parseTransferPartyBands,
   pickTransferPartyBand,
+  buildPartyBandsFromTransferCsvRow,
   transferPartyBandMatchAccepted,
 } from './transfer-party-bands';
 import {
@@ -3588,6 +3589,10 @@ export class RatesService {
           currency: row.currency,
           startDate: row.startDate,
           endDate: row.endDate,
+          pricingJson: (() => {
+            const partyBands = buildPartyBandsFromTransferCsvRow(row);
+            return partyBands ? { partyBands } : undefined;
+          })(),
         });
         okCount += 1;
         results.push({ row: rowNum, status: 'ok', summary, fareId: created.id });

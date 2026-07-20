@@ -56,8 +56,8 @@ const HOTEL_TEMPLATE =
   'INR,2026-04-01,2026-10-31\n';
 
 const TRANSFER_TEMPLATE =
-  'supplierName,fromPlace,toPlace,vehicleType,unitCost,childUnitCost,infantUnitCost,childAgeMin,childAgeMax,pricingMode,currency,startDate,endDate\n' +
-  'North Bengal Fleet Rentals,Bagdogra (IXB),Darjeeling,Sedan,3200,1600,400,0,11,per_adult,INR,2026-04-01,2026-10-31\n';
+  'supplierName,fromPlace,toPlace,vehicleType,unitCost,partyBand2UnitCost,partyBand4UnitCost,partyBand6UnitCost,childUnitCost,infantUnitCost,childAgeMin,childAgeMax,pricingMode,currency,startDate,endDate\n' +
+  'North Bengal Fleet Rentals,Bagdogra (IXB),Darjeeling,Sedan,4500,4500,5200,6500,,,0,11,per_vehicle,INR,2026-04-01,2026-10-31\n';
 
 const ACTIVITY_TEMPLATE =
   'supplierName,placeName,activityName,privateOrSic,adultUnitCost,childUnitCost,childAgeMin,childAgeMax,currency,startDate,endDate\n' +
@@ -121,8 +121,8 @@ function transferTemplateForSupplier(supplierName?: string) {
   if (!supplierName?.trim()) return TRANSFER_TEMPLATE;
   const safe = supplierName.trim().replace(/,/g, ' ');
   return (
-    'supplierName,fromPlace,toPlace,vehicleType,unitCost,childUnitCost,infantUnitCost,childAgeMin,childAgeMax,pricingMode,currency,startDate,endDate\n' +
-    `${safe},Bagdogra (IXB),Darjeeling,Sedan,3200,1600,400,0,11,per_adult,INR,2026-04-01,2026-10-31\n`
+    'supplierName,fromPlace,toPlace,vehicleType,unitCost,partyBand2UnitCost,partyBand4UnitCost,partyBand6UnitCost,childUnitCost,infantUnitCost,childAgeMin,childAgeMax,pricingMode,currency,startDate,endDate\n' +
+    `${safe},Bagdogra (IXB),Darjeeling,Sedan,4500,4500,5200,6500,,,0,11,per_vehicle,INR,2026-04-01,2026-10-31\n`
   );
 }
 
@@ -388,6 +388,24 @@ export function RatesCsvImportDialog({
     const infantIdx = headerIndex(headers, 'infantunitcost', 'infantcost');
     const ageMinIdx = headerIndex(headers, 'childagemin', 'agemin');
     const ageMaxIdx = headerIndex(headers, 'childagemax', 'agemax');
+    const band2Idx = headerIndex(
+      headers,
+      'partyband2unitcost',
+      'band2unitcost',
+      'party2unitcost',
+    );
+    const band4Idx = headerIndex(
+      headers,
+      'partyband4unitcost',
+      'band4unitcost',
+      'party4unitcost',
+    );
+    const band6Idx = headerIndex(
+      headers,
+      'partyband6unitcost',
+      'band6unitcost',
+      'party6unitcost',
+    );
     const modeIdx = headerIndex(headers, 'pricingmode', 'mode');
     const currencyIdx = headerIndex(headers, 'currency');
     const startIdx = headerIndex(headers, 'startdate', 'fromdate');
@@ -411,6 +429,9 @@ export function RatesCsvImportDialog({
         infantUnitCost: parseOptionalNumber(cell(cols, infantIdx)),
         childAgeMin: parseOptionalNumber(cell(cols, ageMinIdx)) ?? null,
         childAgeMax: parseOptionalNumber(cell(cols, ageMaxIdx)) ?? null,
+        partyBand2UnitCost: parseOptionalNumber(cell(cols, band2Idx)),
+        partyBand4UnitCost: parseOptionalNumber(cell(cols, band4Idx)),
+        partyBand6UnitCost: parseOptionalNumber(cell(cols, band6Idx)),
         pricingMode,
         currency: cell(cols, currencyIdx) || undefined,
         startDate: cell(cols, startIdx) || null,

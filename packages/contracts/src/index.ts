@@ -204,6 +204,11 @@ quoteValidityGraceHours: z.number().int().min(0).max(72).optional(),
       })
       .optional(),
     /**
+     * When false, worker weekly FX auto-refresh skips this org.
+     * Manual Settings refresh + Lock FX live fetch still run. Omit → true.
+     */
+    fxAutoRefreshEnabled: z.boolean().optional(),
+    /**
      * Empty package-folder paths kept in the New-trip / Use-template nav
      * even when no active template lives under them (max 200).
      */
@@ -3463,6 +3468,13 @@ export const ImportTransferFareCsvRowSchema = z.object({
   infantUnitCost: z.number().nonnegative().nullable().optional(),
   childAgeMin: z.number().int().min(0).max(17).nullable().optional(),
   childAgeMax: z.number().int().min(0).max(17).nullable().optional(),
+  /**
+   * Optional party-size band costs (≤3 after parse).
+   * Fixed sizes mirror common cab tiers (2 / 4 / 6 pax).
+   */
+  partyBand2UnitCost: z.number().nonnegative().nullable().optional(),
+  partyBand4UnitCost: z.number().nonnegative().nullable().optional(),
+  partyBand6UnitCost: z.number().nonnegative().nullable().optional(),
   pricingMode: TransferFarePricingModeSchema.optional(),
   currency: z.string().length(3).optional(),
   startDate: z.preprocess(blankToNull, z.string().nullable()).optional(),
@@ -3689,6 +3701,23 @@ export const RemoveQuoteTemplateFolderSchema = z.object({
   folder: RequiredText('Folder'),
 });
 
+/** Move one active package template into a folder (in-place; no new version). */
+export const MoveQuoteTemplateFolderSchema = z.object({
+  /** Target folder path; empty/null clears folder (library root). */
+  folder: z.preprocess(
+    (v) => (v == null || v === '' ? null : v),
+    z.string().max(80).nullable(),
+  ),
+});
+
+/**
+ * Soft-delete (supersede) all active templates under a folder prefix,
+ * then remove the path from the org folder index.
+ */
+export const CascadeDeleteQuoteTemplateFolderSchema = z.object({
+  folder: RequiredText('Folder'),
+});
+
 /** Restore a prior (usually superseded) template version as a new active tip. */
 export const RestoreQuoteTemplateSchema = z.object({
   /** Template row to copy content from (must be in the same supersedes chain). */
@@ -3766,6 +3795,12 @@ export const MarkPaymentPaidSchema = z.object({
   amountPaid: z.number().positive().optional(),
   method: PaymentMethodSchema.optional().nullable(),
   reference: z.preprocess(blankToNull, z.string().nullable()).optional(),
+});
+
+/** Request a write-off of residual customer instalment balance (dual-control). */
+export const RequestTripPaymentWriteOffSchema = z.object({
+  amount: z.number().positive(),
+  reason: RequiredText('Reason'),
 });
 
 export const ConfirmTripPaymentLinkSchema = z.object({
@@ -4061,6 +4096,12 @@ export type UpsertQuoteTemplateFolderInput = z.infer<
 export type RemoveQuoteTemplateFolderInput = z.infer<
   typeof RemoveQuoteTemplateFolderSchema
 >;
+export type MoveQuoteTemplateFolderInput = z.infer<
+  typeof MoveQuoteTemplateFolderSchema
+>;
+export type CascadeDeleteQuoteTemplateFolderInput = z.infer<
+  typeof CascadeDeleteQuoteTemplateFolderSchema
+>;
 export type RestoreQuoteTemplateInput = z.infer<typeof RestoreQuoteTemplateSchema>;
 export type ApplyQuoteTemplateInput = z.infer<typeof ApplyQuoteTemplateSchema>;
 export type CloneQuotationInput = z.infer<typeof CloneQuotationSchema>;
@@ -4102,6 +4143,9 @@ export type ChartFreshnessItemInput = z.infer<typeof ChartFreshnessItemSchema>;
 export type CreateTripPaymentInput = z.infer<typeof CreateTripPaymentSchema>;
 export type UpdateTripPaymentInput = z.infer<typeof UpdateTripPaymentSchema>;
 export type MarkPaymentPaidInput = z.infer<typeof MarkPaymentPaidSchema>;
+export type RequestTripPaymentWriteOffInput = z.infer<
+  typeof RequestTripPaymentWriteOffSchema
+>;
 export type ConfirmTripPaymentLinkInput = z.infer<typeof ConfirmTripPaymentLinkSchema>;
 export type CreateSupplierInvoiceInput = z.infer<typeof CreateSupplierInvoiceSchema>;
 export type UpdateSupplierInvoiceInput = z.infer<typeof UpdateSupplierInvoiceSchema>;

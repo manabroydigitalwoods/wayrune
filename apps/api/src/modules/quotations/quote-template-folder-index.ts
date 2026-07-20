@@ -72,6 +72,20 @@ export function removePackageFolderFromIndex(
   return index.filter((f) => f.toLowerCase() !== key);
 }
 
+/** Remove a folder path and all descendant index entries. */
+export function removePackageFolderPrefixFromIndex(
+  index: string[],
+  folder: string | null | undefined,
+): string[] {
+  const n = normalizeTemplateFolder(folder);
+  if (!n) return [...index];
+  const key = n.toLowerCase();
+  return index.filter((f) => {
+    const fl = f.toLowerCase();
+    return fl !== key && !fl.startsWith(`${key}/`);
+  });
+}
+
 /** Remap index paths when renaming/moving a folder prefix (mirrors template remap). */
 export function remapPackageFolderIndex(
   index: string[],

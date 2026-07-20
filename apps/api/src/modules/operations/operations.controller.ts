@@ -19,6 +19,7 @@ import {
   MarkPaymentPaidSchema,
   MarkTripPaymentLinkSentSchema,
   MarkTripVouchersWhatsappSentSchema,
+  RequestTripPaymentWriteOffSchema,
   SendHotelEnquiryWhatsappSchema,
   SendTripPaymentLinkWhatsappSchema,
   SendTripVouchersEmailSchema,
@@ -467,6 +468,34 @@ export class OperationsController {
     @Param('paymentId') paymentId: string,
   ) {
     return this.operations.cancelPayment(user, tripId, paymentId);
+  }
+
+  @Post('trips/:tripId/payments/:paymentId/request-write-off')
+  @RequireAgencyOrg()
+  @RequirePermissions('finance.write_off.request')
+  requestWriteOff(
+    @CurrentUser() user: AuthUser,
+    @Param('tripId') tripId: string,
+    @Param('paymentId') paymentId: string,
+    @Body() body: unknown,
+  ) {
+    return this.operations.requestTripPaymentWriteOff(
+      user,
+      tripId,
+      paymentId,
+      RequestTripPaymentWriteOffSchema.parse(body),
+    );
+  }
+
+  @Post('trips/:tripId/payments/:paymentId/approve-write-off')
+  @RequireAgencyOrg()
+  @RequirePermissions('finance.write_off.approve')
+  approveWriteOff(
+    @CurrentUser() user: AuthUser,
+    @Param('tripId') tripId: string,
+    @Param('paymentId') paymentId: string,
+  ) {
+    return this.operations.approveTripPaymentWriteOff(user, tripId, paymentId);
   }
 
   @Get('trips/:tripId/supplier-invoices')

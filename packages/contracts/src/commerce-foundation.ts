@@ -377,6 +377,7 @@ export const CommercialDocumentTypeSchema = z.enum([
   'credit_note',
   'receipt',
   'proforma',
+  'write_off',
 ]);
 
 export const CreateCommercialDocumentSchema = z.object({

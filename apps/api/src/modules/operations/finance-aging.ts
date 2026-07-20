@@ -1,5 +1,7 @@
 /** Org-wide TripPayment AR/AP aging buckets. */
 
+import { tripPaymentOutstanding } from './trip-payment-write-off';
+
 export type AgingBucketKey =
   | 'current'
   | 'd1_30'
@@ -27,6 +29,7 @@ export type FinanceAgingPayment = {
   dueAt: Date | string | null;
   status: string;
   supplierName: string | null;
+  notes?: string | null;
 };
 
 export type FinanceAgingRow = {
@@ -69,8 +72,12 @@ function startOfLocalDay(d: Date): Date {
   return out;
 }
 
-export function paymentOutstanding(amount: number, amountPaid: number): number {
-  return Math.max(0, round2(amount - amountPaid));
+export function paymentOutstanding(
+  amount: number,
+  amountPaid: number,
+  notes?: string | null,
+): number {
+  return tripPaymentOutstanding({ amount, amountPaid, notes });
 }
 
 function round2(n: number): number {
@@ -131,7 +138,7 @@ export function buildFinanceAging(opts: {
     if (!isOpenAgingPayment(p.status)) continue;
     if (direction !== 'all' && p.direction !== direction) continue;
 
-    const outstanding = paymentOutstanding(p.amount, p.amountPaid);
+    const outstanding = paymentOutstanding(p.amount, p.amountPaid, p.notes);
     if (outstanding <= 0.001) continue;
 
     const days = daysPastDue(p.dueAt, now);

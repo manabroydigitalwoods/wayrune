@@ -239,3 +239,41 @@ export function computeFolderDropRename(opts: {
   if (!toFolder || toFolder.toLowerCase() === from.toLowerCase()) return null;
   return { fromFolder: from, toFolder };
 }
+
+export type PackageTreeTemplate = {
+  id: string;
+  name: string;
+  folder?: string | null;
+};
+
+/** Templates whose folder equals `folder` exactly (empty = unfiled / root). */
+export function templatesExactInFolder(
+  templates: PackageTreeTemplate[],
+  folder: string | null | undefined,
+): PackageTreeTemplate[] {
+  const q = normalizeTemplateFolderLabel(folder) || '';
+  const ql = q.toLowerCase();
+  return templates
+    .filter((t) => {
+      const f = normalizeTemplateFolderLabel(t.folder) || '';
+      return f.toLowerCase() === ql;
+    })
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Drop a template onto a folder (empty = root).
+ * Returns target folder path, or `null` for root, or `undefined` if no-op.
+ */
+export function computeTemplateDropFolder(opts: {
+  currentFolder: string | null | undefined;
+  dropOnFolder: string | null | undefined;
+}): string | null | undefined {
+  const dropRaw =
+    opts.dropOnFolder === FOLDER_TREE_ROOT_ID ? '' : opts.dropOnFolder;
+  const dropOn = normalizeTemplateFolderLabel(dropRaw) || null;
+  const current = normalizeTemplateFolderLabel(opts.currentFolder) || null;
+  if ((current || '') === (dropOn || '')) return undefined;
+  return dropOn;
+}

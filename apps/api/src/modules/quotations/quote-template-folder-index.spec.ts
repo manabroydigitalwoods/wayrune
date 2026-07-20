@@ -5,6 +5,7 @@ import {
   parsePackageFolderIndex,
   remapPackageFolderIndex,
   removePackageFolderFromIndex,
+  removePackageFolderPrefixFromIndex,
   withPackageFolderIndex,
 } from './quote-template-folder-index';
 
@@ -33,6 +34,12 @@ describe('quote-template-folder-index', () => {
     expect(removePackageFolderFromIndex(added, 'Beach')).toEqual([
       'Hill stations/New',
     ]);
+    expect(
+      removePackageFolderPrefixFromIndex(
+        ['Hill stations', 'Hill stations/Darjeeling', 'Beach/Goa'],
+        'Hill stations',
+      ),
+    ).toEqual(['Beach/Goa']);
   });
 
   it('remaps index on folder rename/move', () => {

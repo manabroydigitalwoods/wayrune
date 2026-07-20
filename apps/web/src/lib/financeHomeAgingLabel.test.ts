@@ -11,6 +11,15 @@ describe('agingHomeStatLabel', () => {
     );
   });
 
+  it('appends FX conv. when foreign trips rolled at org FX', () => {
+    expect(agingHomeStatLabel('Portfolio margin', 0, 2)).toBe(
+      'Portfolio margin · 2 FX conv.',
+    );
+    expect(agingHomeStatLabel('Portfolio margin', 1, 2)).toBe(
+      'Portfolio margin · 2 FX conv. · 1 FX excl.',
+    );
+  });
+
   it('keeps base label when count is zero or missing', () => {
     expect(agingHomeStatLabel('Overdue receivables', 0)).toBe(
       'Overdue receivables',

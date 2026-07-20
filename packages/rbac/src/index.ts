@@ -981,6 +981,7 @@ export const PARTNER_ROLE_PERMISSION_MAP: Record<string, PermissionKey[]> = {
     'finance.settlement.read',
     'finance.settlement.manage',
     'finance.refund.approve',
+    'finance.write_off.approve',
     'finance.credit_limit.override',
     'finance.credit_note.create',
     'credit_note.approve',

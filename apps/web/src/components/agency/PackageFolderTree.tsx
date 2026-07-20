@@ -8,12 +8,15 @@ import {
   useSensors,
   type DragEndEvent,
 } from '@dnd-kit/core';
-import { ChevronDown, ChevronRight, Folder } from 'lucide-react';
+import { ChevronDown, ChevronRight, FileText, Folder } from 'lucide-react';
 import {
   buildFolderTree,
   computeFolderDropRename,
+  computeTemplateDropFolder,
   FOLDER_TREE_ROOT_ID,
+  templatesExactInFolder,
   type FolderTreeNode,
+  type PackageTreeTemplate,
 } from '../../lib/quoteTemplateFolder';
 
 type PackageFolderTreeProps = {
@@ -21,11 +24,19 @@ type PackageFolderTreeProps = {
   selectedPath: string;
   canWrite: boolean;
   onSelect: (path: string) => void;
-  /** Move via existing rename-folder API. */
+  /** Move folder via existing rename-folder API. */
   onMove: (fromFolder: string, toFolder: string) => void | Promise<void>;
+  /** Optional packages shown under matching folders (drag onto folder/root). */
+  templates?: PackageTreeTemplate[];
+  onMoveTemplate?: (
+    templateId: string,
+    folder: string | null,
+  ) => void | Promise<void>;
   /** Optional node actions (shown when selected). */
   onRename?: (path: string) => void;
   onRemoveEmpty?: (path: string) => void;
+  /** Soft-delete packages under folder + drop path from index. */
+  onCascadeDelete?: (path: string) => void;
   isEmptyFolder?: (path: string) => boolean;
   footer?: ReactNode;
 };
@@ -65,6 +76,51 @@ function DroppableRoot({
   );
 }
 
+function TemplateTreeRow({
+  template,
+  depth,
+  canWrite,
+}: {
+  template: PackageTreeTemplate;
+  depth: number;
+  canWrite: boolean;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    isDragging,
+  } = useDraggable({
+    id: `template:${template.id}`,
+    data: {
+      kind: 'template' as const,
+      templateId: template.id,
+      folder: template.folder ?? null,
+    },
+    disabled: !canWrite,
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={[
+        'flex items-center gap-1 rounded py-0.5 pr-1 text-[10px] text-muted-foreground',
+        isDragging ? 'opacity-40' : 'hover:bg-muted/60',
+        canWrite ? 'cursor-grab active:cursor-grabbing' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+      style={{ paddingLeft: `${16 + depth * 12}px` }}
+      {...(canWrite ? { ...listeners, ...attributes } : {})}
+    >
+      <FileText className="h-3 w-3 shrink-0" />
+      <span className="truncate font-medium text-foreground/80">
+        {template.name}
+      </span>
+    </div>
+  );
+}
+
 function FolderTreeRow({
   node,
   depth,
@@ -75,7 +131,9 @@ function FolderTreeRow({
   onSelect,
   onRename,
   onRemoveEmpty,
+  onCascadeDelete,
   isEmptyFolder,
+  templates,
 }: {
   node: FolderTreeNode;
   depth: number;
@@ -86,7 +144,9 @@ function FolderTreeRow({
   onSelect: (path: string) => void;
   onRename?: (path: string) => void;
   onRemoveEmpty?: (path: string) => void;
+  onCascadeDelete?: (path: string) => void;
   isEmptyFolder?: (path: string) => boolean;
+  templates: PackageTreeTemplate[];
 }) {
   const {
     attributes,
@@ -95,7 +155,7 @@ function FolderTreeRow({
     isDragging,
   } = useDraggable({
     id: `folder:${node.path}`,
-    data: { path: node.path },
+    data: { kind: 'folder' as const, path: node.path },
     disabled: !canWrite,
   });
   const { setNodeRef: setDropRef, isOver } = useDroppable({
@@ -112,6 +172,8 @@ function FolderTreeRow({
   const hasKids = node.children.length > 0;
   const open = expanded.has(node.path.toLowerCase());
   const empty = isEmptyFolder?.(node.path) ?? false;
+  const inFolder = templatesExactInFolder(templates, node.path);
+  const showBody = hasKids || inFolder.length > 0;
 
   return (
     <div>
@@ -127,7 +189,7 @@ function FolderTreeRow({
           .join(' ')}
         style={{ paddingLeft: `${4 + depth * 12}px` }}
       >
-        {hasKids ? (
+        {showBody ? (
           <button
             type="button"
             className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted"
@@ -176,9 +238,27 @@ function FolderTreeRow({
             Remove
           </button>
         ) : null}
+        {selected && canWrite && !empty && onCascadeDelete ? (
+          <button
+            type="button"
+            className="shrink-0 rounded border border-border/60 px-1 py-px text-destructive/80 hover:bg-muted"
+            onClick={() => onCascadeDelete(node.path)}
+          >
+            Delete…
+          </button>
+        ) : null}
       </div>
-      {hasKids && open
-        ? node.children.map((child) => (
+      {showBody && open ? (
+        <>
+          {inFolder.map((t) => (
+            <TemplateTreeRow
+              key={t.id}
+              template={t}
+              depth={depth + 1}
+              canWrite={canWrite}
+            />
+          ))}
+          {node.children.map((child) => (
             <FolderTreeRow
               key={child.path}
               node={child}
@@ -190,10 +270,13 @@ function FolderTreeRow({
               onSelect={onSelect}
               onRename={onRename}
               onRemoveEmpty={onRemoveEmpty}
+              onCascadeDelete={onCascadeDelete}
               isEmptyFolder={isEmptyFolder}
+              templates={templates}
             />
-          ))
-        : null}
+          ))}
+        </>
+      ) : null}
     </div>
   );
 }
@@ -204,12 +287,19 @@ export function PackageFolderTree({
   canWrite,
   onSelect,
   onMove,
+  templates = [],
+  onMoveTemplate,
   onRename,
   onRemoveEmpty,
+  onCascadeDelete,
   isEmptyFolder,
   footer,
 }: PackageFolderTreeProps) {
   const tree = useMemo(() => buildFolderTree(folders), [folders]);
+  const rootTemplates = useMemo(
+    () => templatesExactInFolder(templates, ''),
+    [templates],
+  );
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -227,18 +317,29 @@ export function PackageFolderTree({
 
   const onDragEnd = (event: DragEndEvent) => {
     if (!canWrite) return;
-    const fromPath = String(
-      (event.active.data.current as { path?: string } | undefined)?.path || '',
-    );
     const overId = event.over?.id != null ? String(event.over.id) : '';
-    if (!fromPath || !overId) return;
+    if (!overId) return;
+    if (overId !== FOLDER_TREE_ROOT_ID && !overId.startsWith('folder:')) return;
     const dropOnFolder =
       overId === FOLDER_TREE_ROOT_ID
         ? ''
-        : overId.startsWith('folder:')
-          ? overId.slice('folder:'.length)
-          : '';
-    if (overId !== FOLDER_TREE_ROOT_ID && !overId.startsWith('folder:')) return;
+        : overId.slice('folder:'.length);
+
+    const data = event.active.data.current as
+      | { kind?: string; path?: string; templateId?: string; folder?: string | null }
+      | undefined;
+    if (data?.kind === 'template' && data.templateId && onMoveTemplate) {
+      const next = computeTemplateDropFolder({
+        currentFolder: data.folder,
+        dropOnFolder,
+      });
+      if (next === undefined) return;
+      void onMoveTemplate(data.templateId, next);
+      return;
+    }
+
+    const fromPath = String(data?.path || '');
+    if (!fromPath) return;
     const payload = computeFolderDropRename({
       fromFolder: fromPath,
       dropOnFolder,
@@ -247,7 +348,7 @@ export function PackageFolderTree({
     void onMove(payload.fromFolder, payload.toFolder);
   };
 
-  if (!tree.length) {
+  if (!tree.length && !rootTemplates.length) {
     return footer ? <div className="space-y-1">{footer}</div> : null;
   }
 
@@ -257,6 +358,14 @@ export function PackageFolderTree({
         selected={!selectedPath.trim()}
         onSelect={() => onSelect('')}
       >
+        {rootTemplates.map((t) => (
+          <TemplateTreeRow
+            key={t.id}
+            template={t}
+            depth={0}
+            canWrite={canWrite}
+          />
+        ))}
         {tree.map((node) => (
           <FolderTreeRow
             key={node.path}
@@ -269,7 +378,9 @@ export function PackageFolderTree({
             onSelect={onSelect}
             onRename={onRename}
             onRemoveEmpty={onRemoveEmpty}
+            onCascadeDelete={onCascadeDelete}
             isEmptyFolder={isEmptyFolder}
+            templates={templates}
           />
         ))}
       </DroppableRoot>

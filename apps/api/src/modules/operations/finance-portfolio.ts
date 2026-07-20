@@ -67,15 +67,49 @@ function inWindow(
   return true;
 }
 
+function normalizeCurrency(code: string | null | undefined): string {
+  const c = String(code || 'INR').trim().toUpperCase();
+  return c.length === 3 ? c : 'INR';
+}
+
+/**
+ * Convert foreign amount → book using org FX table
+ * (`units of book per 1 foreign`). Missing/invalid rate → null (fail-closed).
+ */
+export function convertAmountAtOrgFx(opts: {
+  amount: number;
+  fromCurrency: string;
+  bookCurrency: string;
+  fxRates: Record<string, number>;
+}): number | null {
+  const from = normalizeCurrency(opts.fromCurrency);
+  const book = normalizeCurrency(opts.bookCurrency);
+  if (from === book) return round2(opts.amount);
+  const rate = opts.fxRates[from];
+  if (rate == null || !Number.isFinite(rate) || rate <= 0) return null;
+  return round2(opts.amount * rate);
+}
+
 export function buildFinancePortfolio(opts: {
   trips: PortfolioTripInput[];
   from?: Date | string | null;
   to?: Date | string | null;
+  /**
+   * Org book currency for summary rollup. When set with `fxRates`, foreign
+   * trips convert into book; missing rates stay excluded (honesty).
+   * When omitted, summary uses dominant currency only (legacy honesty).
+   */
+  bookCurrency?: string | null;
+  /** Org FX table: units of book per 1 foreign. */
+  fxRates?: Record<string, number> | null;
 }): {
   summary: {
     currency: string;
     tripCount: number;
+    /** Trips excluded from totals (no FX rate / honesty). */
     otherCurrencyCount: number;
+    /** Foreign trips converted into book via org FX. */
+    convertedTripCount: number;
     sellTotal: number;
     costTotal: number;
     marginAmount: number;
@@ -85,6 +119,11 @@ export function buildFinancePortfolio(opts: {
 } {
   const from = asDate(opts.from ?? null);
   const to = asDate(opts.to ?? null);
+  const book = opts.bookCurrency
+    ? normalizeCurrency(opts.bookCurrency)
+    : null;
+  const fxRates = opts.fxRates && typeof opts.fxRates === 'object' ? opts.fxRates : null;
+  const rollupAtOrgFx = Boolean(book && fxRates);
 
   const filtered = opts.trips.filter((t) => inWindow(t.startDate, from, to));
 
@@ -97,7 +136,7 @@ export function buildFinancePortfolio(opts: {
       partyName: t.partyName,
       startDate: isoDay(t.startDate),
       endDate: isoDay(t.endDate),
-      currency: (t.currency || 'INR').toUpperCase(),
+      currency: normalizeCurrency(t.currency),
       sellTotal: round2(t.sellTotal),
       costTotal: round2(t.costTotal),
       taxTotal: round2(t.taxTotal),
@@ -114,33 +153,93 @@ export function buildFinancePortfolio(opts: {
       return a.tripNumber.localeCompare(b.tripNumber);
     });
 
-  // Summary totals use the dominant currency only (no FX mix) — same honesty as aging.
-  const currencyCounts = new Map<string, number>();
-  for (const r of rows) {
-    currencyCounts.set(r.currency, (currencyCounts.get(r.currency) || 0) + 1);
-  }
-  let currency = 'INR';
-  let best = 0;
-  for (const [c, n] of currencyCounts) {
-    if (n > best) {
-      currency = c;
-      best = n;
+  if (!rollupAtOrgFx || !book || !fxRates) {
+    // Legacy: dominant currency only (no FX mix).
+    const currencyCounts = new Map<string, number>();
+    for (const r of rows) {
+      currencyCounts.set(r.currency, (currencyCounts.get(r.currency) || 0) + 1);
     }
+    let currency = 'INR';
+    let best = 0;
+    for (const [c, n] of currencyCounts) {
+      if (n > best) {
+        currency = c;
+        best = n;
+      }
+    }
+    const primaryRows = rows.filter((r) => r.currency === currency);
+    const otherCurrencyCount = rows.length - primaryRows.length;
+    const sellTotal = round2(primaryRows.reduce((s, r) => s + r.sellTotal, 0));
+    const costTotal = round2(primaryRows.reduce((s, r) => s + r.costTotal, 0));
+    const marginAmount = round2(
+      primaryRows.reduce((s, r) => s + r.marginAmount, 0),
+    );
+    const marginPercent =
+      sellTotal > 0 ? round2((marginAmount / sellTotal) * 100) : null;
+    return {
+      summary: {
+        currency,
+        tripCount: primaryRows.length,
+        otherCurrencyCount,
+        convertedTripCount: 0,
+        sellTotal,
+        costTotal,
+        marginAmount,
+        marginPercent,
+      },
+      rows,
+    };
   }
-  const primaryRows = rows.filter((r) => r.currency === currency);
-  const otherCurrencyCount = rows.length - primaryRows.length;
 
-  const sellTotal = round2(primaryRows.reduce((s, r) => s + r.sellTotal, 0));
-  const costTotal = round2(primaryRows.reduce((s, r) => s + r.costTotal, 0));
-  const marginAmount = round2(primaryRows.reduce((s, r) => s + r.marginAmount, 0));
+  let sellTotal = 0;
+  let costTotal = 0;
+  let marginAmount = 0;
+  let tripCount = 0;
+  let convertedTripCount = 0;
+  let otherCurrencyCount = 0;
+
+  for (const r of rows) {
+    const sell = convertAmountAtOrgFx({
+      amount: r.sellTotal,
+      fromCurrency: r.currency,
+      bookCurrency: book,
+      fxRates,
+    });
+    const cost = convertAmountAtOrgFx({
+      amount: r.costTotal,
+      fromCurrency: r.currency,
+      bookCurrency: book,
+      fxRates,
+    });
+    const margin = convertAmountAtOrgFx({
+      amount: r.marginAmount,
+      fromCurrency: r.currency,
+      bookCurrency: book,
+      fxRates,
+    });
+    if (sell == null || cost == null || margin == null) {
+      otherCurrencyCount += 1;
+      continue;
+    }
+    if (r.currency !== book) convertedTripCount += 1;
+    sellTotal += sell;
+    costTotal += cost;
+    marginAmount += margin;
+    tripCount += 1;
+  }
+
+  sellTotal = round2(sellTotal);
+  costTotal = round2(costTotal);
+  marginAmount = round2(marginAmount);
   const marginPercent =
     sellTotal > 0 ? round2((marginAmount / sellTotal) * 100) : null;
 
   return {
     summary: {
-      currency,
-      tripCount: primaryRows.length,
+      currency: book,
+      tripCount,
       otherCurrencyCount,
+      convertedTripCount,
       sellTotal,
       costTotal,
       marginAmount,

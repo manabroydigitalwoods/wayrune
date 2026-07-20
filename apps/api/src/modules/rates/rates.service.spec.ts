@@ -966,6 +966,86 @@ describe('RatesService.importTransferFaresCsv', () => {
     );
   });
 
+  it('passes partyBands from CSV band columns on commit', async () => {
+    vi.mocked(prisma.place.findFirst)
+      .mockResolvedValueOnce({ id: 'p-from', name: 'Bagdogra' } as never)
+      .mockResolvedValueOnce({ id: 'p-to', name: 'Darjeeling' } as never);
+    vi.mocked(prisma.vehicleType.findFirst).mockResolvedValue({
+      id: 'veh-1',
+      name: 'Sedan',
+    } as never);
+    const createSpy = vi
+      .spyOn(service, 'createTransferFare')
+      .mockResolvedValue({ id: 'fare-bands' } as never);
+
+    const res = await service.importTransferFaresCsv('org-1', 'user-1', {
+      commit: true,
+      rows: [
+        {
+          fromPlace: 'Bagdogra',
+          toPlace: 'Darjeeling',
+          vehicleType: 'Sedan',
+          unitCost: 4500,
+          partyBand2UnitCost: 4500,
+          partyBand4UnitCost: 5200,
+          partyBand6UnitCost: 6500,
+          pricingMode: 'per_vehicle',
+        },
+      ],
+    });
+
+    expect(res.okCount).toBe(1);
+    expect(createSpy).toHaveBeenCalledWith(
+      'org-1',
+      'user-1',
+      expect.objectContaining({
+        unitCost: 4500,
+        pricingMode: 'per_vehicle',
+        pricingJson: {
+          partyBands: [
+            { partySize: 2, unitCost: 4500 },
+            { partySize: 4, unitCost: 5200 },
+            { partySize: 6, unitCost: 6500 },
+          ],
+        },
+      }),
+    );
+  });
+
+  it('omits pricingJson when band columns are blank', async () => {
+    vi.mocked(prisma.place.findFirst)
+      .mockResolvedValueOnce({ id: 'p-from', name: 'Bagdogra' } as never)
+      .mockResolvedValueOnce({ id: 'p-to', name: 'Darjeeling' } as never);
+    vi.mocked(prisma.vehicleType.findFirst).mockResolvedValue({
+      id: 'veh-1',
+      name: 'Sedan',
+    } as never);
+    const createSpy = vi
+      .spyOn(service, 'createTransferFare')
+      .mockResolvedValue({ id: 'fare-plain' } as never);
+
+    await service.importTransferFaresCsv('org-1', 'user-1', {
+      commit: true,
+      rows: [
+        {
+          fromPlace: 'Bagdogra',
+          toPlace: 'Darjeeling',
+          vehicleType: 'Sedan',
+          unitCost: 3200,
+        },
+      ],
+    });
+
+    expect(createSpy).toHaveBeenCalledWith(
+      'org-1',
+      'user-1',
+      expect.objectContaining({
+        unitCost: 3200,
+        pricingJson: undefined,
+      }),
+    );
+  });
+
   it('allows catalog rows with empty supplierName', async () => {
     vi.mocked(prisma.place.findFirst)
       .mockResolvedValueOnce({ id: 'p-from', name: 'Bagdogra' } as never)

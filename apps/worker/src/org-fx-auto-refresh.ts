@@ -7,6 +7,7 @@ import {
   applyFxRefreshToSettingsJson,
   fetchFrankfurterOrgFxRates,
   fxAutoRefreshDue,
+  orgFxAutoRefreshEnabled,
   parseOrgFxRatesMeta,
 } from '@wayrune/contracts';
 
@@ -35,6 +36,10 @@ export async function runOrgFxAutoRefresh(opts: {
   let failed = 0;
 
   for (const org of orgs) {
+    if (!orgFxAutoRefreshEnabled(org.settingsJson)) {
+      skipped += 1;
+      continue;
+    }
     const meta = parseOrgFxRatesMeta(org.settingsJson);
     if (!fxAutoRefreshDue(meta, now)) {
       skipped += 1;

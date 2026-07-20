@@ -428,6 +428,56 @@ export function TripsPage() {
     }
   }
 
+  async function movePackageTemplate(
+    templateId: string,
+    folder: string | null,
+  ) {
+    try {
+      await api(`/quote-templates/${templateId}/move-folder`, {
+        method: 'POST',
+        body: JSON.stringify({ folder }),
+      });
+      toastSuccess(
+        folder ? `Moved package into “${folder}”` : 'Moved package to library root',
+      );
+      await loadTemplates();
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not move package');
+    }
+  }
+
+  async function cascadeDeletePackageFolder(folderRaw: string) {
+    const folder = normalizeTemplateFolderLabel(folderRaw);
+    if (!folder) return;
+    if (
+      !window.confirm(
+        `Delete all packages under “${folder}” (and nested folders)? Soft-deletes packages; they stay in version history.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      const res = await api<{ deleted: number }>(
+        '/quote-templates/folders/cascade-delete',
+        {
+          method: 'POST',
+          body: JSON.stringify({ folder }),
+        },
+      );
+      toastSuccess(
+        res.deleted
+          ? `Deleted ${res.deleted} package${res.deleted === 1 ? '' : 's'} under “${folder}”`
+          : `Cleared folder “${folder}” from nav`,
+      );
+      setPackageFolderFilter('');
+      await loadTemplates();
+    } catch (e) {
+      toastError(
+        e instanceof Error ? e.message : 'Could not delete folder packages',
+      );
+    }
+  }
+
   async function onCreate() {
     const plan = planCreateTripFromPackage({
       title: form.title,
@@ -1003,8 +1053,19 @@ export function TripsPage() {
                       canWrite={canQuoteWrite}
                       onSelect={setPackageFolderFilter}
                       onMove={(from, to) => void applyPackageFolderRename(from, to)}
+                      templates={templates.map((t) => ({
+                        id: t.id,
+                        name: t.name,
+                        folder: t.content?.folder,
+                      }))}
+                      onMoveTemplate={(id, folder) =>
+                        void movePackageTemplate(id, folder)
+                      }
                       onRename={(path) => void renamePackageFolder(path)}
                       onRemoveEmpty={(path) => void removeEmptyPackageFolder(path)}
+                      onCascadeDelete={(path) =>
+                        void cascadeDeletePackageFolder(path)
+                      }
                       isEmptyFolder={(path) =>
                         !templatesUnderFolder(
                           templates.map((t) => t.content?.folder),
