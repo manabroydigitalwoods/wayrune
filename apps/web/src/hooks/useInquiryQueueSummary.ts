@@ -6,6 +6,8 @@ export type InquiryQueueSummary = {
   planning: number;
   planningIncomplete: number;
   planningUnassigned: number;
+  planningStale: number;
+  agingHours: number;
 };
 
 export function useInquiryQueueSummary(enabled = true) {
@@ -23,7 +25,13 @@ export function useInquiryQueueSummary(enabled = true) {
     void (async () => {
       try {
         const res = await api<InquiryQueueSummary>('/inquiries/queue-summary');
-        if (!cancelled) setData(res);
+        if (!cancelled) {
+          setData({
+            ...res,
+            planningStale: res.planningStale ?? 0,
+            agingHours: res.agingHours ?? 4,
+          });
+        }
       } catch {
         if (!cancelled) setData(null);
       } finally {

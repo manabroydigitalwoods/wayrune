@@ -45,6 +45,7 @@ export class InquiriesController {
       queue: q.queue,
       ownerId,
       incomplete: q.incomplete,
+      stale: q.stale,
       viewerUserId: user.sub,
     });
   }

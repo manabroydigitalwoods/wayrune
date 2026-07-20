@@ -4504,28 +4504,6 @@ export class RatesService {
             (a): a is number => typeof a === 'number' && Number.isFinite(a),
           )
         : [];
-      matchAlternatives = toMatchAlternatives(
-        rankedRest,
-        ctx.alternativesLimit,
-        (r) =>
-          [r.roomType, r.mealPlan].filter(Boolean).join(' · ') ||
-          r.id.slice(0, 8),
-        (r) => Number(r.unitCost),
-        (r) =>
-          previewHotelStayBuy({
-            unitCost: Number(r.unitCost),
-            weekendUnitCost:
-              r.weekendUnitCost != null ? Number(r.weekendUnitCost) : null,
-            occupancyPricingJson: r.occupancyPricingJson,
-            stayNights: stayDatesForPricing,
-            stayNightIsos: stayDateIsos,
-            rooms,
-            adults,
-            children,
-            childrenWithoutBed,
-            childAges,
-          }),
-      );
       const childNationalities = collectGuestNationalityBag({
         nationalities: Array.isArray(item.details?.childNationalities)
           ? (item.details!.childNationalities as Array<
@@ -4564,31 +4542,77 @@ export class RatesService {
         mealWanted,
         roomProductIdWanted,
       );
+      const splitTips = splitRoomMealPool.map((r) => ({
+        id: r.id,
+        unitCost: Number(r.unitCost),
+        weekendUnitCost:
+          r.weekendUnitCost != null ? Number(r.weekendUnitCost) : null,
+        occupancyPricingJson: r.occupancyPricingJson,
+      }));
+      const pickBestForPaxSplit = (
+        pool: typeof splitTips,
+      ): (typeof splitTips)[number] | undefined => {
+        const ids = new Set(pool.map((p) => p.id));
+        const row = pickBest(splitRoomMealPool.filter((r) => ids.has(r.id)));
+        if (!row) return undefined;
+        return {
+          id: row.id,
+          unitCost: Number(row.unitCost),
+          weekendUnitCost:
+            row.weekendUnitCost != null ? Number(row.weekendUnitCost) : null,
+          occupancyPricingJson: row.occupancyPricingJson,
+        };
+      };
+      const pickChildPricingForPreview = (code: string) => {
+        const tip = pickBest(
+          filterHotelByPlaceOfSupply(
+            filterHotelByNationality(splitRoomMealPool, code),
+            destinationPos,
+          ),
+        );
+        if (!tip) return null;
+        const pricing = parseOccupancyPricing(tip.occupancyPricingJson);
+        if (!pricing) return null;
+        return {
+          childWithBedPerNight: pricing.childWithBedPerNight ?? null,
+          childWithoutBedPerNight: pricing.childWithoutBedPerNight ?? null,
+        };
+      };
+      matchAlternatives = toMatchAlternatives(
+        rankedRest,
+        ctx.alternativesLimit,
+        (r) =>
+          [r.roomType, r.mealPlan].filter(Boolean).join(' · ') ||
+          r.id.slice(0, 8),
+        (r) => Number(r.unitCost),
+        (r) =>
+          previewHotelStayBuy({
+            unitCost: Number(r.unitCost),
+            weekendUnitCost:
+              r.weekendUnitCost != null ? Number(r.weekendUnitCost) : null,
+            occupancyPricingJson: r.occupancyPricingJson,
+            stayNights: stayDatesForPricing,
+            stayNightIsos: stayDateIsos,
+            rooms,
+            adults,
+            children,
+            childrenWithoutBed,
+            childAges,
+            childNationalities,
+            pickChildPricing: pickChildPricingForPreview,
+            guestCodes,
+            splitTips,
+            pickBestTip: pickBestForPaxSplit,
+          }),
+      );
       const paxSplit = tryHotelPaxBuySplit({
         guestCodes,
         adults,
         children,
         rooms,
         stayDates: stayDatesForPricing,
-        candidatePool: splitRoomMealPool.map((r) => ({
-          id: r.id,
-          unitCost: Number(r.unitCost),
-          weekendUnitCost:
-            r.weekendUnitCost != null ? Number(r.weekendUnitCost) : null,
-          occupancyPricingJson: r.occupancyPricingJson,
-        })),
-        pickBest: (pool) => {
-          const ids = new Set(pool.map((p) => p.id));
-          const row = pickBest(splitRoomMealPool.filter((r) => ids.has(r.id)));
-          if (!row) return undefined;
-          return {
-            id: row.id,
-            unitCost: Number(row.unitCost),
-            weekendUnitCost:
-              row.weekendUnitCost != null ? Number(row.weekendUnitCost) : null,
-            occupancyPricingJson: row.occupancyPricingJson,
-          };
-        },
+        candidatePool: splitTips,
+        pickBest: pickBestForPaxSplit,
       });
 
       let baseCalc = hotelStayCalculation(

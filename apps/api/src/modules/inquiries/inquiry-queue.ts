@@ -11,6 +11,10 @@ export type InquiryListFilters = {
   queue?: InquiryListQueue;
   ownerId?: string | null;
   incomplete?: boolean;
+  /** Planning items with updatedAt older than org inbox aging hours. */
+  stale?: boolean;
+  /** Used with `stale` — hours threshold (default 4). */
+  agingHours?: number;
   viewerUserId?: string;
 };
 
@@ -23,6 +27,19 @@ export function inquiryHasMissingFieldsWhere(): Prisma.InquiryWhereInput {
       ],
     },
   };
+}
+
+/** Planning inquiries last updated before `now - agingHours`. */
+export function inquiryPlanningStaleWhere(
+  agingHours: number,
+  now: Date = new Date(),
+): Prisma.InquiryWhereInput {
+  const raw = Number(agingHours);
+  const hours = Number.isFinite(raw)
+    ? Math.max(1, Math.min(72, Math.floor(raw) || 1))
+    : 4;
+  const cutoff = new Date(now.getTime() - hours * 60 * 60 * 1000);
+  return { updatedAt: { lt: cutoff } };
 }
 
 export function buildInquiryListWhere(
@@ -54,20 +71,30 @@ export function buildInquiryListWhere(
     where.ownerId = filters.ownerId;
   }
 
+  const andParts: Prisma.InquiryWhereInput[] = [];
   if (filters.incomplete) {
-    return { AND: [where, inquiryHasMissingFieldsWhere()] };
+    andParts.push(inquiryHasMissingFieldsWhere());
   }
-
+  if (filters.stale) {
+    // Stale is a planning-queue cue — force planning statuses when filtering.
+    where.status = { in: [...INQUIRY_PLANNING_STATUSES] };
+    andParts.push(
+      inquiryPlanningStaleWhere(filters.agingHours ?? 4),
+    );
+  }
   if (filters.q?.trim()) {
     const q = filters.q.trim();
-    const textFilter: Prisma.InquiryWhereInput = {
+    andParts.push({
       OR: [
         { inquiryNumber: { contains: q } },
         { travelType: { contains: q } },
         { party: { displayName: { contains: q } } },
       ],
-    };
-    return { AND: [where, textFilter] };
+    });
+  }
+
+  if (andParts.length) {
+    return { AND: [where, ...andParts] };
   }
 
   return where;
@@ -78,13 +105,20 @@ export type InquiryQueueSummary = {
   planning: number;
   planningIncomplete: number;
   planningUnassigned: number;
+  planningStale: number;
+  agingHours: number;
 };
 
 export async function getInquiryQueueSummary(
   prisma: PrismaService['inquiry'],
   organizationId: string,
   viewerUserId: string,
+  agingHours = 4,
 ): Promise<InquiryQueueSummary> {
+  const raw = Number(agingHours);
+  const hours = Number.isFinite(raw)
+    ? Math.max(1, Math.min(72, Math.floor(raw) || 1))
+    : 4;
   const base = { organizationId, deletedAt: null };
   const planningWhere: Prisma.InquiryWhereInput = {
     ...base,
@@ -96,15 +130,32 @@ export async function getInquiryQueueSummary(
     OR: [{ ownerId: null }, { ownerId: viewerUserId }],
   };
 
-  const [myRequests, planning, planningIncomplete, planningUnassigned] =
-    await Promise.all([
-      prisma.count({ where: myRequestsWhere }),
-      prisma.count({ where: planningWhere }),
-      prisma.count({
-        where: { AND: [planningWhere, inquiryHasMissingFieldsWhere()] },
-      }),
-      prisma.count({ where: { ...planningWhere, ownerId: null } }),
-    ]);
+  const [
+    myRequests,
+    planning,
+    planningIncomplete,
+    planningUnassigned,
+    planningStale,
+  ] = await Promise.all([
+    prisma.count({ where: myRequestsWhere }),
+    prisma.count({ where: planningWhere }),
+    prisma.count({
+      where: { AND: [planningWhere, inquiryHasMissingFieldsWhere()] },
+    }),
+    prisma.count({ where: { ...planningWhere, ownerId: null } }),
+    prisma.count({
+      where: {
+        AND: [planningWhere, inquiryPlanningStaleWhere(hours)],
+      },
+    }),
+  ]);
 
-  return { myRequests, planning, planningIncomplete, planningUnassigned };
+  return {
+    myRequests,
+    planning,
+    planningIncomplete,
+    planningUnassigned,
+    planningStale,
+    agingHours: hours,
+  };
 }

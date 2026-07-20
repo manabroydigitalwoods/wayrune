@@ -2191,7 +2191,8 @@ export function QuoteServiceDetailSheet({
             <p className="font-medium text-foreground">Other eligible rates</p>
             <p className="mt-0.5 text-muted-foreground">
               Same Match filters — pick another chart without rebuilding this line.
-              Est. stay/line buy is a single-tip preview; Use re-matches to apply.
+              Est. stay/line buy follows Match (per-pax split, multi-cab, child
+              age×market extras when gated). Use still re-matches to apply.
             </p>
             <ul className="mt-2 space-y-1">
               {matchAlternatives.map((alt) => (

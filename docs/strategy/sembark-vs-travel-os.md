@@ -128,7 +128,7 @@ Scores: **Y** = acceptable · **~** = partial / thin · **N** = not yet · **—
 
 | Capability | C | D | E | R | A | P | Overall vs Sembark |
 |------------|---|---|---|---|---|---|--------------------|
-| Lead / enquiry intake + SLA cues | Y | ~ | ~ | Y | ~ | ~ | Journey near; usability unproven |
+| Lead / enquiry intake + SLA cues | Y | ~ | Y | Y | ~ | ~ | Journey near; enquiry desk SLA parity; adoption still ~ |
 | Omnichannel inbox | Y | ~ | ~ | ~ | ~ | ~ | Foundation ours; depth mixed |
 | Guided FIT quote (package → Match → send) | Y | ~ | ~ | Y | N | N | Eng thin-complete; claim Testing; adoption N |
 | Quote revise (dates / pax / hotel / margin delta) | Y | ~ | Y | Y | N | N | Moves + alts + priced previews + Why; adoption N |
@@ -282,7 +282,17 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | `SalesCrmSlaStrip` on Leads + Inbox (overdue follow-ups, unread, aging click-through); Leads quick filters **Overdue follow-ups** / **My leads** |
 | **3 Proof** | **Done** | `inboxAgingLabel.test`; existing lead-follow-up + unread-sla specs; this ladder in memo |
 
-**Defer:** *(none — HubSpot and Microsoft messaging removed from product)*.
+**Defer:** *(closed — see Enquiry-surface SLA parity below)* · dual-source merge / task PATCH.
+
+#### Prod-ready ladder — Enquiry-surface SLA parity (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `stale` on `InquiryListQuerySchema`; `inquiryPlanningStaleWhere` uses org `inboxAgingHours`; `planningStale` + `agingHours` on queue-summary |
+| **2 Channels / UI** | **Done** | `SalesCrmSlaStrip` on Planning / My requests / Sales; **Stale in planning** chip + list filter |
+| **3 Proof** | **Done** | inquiry-queue + inquiryQueue specs; release note; this ladder; Lead/enquiry Ease nudge |
+
+**Defer:** dual-source merge / task PATCH · inventing CRM adoption proof.
 
 #### Prod-ready ladder — Supplier CSV/XLSX bulk + audit (**done**)
 
@@ -780,7 +790,27 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Other eligible rates show **est. stay/line buy** + chart unit; helper copy that Use re-matches |
 | **3 Proof** | **Done** | Preview + alternatives specs; release note; this ladder |
 
-**Defer:** multi-cab / pax-split preview parity · apply-from-rejected.
+**Defer:** *(multi-cab / pax-split preview closed below)* · apply-from-rejected.
+
+#### Prod-ready ladder — Priced Match alts: multi-cab / pax-split preview (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `previewTransferLineBuy` capacity bump + `composeMultiVehicleTransferSplit` + explicit child/infant add-ons; `previewHotelStayBuy` optional `guestCodes`/`splitTips` → `tryHotelPaxBuySplit` then tip occupancy extras |
+| **2 Channels / UI** | **Done** | Hotel alt previews pass split pool; helper copy notes Match parity + remaining cross-tip child caveat |
+| **3 Proof** | **Done** | Preview specs vs split helpers; release note; this ladder |
+
+**Defer:** *(child extras preview closed below)* · apply-from-rejected.
+
+#### Prod-ready ladder — Priced Match alts: child extras preview (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `previewHotelStayBuy` age×nationality columns then cross-tip `sumChildExtrasByNationality` (same order as Match); tip-local flat fallthrough |
+| **2 Channels / UI** | **Done** | Hotel alt previews pass `childNationalities` + POS-aware `pickChildPricing`; helper copy drops child-extras caveat |
+| **3 Proof** | **Done** | Preview specs; release note; this ladder |
+
+**Defer:** apply-from-rejected · inventing Why copy.
 
 #### Prod-ready ladder — Trip Next Action strip (**done**)
 

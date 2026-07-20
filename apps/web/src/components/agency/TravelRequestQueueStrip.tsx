@@ -1,9 +1,10 @@
-import { ClipboardList, UserRound } from 'lucide-react';
+import { ClipboardList, Clock, UserRound } from 'lucide-react';
 import { StatusBadge } from '@wayrune/ui';
 import { useOrgNavigate } from '../../hooks/useOrgNavigate';
 import { useInquiryQueueSummary } from '../../hooks/useInquiryQueueSummary';
 import { AGENCY_ROUTES } from '../../lib/agencyRoutes';
 import type { InquiriesPageVariant } from '../../lib/agencyPageVariants';
+import { inboxAgingFilterLabel } from '../../lib/inboxAgingLabel';
 
 /** Queue attention strip on Planning / My requests / Sales inquiry lists. */
 export function TravelRequestQueueStrip({
@@ -18,13 +19,24 @@ export function TravelRequestQueueStrip({
 
   if (!enabled || loading || !data) return null;
 
+  const agingLabel = inboxAgingFilterLabel(data.agingHours ?? 4);
+
   const chips: Array<{
     key: string;
     label: string;
     tone: 'warn' | 'info' | 'danger';
     onClick: () => void;
     show: boolean;
+    icon: 'clock' | 'user' | 'list';
   }> = [
+    {
+      key: 'planning-stale',
+      label: `${data.planningStale} stale in planning (${agingLabel.toLowerCase()})`,
+      tone: 'danger',
+      onClick: () => navigate(`${AGENCY_ROUTES.workPlanning}?stale=1`),
+      show: data.planningStale > 0,
+      icon: 'clock',
+    },
     {
       key: 'planning-incomplete',
       label: `${data.planningIncomplete} incomplete in planning`,
@@ -32,6 +44,7 @@ export function TravelRequestQueueStrip({
       onClick: () =>
         navigate(`${AGENCY_ROUTES.workPlanning}?incomplete=1`),
       show: data.planningIncomplete > 0,
+      icon: 'list',
     },
     {
       key: 'planning-unassigned',
@@ -40,6 +53,7 @@ export function TravelRequestQueueStrip({
       onClick: () =>
         navigate(`${AGENCY_ROUTES.workPlanning}?unassigned=1`),
       show: data.planningUnassigned > 0,
+      icon: 'user',
     },
     {
       key: 'my-requests',
@@ -47,6 +61,7 @@ export function TravelRequestQueueStrip({
       tone: 'info',
       onClick: () => navigate(AGENCY_ROUTES.workRequests),
       show: variant !== 'requests' && data.myRequests > 0,
+      icon: 'list',
     },
     {
       key: 'planning',
@@ -54,6 +69,7 @@ export function TravelRequestQueueStrip({
       tone: 'info',
       onClick: () => navigate(AGENCY_ROUTES.workPlanning),
       show: variant !== 'planning' && data.planning > 0,
+      icon: 'list',
     },
   ];
 
@@ -73,7 +89,9 @@ export function TravelRequestQueueStrip({
           onClick={chip.onClick}
         >
           <StatusBadge value={chip.key} label={chip.label} tone={chip.tone} showIcon />
-          {chip.key.includes('unassigned') ? (
+          {chip.icon === 'clock' ? (
+            <Clock className="size-3.5 text-warning" aria-hidden />
+          ) : chip.icon === 'user' ? (
             <UserRound className="size-3.5 text-muted-foreground" aria-hidden />
           ) : (
             <ClipboardList className="size-3.5 text-muted-foreground" aria-hidden />

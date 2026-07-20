@@ -21,6 +21,7 @@ export function buildInquiriesListQuery(input: {
   variant: InquiriesPageVariant;
   incomplete?: boolean;
   unassigned?: boolean;
+  stale?: boolean;
   pageSize?: number;
 }): string {
   const params = new URLSearchParams();
@@ -29,5 +30,10 @@ export function buildInquiriesListQuery(input: {
   if (queue) params.set('queue', queue);
   if (input.incomplete) params.set('incomplete', '1');
   if (input.unassigned) params.set('ownerId', 'unassigned');
+  if (input.stale) {
+    params.set('stale', '1');
+    // Stale is always a planning cue — force planning queue when variant isn't.
+    if (!queue || queue !== 'planning') params.set('queue', 'planning');
+  }
   return params.toString();
 }

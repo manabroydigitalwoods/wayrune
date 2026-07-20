@@ -27,6 +27,30 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-enquiry-sla-parity',
+    date: '2026-07-20',
+    title: 'Enquiry desk Response SLA',
+    summary:
+      'Planning / My requests / Sales show the same Response SLA strip as Leads and Inbox. Stale in planning uses org inbox aging hours (queue chip + list filter). Triage surface only — not adoption proof.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-priced-alts-child-extras',
+    date: '2026-07-20',
+    title: 'Match alt buy — child extras',
+    summary:
+      'Other eligible rates est. stay buy includes age×market child columns and cross-tip child nationality extras when Match would. Use still re-matches to apply.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-priced-alts-split-preview',
+    date: '2026-07-20',
+    title: 'Match alt buy — multi-cab & per-pax',
+    summary:
+      'Other eligible rates est. buy follows Match multi-cab seat splits and mixed-nationality per-pax hotel buy when gated. Child age×market extras covered in a follow-on note.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-why-rate-noise-filter',
     date: '2026-07-20',
     title: 'Why this rate — quieter bullets',
@@ -63,7 +87,7 @@ export const RELEASE_NOTES: ReleaseNote[] = [
     date: '2026-07-20',
     title: 'Priced Match alternatives',
     summary:
-      'Other eligible rates show estimated stay buy (hotel) or line buy (transfer/activity) for the current stay/pax — single-tip preview with chart unit. Use still re-matches; mixed-nationality pax-split and multi-cab paths may differ after apply.',
+      'Other eligible rates show estimated stay buy (hotel) or line buy (transfer/activity) for the current stay/pax — including multi-cab / per-pax / child extras when gated. Use still re-matches.',
     claimStatus: 'proven',
   },
   {

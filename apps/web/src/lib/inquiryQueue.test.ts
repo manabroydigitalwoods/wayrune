@@ -21,4 +21,13 @@ describe('buildInquiriesListQuery', () => {
     expect(qs).toContain('incomplete=1');
     expect(qs).toContain('ownerId=unassigned');
   });
+
+  it('includes stale filter and forces planning queue', () => {
+    const qs = buildInquiriesListQuery({
+      variant: 'sales',
+      stale: true,
+    });
+    expect(qs).toContain('stale=1');
+    expect(qs).toContain('queue=planning');
+  });
 });

@@ -1145,6 +1145,11 @@ export const InquiryListQuerySchema = PaginationQuerySchema.extend({
     .union([z.literal('1'), z.literal('true'), z.boolean()])
     .optional()
     .transform((v) => v === true || v === '1' || v === 'true'),
+  /** Planning queue: updatedAt older than org inboxAgingHours. */
+  stale: z
+    .union([z.literal('1'), z.literal('true'), z.boolean()])
+    .optional()
+    .transform((v) => v === true || v === '1' || v === 'true'),
 });
 
 /** Server-side filters for client / B2B party list. */

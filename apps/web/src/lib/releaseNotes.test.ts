@@ -14,7 +14,7 @@ describe('releaseNotes', () => {
     expect(visible.every(isBuyerVisibleReleaseNote)).toBe(true);
     expect(visible.some((n) => /under three minutes/i.test(n.title))).toBe(false);
     // Thin GST label + display split are proven; filing / compliant ledger stays hidden.
-    const allBuyer = visibleReleaseNotes(RELEASE_NOTES, { limit: 100 });
+    const allBuyer = visibleReleaseNotes(RELEASE_NOTES, { limit: 200 });
     expect(allBuyer.some((n) => /GST label/i.test(n.title))).toBe(true);
     expect(allBuyer.some((n) => /CGST.*SGST.*IGST display/i.test(n.title))).toBe(
       true,
@@ -29,7 +29,7 @@ describe('releaseNotes', () => {
   });
 
   it('keeps recent proven rate-grid notes buyer-visible', () => {
-    const allBuyer = visibleReleaseNotes(RELEASE_NOTES, { limit: 100 });
+    const allBuyer = visibleReleaseNotes(RELEASE_NOTES, { limit: 200 });
     expect(allBuyer.some((n) => /SGL|Double|Triple|adult/i.test(n.title))).toBe(
       true,
     );
@@ -44,11 +44,20 @@ describe('releaseNotes', () => {
     ).toBe(true);
     // Newest array entries surface first on the About strip.
     const top = visibleReleaseNotes(RELEASE_NOTES, { limit: 5 });
-    expect(top[0]?.id).toBe('2026-07-20-why-rate-noise-filter');
-    expect(top[1]?.id).toBe('2026-07-20-operate-through-dogfood');
-    expect(top[2]?.id).toBe('2026-07-20-bring-your-data');
-    expect(top[3]?.id).toBe('2026-07-20-trip-next-action');
-    expect(top[4]?.id).toBe('2026-07-20-priced-match-alts');
+    expect(top[0]?.id).toBe('2026-07-20-enquiry-sla-parity');
+    expect(top[1]?.id).toBe('2026-07-20-priced-alts-child-extras');
+    expect(top[2]?.id).toBe('2026-07-20-priced-alts-split-preview');
+    expect(top[3]?.id).toBe('2026-07-20-why-rate-noise-filter');
+    expect(top[4]?.id).toBe('2026-07-20-operate-through-dogfood');
+    expect(
+      allBuyer.some((n) => n.id === '2026-07-20-enquiry-sla-parity'),
+    ).toBe(true);
+    expect(
+      allBuyer.some((n) => n.id === '2026-07-20-priced-alts-child-extras'),
+    ).toBe(true);
+    expect(
+      allBuyer.some((n) => n.id === '2026-07-20-priced-alts-split-preview'),
+    ).toBe(true);
     expect(
       allBuyer.some((n) => n.id === '2026-07-20-why-rate-noise-filter'),
     ).toBe(true);

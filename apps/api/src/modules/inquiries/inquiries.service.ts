@@ -28,6 +28,7 @@ import {
   getInquiryQueueSummary,
   type InquiryListFilters,
 } from './inquiry-queue';
+import { inboxAgingHoursFromSettings } from '../dashboard/inbox-sla-metrics';
 
 @Injectable()
 export class InquiriesService {
@@ -143,7 +144,18 @@ export class InquiriesService {
     pageSize = 20,
     filters: InquiryListFilters = {},
   ) {
-    const where = buildInquiryListWhere(organizationId, filters);
+    let agingHours = filters.agingHours;
+    if (filters.stale && agingHours == null) {
+      const org = await this.prisma.organization.findFirst({
+        where: { id: organizationId },
+        select: { settingsJson: true },
+      });
+      agingHours = inboxAgingHoursFromSettings(org?.settingsJson);
+    }
+    const where = buildInquiryListWhere(organizationId, {
+      ...filters,
+      ...(agingHours != null ? { agingHours } : {}),
+    });
     const [items, total] = await Promise.all([
       this.prisma.inquiry.findMany({
         where,
@@ -158,7 +170,17 @@ export class InquiriesService {
   }
 
   async queueSummary(organizationId: string, viewerUserId: string) {
-    return getInquiryQueueSummary(this.prisma.inquiry, organizationId, viewerUserId);
+    const org = await this.prisma.organization.findFirst({
+      where: { id: organizationId },
+      select: { settingsJson: true },
+    });
+    const agingHours = inboxAgingHoursFromSettings(org?.settingsJson);
+    return getInquiryQueueSummary(
+      this.prisma.inquiry,
+      organizationId,
+      viewerUserId,
+      agingHours,
+    );
   }
 
   async get(organizationId: string, id: string) {

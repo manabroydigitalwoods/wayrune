@@ -44,6 +44,7 @@ import { leadOutcomeMessage, type LeadOutcome } from '../lib/lead-outcome';
 import { placeRefsFromJson } from '../lib/placeRefs';
 import { buildInquiriesListQuery } from '../lib/inquiryQueue';
 import { TravelRequestQueueStrip } from '../components/agency/TravelRequestQueueStrip';
+import { SalesCrmSlaStrip } from '../components/agency/SalesCrmSlaStrip';
 
 function formatDestinations(value: unknown): string {
   return placeRefsFromJson(value)
@@ -101,6 +102,8 @@ export function InquiriesPage() {
   const leadId = searchParams.get('leadId') || undefined;
   const incompleteFilter = searchParams.get('incomplete') === '1';
   const unassignedFilter = searchParams.get('unassigned') === '1';
+  const staleFilter = searchParams.get('stale') === '1';
+  const showSalesSla = hasAny(['inquiry.read', 'lead.read', 'lead.read.own']);
   const [items, setItems] = useState<Inquiry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -119,6 +122,7 @@ export function InquiriesPage() {
         variant,
         incomplete: incompleteFilter,
         unassigned: unassignedFilter,
+        stale: staleFilter,
       });
       const res = await api<{ items: Inquiry[] }>(`/inquiries?${qs}`);
       setItems(res.items);
@@ -132,7 +136,7 @@ export function InquiriesPage() {
 
   useEffect(() => {
     void load();
-  }, [variant, incompleteFilter, unassignedFilter]);
+  }, [variant, incompleteFilter, unassignedFilter, staleFilter]);
 
   useEffect(() => {
     if (leadId) setOpen(true);
@@ -405,10 +409,18 @@ export function InquiriesPage() {
     setSearchParams(params, { replace: true });
   }
 
+  function toggleStaleFilter() {
+    const params = new URLSearchParams(searchParams);
+    if (staleFilter) params.delete('stale');
+    else params.set('stale', '1');
+    setSearchParams(params, { replace: true });
+  }
+
   function clearQueueFilters() {
     const params = new URLSearchParams(searchParams);
     params.delete('incomplete');
     params.delete('unassigned');
+    params.delete('stale');
     setSearchParams(params, { replace: true });
   }
 
@@ -422,13 +434,17 @@ export function InquiriesPage() {
         icon={Contact}
         title={copy.title}
         subtitle={
-          incompleteFilter && unassignedFilter
-            ? 'Showing incomplete, unassigned travel requests'
-            : incompleteFilter
-              ? 'Showing travel requests with missing fields'
-              : unassignedFilter
-                ? 'Showing unassigned travel requests'
-                : copy.subtitle
+          staleFilter && incompleteFilter && unassignedFilter
+            ? 'Showing stale, incomplete, unassigned travel requests'
+            : staleFilter
+              ? 'Showing stale travel requests in planning'
+              : incompleteFilter && unassignedFilter
+                ? 'Showing incomplete, unassigned travel requests'
+                : incompleteFilter
+                  ? 'Showing travel requests with missing fields'
+                  : unassignedFilter
+                    ? 'Showing unassigned travel requests'
+                    : copy.subtitle
         }
         className="mb-4 shrink-0"
         actions={
@@ -440,12 +456,23 @@ export function InquiriesPage() {
         }
       />
 
+      {variant === 'planning' || variant === 'requests' || variant === 'sales' ? (
+        <SalesCrmSlaStrip enabled={showSalesSla} />
+      ) : null}
+
       {variant !== 'all' ? (
         <TravelRequestQueueStrip enabled variant={variant} />
       ) : null}
 
       {variant === 'planning' || variant === 'requests' || variant === 'sales' ? (
         <div className="mb-4 flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            variant={staleFilter ? 'secondary' : 'outline'}
+            onClick={toggleStaleFilter}
+          >
+            Stale in planning
+          </Button>
           <Button
             size="sm"
             variant={incompleteFilter ? 'secondary' : 'outline'}
@@ -462,7 +489,7 @@ export function InquiriesPage() {
               Unassigned
             </Button>
           ) : null}
-          {incompleteFilter || unassignedFilter ? (
+          {incompleteFilter || unassignedFilter || staleFilter ? (
             <Button size="sm" variant="ghost" onClick={clearQueueFilters}>
               Clear filters
             </Button>
