@@ -168,7 +168,20 @@ export class RatesController {
   newActivityVersion(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.rates.createActivityRateVersion(
       user.organizationId,
-      user.sub,
+      user,
+      id,
+    );
+  }
+
+  @Post('activity-rates/:id/activate')
+  @RequirePermissions('rates.approve')
+  activateActivityVersion(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+  ) {
+    return this.rates.activateActivityRateVersion(
+      user.organizationId,
+      user,
       id,
     );
   }
@@ -189,7 +202,7 @@ export class RatesController {
     const parsed = RestoreActivityRateVersionSchema.parse(body);
     return this.rates.restoreActivityRateVersion(
       user.organizationId,
-      user.sub,
+      user,
       id,
       parsed.sourceVersionId,
     );
@@ -239,7 +252,20 @@ export class RatesController {
   newTransferVersion(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.rates.createTransferFareVersion(
       user.organizationId,
-      user.sub,
+      user,
+      id,
+    );
+  }
+
+  @Post('transfer-fares/:id/activate')
+  @RequirePermissions('rates.approve')
+  activateTransferVersion(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+  ) {
+    return this.rates.activateTransferFareVersion(
+      user.organizationId,
+      user,
       id,
     );
   }
@@ -260,7 +286,7 @@ export class RatesController {
     const parsed = RestoreTransferFareVersionSchema.parse(body);
     return this.rates.restoreTransferFareVersion(
       user.organizationId,
-      user.sub,
+      user,
       id,
       parsed.sourceVersionId,
     );

@@ -27,6 +27,14 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-transfer-activity-activate',
+    date: '2026-07-20',
+    title: 'Activate transfer and activity rate tips',
+    summary:
+      'Staff without rates.approve submit new transfer/activity tips as pending. Managers Activate before Match uses the buy — same dual-control as hotels.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-receivable-cd-tax-split',
     date: '2026-07-20',
     title: 'Tax split on receivable invoices',

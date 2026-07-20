@@ -32,7 +32,7 @@ export type RateVersionListItem = {
 };
 
 /** Client-side pending tip: inactive tip with no child in the loaded family. */
-export function hotelRateLooksPendingActivation(
+export function rateTipLooksPendingActivation(
   rate: {
     id: string;
     isActive: boolean;
@@ -44,6 +44,9 @@ export function hotelRateLooksPendingActivation(
   if (!rate.supersedesId) return false;
   return !family.some((r) => r.supersedesId === rate.id);
 }
+
+/** @deprecated Prefer rateTipLooksPendingActivation */
+export const hotelRateLooksPendingActivation = rateTipLooksPendingActivation;
 
 export type RateVersionTipDiffRow = {
   field: string;

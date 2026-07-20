@@ -34,6 +34,8 @@ import type { AuthUser } from '../../common/helpers';
 import {
   hotelRateTipPendingActivation,
   hotelRateVersionRequiresPendingActivation,
+  rateTipPendingActivation,
+  rateTipVersionRequiresPendingActivation,
 } from './hotel-rate-pending';
 import {
   composeRatesImportAuditMetadata,
@@ -1189,7 +1191,7 @@ export class RatesService {
 
   async createTransferFareVersion(
     organizationId: string,
-    userId: string,
+    user: AuthUser,
     fareId: string,
   ) {
     const source = await this.prisma.transferFare.findFirst({
@@ -1206,15 +1208,34 @@ export class RatesService {
         'Only the active tip can be versioned — open History and restore, or edit the active fare',
       );
     }
+    const pendingChild = await this.prisma.transferFare.findFirst({
+      where: {
+        organizationId,
+        supersedesId: source.id,
+        isActive: false,
+        deletedAt: null,
+      },
+      select: { id: true, versionNumber: true },
+      orderBy: { versionNumber: 'desc' },
+    });
+    if (pendingChild) {
+      throw new BadRequestException(
+        `Tip v${pendingChild.versionNumber} is pending activation — Activate it before branching again`,
+      );
+    }
     const plan = planRateNewVersion({
       id: source.id,
       versionNumber: source.versionNumber,
     });
+    const canActivate = hasPermission(user.permissions, 'rates.approve');
+    const pending = rateTipVersionRequiresPendingActivation(canActivate);
     const created = await this.prisma.$transaction(async (tx) => {
-      await tx.transferFare.update({
-        where: { id: source.id },
-        data: { isActive: false },
-      });
+      if (!pending) {
+        await tx.transferFare.update({
+          where: { id: source.id },
+          data: { isActive: false },
+        });
+      }
       return tx.transferFare.create({
         data: {
           organizationId: source.organizationId,
@@ -1232,22 +1253,93 @@ export class RatesService {
           currency: source.currency,
           startDate: source.startDate,
           endDate: source.endDate,
-          isActive: true,
+          isActive: !pending,
           versionNumber: plan.versionNumber,
           supersedesId: plan.supersedesId,
-          createdBy: userId,
+          createdBy: user.sub,
         },
         include: this.fareInclude,
       });
     });
+    if (pending) {
+      await this.audit.record({
+        organizationId,
+        actorUserId: user.sub,
+        action: 'rate.pending_activation',
+        entityType: 'transfer_fare',
+        entityId: created.id,
+        metadata: {
+          previousRateId: source.id,
+          versionNumber: plan.versionNumber,
+        },
+      });
+    }
     return {
       ...created,
+      pendingActivation: pending,
       versionMeta: {
         previousRateId: source.id,
         previousVersionNumber: plan.previousVersionNumber,
         versionNumber: plan.versionNumber,
+        pendingActivation: pending,
       },
     };
+  }
+
+  async activateTransferFareVersion(
+    organizationId: string,
+    user: AuthUser,
+    fareId: string,
+  ) {
+    if (!hasPermission(user.permissions, 'rates.approve')) {
+      throw new ForbiddenException('Missing rates.approve');
+    }
+    const tip = await this.prisma.transferFare.findFirst({
+      where: {
+        id: fareId,
+        organizationId,
+        isSystem: false,
+        deletedAt: null,
+      },
+      include: this.fareInclude,
+    });
+    if (!tip) throw new NotFoundException('Transfer fare not found');
+    if (tip.isActive) {
+      return { ...tip, pendingActivation: false, alreadyActive: true };
+    }
+    if (!tip.supersedesId) {
+      throw new BadRequestException('Only a branched tip can be activated');
+    }
+    const live = await this.prisma.transferFare.findFirst({
+      where: {
+        id: tip.supersedesId,
+        organizationId,
+        deletedAt: null,
+      },
+      select: { id: true, isActive: true },
+    });
+    const updated = await this.prisma.$transaction(async (tx) => {
+      if (live?.isActive) {
+        await tx.transferFare.update({
+          where: { id: live.id },
+          data: { isActive: false },
+        });
+      }
+      return tx.transferFare.update({
+        where: { id: tip.id },
+        data: { isActive: true },
+        include: this.fareInclude,
+      });
+    });
+    await this.audit.record({
+      organizationId,
+      actorUserId: user.sub,
+      action: 'rate.activated',
+      entityType: 'transfer_fare',
+      entityId: tip.id,
+      metadata: { previousRateId: tip.supersedesId },
+    });
+    return { ...updated, pendingActivation: false, alreadyActive: false };
   }
 
   async listTransferFareVersions(organizationId: string, fareId: string) {
@@ -1313,7 +1405,7 @@ export class RatesService {
 
   async restoreTransferFareVersion(
     organizationId: string,
-    userId: string,
+    user: AuthUser,
     fareId: string,
     sourceVersionId: string,
   ) {
@@ -1330,6 +1422,12 @@ export class RatesService {
     if (!chain.versions.some((v) => v.id === sourceVersionId)) {
       throw new BadRequestException('Source is not in this fare version family');
     }
+    const pendingTip = chain.versions.find((v) => v.pendingActivation);
+    if (pendingTip) {
+      throw new BadRequestException(
+        `Tip v${pendingTip.versionNumber} is pending activation — Activate it before restore`,
+      );
+    }
     const active = await this.prisma.transferFare.findFirst({
       where: { id: chain.activeRateId, organizationId, deletedAt: null },
     });
@@ -1338,8 +1436,10 @@ export class RatesService {
       id: active.id,
       versionNumber: active.versionNumber,
     });
-    return this.prisma.$transaction(async (tx) => {
-      if (active.isActive) {
+    const canActivate = hasPermission(user.permissions, 'rates.approve');
+    const pending = rateTipVersionRequiresPendingActivation(canActivate);
+    const created = await this.prisma.$transaction(async (tx) => {
+      if (!pending && active.isActive) {
         await tx.transferFare.update({
           where: { id: active.id },
           data: { isActive: false },
@@ -1362,21 +1462,22 @@ export class RatesService {
           currency: source.currency,
           startDate: source.startDate,
           endDate: source.endDate,
-          isActive: true,
+          isActive: !pending,
           versionNumber: plan.versionNumber,
           supersedesId: plan.supersedesId,
-          createdBy: userId,
+          createdBy: user.sub,
         },
         include: this.fareInclude,
       });
     });
+    return { ...created, pendingActivation: pending };
   }
 
   // ── Activity rate versions ────────────────────────────────────────
 
   async createActivityRateVersion(
     organizationId: string,
-    userId: string,
+    user: AuthUser,
     rateId: string,
   ) {
     const source = await this.prisma.supplierActivityRate.findFirst({
@@ -1388,15 +1489,34 @@ export class RatesService {
         'Only the active tip can be versioned — open History and restore, or edit the active rate',
       );
     }
+    const pendingChild = await this.prisma.supplierActivityRate.findFirst({
+      where: {
+        organizationId,
+        supersedesId: source.id,
+        isActive: false,
+        deletedAt: null,
+      },
+      select: { id: true, versionNumber: true },
+      orderBy: { versionNumber: 'desc' },
+    });
+    if (pendingChild) {
+      throw new BadRequestException(
+        `Tip v${pendingChild.versionNumber} is pending activation — Activate it before branching again`,
+      );
+    }
     const plan = planRateNewVersion({
       id: source.id,
       versionNumber: source.versionNumber,
     });
+    const canActivate = hasPermission(user.permissions, 'rates.approve');
+    const pending = rateTipVersionRequiresPendingActivation(canActivate);
     const created = await this.prisma.$transaction(async (tx) => {
-      await tx.supplierActivityRate.update({
-        where: { id: source.id },
-        data: { isActive: false },
-      });
+      if (!pending) {
+        await tx.supplierActivityRate.update({
+          where: { id: source.id },
+          data: { isActive: false },
+        });
+      }
       return tx.supplierActivityRate.create({
         data: {
           organizationId: source.organizationId,
@@ -1412,22 +1532,88 @@ export class RatesService {
           currency: source.currency,
           startDate: source.startDate,
           endDate: source.endDate,
-          isActive: true,
+          isActive: !pending,
           versionNumber: plan.versionNumber,
           supersedesId: plan.supersedesId,
-          createdBy: userId,
+          createdBy: user.sub,
         },
         include: this.activityInclude,
       });
     });
+    if (pending) {
+      await this.audit.record({
+        organizationId,
+        actorUserId: user.sub,
+        action: 'rate.pending_activation',
+        entityType: 'supplier_activity_rate',
+        entityId: created.id,
+        metadata: {
+          previousRateId: source.id,
+          versionNumber: plan.versionNumber,
+        },
+      });
+    }
     return {
       ...created,
+      pendingActivation: pending,
       versionMeta: {
         previousRateId: source.id,
         previousVersionNumber: plan.previousVersionNumber,
         versionNumber: plan.versionNumber,
+        pendingActivation: pending,
       },
     };
+  }
+
+  async activateActivityRateVersion(
+    organizationId: string,
+    user: AuthUser,
+    rateId: string,
+  ) {
+    if (!hasPermission(user.permissions, 'rates.approve')) {
+      throw new ForbiddenException('Missing rates.approve');
+    }
+    const tip = await this.prisma.supplierActivityRate.findFirst({
+      where: { id: rateId, organizationId, deletedAt: null },
+      include: this.activityInclude,
+    });
+    if (!tip) throw new NotFoundException('Activity rate not found');
+    if (tip.isActive) {
+      return { ...tip, pendingActivation: false, alreadyActive: true };
+    }
+    if (!tip.supersedesId) {
+      throw new BadRequestException('Only a branched tip can be activated');
+    }
+    const live = await this.prisma.supplierActivityRate.findFirst({
+      where: {
+        id: tip.supersedesId,
+        organizationId,
+        deletedAt: null,
+      },
+      select: { id: true, isActive: true },
+    });
+    const updated = await this.prisma.$transaction(async (tx) => {
+      if (live?.isActive) {
+        await tx.supplierActivityRate.update({
+          where: { id: live.id },
+          data: { isActive: false },
+        });
+      }
+      return tx.supplierActivityRate.update({
+        where: { id: tip.id },
+        data: { isActive: true },
+        include: this.activityInclude,
+      });
+    });
+    await this.audit.record({
+      organizationId,
+      actorUserId: user.sub,
+      action: 'rate.activated',
+      entityType: 'supplier_activity_rate',
+      entityId: tip.id,
+      metadata: { previousRateId: tip.supersedesId },
+    });
+    return { ...updated, pendingActivation: false, alreadyActive: false };
   }
 
   async listActivityRateVersions(organizationId: string, rateId: string) {
@@ -1487,7 +1673,7 @@ export class RatesService {
 
   async restoreActivityRateVersion(
     organizationId: string,
-    userId: string,
+    user: AuthUser,
     rateId: string,
     sourceVersionId: string,
   ) {
@@ -1499,6 +1685,12 @@ export class RatesService {
     if (!chain.versions.some((v) => v.id === sourceVersionId)) {
       throw new BadRequestException('Source is not in this rate version family');
     }
+    const pendingTip = chain.versions.find((v) => v.pendingActivation);
+    if (pendingTip) {
+      throw new BadRequestException(
+        `Tip v${pendingTip.versionNumber} is pending activation — Activate it before restore`,
+      );
+    }
     const active = await this.prisma.supplierActivityRate.findFirst({
       where: { id: chain.activeRateId, organizationId, deletedAt: null },
     });
@@ -1507,8 +1699,10 @@ export class RatesService {
       id: active.id,
       versionNumber: active.versionNumber,
     });
-    return this.prisma.$transaction(async (tx) => {
-      if (active.isActive) {
+    const canActivate = hasPermission(user.permissions, 'rates.approve');
+    const pending = rateTipVersionRequiresPendingActivation(canActivate);
+    const created = await this.prisma.$transaction(async (tx) => {
+      if (!pending && active.isActive) {
         await tx.supplierActivityRate.update({
           where: { id: active.id },
           data: { isActive: false },
@@ -1529,14 +1723,15 @@ export class RatesService {
           currency: source.currency,
           startDate: source.startDate,
           endDate: source.endDate,
-          isActive: true,
+          isActive: !pending,
           versionNumber: plan.versionNumber,
           supersedesId: plan.supersedesId,
-          createdBy: userId,
+          createdBy: user.sub,
         },
         include: this.activityInclude,
       });
     });
+    return { ...created, pendingActivation: pending };
   }
 
   private async listGenericRateVersions<
@@ -1589,21 +1784,29 @@ export class RatesService {
     }
 
     const activeTip =
-      [...byId.values()].find((r) => r.isActive) ||
+      [...byId.values()].find((r) => r.isActive) ?? null;
+    const newestTip =
       [...byId.values()].sort((a, b) => b.versionNumber - a.versionNumber)[0]!;
-    const versions = orderRateVersionChain(activeTip, byId).map((v) => {
-      if (!opts.attachDiffVsActive || v.id === activeTip.id) {
-        return { ...v, diffVsActive: null };
+    const chainRoot = newestTip;
+    const liveTip = activeTip ?? newestTip;
+    const versions = orderRateVersionChain(chainRoot, byId).map((v) => {
+      const pendingActivation = rateTipPendingActivation({
+        isActive: v.isActive,
+        isNewestInFamily: v.id === newestTip.id,
+      });
+      const base = { ...v, pendingActivation };
+      if (!opts.attachDiffVsActive || v.id === liveTip.id) {
+        return { ...base, diffVsActive: null };
       }
       return {
-        ...v,
-        diffVsActive: opts.attachDiffVsActive(v, activeTip),
+        ...base,
+        diffVsActive: opts.attachDiffVsActive(v, liveTip),
       };
     });
 
     return {
       rateId: opts.rateId,
-      activeRateId: activeTip.id,
+      activeRateId: liveTip.id,
       versions,
     };
   }

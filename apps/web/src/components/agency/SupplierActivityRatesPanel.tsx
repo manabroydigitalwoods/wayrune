@@ -21,10 +21,12 @@ import { formatDateInput, parseDateInput } from '../../lib/dateInput';
 import { PlaceSinglePicker } from '../places/PlacePicker';
 import { RatesCsvImportDialog } from '../rates/RatesCsvImportDialog';
 import { type PlaceRef } from '../../lib/placeRefs';
+import { usePermissions } from '../../lib/permissions';
 import {
   buildActivityRateTipDiffRows,
   formatRateVersionHistoryLine,
   formatRateVersionTipDiffCue,
+  rateTipLooksPendingActivation,
   rateVersionLabel,
   showRateVersionTipDiffExpand,
   type RateVersionListItem,
@@ -111,6 +113,9 @@ export function SupplierActivityRatesPanel({
     null,
   );
   const [versioningId, setVersioningId] = useState<string | null>(null);
+  const [activatingId, setActivatingId] = useState<string | null>(null);
+  const { hasAny } = usePermissions();
+  const canActivateRates = hasAny(CAP.ratesApprove);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -132,7 +137,10 @@ export function SupplierActivityRatesPanel({
 
   const sorted = useMemo(() => {
     return [...rates]
-      .filter((r) => r.isActive !== false)
+      .filter(
+        (r) =>
+          r.isActive !== false || rateTipLooksPendingActivation(r, rates),
+      )
       .sort((a, b) => {
       const name = a.activityName.localeCompare(b.activityName);
       if (name) return name;
@@ -146,13 +154,24 @@ export function SupplierActivityRatesPanel({
     setVersioningId(rate.id);
     try {
       const created = await api<
-        ActivityRate & { versionMeta?: { versionNumber?: number } }
+        ActivityRate & {
+          pendingActivation?: boolean;
+          versionMeta?: {
+            versionNumber?: number;
+            pendingActivation?: boolean;
+          };
+        }
       >(`/activity-rates/${rate.id}/new-version`, {
         method: 'POST',
         body: JSON.stringify({}),
       });
+      const pending =
+        created.pendingActivation === true ||
+        created.versionMeta?.pendingActivation === true;
       toastSuccess(
-        `Created ${rateVersionLabel(created.versionMeta?.versionNumber ?? created.versionNumber)} — edit costs then Save`,
+        pending
+          ? `Submitted ${rateVersionLabel(created.versionMeta?.versionNumber ?? created.versionNumber)} for activation — edit buy, then a manager Activates`
+          : `Created ${rateVersionLabel(created.versionMeta?.versionNumber ?? created.versionNumber)} — edit costs then Save`,
       );
       await load();
       startEdit(created);
@@ -160,6 +179,30 @@ export function SupplierActivityRatesPanel({
       toastError(e instanceof Error ? e.message : 'Could not create rate version');
     } finally {
       setVersioningId(null);
+    }
+  }
+
+  async function activateRateVersion(rateId: string) {
+    setActivatingId(rateId);
+    try {
+      const updated = await api<ActivityRate>(
+        `/activity-rates/${rateId}/activate`,
+        { method: 'POST', body: JSON.stringify({}) },
+      );
+      toastSuccess(
+        `Activated ${rateVersionLabel(updated.versionNumber)} — Match uses this tip`,
+      );
+      await load();
+      if (historyOpen && historyAnchorId) {
+        const res = await api<{ versions: RateVersionListItem[] }>(
+          `/activity-rates/${historyAnchorId}/versions`,
+        );
+        setHistoryVersions(res.versions || []);
+      }
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not activate rate');
+    } finally {
+      setActivatingId(null);
     }
   }
 
@@ -383,6 +426,11 @@ export function SupplierActivityRatesPanel({
                     <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                       {rateVersionLabel(rate.versionNumber)}
                     </span>
+                    {rateTipLooksPendingActivation(rate, rates) ? (
+                      <span className="rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-800 dark:text-amber-200">
+                        Pending
+                      </span>
+                    ) : null}
                     {rate.privateOrSic ? (
                       <span className="text-xs font-normal uppercase text-muted-foreground">
                         {rate.privateOrSic}
@@ -399,7 +447,23 @@ export function SupplierActivityRatesPanel({
                     {rate.place?.name ? ` · ${rate.place.name}` : ''}
                   </p>
                 </div>
-                <Can anyOf={CAP.ratesWrite}>
+                <div className="flex items-center gap-0.5">
+                  {rateTipLooksPendingActivation(rate, rates) &&
+                  canActivateRates ? (
+                    <Can anyOf={CAP.ratesApprove}>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="cursor-pointer"
+                        disabled={activatingId === rate.id}
+                        onClick={() => void activateRateVersion(rate.id)}
+                      >
+                        Activate
+                      </Button>
+                    </Can>
+                  ) : null}
+                  <Can anyOf={CAP.ratesWrite}>
                   <div className="flex items-center gap-0.5">
                     <Button
                       type="button"
@@ -408,7 +472,10 @@ export function SupplierActivityRatesPanel({
                       className="size-7 cursor-pointer"
                       aria-label="New rate version"
                       title="New version (keeps history)"
-                      disabled={versioningId === rate.id}
+                      disabled={
+                        versioningId === rate.id ||
+                        rateTipLooksPendingActivation(rate, rates)
+                      }
                       onClick={() => void createRateVersion(rate)}
                     >
                       <GitBranch className="size-3.5" />
@@ -445,7 +512,8 @@ export function SupplierActivityRatesPanel({
                       <Trash2 className="size-3.5" />
                     </Button>
                   </div>
-                </Can>
+                  </Can>
+                </div>
               </li>
             );
           })}
@@ -562,8 +630,8 @@ export function SupplierActivityRatesPanel({
           } else setHistoryOpen(true);
         }}
         title="Activity rate version history"
-        description="Superseded tips stay on file. Restore copies content into a new active tip."
-        submitting={historySaving}
+        description="Superseded tips stay on file. Restore copies content into a new tip. Tips without rates.approve stay pending until a manager Activates."
+        submitting={historySaving || activatingId != null}
         footer={
           <Button
             type="button"
@@ -586,6 +654,9 @@ export function SupplierActivityRatesPanel({
             {(() => {
               const activeTip =
                 historyVersions.find((row) => row.isActive) ?? null;
+              const hasPending = historyVersions.some(
+                (row) => row.pendingActivation,
+              );
               const moneyFmt = (n: number) =>
                 formatCurrency(n, { maximumFractionDigits: 0 });
               return [...historyVersions].reverse().map((v) => {
@@ -629,23 +700,47 @@ export function SupplierActivityRatesPanel({
                             {diffOpen ? 'Hide' : 'Diff'}
                           </Button>
                         ) : null}
-                        <Can anyOf={CAP.ratesWrite}>
-                          {!v.isActive ? (
+                        {v.pendingActivation ? (
+                          <Can anyOf={CAP.ratesApprove}>
                             <Button
                               type="button"
                               size="sm"
                               variant="outline"
                               className="cursor-pointer"
-                              disabled={historySaving}
+                              disabled={activatingId === v.id}
+                              onClick={() => void activateRateVersion(v.id)}
+                            >
+                              Activate
+                            </Button>
+                          </Can>
+                        ) : null}
+                        {v.pendingActivation && !canActivateRates ? (
+                          <span className="text-[10px] font-medium uppercase tracking-wide text-amber-700 dark:text-amber-400">
+                            Pending
+                          </span>
+                        ) : null}
+                        <Can anyOf={CAP.ratesWrite}>
+                          {!v.isActive && !v.pendingActivation ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="cursor-pointer"
+                              disabled={historySaving || hasPending}
+                              title={
+                                hasPending
+                                  ? 'Activate the pending tip before restore'
+                                  : undefined
+                              }
                               onClick={() => void restoreRateVersion(v.id)}
                             >
                               Restore as new tip
                             </Button>
-                          ) : (
+                          ) : v.isActive ? (
                             <span className="text-[10px] font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
                               Current
                             </span>
-                          )}
+                          ) : null}
                         </Can>
                       </div>
                     </div>
