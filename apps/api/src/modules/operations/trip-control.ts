@@ -26,6 +26,15 @@ export type TripControlFinance = {
     supplierPaid: number;
     overdueCount: number;
   };
+  partyCredit?: {
+    limited: boolean;
+    creditLimit: number | null;
+    outstanding: number;
+    exposure: number;
+    headroom: number | null;
+    overLimit: boolean;
+    overBy: number;
+  } | null;
 };
 
 export type TripControlReadiness = {
@@ -53,10 +62,12 @@ export type TripControlSummary = {
     vouchersPending: number;
     hotelsOpen: number;
     transfersOpen: number;
+    activitiesOpen: number;
     readinessDone: number;
     readinessTotal: number;
     openIncidents: number;
     openChangeCases: number;
+    openCancellationCases: number;
   };
   money: {
     currency: string;
@@ -108,18 +119,22 @@ export function buildTripControlSummary(input: {
   readiness: TripControlReadiness;
   openIncidents?: number;
   openChangeCases?: number;
+  openCancellationCases?: number;
   now?: Date;
 }): TripControlSummary {
   const now = input.now ?? new Date();
   const openIncidents = input.openIncidents ?? 0;
   const openChangeCases = input.openChangeCases ?? 0;
+  const openCancellationCases = input.openCancellationCases ?? 0;
   const active = input.bookings.filter((b) => b.status !== 'cancelled' && b.status !== 'rejected');
   const open = active.filter((b) => isOpenBooking(b.status));
   const confirmed = active.filter((b) => b.status === 'confirmed');
   const hotels = active.filter((b) => b.type === 'hotel');
   const transfers = active.filter((b) => b.type === 'transfer');
+  const activities = active.filter((b) => b.type === 'activity');
   const hotelsOpen = hotels.filter((b) => isOpenBooking(b.status));
   const transfersOpen = transfers.filter((b) => isOpenBooking(b.status));
+  const activitiesOpen = activities.filter((b) => isOpenBooking(b.status));
   const vouchersPending = confirmed.filter(
     (b) =>
       (b.type === 'hotel' || b.type === 'transfer' || b.type === 'activity') &&
@@ -163,6 +178,18 @@ export function buildTripControlSummary(input: {
     });
   }
 
+  for (const b of activitiesOpen) {
+    flags.push({
+      id: `activity_open_${b.id}`,
+      severity: nearDeparture ? 'danger' : 'warn',
+      code: 'unconfirmed_activity',
+      label: nearDeparture ? 'Activity unconfirmed near departure' : 'Activity still open',
+      detail: b.title,
+      tab: 'operations',
+      bookingId: b.id,
+    });
+  }
+
   for (const b of vouchersPending) {
     flags.push({
       id: `voucher_${b.id}`,
@@ -188,6 +215,18 @@ export function buildTripControlSummary(input: {
       label: 'No transfer booking on this trip',
       detail: 'Add airport / intercity transfers in Operations',
       tab: 'operations',
+    });
+  }
+
+  if (input.finance.partyCredit?.overLimit) {
+    const pc = input.finance.partyCredit;
+    flags.push({
+      id: 'credit_limit_exceeded',
+      severity: 'danger',
+      code: 'credit_limit_exceeded',
+      label: 'Customer over credit limit',
+      detail: `${input.finance.orgCurrency} ${Math.round(pc.exposure).toLocaleString('en-IN')} exposure vs ${Math.round(pc.creditLimit ?? 0).toLocaleString('en-IN')} limit`,
+      tab: 'finance',
     });
   }
 
@@ -244,6 +283,17 @@ export function buildTripControlSummary(input: {
     });
   }
 
+  if (openCancellationCases > 0) {
+    flags.push({
+      id: 'open_cancellations',
+      severity: nearDeparture ? 'danger' : 'warn',
+      code: 'open_cancellation_cases',
+      label: `${openCancellationCases} cancellation case${openCancellationCases === 1 ? '' : 's'} pending apply`,
+      detail: 'Review under Changes & incidents',
+      tab: 'commerce',
+    });
+  }
+
   if (readinessTotal > 0 && !input.readiness.allDone) {
     flags.push({
       id: 'readiness',
@@ -278,10 +328,12 @@ export function buildTripControlSummary(input: {
       vouchersPending: vouchersPending.length,
       hotelsOpen: hotelsOpen.length,
       transfersOpen: transfersOpen.length,
+      activitiesOpen: activitiesOpen.length,
       readinessDone,
       readinessTotal,
       openIncidents,
       openChangeCases,
+      openCancellationCases,
     },
     money: {
       currency,

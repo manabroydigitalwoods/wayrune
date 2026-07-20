@@ -171,3 +171,17 @@ export function composeDashboardWidgets(
     return true;
   }).sort((a, b) => a.priority - b.priority);
 }
+
+/** Primary strip shows the highest-priority widgets; secondary stays behind disclosure. */
+export const PRIMARY_DASHBOARD_WIDGET_COUNT = 4;
+
+export function composeDashboardSections(
+  workspace: AgencyWorkspace,
+  permissions: readonly string[],
+): { primary: WorkspaceWidget[]; secondary: WorkspaceWidget[] } {
+  const widgets = composeDashboardWidgets(workspace, permissions);
+  return {
+    primary: widgets.slice(0, PRIMARY_DASHBOARD_WIDGET_COUNT),
+    secondary: widgets.slice(PRIMARY_DASHBOARD_WIDGET_COUNT),
+  };
+}

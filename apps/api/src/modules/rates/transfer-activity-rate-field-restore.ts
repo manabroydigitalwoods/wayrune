@@ -79,17 +79,17 @@ export function activityRateDiffChangeToRestorableField(
 }
 
 export type TransferFareFieldRestoreSnapshot = {
-  unitCost?: number | string | null;
-  childUnitCost?: number | string | null;
-  infantUnitCost?: number | string | null;
+  unitCost?: number | string | { toString(): string } | null;
+  childUnitCost?: number | string | { toString(): string } | null;
+  infantUnitCost?: number | string | { toString(): string } | null;
   pricingMode?: string | null;
   startDate?: string | Date | null;
   endDate?: string | Date | null;
 };
 
 export type ActivityRateFieldRestoreSnapshot = {
-  adultUnitCost?: number | string | null;
-  childUnitCost?: number | string | null;
+  adultUnitCost?: number | string | { toString(): string } | null;
+  childUnitCost?: number | string | { toString(): string } | null;
   privateOrSic?: string | null;
   activityName?: string | null;
   startDate?: string | Date | null;

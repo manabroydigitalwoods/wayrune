@@ -31,7 +31,7 @@ export {
   workspaceShowsTravelRequestIntake,
 } from './composeNavigation';
 
-export { composeDashboardWidgets, WORKSPACE_WIDGETS } from './composeDashboard';
+export { composeDashboardWidgets, composeDashboardSections, PRIMARY_DASHBOARD_WIDGET_COUNT, WORKSPACE_WIDGETS } from './composeDashboard';
 
 export { shouldShowCanonicalCreate, shouldShowTravelRequestIntake } from './createActions';
 

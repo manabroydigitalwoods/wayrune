@@ -12,6 +12,10 @@ import {
   inboxAgingCutoff,
   inboxAgingHoursFromSettings,
 } from '../dashboard/inbox-sla-metrics';
+import {
+  resolveInboxConnectorReadiness,
+  type InboxConnectorReadiness,
+} from './inbox-connector-readiness';
 import { fireUnreadSlaAutomations } from '../connectors/unread-sla-fire';
 import { TasksService } from '../tasks/tasks.service';
 import type { AuthUser } from '../../common/helpers';
@@ -280,15 +284,30 @@ export class InteractionsService {
       outcome?: string;
       q?: string;
       ownership?: 'mine' | 'unassigned' | 'all';
+      aging?: boolean;
     } = {},
   ) {
     const page = Math.max(1, opts.page ?? 1);
     const pageSize = Math.min(100, Math.max(1, opts.pageSize ?? 40));
     const ownership = opts.ownership || 'all';
+    const agingOnly = opts.aging === true;
+    const unreadOnly = agingOnly || opts.unread === true;
+
+    let agingCutoff: Date | undefined;
+    if (agingOnly) {
+      const org = await this.prisma.organization.findUnique({
+        where: { id: user.organizationId },
+        select: { settingsJson: true },
+      });
+      const hours = inboxAgingHoursFromSettings(org?.settingsJson);
+      agingCutoff = inboxAgingCutoff(new Date(), hours);
+    }
+
     const where: Prisma.InteractionWhereInput = {
       organizationId: user.organizationId,
       ...(opts.channel ? { channel: opts.channel } : {}),
-      ...(opts.unread === true ? { unread: true } : {}),
+      ...(unreadOnly ? { unread: true } : {}),
+      ...(agingCutoff ? { occurredAt: { lt: agingCutoff } } : {}),
       ...(opts.outcome ? { outcome: opts.outcome } : {}),
       ...(ownership === 'mine' ? { staffUserId: user.sub } : {}),
       ...(ownership === 'unassigned' ? { staffUserId: null } : {}),
@@ -956,6 +975,23 @@ export class InteractionsService {
 
   connectorCapabilities() {
     return CONNECTOR_CAPABILITIES;
+  }
+
+  async connectorReadiness(organizationId: string): Promise<InboxConnectorReadiness> {
+    const [org, google] = await Promise.all([
+      this.prisma.organization.findUnique({
+        where: { id: organizationId },
+        select: { settingsJson: true },
+      }),
+      this.prisma.googleConnection.findUnique({
+        where: { organizationId },
+        select: { refreshTokenEnc: true },
+      }),
+    ]);
+    return resolveInboxConnectorReadiness({
+      settingsJson: org?.settingsJson,
+      googleConnected: Boolean(google?.refreshTokenEnc),
+    });
   }
 
   /** Phone Interaction shell — notes land on Conversation; never creates Lead directly. */

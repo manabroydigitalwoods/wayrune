@@ -6,6 +6,7 @@ import {
   computeSalesSlaMetrics,
   salesSlaTargetsFromSettings,
 } from './sales-sla-metrics';
+import { fitClaimOpsChecklist, publicScaleOpsChecklist } from './claim-gates';
 import {
   buildPublicScaleProtocol,
   PUBLIC_SCALE_WINDOW_DAYS,
@@ -89,6 +90,43 @@ export class DashboardService {
       snapshot: snapshotFromProtocol(protocol),
       publishHint:
         'When publicScaleAllowed, copy snapshot into apps/web/src/lib/public-scale-snapshot.json for login-free /docs.',
+      opsChecklist: publicScaleOpsChecklist(protocol),
+    };
+  }
+
+  /** Org-scoped marketing claim gates — observability only; registry stays Testing until ops flip. */
+  async claimGates(user: AuthUser) {
+    const organizationId = user.organizationId;
+    const now = new Date();
+    const last30Start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const fitBuildAudits = await this.prisma.auditEvent.findMany({
+      where: {
+        organizationId,
+        action: 'quote.fit_build',
+        createdAt: { gte: last30Start },
+      },
+      select: { metadataJson: true },
+      take: 500,
+    });
+    const fitBuildRows = fitBuildAudits.map((row) => {
+      const meta =
+        row.metadataJson && typeof row.metadataJson === 'object'
+          ? (row.metadataJson as Record<string, unknown>)
+          : {};
+      const minutes =
+        typeof meta.minutes === 'number' ? meta.minutes : Number(meta.minutes);
+      const source = typeof meta.source === 'string' ? meta.source : null;
+      return {
+        minutes: Number.isFinite(minutes) ? minutes : NaN,
+        source,
+      };
+    });
+    const fitClaimProtocol = buildFitClaimProtocolFromRows(fitBuildRows);
+    return {
+      fitClaimProtocol,
+      fitOpsChecklist: fitClaimOpsChecklist(fitClaimProtocol),
+      /** Claim registry remains Testing until explicit product sign-off. */
+      registryStatus: 'testing' as const,
     };
   }
 

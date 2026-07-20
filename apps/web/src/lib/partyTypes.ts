@@ -6,9 +6,12 @@ export type Party = {
   email?: string | null;
   phone?: string | null;
   updatedAt: string;
+  _count?: { inquiries?: number; trips?: number };
 };
 
 export type PartyDetail = Party & {
+  creditLimit?: string | number | null;
+  paymentTerms?: string | null;
   contacts?: Array<{
     id: string;
     fullName: string;
@@ -46,3 +49,11 @@ export type PartyDetail = Party & {
 export function partyHubPath(id: string) {
   return `/parties/${id}`;
 }
+
+export const B2B_PARTY_TYPES = [
+  { value: 'travel_agency', label: 'Travel agency' },
+  { value: 'corporate', label: 'Corporate' },
+  { value: 'reseller', label: 'Reseller' },
+  { value: 'dmc', label: 'DMC' },
+  { value: '', label: '— none —' },
+] as const;

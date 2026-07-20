@@ -38,11 +38,15 @@ import { useTravelRequestLauncher } from '../lib/travelRequestLauncher';
 import { AGENCY_ROUTES } from '../lib/agencyRoutes';
 import { reportError } from '../lib/errors';
 import { formatWhatsappSessionCue } from '../lib/whatsappSessionCue';
+import { inboxAgingFilterLabel } from '../lib/inboxAgingLabel';
+import { useSalesCrmSla } from '../hooks/useSalesCrmSla';
+import { usePermissions } from '../lib/permissions';
+import { SalesCrmSlaStrip } from '../components/agency/SalesCrmSlaStrip';
 import {
-  inboxWhatsappCloudBanner,
-  type InboxWhatsappCloudBanner,
-} from '../lib/inboxWhatsappCloudBanner';
-import { isWhatsappCloudConfigured } from '../lib/quoteWhatsappTemplate';
+  inboxChannelReplyReady,
+  inboxComposerBlockedMessage,
+  type InboxConnectorReadiness,
+} from '../lib/inboxChannelReply';
 
 type InboxRow = {
   id: string;
@@ -305,6 +309,10 @@ type ResolveMode = 'attach' | 'follow_up' | null;
 export function InboxPage() {
   useDocumentTitle('Inbox');
   const { navigate } = useOrgNavigate();
+  const { hasAny } = usePermissions();
+  const showSalesSla = hasAny(['inquiry.read', 'lead.read', 'lead.read.own']);
+  const { data: salesSla } = useSalesCrmSla(showSalesSla);
+  const agingFilterLabel = inboxAgingFilterLabel(salesSla?.inboxAgingHours);
   const [searchParams, setSearchParams] = useSearchParams();
   const openTravelRequest = useTravelRequestLauncher();
   const channelFromUrl = searchParams.get('channel') || '';
@@ -325,11 +333,10 @@ export function InboxPage() {
   const [replyText, setReplyText] = useState('');
   const [replySaving, setReplySaving] = useState(false);
   const [assignRow, setAssignRow] = useState<InboxRow | null>(null);
-  const [whatsappEnabled, setWhatsappEnabled] = useState(false);
-  const [waCloudBanner, setWaCloudBanner] = useState<InboxWhatsappCloudBanner | null>(
-    null,
-  );
-  const [instagramEnabled, setInstagramEnabled] = useState(false);
+  const [connectorReadiness, setConnectorReadiness] =
+    useState<InboxConnectorReadiness | null>(null);
+  const whatsappEnabled =
+    connectorReadiness?.channels.whatsapp?.replyReady ?? false;
   const [analytics, setAnalytics] = useState<{
     total: number;
     unread: number;
@@ -488,6 +495,7 @@ export function InboxPage() {
       const params = new URLSearchParams({ pageSize: '50' });
       if (channel) params.set('channel', channel);
       if (unreadOnly) params.set('unread', '1');
+      if (agingOnly) params.set('aging', '1');
       if (pendingOnly) params.set('outcome', 'pending');
       if (ownership !== 'all') params.set('ownership', ownership);
       const res = await api<{ items: InboxRow[] }>(`/interactions?${params}`);
@@ -498,7 +506,7 @@ export function InboxPage() {
     } finally {
       setLoading(false);
     }
-  }, [channel, unreadOnly, pendingOnly, ownership]);
+  }, [channel, unreadOnly, agingOnly, pendingOnly, ownership]);
 
   useEffect(() => {
     void load();
@@ -522,29 +530,9 @@ export function InboxPage() {
     api<Array<{ id: string; fullName: string }>>('/organizations/current/members')
       .then(setMembers)
       .catch(() => setMembers([]));
-    api<{ settingsJson?: unknown }>('/organizations/current')
-      .then((org) => {
-        const settings =
-          org.settingsJson && typeof org.settingsJson === 'object'
-            ? (org.settingsJson as Record<string, unknown>)
-            : {};
-        const integrations =
-          settings.integrations && typeof settings.integrations === 'object'
-            ? (settings.integrations as Record<string, unknown>)
-            : {};
-        const fb =
-          integrations.facebook && typeof integrations.facebook === 'object'
-            ? (integrations.facebook as Record<string, unknown>)
-            : {};
-        setWhatsappEnabled(isWhatsappCloudConfigured(org.settingsJson));
-        setWaCloudBanner(inboxWhatsappCloudBanner(org.settingsJson));
-        setInstagramEnabled(fb.enabled === true && Boolean(fb.instagramBusinessAccountId));
-      })
-      .catch(() => {
-        setWhatsappEnabled(false);
-        setWaCloudBanner(inboxWhatsappCloudBanner(null));
-        setInstagramEnabled(false);
-      });
+    api<InboxConnectorReadiness>('/interactions/connectors/readiness')
+      .then(setConnectorReadiness)
+      .catch(() => setConnectorReadiness(null));
     api<{ channels: Array<{ channel: string; unread: number }> }>('/interactions/channel-unread')
       .then((res) => setChannelUnread(res.channels))
       .catch(() => setChannelUnread([]));
@@ -1097,8 +1085,7 @@ export function InboxPage() {
   const replyTarget = useMemo(() => {
     const canReplyOn = (channel: string) => {
       if (!REPLYABLE_CHANNELS.has(channel)) return false;
-      if (channel === 'whatsapp' && !whatsappEnabled) return false;
-      if (channel === 'instagram' && !instagramEnabled) return false;
+      if (!inboxChannelReplyReady(channel, connectorReadiness)) return false;
       const cap = connectorCaps[channel];
       if (cap && cap.reply === false) return false;
       return true;
@@ -1109,9 +1096,16 @@ export function InboxPage() {
       newestFirst.find((m) => canReplyOn(m.channel)) ??
       null
     );
-  }, [threadMessages, connectorCaps, whatsappEnabled, instagramEnabled]);
+  }, [threadMessages, connectorCaps, connectorReadiness]);
 
   const lastMessageId = threadMessages[threadMessages.length - 1]?.id;
+
+  const threadReplyBlocked = useMemo(() => {
+    const ch = activeThread?.channel;
+    if (!ch || !REPLYABLE_CHANNELS.has(ch)) return null;
+    if (inboxChannelReplyReady(ch, connectorReadiness)) return null;
+    return inboxComposerBlockedMessage(ch, connectorReadiness);
+  }, [activeThread?.channel, connectorReadiness]);
 
   const waSessionCue = useMemo(() => {
     if (!waSession || replyTarget?.channel !== 'whatsapp') return null;
@@ -1437,25 +1431,35 @@ export function InboxPage() {
         }
       />
 
-      {waCloudBanner ? (
-        <p
-          className={cn(
-            'rounded-md px-3 py-2 text-sm',
-            waCloudBanner.tone === 'warn'
-              ? 'border border-amber-500/40 bg-amber-500/10 text-amber-950 dark:text-amber-100'
-              : 'border border-border/60 bg-muted/30 text-muted-foreground',
-          )}
-        >
-          {waCloudBanner.message}{' '}
-          <button
-            type="button"
-            className="font-medium text-foreground underline underline-offset-2"
-            onClick={() => navigate(AGENCY_ROUTES.settingsIntegrations)}
-          >
-            Open Integrations
-          </button>
-        </p>
+      {connectorReadiness?.banners.length ? (
+        <div className="space-y-2">
+          {connectorReadiness.banners.slice(0, 3).map((banner) => (
+            <p
+              key={banner.channel}
+              className={cn(
+                'rounded-md px-3 py-2 text-sm',
+                banner.tone === 'warn'
+                  ? 'border border-amber-500/40 bg-amber-500/10 text-amber-950 dark:text-amber-100'
+                  : 'border border-border/60 bg-muted/30 text-muted-foreground',
+              )}
+            >
+              {banner.message}{' '}
+              <button
+                type="button"
+                className="font-medium text-foreground underline underline-offset-2"
+                onClick={() => navigate(AGENCY_ROUTES.settingsIntegrations)}
+              >
+                Open Integrations
+              </button>
+            </p>
+          ))}
+        </div>
       ) : null}
+
+      <SalesCrmSlaStrip
+        enabled={showSalesSla}
+        highlight={agingOnly ? 'inboxAging' : unreadOnly ? 'inboxUnread' : undefined}
+      />
 
       <div className="space-y-3">
         <div
@@ -1530,20 +1534,18 @@ export function InboxPage() {
             >
               Unread only
             </button>
-            {view === 'threads' ? (
-              <button
-                type="button"
-                onClick={() => setAgingFilter(!agingOnly)}
-                className={cn(
-                  'rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors',
-                  agingOnly
-                    ? 'border-primary/40 bg-primary/10 text-primary'
-                    : 'border-border/70 bg-background text-muted-foreground hover:text-foreground',
-                )}
-              >
-                Aging 4h+
-              </button>
-            ) : null}
+            <button
+              type="button"
+              onClick={() => setAgingFilter(!agingOnly)}
+              className={cn(
+                'rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors',
+                agingOnly
+                  ? 'border-primary/40 bg-primary/10 text-primary'
+                  : 'border-border/70 bg-background text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {agingFilterLabel}
+            </button>
             {view === 'inbox' ? (
               <button
                 type="button"
@@ -1925,6 +1927,17 @@ export function InboxPage() {
                           </form>
                         )}
                       </div>
+                    ) : threadReplyBlocked ? (
+                      <p className="rounded-md border border-border/60 bg-muted/30 px-2.5 py-2 text-sm text-muted-foreground">
+                        {threadReplyBlocked}{' '}
+                        <button
+                          type="button"
+                          className="font-medium text-foreground underline underline-offset-2"
+                          onClick={() => navigate(AGENCY_ROUTES.settingsIntegrations)}
+                        >
+                          Open Integrations
+                        </button>
+                      </p>
                     ) : (
                       <p className="px-1 py-2 text-sm text-muted-foreground">
                         Replies aren&apos;t available on{' '}
@@ -2129,10 +2142,8 @@ export function InboxPage() {
                         <DropdownMenuItem onClick={() => setAssignRow(row)}>
                           Assign…
                         </DropdownMenuItem>
-                        {(row.channel === 'whatsapp' && whatsappEnabled) ||
-                        row.channel === 'email' ||
-                        (row.channel === 'instagram' && instagramEnabled) ||
-                        row.channel === 'google_business' ? (
+                        {REPLYABLE_CHANNELS.has(row.channel) &&
+                        inboxChannelReplyReady(row.channel, connectorReadiness) ? (
                           <DropdownMenuItem
                             onClick={() => {
                               setReplyRow(row);

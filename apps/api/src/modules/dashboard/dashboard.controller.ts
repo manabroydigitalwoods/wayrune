@@ -11,4 +11,9 @@ export class DashboardController {
   sales(@CurrentUser() user: AuthUser) {
     return this.dashboard.sales(user);
   }
+
+  @Get('claim-gates')
+  claimGates(@CurrentUser() user: AuthUser) {
+    return this.dashboard.claimGates(user);
+  }
 }

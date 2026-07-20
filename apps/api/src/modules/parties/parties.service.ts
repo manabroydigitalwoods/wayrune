@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type {
   AssignPartyRoleSchema,
@@ -11,6 +11,11 @@ import type {
 import { z } from 'zod';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { buildPartyListWhere, partyListCountSelect } from './party-list';
+import { evaluatePartyCreditStatus } from './party-credit-limit';
+import {
+  partyImportCommitError,
+} from './party-import';
 
 type CreatePartyInput = z.infer<typeof CreatePartySchema>;
 type UpdatePartyInput = z.infer<typeof UpdatePartySchema>;
@@ -108,28 +113,27 @@ export class PartiesService {
     return { party, created: true };
   }
 
-  async list(organizationId: string, q?: string, page = 1, pageSize = 20, type?: string) {
-    const where: Prisma.PartyWhereInput = {
-      organizationId,
-      deletedAt: null,
-      ...(type ? { type } : {}),
-      ...(q
-        ? {
-            OR: [
-              { displayName: { contains: q } },
-              { email: { contains: q } },
-              { phone: { contains: q } },
-            ],
-          }
-        : {}),
-    };
+  async list(
+    organizationId: string,
+    opts?: { q?: string; page?: number; pageSize?: number; type?: string; b2b?: boolean },
+  ) {
+    const page = opts?.page ?? 1;
+    const pageSize = opts?.pageSize ?? 20;
+    const where = buildPartyListWhere(organizationId, {
+      q: opts?.q,
+      type: opts?.type,
+      b2b: opts?.b2b,
+    });
     const [items, total] = await Promise.all([
       this.prisma.party.findMany({
         where,
         orderBy: { updatedAt: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
-        include: { contacts: true },
+        include: {
+          contacts: true,
+          _count: { select: partyListCountSelect },
+        },
       }),
       this.prisma.party.count({ where }),
     ]);
@@ -185,6 +189,18 @@ export class PartiesService {
     });
     if (!party) throw new NotFoundException('Party not found');
     return party;
+  }
+
+  async creditStatus(
+    organizationId: string,
+    partyId: string,
+    opts?: { orgCurrency?: string; pendingAmount?: number },
+  ) {
+    await this.requireParty(organizationId, partyId);
+    return evaluatePartyCreditStatus(this.prisma, organizationId, partyId, {
+      orgCurrency: opts?.orgCurrency,
+      pendingAmount: opts?.pendingAmount,
+    });
   }
 
   async update(
@@ -318,7 +334,11 @@ export class PartiesService {
     }
 
     const created = results.filter((r) => r.status === 'created').length;
-    return { imported: created, skipped: results.length - created, results };
+    const skipped = results.length - created;
+    const commitError = partyImportCommitError({ imported: created, skipped });
+    if (commitError) throw new BadRequestException(commitError);
+
+    return { imported: created, skipped, results };
   }
 
   private async requireParty(organizationId: string, id: string) {

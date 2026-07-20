@@ -38,6 +38,18 @@ export function transferLinesFromQuoteItems(items: unknown): TransferQuoteLineLi
   });
 }
 
+/** Transfer quote lines missing a supplier — cannot materialize into ops bookings. */
+export function transferLinesMissingSupplier(
+  items: unknown,
+): TransferQuoteLineLike[] {
+  if (!Array.isArray(items)) return [];
+  return items.filter((row): row is TransferQuoteLineLike => {
+    if (!row || typeof row !== 'object') return false;
+    const r = row as TransferQuoteLineLike;
+    return r.serviceType === 'transfer' && Boolean(r.id) && !r.details?.supplierId;
+  });
+}
+
 export function transferServiceWindow(
   details: TransferQuoteLineLike['details'],
 ): { startAt: Date | null; endAt: Date | null } {

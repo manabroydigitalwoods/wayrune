@@ -3,6 +3,7 @@ import {
   transferBookingTitle,
   transferCapacityStampFromLine,
   transferLinesFromQuoteItems,
+  transferLinesMissingSupplier,
   transferServiceWindow,
 } from './transfer-quote-booking';
 
@@ -15,6 +16,20 @@ describe('transfer-quote-booking', () => {
     ]);
     expect(lines).toHaveLength(1);
     expect(lines[0]?.id).toBe('t1');
+  });
+
+  it('lists transfer lines missing supplier for accept warnings', () => {
+    const missing = transferLinesMissingSupplier([
+      {
+        id: 't2',
+        serviceType: 'transfer',
+        description: 'Airport pickup',
+        details: {},
+      },
+      { id: 't1', serviceType: 'transfer', details: { supplierId: 's1' } },
+    ]);
+    expect(missing).toHaveLength(1);
+    expect(missing[0]?.id).toBe('t2');
   });
 
   it('builds title from corridor', () => {

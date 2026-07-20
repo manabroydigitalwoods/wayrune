@@ -34,6 +34,23 @@ export function activityLinesFromQuoteItems(items: unknown): ActivityQuoteLineLi
   });
 }
 
+/** Activity quote lines missing a supplier — cannot materialize into ops bookings. */
+export function activityLinesMissingSupplier(
+  items: unknown,
+): ActivityQuoteLineLike[] {
+  if (!Array.isArray(items)) return [];
+  return items.filter((row): row is ActivityQuoteLineLike => {
+    if (!row || typeof row !== 'object') return false;
+    const r = row as ActivityQuoteLineLike;
+    const type = r.serviceType;
+    return (
+      (type === 'activity' || type === 'sightseeing') &&
+      Boolean(r.id) &&
+      !r.details?.supplierId
+    );
+  });
+}
+
 export function activityServiceWindow(
   details: ActivityQuoteLineLike['details'],
 ): { startAt: Date | null; endAt: Date | null } {

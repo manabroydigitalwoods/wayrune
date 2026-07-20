@@ -22,7 +22,7 @@ Our long-term advantage:
 
 **Strategic rule:** First become indispensable to one travel agency’s daily workflow. Then connect the travel ecosystem.
 
-**2026-07 re-score (after P0 thin ladders + package folders + live FX refresh):** the Priority 0 agency journey is largely **thin-complete** end-to-end (quote → hotel/transfer/activity ops → collect/chase → movement → packages → Settings FX). Remaining Sembark leads are **depth** (full occupancy×meal grids, ledger/tax regimes, consultant onboarding, public credibility) — not missing journey stages. Customers still buy relief from today’s problems; do not lead with multi-org or Presence until wedge depth and measured FIT speed are undeniable.
+**2026-07 re-score (after P0 ladders + honesty wedges incl. supplier import + directory):** agency P0 stages that have Integrity+Channels+Proof memo ladders marked **done** are **Prod-ready** on the Agency OS feature map (Match drawers, FX lock/cross-pair, templates, hotel/transfer/activity rate depth, hotel + T/A enquiry→voucher, movement + fleet assign, trip control + cancellation cases, trip shell + role-composed home, sales CRM response surfaces, supplier CSV import + directory profiles, collect/chase finance + report packs, onboarding starter pack). Residual **Thin** = unfinished I+C+P ladders or **claim gates** (FIT Testing, scale strip gated, unit board dogfood). Remaining Sembark leads are still **depth** (full occupancy×meal grids, ledger/tax filing, consultant onboarding, public scale publish) — not missing journey stages. Customers still buy relief from today’s problems; do not lead with multi-org or Presence until wedge depth and measured FIT speed are undeniable.
 
 ---
 
@@ -91,6 +91,14 @@ Display path thin-complete. **Kickoff 2026-07-20:** owner = product; surface = g
 | 3 GSTR-ready export | **Done** | `GET /commerce/gstr-export` CSV — accountant/GSP feed, **not** in-app filing |
 | Full GL / GSTR filing UI | **Parked** | Claim registry **Do not claim** |
 
+#### Canvas maturity reconcile (2026-07-20) — labels only
+
+Promoted Agency OS feature-map rows **Thin → Prod-ready** where memo I+C+P ladders were already (**done**): … **Unified engagement inbox** (connector readiness + aging parity); **Blackout / stop-sale / cancellation** (contract resolve + send gate + cancel tiers); **Customers & B2B parties** (server B2B filter + active trips + import guard + agent markup hub cue).
+
+**Still Thin (honest):** claim-gated marketing rows (FIT speed, public scale strip, unit board utilization) — ops panel shipped; registry stays Testing until measured proof + sign-off; partner Stay/Mobility/Restaurant/Guest verticals.
+
+**Counts after claim readiness ops panel ladder:** ~39 Prod-ready · ~5 Thin (claim-gated + platform) · Partial/Structural/Deferred unchanged. Claim registry unchanged (FIT Testing; GST ledger do-not-claim).
+
 ## 2. Ninety-day Priority 0 sequence
 
 Do **not** ship the full costing/contracting wishlists as one epic. Three releases, then movement board.
@@ -115,6 +123,176 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **1 Integrity** | **Done** | Confirm requires confirmation ref + allowed status; payable create result returned (no silent “scheduled”); missing-supplier skips warned on accept; cancel closes payable commercial docs; partial unique index on payable↔booking |
 | **2 Channels / UI** | **Done** | Enquiry WA mark-as-sent; voucher WA fallback uses warning + **Mark vouchers sent**; accept surfaces `materializeFailures`; pipeline highlights Payable when confirmed without invoice; quote currency on materialize |
 | **3 Proof** | **Done** | Booking status + missing-supplier specs; memo ladder |
+
+#### Prod-ready ladder — Transfer / activity enquiry → confirm → payable → voucher (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | T/A missing-supplier + deleted-supplier warnings on materialize (parity with hotel); quote currency stamped; warnings folded into accept `materializeFailures` (`transfer:` / `activity:`); confirm→payable path remains type-agnostic |
+| **2 Channels / UI** | **Done** | Ops **From accepted quote** toasts hotel+transfer+activity warnings; accept already surfaces `materializeFailures`; enquiry WA compose for transfer/activity |
+| **3 Proof** | **Done** | `transferLinesMissingSupplier` / `activityLinesMissingSupplier` specs; enquiry compose specs; `operations.transfer-activity-chain.spec`; this ladder in memo |
+
+#### Prod-ready ladder — Trip control centre + CancellationCase (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `GET /trips/:id/control` counts open cancellation cases (draft/awaiting/approved + pending apply); activity open-booking flags parity with transfer; voucher-pending includes hotel/transfer/activity |
+| **2 Channels / UI** | **Done** | Trip control risk strip + overview refresh on trip reload (`refreshKey`); commerce CTA includes pending cancellations; voucher metric hint corrected |
+| **3 Proof** | **Done** | `trip-control.spec` activity + cancellation flags; existing cancel preview / credit-note specs; this ladder in memo |
+
+**Defer:** *(closed — see Cancellation credit-note allocate below)*
+
+#### Prod-ready ladder — Cancellation credit-note allocate (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | On CancellationCase apply, refund credit notes auto-link to the trip receivable with the largest outstanding balance (capped to outstanding); idempotent on case + evaluationJson creditNoteId |
+| **2 Channels / UI** | **Done** | Ops apply toast distinguishes allocated vs draft-only; Changes & incidents shows allocated amount |
+| **3 Proof** | **Done** | `cancellation-credit-note.spec` allocate helpers; this ladder in memo |
+
+**Defer:** *(closed — see Outbound refund payment settlement below)*
+
+#### Prod-ready ladder — Outbound refund payment settlement (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `cancellation-refund-settle.ts` refund due on credit note; idempotent outbound `PaymentRecord` keyed on `cancellation_case`; `evaluationJson.refundPaymentId` / `refundSettledAmount` |
+| **2 Channels / UI** | **Done** | Changes & incidents refund due / settled cue + **Mark refund settled**; `GET/POST /commerce/cancellations/:id/refund-status` + `settle-refund` |
+| **3 Proof** | **Done** | `cancellation-refund-settle.spec`; this ladder in memo |
+
+**Defer:** Razorpay outbound/refund API; partial refund splits; `finance.refund.request` / `.approve` workflow.
+
+#### Prod-ready ladder — Hotel occupancy JSON field restore (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `occupancyPricingJson` on `HotelRateRestorableField`; restore API + merge from prior tip |
+| **2 Channels / UI** | **Done** | History Diff **Restore** on occupancy row |
+| **3 Proof** | **Done** | `hotel-rate-field-restore.spec` occupancy; this ladder in memo |
+
+**Defer:** full Sembark child/age×nationality chart grid; rooming matrix; bands >3A/room.
+
+#### Prod-ready ladder — Trip workspace shell + role-composed home (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `recommendedTabForTripStatus` + `tabAttentionCounts` from trip control flags; `composeDashboardSections` primary (top 4) vs secondary widgets by workspace + permissions |
+| **2 Channels / UI** | **Done** | Trip tabs show attention badges + **Next** cue; Overview **Continue in …** CTA; home dashboard primary strip + **Show N more metrics** disclosure |
+| **3 Proof** | **Done** | `tripWorkspaceTabs.test` + `composeDashboard.test` sections; this ladder in memo |
+
+#### Prod-ready ladder — Sales CRM response surfaces (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | Shared `useSalesCrmSla` + `inboxAgingFilterLabel` uses org `inboxAgingHours` (not hard-coded 4h on Inbox); same `/dashboard/sales` metrics on Leads + Inbox as home strip |
+| **2 Channels / UI** | **Done** | `SalesCrmSlaStrip` on Leads + Inbox (overdue follow-ups, unread, aging click-through); Leads quick filters **Overdue follow-ups** / **My leads** |
+| **3 Proof** | **Done** | `inboxAgingLabel.test`; existing lead-follow-up + unread-sla specs; this ladder in memo |
+
+**Defer:** Microsoft messaging inbox; HubSpot depth; parties/travel-request queue polish as separate ladders.
+
+#### Prod-ready ladder — Supplier CSV/XLSX bulk + audit (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `ratesImportCommitError` fail-closed on commit with `okCount === 0`; audit only when commit writes ≥1 row; commit stores `replayHeaderLine` + `replaySkipLines` (≤50) when client sends `replaySource` |
+| **2 Channels / UI** | **Done** | Import dialog warns on all-skip preview + partial-commit skip toast with first reason; Recent imports show ≤5 sample skips; **Replay skips** loads stored rows via `GET /rates/import-batches/:id/replay` |
+| **3 Proof** | **Done** | `rates-import-audit.spec` + `rates-import-replay.spec` + commit guard specs; this ladder in memo |
+
+#### Prod-ready ladder — Supplier directory profiles V1 (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | Type-scoped `supplierProfileCompletenessKeys` + `contactCompletenessLabel` (existing helpers) |
+| **2 Channels / UI** | **Done** | Suppliers list **Contact** + **Profile** columns; detail tabs already show completeness cues |
+| **3 Proof** | **Done** | `supplierTypes.test`; this ladder in memo |
+
+#### Prod-ready ladder — Supplier directory list depth (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `GET /suppliers` includes `roomProductCount` (stay, via linked asset), `activeRateCount` (type-scoped hotel/activity/transfer counts), `activeContractCount` |
+| **2 Channels / UI** | **Done** | Suppliers list **Profile** scores rooms on list; **Rates** + **Contracts** columns match detail cues |
+| **3 Proof** | **Done** | `supplier-list.spec` + extended `supplierTypes.test`; this ladder in memo |
+
+**Defer:** *(closed — list depth above)*
+
+#### Prod-ready ladder — Travel requests & planning queues (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `InquiryListQuerySchema` + `buildInquiryListWhere` server queues (`my_requests`, `planning`, `active`); `GET /inquiries/queue-summary`; parties list includes open inquiry `_count` |
+| **2 Channels / UI** | **Done** | Planning / My requests / Sales use server queue filters; `TravelRequestQueueStrip` + **Incomplete** / **Unassigned** quick filters; Clients list **Open requests** column |
+| **3 Proof** | **Done** | `inquiry-queue.spec` + `inquiryQueue.test`; this ladder in memo |
+
+#### Prod-ready ladder — Unified inbox channel depth (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `GET /interactions/connectors/readiness` (WhatsApp / Instagram / Google Business reply-ready from org settings + Google connection); `aging=1` on `/interactions` list parity with threads |
+| **2 Channels / UI** | **Done** | Inbox multi-channel setup banners; reply composer + row actions gated on readiness; aging filter on All messages + Conversations |
+| **3 Proof** | **Done** | `inbox-connector-readiness.spec` + `inboxChannelReply.test`; this ladder in memo |
+
+**Defer:** Microsoft messaging inbox; Meta template library sync; HubSpot depth.
+
+#### Prod-ready ladder — Blackout / stop-sale / cancellation (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | Soft blackout vs hard stop-sale in `rates/resolve` (hotel + transfer + **activity parity specs**); `lineHasStopSaleBlock` + `assertNoBlockingStopSale` on send/approve (fail-closed even when manual buy/sell set); contract `cancellationPolicyJson` tiers → Match explain + provenance stamp |
+| **2 Channels / UI** | **Done** | SupplierContractsPanel blackout/stop-sale/cancel tiers; quote drawer **Blackout** / **Stop-sale** + **Open contracts** banners (hotel + transfer + activity); attention **Stop-sell** chip; Send blocked reason names stop-sale lines; Ops CancellationCase preview→apply (separate **CancellationCase** ladder already **done**) |
+| **3 Proof** | **Done** | `rate-resolve-guards.spec` + hotel/transfer/activity resolve specs; `quote-rate-block.spec` + `quoteAttentionLines.test`; this ladder in memo |
+
+**Defer:** *(closed — Cancellation credit-note allocate ladder)*
+
+#### Prod-ready ladder — Customers & B2B parties (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `PartyListQuerySchema` + `buildPartyListWhere` server B2B filter; list `_count` for open inquiries + **active trips** (pipeline statuses); CSV import fail-closed when zero rows created; `partyUsesAgentMarkup` / `resolveOrgMarkupPercent` for travel_agency / reseller / DMC |
+| **2 Channels / UI** | **Done** | Clients list **Active trips** column; **Show B2B** uses server filter; import toasts first skip reason; customer hub **Agent markup** cue + editable B2B type on profile |
+| **3 Proof** | **Done** | `party-list.spec` + `party-import.spec` + `partyHub.test` + existing `orgMarkup.test`; this ladder in memo |
+
+**Defer:** *(closed — see Markup preset library below)* · *(closed — see Credit terms automation below)*
+
+#### Prod-ready ladder — Markup preset library (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `markupPresets` on org settings; `sellFromMarkupPreset` supports percent + fixed ₹ |
+| **2 Channels / UI** | **Done** | Settings quoting library editor; trip quote toolbar preset chips beside Apply default markup |
+| **3 Proof** | **Done** | `markup-presets.spec`; this ladder in memo |
+
+**Defer:** *(closed — see Credit limit enforcement gates below)* · per-party markup overrides; preset libraries on individual quote lines only.
+
+#### Prod-ready ladder — Credit terms automation (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `parsePaymentTermsNetDays` + `dueDateFromPaymentTerms`; customer `createPayment` auto-stamps due when party has Net N / Pay on confirm |
+| **2 Channels / UI** | **Done** | Customer hub payment terms + credit limit edit; Finance receivables cue + due prefill |
+| **3 Proof** | **Done** | `payment-terms.spec` + `payment-terms-due.spec`; this ladder in memo |
+
+**Defer:** *(closed — see Credit limit enforcement gates below)*
+
+#### Prod-ready ladder — Credit limit enforcement gates (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | Org-wide party AR outstanding vs `creditLimit`; blocks customer receivable create/update when over limit unless `finance.credit_limit.override` |
+| **2 Channels / UI** | **Done** | Finance + customer hub credit cues; trip control **over credit limit** flag; `GET /parties/:id/credit-status` |
+| **3 Proof** | **Done** | `party-credit-limit.spec` + `party-credit-limit` (API) + trip-control flag spec; this ladder in memo |
+
+**Defer:** instalment schedules from terms; non-Net custom terms parsing; per-party markup overrides.
+
+#### Prod-ready ladder — Claim readiness ops panel (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `GET /dashboard/claim-gates` (org FIT protocol + ops checklist; registry pinned `testing`); `GET /platform/scale` adds `opsChecklist` for scale minima — no auto-flip to Proven |
+| **2 Channels / UI** | **Done** | Settings → About **Marketing claim gates** strip (sample progress, median, checklist); links to `/docs#what-we-claim` |
+| **3 Proof** | **Done** | `claim-gates.spec`; this ladder in memo |
+
+**Defer:** flipping claim registry to Proven (manual ops); public scale snapshot publish; unit board utilization %.
 
 #### Prod-ready ladder — Movement + transfer assign (**done**)
 
@@ -538,7 +716,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | History Diff row **Restore** CTA |
 | **3 Proof** | **Done** | hotel-rate-field-restore + Diff row specs; About note; this ladder in memo |
 
-**Defer:** *(closed — see Transfer/activity tip field-level restore below)* · occupancy JSON field restore; server folder index / DnD.
+**Defer:** *(closed — see Hotel occupancy JSON field restore below)* · server folder index / DnD.
 
 #### Prod-ready ladder — Transfer/activity tip field-level restore (**done**)
 
@@ -548,7 +726,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | History Diff row **Restore** CTA on transfer + activity charts |
 | **3 Proof** | **Done** | transfer-activity-rate-field-restore + Diff row specs; About note; this ladder in memo |
 
-**Defer:** occupancy JSON field restore; server folder index / DnD.
+**Defer:** *(closed — see Hotel occupancy JSON field restore above)* · server folder index / DnD.
 
 #### Prod-ready ladder — Hotel min stay on rate card (**done**)
 
@@ -1515,7 +1693,7 @@ Protocol for claim flip (ops, not engineering):
 | Reusable itinerary / quote templates + package clone | `QuoteTemplate` (seeded packages) | Seed: Darjeeling + Goa priced FIT packages; trip UI sorts by destination match; save-as-template stores `destinationHint`. **Thin slice complete:** apply (`POST …/from-template`) shifts line `checkIn`/`checkOut`/`serviceDate`/`activityDate` from template anchor → trip `startDate`, clears rate snapshots, then **server rematch** in `createFromTemplate` via `RatesService.resolve` (from-package + workspace); **reanchors existing story itinerary `day.date`** to trip start + (dayNumber−1); **save embeds trip Story days/meta** into `contentJson.itinerary` (`tripId` / `versionId`); **apply seeds empty trip Story** from template (reminted ids + date reanchor; story meta if missing); **else scaffolds days from hotel lines** (check-in→check-out span + Check-in items). **Versioning thin-complete:** supersede-on-save + active-only list. **History + restore thin-complete:** versions API + Use-template History/Restore. **Travel-start gate thin-complete:** apply requires/stamps `startDate` so undated trips still shift. **New trip dates thin-complete:** create sheet optional Travel start/end → POST. **Edit trip dates thin-complete:** `PATCH /trips/:id/dates` + workspace sheet (no auto line shift). **One-shot create+package thin-complete:** New trip optional Package → create + apply → Quotations. **Pax in apply thin-complete:** adults/children stamp hotel/transfer/activity before rematch. **Folder hierarchy thin-complete:** slash-path `contentJson.folder` + breadcrumb/prefix filter. **History Diff side-by-side thin-complete.** Defer: date-shift-on-edit; server folder index |
 | **Sales response / quote-turnaround telemetry** | `GET /dashboard/sales`, Lead/Activity/Inquiry→Trip→Quotation | **Thin + FIT minutes:** overdue lead follow-ups + median first-touch + median lead→quote (30d) + **median FIT build minutes** (workspace open → first send via `quote.fit_build` audit). `/leads?followUp=overdue` click-through. **Task→followUpAt sync:** creating a lead (or inquiry→lead) task with `dueAt` stamps `Lead.followUpAt`. **Reverse:** editing lead `followUpAt` stamps the newest open lead-linked task `dueAt`. **Inbox unread SLA thin:** unread + aging thread counts + `/inbox?unread=1` / `?aging=1`; **org `settingsJson.inboxAgingHours` (1–72, default 4)** on Settings → General, dashboard, and aging list filter. **Org sales SLA targets thin-complete:** optional `firstTouchTargetHours` / `leadToQuoteTargetHours` / `fitBuildTargetMinutes` on Settings → General; dashboard returns targets; Sales response strip tones medians (success / warn / danger) + target cues. **`conversation.unread_sla` fire:** worker 15m tick + opportunistic on sales dashboard / aging inbox; idempotent `[unread_sla:…]` subject marker; Integrations rule UI. **`conversation.waiting` fire** when status set to waiting. **Round-robin polish:** skip inactive members, preserve cursor on save, next-up / last-assigned on Lead sources, create toast shows owner, `/leads?owner=me`. Defer: dual-source merge / task PATCH |
 | Itinerary → priced lines loop | `POST /rates/resolve`, Trip workspace quote UI | Live auto-rematch in hotel/transfer drawer when match keys change; bulk refresh uses same apply helper |
-| Markup presets (fixed + %) | Org `defaultMarkupPercent`, rate resolve | **Thin slice complete:** Fixed ₹ and % both persist on open/save/rematch (no longer force-percent); Match apply keeps Fixed; **Apply default markup** uses org `defaultMarkupPercent` (not hardcoded 20%). **Agent / B2B markup:** org `agentMarkupPercent` for travel_agency / reseller / DMC parties (Settings + Match / rematch / Apply default via `partyId`). Defer: preset libraries |
+| Markup presets (fixed + %) | Org `defaultMarkupPercent`, rate resolve | **Thin slice complete:** Fixed ₹ and % both persist on open/save/rematch (no longer force-percent); Match apply keeps Fixed; **Apply default markup** uses org `defaultMarkupPercent` (not hardcoded 20%). **Agent / B2B markup:** org `agentMarkupPercent` for travel_agency / reseller / DMC parties (Settings + Match / rematch / Apply default via `partyId`). **Preset library:** org `markupPresets` + trip quote chips |
 | Tax default apply | Org `defaultTaxPercent` | **Thin slice complete:** new/import lines + unmatched resolve stamp org default (fallback 5%); **Apply default tax** (attention strip + ···) sets 0% billable lines to org default without overwriting set tax. **Tax identity thin-complete:** org `taxLabel` + business `gstin` / `placeOfSupply` on proposal PDF/email/public preview + workspace summary (display only). **CGST/SGST/IGST display split thin-complete:** destination POS vs agency POS drives breakdown of the same tax total (not filing). **Trip destination POS override thin-complete.** **Quote freeze + destination infer thin-complete** (`taxIdentityJson` on send/PDF; infer from place labels, never persisted). **Finance accepted-quote tax display parity thin-complete.** **Public pay-page tax breakdown thin-complete** (pro-rated instalment share). **Receivable commercial-document instalment tax split thin-complete.** Defer: place-of-supply–driven hotel buy rates / e-invoice / GST compliance |
 | Margin warning + `below_margin.approve` | Org `minMarginPercent` + line override audit | API blocks send/approval; UI Send opens override when margin is the only gate |
 | One-click branded proposal | PDF + email already | WhatsApp Cloud send (`POST …/send-whatsapp`) with public proposal link; **cold send requires Meta template** designated via Integrations `quoteProposalTemplateId` (or name/`quote_proposal` fallback); `wa.me` fallback + **Mark as sent** when Cloud is off; Send dialog readiness cue |
@@ -1534,10 +1712,10 @@ Protocol for claim flip (ops, not engineering):
 | **Accepted hotel quote → enquiry → confirm → payable → voucher** | `BookingComponent.quotationLineId`, `ServiceRequest`, `SupplierInvoice`, `TripPayment` | **Complete (thin slice):** accept materializes hotel bookings + SR `sent`; Ops **Send enquiry** (WhatsApp Cloud or `wa.me` + **Mark enquiry sent**); Confirm schedules AUTO- payable + dual-writes payable `CommercialDocument` (idempotent on booking); Mark vouchered; customer hotel voucher PDF; Ops **WhatsApp vouchers** (text + Cloud PDF ≤5; wa.me + **Mark vouchers sent**) + **Email vouchers** (outbox PDF pack ≤5). Supplier TripPayment mark paid / unmark syncs CD + outbound `PaymentRecord`. Customer instalments dual-write receivable CD on create / payment-link; settle / unmark syncs inbound `PaymentRecord`. Demo: TRP-SEED-02 / TRP-SEED-03. **Transfer + activity accept→enquiry thin:** materialize lines with `supplierId` + SR `TRANSFER`/`ACTIVITY`; Ops Send enquiry for hotel/transfer/activity; Confirm/AUTO- payable type-agnostic. Seed QT-SEED-02 Bagdogra→Darjeeling + Tiger Hill sunrise. **Transfer + activity voucher PDF** download + WA/email PDF attach (≤5) shipped. **CancellationCase thin UI:** Ops Cancel sheet → fee preview (quote stamp / contract) → create+request → approve → apply (+ ops cascade); apply drafts credit note when refund expected; Changes & incidents lists cases. Bypass “without policy case” remains |
 | Blackout / stop-sale **enforced** in `rates/resolve` | `SupplierContract.blackoutJson`, inventory stop-sell | Soft blackout (manual allowed) vs hard stop-sale; room-scoped contract + allotment stop-sale; quote UI distinguishes both. **Drawer:** soft blackout Match shows amber **Blackout · …** + **Open contracts**; hard stop-sale shows destructive **Stop-sale · …** + **Open contracts** (`/suppliers/:id#contracts`) |
 | Transfer capacity / closing dates / point-to-point polish | `TransferFare`, transfer matrix, `rates/resolve` | **Thin slice complete:** supplier contract stop-sale (hard) + blackout (soft) on transfer resolve; `matchExplain` + vehicle capacity seats; reverse-corridor P2P hints; catalog season labeled as closing window; seeded North Bengal Fleet contract (Puja blackout + July stop-sale). **Supplier-owned TransferFare** (`supplierId`) + Rate chart on transport suppliers; resolve prefers supplier corridor (+40) over org/system; seed Siliguri/Bagdogra → Darjeeling Innova. **Ops fleet unit pick + vehicle_conflict + DriverJob↔unit / calendar writeback + partner create-job unit picker shipped.** **CSV supplierName on transfer import** shipped (optional; locked on supplier Rate chart). **Partner allocate holds UI** thin-shipped. **Hard capacity at quote:** Match stamps `rateProvenance.capacityWarn` (party vs seats × vehicles) → attention **Capacity** chip + drawer destructive cue + **blocks** send/approve. **Override ack + reason + manager gate** + **auto vehicle bump on Match + party edit** + **live Vehicles/party capacity restamp** shipped + **dedicated `inventory_risk.approve`** + **rate-drift Keep-buy RBAC** (`rate_drift.approve`). **Per-adult child-age banding thin-complete:** `childAgeMin`/`Max` on TransferFare + Match reclassify + Ages cue|
-| CSV/XLSX bulk import + draft preview | Negotiated-rate CSV pattern | **Thin slice complete:** hotel + transfer + activity import accepts `.xlsx`/`.xls`/`.csv` (first sheet → existing preview/commit APIs); **import batch audit** (`rates.import.commit` + Import dialog **Recent imports**). Supplier Rate chart + Catalog Rates. **Recent imports show sample skip reasons** (`sampleSkips` from audit metadata, ≤3 lines). Defer: row replay |
+| CSV/XLSX bulk import + draft preview | Negotiated-rate CSV pattern | **Prod-ready:** hotel + transfer + activity import accepts `.xlsx`/`.xls`/`.csv` (first sheet → preview/commit APIs); **import batch audit** (`rates.import.commit` + Import dialog **Recent imports**). Commit fail-closed when every row skips; partial commits toast first skip reason. **Replay skips** on Recent imports (stored header + skip lines, ≤50). Supplier Rate chart + Catalog Rates. |
 | Rate-change detection + effective dates | Rate date windows | **Thin slice complete:** Match rate shows chart last updated + matched-at; soft drift when live chart `updatedAt` is newer than snapshot; rematch toast when buy changes; **send/approve blocked** until rematch or **Keep buy (acknowledge)** (`rateDriftAckForUpdatedAt` + `rateDriftAckReason`). Quote Contract badge tooltip includes chart updated. **Attention Rate drift chip + send preflight:** `POST /rates/chart-freshness` feeds strip/Save&next + client send blocked copy (aligned with API gate). **Rematch drifted:** attention strip + ··· rematch only `rate_drift` lines via `/rates/resolve`. **Hotel rate version chain thin-complete.** **Transfer + activity version chains thin-complete.** **Hotel tip Diff vs current + side-by-side expand thin-complete.** **Multi-approver hotel tip Activate thin-complete** (`rates.approve` + pending tip + Task). **Transfer + activity tip Activate thin-complete.** Defer: field-level restore / quorum |
 
-**Defer past P0.5 thin slices:** credit-note settle/allocate automation, agencyAbsorption, PolicyAttachment graph. (Contract cancel tiers + Match stamp + Ops cancel preview/request/approve/apply + draft credit note thin-complete.)
+**Defer past P0.5 thin slices:** agencyAbsorption, PolicyAttachment graph. (Contract cancel tiers + Match stamp + Ops cancel preview/request/approve/apply + credit note auto-allocate + outbound refund settle thin-complete.)
 
 ### Release 3 — Trip control centre (days 61–90)
 
@@ -1579,7 +1757,7 @@ Hosted agency websites, forms→CRM, customer portal, hotel/DMC/driver partner o
 | Branded proposal PDF + email | Partial → mature-leaning | `branded-proposal-pdf.ts`, quotation email send |
 | Public itinerary / proposal share + accept | Prod-ready (quote path) | Share binds `quotationVersionId`; public accept requires PIN when set; expired quotes cannot accept |
 | Hotel rates + transfer fares + activity rates + `rates/resolve` | Partial | `apps/api/src/modules/rates/`, Catalog & transfers, supplier Rate chart (stay + **activity** + **transfer/fleet**); `SupplierActivityRate` CRUD on `/activity-rates`; TransferFare optional `supplierId` |
-| Supplier quick-create + type-specific profiles | Partial | `SuppliersPage.tsx`, `SupplierProfilePanel.tsx` — accommodation / restaurant / fleet / driver / activity / guide / DMC |
+| Supplier quick-create + type-specific profiles | Partial → prod-ready (directory) | `SuppliersPage.tsx`, `SupplierProfilePanel.tsx` — accommodation / restaurant / fleet / driver / activity / guide / DMC; list **Contact** + **Profile** completeness columns |
 | Itinerary builder (story, not priced) | Partial | `ItineraryBuilder.tsx`, itinerary versions |
 | Trip booking components + supplier assign | Partial → chain wired | `operations` module — hotel chain + **transfer driver/fleet assignment** (JSON) |
 | Trip readiness checklist (incl. voucher note) | Partial | Trip workspace / ops — Mark vouchered ticks “Vouchers issued” |
@@ -1587,7 +1765,7 @@ Hosted agency websites, forms→CRM, customer portal, hotel/DMC/driver partner o
 | Trip control centre | Partial → thin complete | `GET /trips/:id/control`, `TripControlCentre.tsx` — Overview + risk strip |
 | Movement board (org-wide) | Partial → thin complete | `GET /operations/movement-board`, table + calendar; hotel + transfer + **activity**; driver assign + conflicts; drag-assign + reschedule; **bidirectional DriverJob sync** (`linkedAssetId` + status writeback + `fleetUnitId` / unit calendar block); **home-stat / summary click-through** (`?type=hotel|transfer|activity`, `?flagged=1`, `?overduePay=1`, `?voucherPending=1`) |
 | Role-composed dashboards | Partial → thin complete | `composeDashboard.ts`, `DashboardPage.tsx` — finance aging/portfolio + ops movement strips (**click-through filters**); **sales response SLA strip**; sales Inbox primary |
-| Unified engagement inbox | Partial | `InboxPage.tsx`, `interactions`, connectors — `?unread=1` / `?aging=1` from dashboard |
+| Unified engagement inbox | Partial → prod-ready (channel depth) | `InboxPage.tsx`, `interactions`, connectors — `GET /interactions/connectors/readiness`; multi-channel setup banners; reply gates; `?unread=1` / `?aging=1` on threads + all messages |
 | Multi-org kinds + membership + switcher | Mature (arch) | `organizations`, RBAC, `OrgKindSchema` |
 | Digital Presence builder + publish + forms→CRM | Mature core / partial hosting | `apps/api/src/modules/presence/`, `apps/web/src/pages/presence/` |
 | Progressive complexity / capability gating | Partial | `apps/web/src/lib/progressiveComplexity/` |
@@ -1702,6 +1880,7 @@ Then introduce differentiators: connected WhatsApp and email → agency website 
 | FIT speed claim | Protocol stamped; n≥20 **real**; median ≤3m; `publicClaimAllowed` | **Gate shipped**; demo seed **excluded** from public claim; **production still Testing** (await real samples) |
 | Market credibility | Claim registry live; release notes + polished demo org | **Registry + About + `/changelog` + `/docs` + scale protocol + named demo trip**; public scale strip waits on measured snapshot |
 | Deal-gated FX/fleet | Open only with signed need; keep locks/meta pluggable | **Discipline** — fleet unit board dogfood unlocked; utilization still gated |
+| Canvas Thin→Prod reconcile | Promote rows with I+C+P (**done**) ladders only | **Done** — ~11 rows then +10 honesty wedges; claim gates + residual HOLD_THIN/PLATFORM stay Thin |
 
 ### What we should not copy from Sembark
 

@@ -145,6 +145,21 @@ export const OrgSettingsPayloadSchema = z
      * Omit → use defaultMarkupPercent for everyone.
      */
     agentMarkupPercent: z.number().min(0).max(500).optional(),
+    /**
+     * Named markup presets for quote bulk-apply (percent or fixed ₹ add-on).
+     * Max 12; ids are client-generated slugs.
+     */
+    markupPresets: z
+      .array(
+        z.object({
+          id: z.string().min(1).max(48),
+          label: z.string().min(1).max(80),
+          mode: z.enum(['percent', 'fixed']),
+          value: z.number().min(0).max(1_000_000),
+        }),
+      )
+      .max(12)
+      .optional(),
     /** Days from today for new / cloned / revised draft `validUntil` (1–365). */
     defaultQuoteValidityDays: z.number().int().min(1).max(365).optional(),
     /**
@@ -1119,6 +1134,26 @@ export const UpdateInquiryStatusSchema = z
     message: 'Enter a reason for marking this inquiry lost',
     path: ['reason'],
   });
+
+/** Server-side filters for inquiry work queues (My requests / Planning / Sales). */
+export const InquiryListQuerySchema = PaginationQuerySchema.extend({
+  status: z.string().optional(),
+  queue: z.enum(['my_requests', 'planning', 'active']).optional(),
+  ownerId: z.enum(['me', 'unassigned']).or(z.string().min(1)).optional(),
+  incomplete: z
+    .union([z.literal('1'), z.literal('true'), z.boolean()])
+    .optional()
+    .transform((v) => v === true || v === '1' || v === 'true'),
+});
+
+/** Server-side filters for client / B2B party list. */
+export const PartyListQuerySchema = PaginationQuerySchema.extend({
+  type: z.enum(['individual', 'organization']).optional(),
+  b2b: z
+    .union([z.literal('1'), z.literal('true'), z.boolean()])
+    .optional()
+    .transform((v) => v === true || v === '1' || v === 'true'),
+});
 
 export const CreateTripSchema = z
   .object({
@@ -3145,6 +3180,7 @@ export const RestoreHotelRateFieldSchema = z.object({
     'startDate',
     'endDate',
     'dates',
+    'occupancyPricingJson',
   ]),
 });
 
@@ -3341,12 +3377,18 @@ export const ImportHotelRateCsvRowSchema = z
     }
   });
 
+export const RatesImportReplaySourceSchema = z.object({
+  headerLine: z.string().min(1).max(8000),
+  dataLines: z.array(z.string().max(8000)).max(500),
+});
+
 export const ImportHotelRateCsvSchema = z.object({
   rows: z.array(ImportHotelRateCsvRowSchema).min(1).max(500),
   /** false = validation preview only; true = create rates. */
   commit: z.boolean().optional().default(false),
   fileName: z.preprocess(blankToNull, z.string().nullable()).optional(),
   lockedSupplierName: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  replaySource: RatesImportReplaySourceSchema.optional(),
 });
 
 /** One activity rate sheet row (names/keys resolved server-side). */
@@ -3370,6 +3412,7 @@ export const ImportActivityRateCsvSchema = z.object({
   commit: z.boolean().optional().default(false),
   fileName: z.preprocess(blankToNull, z.string().nullable()).optional(),
   lockedSupplierName: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  replaySource: RatesImportReplaySourceSchema.optional(),
 });
 
 /** One transfer fare sheet row. */
@@ -3394,6 +3437,7 @@ export const ImportTransferFareCsvSchema = z.object({
   commit: z.boolean().optional().default(false),
   fileName: z.preprocess(blankToNull, z.string().nullable()).optional(),
   lockedSupplierName: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  replaySource: RatesImportReplaySourceSchema.optional(),
 });
 
 export const SuggestTransferFareSchema = z.object({
@@ -3430,6 +3474,8 @@ export const ResolveRatesItemSchema = z.object({
       infants: z.number().optional(),
       childrenWithoutBed: z.number().optional(),
       childAges: z.array(z.number()).optional(),
+      /** Per-child market codes aligned with childAges (IN / INTL / ISO-2). */
+      childNationalities: z.array(z.string()).max(12).optional(),
       /** Guest nationality for hotel market Match (IN / INTL / ISO). */
       nationality: z.string().optional(),
       /** Multi-guest nationalities (collapsed on Match). */
@@ -4039,6 +4085,9 @@ export { tripTravelEndOnOrAfterStart } from './trip-travel-dates';
 
 export * from './commerce-foundation';
 export * from './org-markup';
+export * from './markup-presets';
+export * from './payment-terms';
+export * from './party-credit-limit';
 export * from './iso3166-alpha2';
 
 export {
@@ -4140,6 +4189,7 @@ export {
   lineNeedsCapacityRiskAck,
   lineNeedsMinStayRiskAck,
 } from './quote-inventory-risk-ack';
+export { lineHasStopSaleBlock } from './quote-rate-block';
 
 export {
   FinanceReportPackSchema,

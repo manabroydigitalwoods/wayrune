@@ -35,7 +35,8 @@ export type HotelRateRestorableFieldUi =
   | 'mealPlan'
   | 'startDate'
   | 'endDate'
-  | 'dates';
+  | 'dates'
+  | 'occupancyPricingJson';
 
 /** Diff change label → restorable field (mirrors API). */
 export function hotelRateDiffChangeToRestorableField(
@@ -51,6 +52,8 @@ export function hotelRateDiffChangeToRestorableField(
       return 'mealPlan';
     case 'dates':
       return 'dates';
+    case 'occupancy':
+      return 'occupancyPricingJson';
     default:
       return null;
   }
@@ -212,7 +215,7 @@ export function buildHotelRateTipDiffRows(
           field: 'Occupancy',
           thisTip: formatHotelOccupancyDiffValue(prior.occupancyPricingJson),
           current: formatHotelOccupancyDiffValue(active.occupancyPricingJson),
-          restoreField: null,
+          restoreField: 'occupancyPricingJson',
         });
         break;
       default:

@@ -23,6 +23,11 @@ import {
   resolveOnePlaceRef,
   resolvePlaceRefs,
 } from '../../common/place-refs';
+import {
+  buildInquiryListWhere,
+  getInquiryQueueSummary,
+  type InquiryListFilters,
+} from './inquiry-queue';
 
 @Injectable()
 export class InquiriesService {
@@ -132,21 +137,13 @@ export class InquiriesService {
     return inquiry;
   }
 
-  async list(organizationId: string, page = 1, pageSize = 20, q?: string, status?: string) {
-    const where: Prisma.InquiryWhereInput = {
-      organizationId,
-      deletedAt: null,
-      ...(status ? { status } : {}),
-      ...(q
-        ? {
-            OR: [
-              { inquiryNumber: { contains: q } },
-              { travelType: { contains: q } },
-              { party: { displayName: { contains: q } } },
-            ],
-          }
-        : {}),
-    };
+  async list(
+    organizationId: string,
+    page = 1,
+    pageSize = 20,
+    filters: InquiryListFilters = {},
+  ) {
+    const where = buildInquiryListWhere(organizationId, filters);
     const [items, total] = await Promise.all([
       this.prisma.inquiry.findMany({
         where,
@@ -158,6 +155,10 @@ export class InquiriesService {
       this.prisma.inquiry.count({ where }),
     ]);
     return { items, total, page, pageSize };
+  }
+
+  async queueSummary(organizationId: string, viewerUserId: string) {
+    return getInquiryQueueSummary(this.prisma.inquiry, organizationId, viewerUserId);
   }
 
   async get(organizationId: string, id: string) {

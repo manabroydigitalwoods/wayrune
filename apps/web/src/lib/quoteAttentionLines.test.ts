@@ -44,6 +44,22 @@ describe('quoteAttentionLines', () => {
     ).toEqual(['blackout']);
   });
 
+  it('flags hard stop-sale even when buy/sell are set', () => {
+    expect(
+      quoteAttentionReasons(
+        {
+          id: '1',
+          description: 'Transfer',
+          unitCost: 3600,
+          unitSell: 4500,
+          rateUnmatched: true,
+          rateBlockReason: 'stop_sell',
+        },
+        { canViewCost: true, minMarginPercent: 0 },
+      ),
+    ).toEqual(['stop_sell']);
+  });
+
   it('flags below-margin without override', () => {
     expect(
       quoteAttentionReasons(

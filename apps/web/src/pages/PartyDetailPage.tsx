@@ -5,6 +5,7 @@ import { Building2, Mail, Phone, Plus, Pencil, Route } from 'lucide-react';
 import {
   Breadcrumbs,
   Button,
+  Combobox,
   EmailInput,
   FormGrid,
   Input,
@@ -13,6 +14,7 @@ import {
   RecordSheet,
   SimpleFormField as FormField,
   StatusBadge,
+  SuggestionChips,
   formatDateTime,
   toastError,
   toastSuccess,
@@ -25,10 +27,24 @@ import { CAP, TRAVEL_REQUEST_PERMISSIONS } from '../lib/capabilities';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { inquiryStatusLabel, tripStatusLabel } from '../lib/agencyStatusLabels';
 import { usePermissions } from '../lib/permissions';
-import { type PartyDetail } from '../lib/partyTypes';
+import { type PartyDetail, B2B_PARTY_TYPES } from '../lib/partyTypes';
+import { partyAgentMarkupCue } from '../lib/partyAgentMarkupCue';
+import { partyCreditLimitCue } from '../lib/partyCreditLimit';
+import { paymentTermsDueCue } from '../lib/paymentTerms';
 import { useTravelRequestLauncher } from '../lib/travelRequestLauncher';
 import { AGENCY_ROUTES } from '../lib/agencyRoutes';
 import { reportError } from '../lib/errors';
+
+type PartyCreditStatus = {
+  limited: boolean;
+  creditLimit: number | null;
+  outstanding: number;
+  exposure: number;
+  headroom: number | null;
+  overLimit: boolean;
+  overBy: number;
+  currency: string;
+};
 
 type PartyJourney = {
   acquisition: { key: string; name: string } | null;
@@ -46,6 +62,14 @@ type PartyJourney = {
 function humanizeKey(key: string) {
   return key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
+
+const PAYMENT_TERMS_PRESETS = [
+  { value: 'Net 7', label: 'Net 7' },
+  { value: 'Net 15', label: 'Net 15' },
+  { value: 'Net 30', label: 'Net 30' },
+  { value: 'Net 45', label: 'Net 45' },
+  { value: 'Pay on confirm', label: 'On confirm' },
+] as const;
 
 function journeyOutcomeLabel(outcome: string) {
   switch (outcome) {
@@ -76,10 +100,18 @@ export function PartyDetailPage() {
   const openTravelRequest = useTravelRequestLauncher();
 
   const [detail, setDetail] = useState<PartyDetail | null>(null);
+  const [creditStatus, setCreditStatus] = useState<PartyCreditStatus | null>(null);
   const [journey, setJourney] = useState<PartyJourney | null>(null);
   const [loading, setLoading] = useState(true);
   const [editOpen, setEditOpen] = useState(false);
-  const [editForm, setEditForm] = useState({ displayName: '', email: '', phone: '' });
+  const [editForm, setEditForm] = useState({
+    displayName: '',
+    email: '',
+    phone: '',
+    businessType: '',
+    paymentTerms: '',
+    creditLimit: '',
+  });
   const [saving, setSaving] = useState(false);
   const [contactForm, setContactForm] = useState({ fullName: '', email: '', phone: '' });
   const [addressForm, setAddressForm] = useState({ line1: '', city: '' });
@@ -92,16 +124,24 @@ export function PartyDetailPage() {
     if (!id) return;
     setLoading(true);
     try {
-      const [res, journeyRes] = await Promise.all([
+      const [res, journeyRes, creditRes] = await Promise.all([
         api<PartyDetail>(`/parties/${id}`),
         api<PartyJourney>(`/parties/${id}/journey`).catch(() => null),
+        api<PartyCreditStatus>(`/parties/${id}/credit-status`).catch(() => null),
       ]);
       setDetail(res);
+      setCreditStatus(creditRes);
       setJourney(journeyRes);
       setEditForm({
         displayName: res.displayName,
         email: res.email || '',
         phone: res.phone || '',
+        businessType: res.businessType || '',
+        paymentTerms: res.paymentTerms || '',
+        creditLimit:
+          res.creditLimit != null && Number(res.creditLimit) > 0
+            ? String(Number(res.creditLimit))
+            : '',
       });
     } catch (e) {
       reportError(e, 'Could not load customer');
@@ -129,6 +169,11 @@ export function PartyDetailPage() {
           displayName: editForm.displayName.trim(),
           email: editForm.email.trim() || null,
           phone: editForm.phone.trim() || null,
+          businessType: editForm.businessType.trim() || null,
+          paymentTerms: editForm.paymentTerms.trim() || null,
+          creditLimit: editForm.creditLimit.trim()
+            ? Number(editForm.creditLimit)
+            : null,
         }),
       });
       toastSuccess('Profile updated');
@@ -210,6 +255,11 @@ export function PartyDetailPage() {
   const tripCount = detail.trips?.length ?? 0;
   const inquiryCount = detail.inquiries?.length ?? 0;
   const contactCount = detail.contacts?.length ?? 0;
+  const agentMarkupCue = partyAgentMarkupCue(detail);
+  const creditTermsCue = paymentTermsDueCue(detail.paymentTerms);
+  const creditLimitCue = creditStatus
+    ? partyCreditLimitCue(creditStatus, creditStatus.currency)
+    : null;
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 p-4 md:p-6">
@@ -252,6 +302,30 @@ export function PartyDetailPage() {
           <StatusBadge value={detail.businessType} showIcon={false} />
         ) : null}
       </div>
+
+      {agentMarkupCue ? (
+        <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-sm text-amber-950 dark:text-amber-100">
+          {agentMarkupCue}
+        </p>
+      ) : null}
+
+      {creditTermsCue || creditLimitCue || detail.creditLimit ? (
+        <p
+          className={`rounded-xl border px-4 py-2.5 text-sm ${
+            creditStatus?.overLimit
+              ? 'border-destructive/40 bg-destructive/10 text-destructive'
+              : 'border-border/60 bg-muted/20 text-muted-foreground'
+          }`}
+        >
+          {[creditLimitCue, creditTermsCue].filter(Boolean).join(' · ') ||
+            'No payment terms set'}
+          {detail.creditLimit != null &&
+          Number(detail.creditLimit) > 0 &&
+          !creditLimitCue
+            ? ` · Credit limit ₹${Math.round(Number(detail.creditLimit)).toLocaleString('en-IN')}`
+            : ''}
+        </p>
+      ) : null}
 
       {journey ? (
         <section className="space-y-3 rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
@@ -534,6 +608,53 @@ export function PartyDetailPage() {
               value={editForm.phone}
               disabled={!canWrite}
               onChange={(phone) => setEditForm((f) => ({ ...f, phone }))}
+            />
+          </FormField>
+          <FormField label="B2B type">
+            <Combobox
+              value={editForm.businessType}
+              disabled={!canWrite}
+              onChange={(businessType) => setEditForm((f) => ({ ...f, businessType }))}
+              options={[...B2B_PARTY_TYPES]}
+            />
+          </FormField>
+          <FormField
+            label="Payment terms"
+            description="Net N terms auto-stamp customer receivable due dates on trips."
+          >
+            <Input
+              value={editForm.paymentTerms}
+              disabled={!canWrite}
+              onChange={(e) =>
+                setEditForm((f) => ({ ...f, paymentTerms: e.target.value }))
+              }
+              placeholder="Net 30"
+            />
+          </FormField>
+          <FormField label="Quick terms">
+            <SuggestionChips
+              aria-label="Payment terms presets"
+              options={[...PAYMENT_TERMS_PRESETS]}
+              value={
+                PAYMENT_TERMS_PRESETS.some((o) => o.value === editForm.paymentTerms)
+                  ? editForm.paymentTerms
+                  : ''
+              }
+              onChange={(paymentTerms) =>
+                setEditForm((f) => ({ ...f, paymentTerms }))
+              }
+            />
+          </FormField>
+          <FormField label="Credit limit (₹)">
+            <Input
+              type="number"
+              min={0}
+              value={editForm.creditLimit}
+              disabled={!canWrite}
+              onChange={(e) =>
+                setEditForm((f) => ({ ...f, creditLimit: e.target.value }))
+              }
+              placeholder="Optional"
             />
           </FormField>
         </FormGrid>

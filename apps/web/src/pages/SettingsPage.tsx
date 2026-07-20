@@ -68,6 +68,7 @@ import { OrganizationProfileForm } from '../components/commerce/OrganizationProf
 import { PoliciesPanel } from '../components/commerce/PoliciesPanel';
 import { AccessManagementPanel } from '../components/settings/AccessManagementPanel';
 import { AboutReleaseNotesPanel } from '../components/agency/AboutReleaseNotesPanel';
+import { type MarkupPreset, normalizeMarkupPresets } from '../lib/markupPresets';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useAdvancedToolsPreference } from '../hooks/useProgressiveDisclosure';
 import { AGENCY_ROUTES } from '../lib/agencyRoutes';
@@ -467,6 +468,7 @@ export function SettingsPage({
   const [defaultTaxPercent, setDefaultTaxPercent] = useState(5);
   const [defaultMarkupPercent, setDefaultMarkupPercent] = useState(20);
   const [agentMarkupPercent, setAgentMarkupPercent] = useState(20);
+  const [markupPresets, setMarkupPresets] = useState<MarkupPreset[]>([]);
   const [defaultQuoteValidityDays, setDefaultQuoteValidityDays] = useState(7);
   const [quoteValidityGraceHours, setQuoteValidityGraceHours] = useState(24);
   const [inboxAgingHours, setInboxAgingHours] = useState(4);
@@ -568,6 +570,7 @@ export function SettingsPage({
         ? num(settings.agentMarkupPercent, 20)
         : num(settings.defaultMarkupPercent, 20),
     );
+    setMarkupPresets(normalizeMarkupPresets(settings.markupPresets));
     setDefaultQuoteValidityDays(num(settings.defaultQuoteValidityDays, 7));
     setQuoteValidityGraceHours(num(settings.quoteValidityGraceHours, 24));
     setInboxAgingHours(num(settings.inboxAgingHours, 4));
@@ -771,6 +774,7 @@ export function SettingsPage({
           defaultTaxPercent,
           defaultMarkupPercent,
           agentMarkupPercent,
+          markupPresets,
           defaultQuoteValidityDays,
           quoteValidityGraceHours,
           inboxAgingHours,
@@ -825,6 +829,7 @@ export function SettingsPage({
     defaultTaxPercent,
     defaultMarkupPercent,
     agentMarkupPercent,
+    markupPresets,
     defaultQuoteValidityDays,
     quoteValidityGraceHours,
     inboxAgingHours,
@@ -1353,6 +1358,136 @@ export function SettingsPage({
                           }
                         />
                       </FormField>
+                      <div className="md:col-span-2 space-y-3 rounded-xl border border-border/60 p-4">
+                        <div>
+                          <div className="text-sm font-medium">Markup preset library</div>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Named presets appear on trip quotes beside Apply default markup (percent
+                            or fixed ₹ add-on).
+                          </p>
+                        </div>
+                        {markupPresets.map((preset, index) => (
+                          <FormGrid key={preset.id}>
+                            <FormField label="Label">
+                              <Input
+                                value={preset.label}
+                                onChange={(e) =>
+                                  setMarkupPresets((rows) =>
+                                    rows.map((row, i) =>
+                                      i === index
+                                        ? { ...row, label: e.target.value }
+                                        : row,
+                                    ),
+                                  )
+                                }
+                              />
+                            </FormField>
+                            <FormField label="Type">
+                              <SuggestionChips
+                                aria-label="Markup preset type"
+                                allowDeselect={false}
+                                options={[
+                                  { value: 'percent', label: 'Percent' },
+                                  { value: 'fixed', label: 'Fixed ₹' },
+                                ]}
+                                value={preset.mode}
+                                onChange={(mode) =>
+                                  setMarkupPresets((rows) =>
+                                    rows.map((row, i) =>
+                                      i === index
+                                        ? {
+                                            ...row,
+                                            mode: mode as MarkupPreset['mode'],
+                                          }
+                                        : row,
+                                    ),
+                                  )
+                                }
+                              />
+                            </FormField>
+                            <FormField label="Value">
+                              <Input
+                                type="number"
+                                min={0}
+                                step={preset.mode === 'percent' ? 0.5 : 1}
+                                value={preset.value}
+                                onChange={(e) =>
+                                  setMarkupPresets((rows) =>
+                                    rows.map((row, i) =>
+                                      i === index
+                                        ? {
+                                            ...row,
+                                            value: Number(e.target.value),
+                                          }
+                                        : row,
+                                    ),
+                                  )
+                                }
+                              />
+                            </FormField>
+                            <div className="flex items-end">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() =>
+                                  setMarkupPresets((rows) =>
+                                    rows.filter((_, i) => i !== index),
+                                  )
+                                }
+                              >
+                                Remove
+                              </Button>
+                            </div>
+                          </FormGrid>
+                        ))}
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            disabled={markupPresets.length >= 12}
+                            onClick={() =>
+                              setMarkupPresets((rows) => [
+                                ...rows,
+                                {
+                                  id: `preset-${rows.length + 1}`,
+                                  label: `Preset ${rows.length + 1}`,
+                                  mode: 'percent',
+                                  value: defaultMarkupPercent,
+                                },
+                              ])
+                            }
+                          >
+                            Add preset
+                          </Button>
+                          {!markupPresets.length ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() =>
+                                setMarkupPresets([
+                                  {
+                                    id: 'retail-fit',
+                                    label: 'Retail FIT',
+                                    mode: 'percent',
+                                    value: defaultMarkupPercent,
+                                  },
+                                  {
+                                    id: 'agent-b2b',
+                                    label: 'Agent / B2B',
+                                    mode: 'percent',
+                                    value: agentMarkupPercent,
+                                  },
+                                ])
+                              }
+                            >
+                              Seed from org defaults
+                            </Button>
+                          ) : null}
+                        </div>
+                      </div>
                       <FormField
                         label="Default quote validity (days)"
                         description="New, cloned, template, and revise-from-accepted drafts get Valid until = today + this many days."

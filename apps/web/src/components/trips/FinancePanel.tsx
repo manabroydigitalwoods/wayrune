@@ -29,6 +29,11 @@ import { reportError } from '../../lib/errors';
 import { usePermissions } from '../../lib/permissions';
 import { formatDateInput, parseDateInput } from '../../lib/dateInput';
 import {
+  formatPaymentTermsDueDate,
+  paymentTermsDueCue,
+} from '../../lib/paymentTerms';
+import { partyCreditLimitCue } from '../../lib/partyCreditLimit';
+import {
   copyTripPaymentLink,
   markTripPaymentLinkSent,
   sendTripPaymentLinkWhatsapp,
@@ -136,6 +141,16 @@ type FinanceSummary = {
   latestFeedback: Feedback | null;
   audit: AuditRow[];
   otherCurrencyPayments: Payment[];
+  partyCredit?: {
+    limited: boolean;
+    creditLimit: number | null;
+    outstanding: number;
+    exposure: number;
+    headroom: number | null;
+    overLimit: boolean;
+    overBy: number;
+    currency?: string;
+  } | null;
 };
 
 type Supplier = { id: string; name: string };
@@ -165,13 +180,21 @@ const CURRENCY_OPTIONS = [
   { value: 'AED', label: 'AED' },
 ];
 
-function emptyPaymentForm(orgCurrency: string, direction: 'customer' | 'supplier' = 'customer') {
+function emptyPaymentForm(
+  orgCurrency: string,
+  direction: 'customer' | 'supplier' = 'customer',
+  partyPaymentTerms?: string | null,
+) {
+  const dueAt =
+    direction === 'customer'
+      ? formatPaymentTermsDueDate(partyPaymentTerms) || ''
+      : '';
   return {
     direction,
     label: '',
     amount: '',
     currency: orgCurrency,
-    dueAt: '',
+    dueAt,
     method: '',
     reference: '',
     notes: '',
@@ -184,15 +207,20 @@ export function FinancePanel({
   tripId,
   tripStatus,
   orgCurrency: orgCurrencyProp,
+  partyPaymentTerms,
+  partyCreditLimit,
   onChanged,
 }: {
   tripId: string;
   tripStatus?: string;
   orgCurrency?: string;
+  partyPaymentTerms?: string | null;
+  partyCreditLimit?: number | null;
   onChanged: () => Promise<void> | void;
 }) {
   const { hasAny } = usePermissions();
   const canWrite = hasAny(CAP.tripWrite);
+  const canOverrideCreditLimit = hasAny(CAP.creditLimitOverride);
   const [data, setData] = useState<FinanceSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [customerFilter, setCustomerFilter] = useState('all');
@@ -200,7 +228,7 @@ export function FinancePanel({
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [editingPaymentId, setEditingPaymentId] = useState<string | null>(null);
   const [paymentForm, setPaymentForm] = useState(() =>
-    emptyPaymentForm(orgCurrencyProp || 'INR'),
+    emptyPaymentForm(orgCurrencyProp || 'INR', 'customer', partyPaymentTerms),
   );
   const [paymentSubmitting, setPaymentSubmitting] = useState(false);
   const [chaseBusyId, setChaseBusyId] = useState<string | null>(null);
@@ -271,9 +299,17 @@ export function FinancePanel({
 
   function openNewPayment(direction: 'customer' | 'supplier') {
     setEditingPaymentId(null);
-    setPaymentForm(emptyPaymentForm(orgCurrency, direction));
+    setPaymentForm(
+      emptyPaymentForm(orgCurrency, direction, partyPaymentTerms),
+    );
     setPaymentOpen(true);
   }
+
+  const partyTermsCue = paymentTermsDueCue(partyPaymentTerms);
+  const partyCreditCue =
+    data?.partyCredit != null
+      ? partyCreditLimitCue(data.partyCredit, orgCurrency)
+      : null;
 
   function openEditPayment(p: Payment) {
     setEditingPaymentId(p.id);
@@ -740,6 +776,20 @@ export function FinancePanel({
               </Button>
             </Can>
           </div>
+          {(partyTermsCue || partyCreditCue) ? (
+            <p
+              className={`rounded-lg border px-3 py-2 text-xs ${
+                data?.partyCredit?.overLimit
+                  ? 'border-destructive/40 bg-destructive/10 text-destructive'
+                  : 'border-border/60 bg-muted/30 text-muted-foreground'
+              }`}
+            >
+              {[partyCreditCue, partyTermsCue].filter(Boolean).join(' · ')}
+              {data?.partyCredit?.overLimit && !canOverrideCreditLimit
+                ? ' · Manager override required to add receivables over limit.'
+                : ''}
+            </p>
+          ) : null}
           <SuggestionChips
             aria-label="Customer payment filter"
             allowDeselect={false}

@@ -31,7 +31,19 @@ type CancellationCase = {
   evaluationJson?: {
     creditNoteId?: string;
     creditNoteAmount?: number;
+    creditNoteAllocatedToDocumentId?: string;
+    creditNoteAllocatedAmount?: number;
+    refundPaymentId?: string;
+    refundSettledAmount?: number;
   } | null;
+};
+type CancellationRefundStatus = {
+  cancellationCaseId: string;
+  creditNoteId: string | null;
+  refundDue: number;
+  refundSettledAmount: number;
+  canSettle: boolean;
+  currency: string;
 };
 type Reconciliation = {
   quoted: number;
@@ -73,6 +85,12 @@ export function TripClosurePanel({
   const [changes, setChanges] = useState<TripChange[]>([]);
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [cancellations, setCancellations] = useState<CancellationCase[]>([]);
+  const [refundByCaseId, setRefundByCaseId] = useState<
+    Record<string, CancellationRefundStatus>
+  >({});
+  const [settlingRefundCaseId, setSettlingRefundCaseId] = useState<string | null>(
+    null,
+  );
   const [recon, setRecon] = useState<Reconciliation | null>(null);
   const [changeType, setChangeType] = useState('other');
   const [summary, setSummary] = useState('');
@@ -83,6 +101,36 @@ export function TripClosurePanel({
   const canIncidents = has('ops.read') || has('incident.manage');
   const canTripWrite = hasAny(CAP.tripWrite);
   const canIncidentWrite = hasAny(CAP.incidentWrite);
+  const canSettleRefund = hasAny(CAP.refundExecute);
+
+  const loadRefundStatuses = useCallback(async (rows: CancellationCase[]) => {
+    const applied = rows.filter(
+      (row) =>
+        row.executionStatus === 'applied' &&
+        Boolean(row.evaluationJson?.creditNoteId),
+    );
+    if (!applied.length) {
+      setRefundByCaseId({});
+      return;
+    }
+    const entries = await Promise.all(
+      applied.map(async (row) => {
+        try {
+          const status = await api<CancellationRefundStatus>(
+            `/commerce/cancellations/${row.id}/refund-status`,
+          );
+          return [row.id, status] as const;
+        } catch {
+          return null;
+        }
+      }),
+    );
+    const next: Record<string, CancellationRefundStatus> = {};
+    for (const entry of entries) {
+      if (entry) next[entry[0]] = entry[1];
+    }
+    setRefundByCaseId(next);
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -96,6 +144,7 @@ export function TripClosurePanel({
       setChanges(c);
       setRecon(r);
       setCancellations(Array.isArray(cancelRows) ? cancelRows : []);
+      await loadRefundStatuses(Array.isArray(cancelRows) ? cancelRows : []);
       if (canIncidents) {
         const i = await api<Incident[]>(`/commerce/incidents?tripId=${tripId}`).catch(
           () => [] as Incident[],
@@ -107,7 +156,24 @@ export function TripClosurePanel({
     } catch (e) {
       reportError(e, 'Could not load trip closure data');
     }
-  }, [tripId, canIncidents]);
+  }, [tripId, canIncidents, loadRefundStatuses]);
+
+  async function settleRefund(caseId: string) {
+    setSettlingRefundCaseId(caseId);
+    try {
+      await api(`/commerce/cancellations/${caseId}/settle-refund`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      toastSuccess('Refund marked settled');
+      await load();
+      onChanged?.();
+    } catch (e) {
+      toastError(reportError(e, 'Could not settle refund'));
+    } finally {
+      setSettlingRefundCaseId(null);
+    }
+  }
 
   useEffect(() => {
     void load();
@@ -345,14 +411,20 @@ export function TripClosurePanel({
             <h3 className="text-sm font-semibold">Cancellation cases</h3>
           </div>
           <p className="text-xs text-muted-foreground">
-            Policy fees and refunds from Ops Cancel. Open credit notes appear under Commerce when a
-            refund was expected.
+            Policy fees and refunds from Ops Cancel. Credit notes auto-allocate to trip
+            receivables when one exists; use Mark refund settled when cash is paid out.
           </p>
           <ul className="space-y-2">
             {cancellations.map((row) => {
               const fee = Number(row.calculatedCharges ?? 0);
               const refund = Number(row.expectedRefund ?? 0);
               const creditNoteId = row.evaluationJson?.creditNoteId;
+              const allocated =
+                row.evaluationJson?.creditNoteAllocatedToDocumentId &&
+                (row.evaluationJson?.creditNoteAllocatedAmount ?? 0) > 0;
+              const refundStatus = refundByCaseId[row.id];
+              const refundDue = refundStatus?.refundDue ?? 0;
+              const refundSettled = refundStatus?.refundSettledAmount ?? 0;
               return (
                 <li
                   key={row.id}
@@ -370,12 +442,42 @@ export function TripClosurePanel({
                             maximumFractionDigits: 0,
                           })}`
                         : ''}
-                      {creditNoteId ? ' · credit note drafted' : ''}
+                      {creditNoteId
+                        ? allocated
+                          ? ` · credit note allocated (${formatCurrency(
+                              row.evaluationJson?.creditNoteAllocatedAmount ?? 0,
+                              { currency: row.currency, maximumFractionDigits: 0 },
+                            )})`
+                          : ' · credit note drafted'
+                        : ''}
+                      {refundDue > 0
+                        ? ` · refund due ${formatCurrency(refundDue, {
+                            currency: row.currency,
+                            maximumFractionDigits: 0,
+                          })}`
+                        : refundSettled > 0
+                          ? ` · refund settled (${formatCurrency(refundSettled, {
+                              currency: row.currency,
+                              maximumFractionDigits: 0,
+                            })})`
+                          : ''}
                     </div>
                   </div>
                   <div className="flex shrink-0 flex-wrap items-center gap-1.5">
                     <StatusBadge value={row.approvalStatus} showIcon={false} />
                     <StatusBadge value={row.executionStatus} showIcon={false} />
+                    {canSettleRefund && refundStatus?.canSettle ? (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={settlingRefundCaseId === row.id}
+                        onClick={() => void settleRefund(row.id)}
+                      >
+                        {settlingRefundCaseId === row.id
+                          ? 'Settling…'
+                          : 'Mark refund settled'}
+                      </Button>
+                    ) : null}
                   </div>
                 </li>
               );

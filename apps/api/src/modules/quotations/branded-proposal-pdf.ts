@@ -326,6 +326,7 @@ export async function buildBrandedProposalPdf(input: ProposalPdfInput): Promise<
         gstin: null,
         placeOfSupply: null,
         destinationPlaceOfSupply: null,
+        destinationPlaceOfSupplySource: 'none',
       },
     );
     if (input.taxTotal) {

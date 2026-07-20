@@ -72,6 +72,12 @@ import { AGENCY_ROUTES } from '../lib/agencyRoutes';
 import { TRIP_STATUS_OPTIONS, tripStatusLabel } from '../lib/agencyStatusLabels';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useProgressiveDisclosure } from '../hooks/useProgressiveDisclosure';
+import {
+  recommendedTabForTripStatus,
+  tabAttentionCounts,
+  tabLabelWithCue,
+  type TripWorkspaceTab,
+} from '../lib/tripWorkspaceTabs';
 import { DisclosureSection } from '../components/agency/DisclosureSection';
 import {
   FirstQuoteWalkthrough,
@@ -176,6 +182,12 @@ import {
   partyUsesAgentMarkup,
   resolveOrgMarkupPercent,
 } from '../lib/orgMarkup';
+import {
+  type MarkupPreset,
+  markupPresetSummary,
+  resolveOrgMarkupPresets,
+  sellFromMarkupPreset,
+} from '../lib/markupPresets';
 import {
   defaultValidUntilIso,
   formatValiditySendToastSuffix,
@@ -548,6 +560,7 @@ function quoteSendBlockedReason(input: {
   allotmentBlockCount?: number;
   capacityBlockCount?: number;
   minStayBlockCount?: number;
+  stopSaleBlockCount?: number;
   fxMissing?: boolean;
   quoteCurrency?: string;
   orgCurrency?: string;
@@ -602,6 +615,11 @@ function quoteSendBlockedReason(input: {
   if ((input.minStayBlockCount ?? 0) > 0) {
     parts.push(
       `${input.minStayBlockCount} min-stay shortfall${input.minStayBlockCount === 1 ? '' : 's'} (extend nights or acknowledge)`,
+    );
+  }
+  if ((input.stopSaleBlockCount ?? 0) > 0) {
+    parts.push(
+      `${input.stopSaleBlockCount} stop-sale block${input.stopSaleBlockCount === 1 ? '' : 's'} (change dates or supplier)`,
     );
   }
   if (input.fxMissing) {
@@ -718,6 +736,8 @@ export function TripWorkspacePage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [trip, setTrip] = useState<any>(null);
   const [tripLoadError, setTripLoadError] = useState<string | null>(null);
+  const [controlRefreshKey, setControlRefreshKey] = useState(0);
+  const [tabAttention, setTabAttention] = useState<Partial<Record<string, number>>>({});
   const [tab, setTab] = useState(searchParams.get('tab') || 'overview');
   const [days, setDays] = useState<ItineraryDay[]>([]);
   const [story, setStory] = useState<ItineraryStory>(emptyItineraryStory());
@@ -837,6 +857,9 @@ export function TripWorkspacePage() {
   const [fxRateInput, setFxRateInput] = useState('');
   const [lockingFx, setLockingFx] = useState(false);
   const [markupConfirmOpen, setMarkupConfirmOpen] = useState(false);
+  const [markupApplyTarget, setMarkupApplyTarget] = useState<
+    { kind: 'default' } | { kind: 'preset'; preset: MarkupPreset }
+  >({ kind: 'default' });
   const [taxConfirmOpen, setTaxConfirmOpen] = useState(false);
   const [includedConfirmOpen, setIncludedConfirmOpen] = useState(false);
   const [attentionOpen, setAttentionOpen] = useState(false);
@@ -907,12 +930,30 @@ export function TripWorkspacePage() {
     setTab((prev) => (prev === next ? prev : next));
   }, [searchParams]);
 
+  useEffect(() => {
+    if (!trip?.id) return;
+    let cancelled = false;
+    void api<{ flags: Array<{ tab: string; severity: 'danger' | 'warn' | 'info' }> }>(
+      `/trips/${trip.id}/control`,
+    )
+      .then((res) => {
+        if (!cancelled) setTabAttention(tabAttentionCounts(res.flags));
+      })
+      .catch(() => {
+        if (!cancelled) setTabAttention({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [trip?.id, controlRefreshKey]);
+
   async function load() {
     try {
       setTripLoadError(null);
       itineraryHydrated.current = false;
       const data = await api<any>(`/trips/${id}`);
       setTrip(data);
+      setControlRefreshKey((k) => k + 1);
       const latest = data.itineraries?.[0]?.versions?.[0];
       const content = latest?.contentJson as
         | { days?: ItineraryDay[]; story?: ItineraryStory }
@@ -1773,6 +1814,10 @@ export function TripWorkspacePage() {
     () => attentionLines.filter((r) => r.reasons.includes('min_stay')).length,
     [attentionLines],
   );
+  const stopSaleBlockCount = useMemo(
+    () => attentionLines.filter((r) => r.reasons.includes('stop_sell')).length,
+    [attentionLines],
+  );
   const attentionIds = useMemo(
     () => attentionLines.map((r) => r.id),
     [attentionLines],
@@ -1918,6 +1963,7 @@ export function TripWorkspacePage() {
     allotmentBlockCount: allotmentWarnCount,
     capacityBlockCount: capacityWarnCount,
     minStayBlockCount: minStayWarnCount,
+    stopSaleBlockCount,
     fxMissing,
     quoteCurrency,
     orgCurrency,
@@ -1938,6 +1984,7 @@ export function TripWorkspacePage() {
     allotmentBlockCount: allotmentWarnCount,
     capacityBlockCount: capacityWarnCount,
     minStayBlockCount: minStayWarnCount,
+    stopSaleBlockCount,
     fxMissing,
     quoteCurrency,
     orgCurrency,
@@ -2759,11 +2806,13 @@ export function TripWorkspacePage() {
           created: number;
           skipped: number;
           bookingIds: string[];
+          warnings?: string[];
         } | null;
         activityBookings?: {
           created: number;
           skipped: number;
           bookingIds: string[];
+          warnings?: string[];
         } | null;
         materializeFailures?: string[];
       }>(`/quotations/${version.id}/accept`, {
@@ -3378,6 +3427,7 @@ export function TripWorkspacePage() {
         allotmentBlockCount: allotmentWarnCount,
         capacityBlockCount: capacityWarnCount,
         minStayBlockCount: minStayWarnCount,
+        stopSaleBlockCount,
         minMarginPercent: quoteMinMarginPercent,
         canViewCost: Boolean(canViewCost),
         hasValidUntil,
@@ -3423,6 +3473,7 @@ export function TripWorkspacePage() {
       allotmentBlockCount: allotmentWarnCount,
       capacityBlockCount: capacityWarnCount,
       minStayBlockCount: minStayWarnCount,
+      stopSaleBlockCount,
       minMarginPercent: quoteMinMarginPercent,
       canViewCost: Boolean(canViewCost),
       hasValidUntil,
@@ -3589,7 +3640,32 @@ export function TripWorkspacePage() {
     );
   }
 
-  function confirmApplyDefaultMarkup(markupPercent = quoteDefaultMarkupPercent()) {
+  function confirmApplyDefaultMarkup() {
+    confirmApplyMarkup({
+      mode: 'percent',
+      value: quoteDefaultMarkupPercent(),
+      label:
+        partyUsesAgentMarkup(
+          trip?.party as { businessType?: string | null } | null,
+        )
+          ? 'agent / B2B default'
+          : 'org default',
+    });
+  }
+
+  function confirmApplyMarkupPreset(preset: MarkupPreset) {
+    confirmApplyMarkup({
+      mode: preset.mode,
+      value: preset.value,
+      label: preset.label,
+    });
+  }
+
+  function confirmApplyMarkup(input: {
+    mode: 'percent' | 'fixed';
+    value: number;
+    label: string;
+  }) {
     const targets = quoteItems.filter(
       (line) => line.unitCost != null && line.unitSell == null,
     );
@@ -3602,16 +3678,18 @@ export function TripWorkspacePage() {
     setQuoteItems((prev) =>
       prev.map((line) => {
         if (!ids.has(line.id) || line.unitCost == null) return line;
-        const sell =
-          Math.round(line.unitCost * (1 + markupPercent / 100) * 100) / 100;
+        const sell = sellFromMarkupPreset(line.unitCost, {
+          mode: input.mode,
+          value: input.value,
+        });
         return {
           ...line,
           unitSell: sell,
           rateUnmatched: false,
           details: {
             ...(line.details || {}),
-            markupMode: 'percent',
-            markupValue: markupPercent,
+            markupMode: input.mode,
+            markupValue: input.value,
             sellManual: false,
           },
         };
@@ -3619,7 +3697,7 @@ export function TripWorkspacePage() {
     );
     setMarkupConfirmOpen(false);
     toastSuccess(
-      `Applied ${markupPercent}% markup to ${targets.length} service${targets.length === 1 ? '' : 's'}`,
+      `Applied ${input.label} markup to ${targets.length} service${targets.length === 1 ? '' : 's'}`,
     );
   }
 
@@ -3656,7 +3734,26 @@ export function TripWorkspacePage() {
       toastError('No lines with cost and missing sell price');
       return;
     }
+    setMarkupApplyTarget({ kind: 'default' });
     setMarkupConfirmOpen(true);
+  }
+
+  function applyMarkupPreset(preset: MarkupPreset) {
+    const targets = quoteItems.filter(
+      (line) => line.unitCost != null && line.unitSell == null,
+    );
+    if (!targets.length) {
+      toastError('No lines with cost and missing sell price');
+      return;
+    }
+    setMarkupApplyTarget({ kind: 'preset', preset });
+    setMarkupConfirmOpen(true);
+  }
+
+  function quoteMarkupPresets(): MarkupPreset[] {
+    return resolveOrgMarkupPresets(
+      trip?.organization?.settingsJson as { markupPresets?: unknown } | null,
+    );
   }
 
   function applyDefaultTax() {
@@ -4380,24 +4477,53 @@ export function TripWorkspacePage() {
         tripId={trip.id}
         compact
         activeTab={tab}
+        refreshKey={controlRefreshKey}
         onOpenTab={(t) => changeTab(t)}
       />
 
       <Tabs value={tab} onValueChange={changeTab}>
         <TabsList>
-          {Object.entries(TAB_LABELS).map(([value, label]) => (
-            <TabsTrigger key={value} value={value}>
-              {label}
-            </TabsTrigger>
-          ))}
+          {Object.entries(TAB_LABELS).map(([value, label]) => {
+            const attention = tabAttention[value] ?? 0;
+            const displayLabel = tabLabelWithCue(label, value as TripWorkspaceTab, {
+              activeTab: tab,
+              tripStatus: trip.status,
+              attention,
+            });
+            return (
+              <TabsTrigger key={value} value={value} className="gap-1.5">
+                <span>{displayLabel}</span>
+                {attention > 0 ? (
+                  <span className="inline-flex min-w-[1.1rem] items-center justify-center rounded-full bg-warning-soft px-1 text-[10px] font-semibold tabular-nums text-warning">
+                    {attention}
+                  </span>
+                ) : null}
+              </TabsTrigger>
+            );
+          })}
         </TabsList>
 
         <TabsContent value="overview">
           <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              {STATUS_GUIDANCE[trip.status] || 'Continue working this trip in the tabs below.'}
-            </p>
-            <TripControlCentre tripId={trip.id} onOpenTab={(t) => changeTab(t)} />
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-sm text-muted-foreground">
+                {STATUS_GUIDANCE[trip.status] || 'Continue working this trip in the tabs below.'}
+              </p>
+              {(() => {
+                const nextTab = recommendedTabForTripStatus(trip.status);
+                if (nextTab === 'overview' || nextTab === tab) return null;
+                return (
+                  <Button size="sm" variant="secondary" onClick={() => changeTab(nextTab)}>
+                    Continue in {TAB_LABELS[nextTab]}
+                  </Button>
+                );
+              })()}
+            </div>
+            <TripControlCentre
+              tripId={trip.id}
+              refreshKey={controlRefreshKey}
+              onOpenTab={(t) => changeTab(t)}
+            />
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <Card>
                 <CardContent className="p-4">
@@ -4765,6 +4891,17 @@ export function TripWorkspacePage() {
                   >
                     Apply default markup
                   </Button>
+                  {quoteMarkupPresets().map((preset) => (
+                    <Button
+                      key={preset.id}
+                      size="sm"
+                      variant="ghost"
+                      className="h-7"
+                      onClick={() => applyMarkupPreset(preset)}
+                    >
+                      {markupPresetSummary(preset)}
+                    </Button>
+                  ))}
                   {quoteItems.some(
                     (l) => !l.includedMeta && Number(l.taxPercent) === 0,
                   ) ? (
@@ -5651,6 +5788,12 @@ export function TripWorkspacePage() {
             tripId={trip.id}
             tripStatus={trip.status}
             orgCurrency={trip.organization?.currency || 'INR'}
+            partyPaymentTerms={trip.party?.paymentTerms}
+            partyCreditLimit={
+              trip.party?.creditLimit != null
+                ? Number(trip.party.creditLimit)
+                : null
+            }
             onChanged={load}
           />
         </TabsContent>
@@ -5923,18 +6066,26 @@ export function TripWorkspacePage() {
       <ConfirmDialog
         open={markupConfirmOpen}
         onOpenChange={setMarkupConfirmOpen}
-        title="Apply default markup?"
-        description={`Apply ${quoteDefaultMarkupPercent()}% markup${
-          partyUsesAgentMarkup(
-            trip?.party as { businessType?: string | null } | null,
-          )
-            ? ' (agent / B2B)'
-            : ' (org default)'
+        title="Apply markup?"
+        description={`Apply ${
+          markupApplyTarget.kind === 'preset'
+            ? markupPresetSummary(markupApplyTarget.preset)
+            : `${quoteDefaultMarkupPercent()}% (${
+                partyUsesAgentMarkup(
+                  trip?.party as { businessType?: string | null } | null,
+                )
+                  ? 'agent / B2B'
+                  : 'org default'
+              })`
         } to ${
           quoteItems.filter((l) => l.unitCost != null && l.unitSell == null).length
         } service(s) that already have a cost? Manually entered sell prices will not be changed.`}
         confirmLabel="Apply markup"
-        onConfirm={() => confirmApplyDefaultMarkup()}
+        onConfirm={() =>
+          markupApplyTarget.kind === 'preset'
+            ? confirmApplyMarkupPreset(markupApplyTarget.preset)
+            : confirmApplyDefaultMarkup()
+        }
       />
 
       <ConfirmDialog

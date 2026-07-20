@@ -36,7 +36,8 @@ import { usePermissions } from '../lib/permissions';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { agencyClientsLabel, isDmcOrgKind } from '../lib/orgKind';
 import { PARTIES_PAGE_COPY, usePartiesPageVariant } from '../lib/agencyPageVariants';
-import { type Party, type PartyDetail, partyHubPath } from '../lib/partyTypes';
+import { type Party, type PartyDetail, partyHubPath, B2B_PARTY_TYPES } from '../lib/partyTypes';
+import { formatPartyImportSkipReason } from '../lib/partyImportSkip';
 import { useTravelRequestLauncher } from '../lib/travelRequestLauncher';
 import { useCanonicalCreateVisibility } from '../hooks/useCanonicalCreateVisibility';
 
@@ -48,13 +49,7 @@ const emptyForm = {
   businessType: 'travel_agency',
 };
 
-const B2B_TYPES = [
-  { value: 'travel_agency', label: 'Travel agency' },
-  { value: 'corporate', label: 'Corporate' },
-  { value: 'reseller', label: 'Reseller' },
-  { value: 'dmc', label: 'DMC' },
-  { value: '', label: '— none —' },
-];
+const B2B_TYPES = B2B_PARTY_TYPES;
 
 export function PartiesPage() {
   const { me } = useAuth();
@@ -109,10 +104,12 @@ export function PartiesPage() {
     });
   }
 
-  async function load() {
+  async function load(opts?: { b2b?: boolean }) {
     setLoading(true);
     try {
-      const res = await api<{ items: Party[] }>('/parties?pageSize=100');
+      const params = new URLSearchParams({ pageSize: '100' });
+      if (opts?.b2b) params.set('b2b', '1');
+      const res = await api<{ items: Party[] }>(`/parties?${params.toString()}`);
       setItems(res.items);
       setError('');
     } catch (e) {
@@ -123,8 +120,8 @@ export function PartiesPage() {
   }
 
   useEffect(() => {
-    load();
-  }, []);
+    void load({ b2b: b2bOnly });
+  }, [b2bOnly]);
 
   useEffect(() => {
     if (!detailId) {
@@ -161,7 +158,7 @@ export function PartiesPage() {
       email: res.email || '',
       phone: res.phone || '',
     });
-    await load();
+    await load({ b2b: b2bOnly });
   }
 
   async function saveDetail() {
@@ -231,7 +228,7 @@ export function PartiesPage() {
           : { type: 'individual', displayName: '', email: '', phone: '', businessType: '' },
       );
       setOpen(false);
-      await load();
+      await load({ b2b: b2bOnly });
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Could not create client');
     } finally {
@@ -277,16 +274,21 @@ export function PartiesPage() {
 
     setImporting(true);
     try {
-      const res = await api<{ imported: number; skipped: number }>(
-        '/parties/import/csv',
-        {
-          method: 'POST',
-          body: JSON.stringify({ rows }),
-        },
-      );
-      toastSuccess(`Imported ${res.imported}, skipped ${res.skipped}`);
+      const res = await api<{
+        imported: number;
+        skipped: number;
+        results?: Array<{ status: 'created' | 'skipped'; reason?: string }>;
+      }>('/parties/import/csv', {
+        method: 'POST',
+        body: JSON.stringify({ rows }),
+      });
+      const firstSkip = res.results?.find((r) => r.status === 'skipped')?.reason;
+      const skipHint = firstSkip
+        ? ` — ${formatPartyImportSkipReason(firstSkip)}`
+        : '';
+      toastSuccess(`Imported ${res.imported}, skipped ${res.skipped}${skipHint}`);
       setImportOpen(false);
-      await load();
+      await load({ b2b: b2bOnly });
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Import failed');
     } finally {
@@ -340,6 +342,40 @@ export function PartiesPage() {
             } as ColumnDef<Party>,
           ]
         : []),
+      {
+        id: 'activeTrips',
+        header: 'Active trips',
+        meta: { label: 'Active trips' },
+        size: 110,
+        minSize: 90,
+        accessorFn: (r) => r._count?.trips ?? 0,
+        cell: ({ row }) => {
+          const count = row.original._count?.trips ?? 0;
+          return count > 0 ? (
+            <span className="tabular-nums">{count}</span>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          );
+        },
+      },
+      {
+        id: 'openRequests',
+        header: 'Open requests',
+        meta: { label: 'Open requests' },
+        size: 120,
+        minSize: 100,
+        accessorFn: (r) => r._count?.inquiries ?? 0,
+        cell: ({ row }) => {
+          const count = row.original._count?.inquiries ?? 0;
+          return count > 0 ? (
+            <span className="tabular-nums text-amber-800 dark:text-amber-200">
+              {count}
+            </span>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          );
+        },
+      },
       {
         accessorKey: 'phone',
         header: 'Phone',
@@ -445,11 +481,6 @@ export function PartiesPage() {
     [navigate, variant],
   );
 
-  const visibleItems = useMemo(
-    () => (b2bOnly ? items.filter((p) => Boolean(p.businessType) || p.type === 'organization') : items),
-    [items, b2bOnly],
-  );
-
   return (
     <ListPageShell>
       <PageHeader
@@ -490,7 +521,7 @@ export function PartiesPage() {
       />
       <DataTable
         columns={columns}
-        data={visibleItems}
+        data={items}
         loading={loading}
         error={error}
         pageSize={25}

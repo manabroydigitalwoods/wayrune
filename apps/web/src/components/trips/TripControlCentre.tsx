@@ -30,10 +30,12 @@ type TripControlSummary = {
     vouchersPending: number;
     hotelsOpen: number;
     transfersOpen: number;
+    activitiesOpen: number;
     readinessDone: number;
     readinessTotal: number;
     openIncidents: number;
     openChangeCases: number;
+    openCancellationCases: number;
   };
   money: {
     currency: string;
@@ -61,6 +63,7 @@ export function TripControlCentre({
   onOpenTab,
   compact,
   activeTab,
+  refreshKey,
 }: {
   tripId: string;
   onOpenTab: (tab: 'operations' | 'finance' | 'quotations' | 'commerce') => void;
@@ -68,6 +71,8 @@ export function TripControlCentre({
   compact?: boolean;
   /** Current workspace tab — hides redundant strip on detail tabs. */
   activeTab?: string;
+  /** Bump when trip ops/finance/commerce changes so flags refresh. */
+  refreshKey?: number | string;
 }) {
   const [data, setData] = useState<TripControlSummary | null>(null);
 
@@ -84,7 +89,7 @@ export function TripControlCentre({
     return () => {
       cancelled = true;
     };
-  }, [tripId]);
+  }, [tripId, refreshKey]);
 
   if (!data) return null;
 
@@ -172,7 +177,7 @@ export function TripControlCentre({
           <Metric
             label="Vouchers pending"
             value={String(counts.vouchersPending)}
-            hint="Confirmed hotels without note"
+            hint="Confirmed hotel/transfer/activity without note"
             onClick={() => onOpenTab('operations')}
           />
           <Metric
@@ -248,11 +253,15 @@ export function TripControlCentre({
           <Button size="sm" variant="secondary" onClick={() => onOpenTab('finance')}>
             Finance
           </Button>
-          {(counts.openIncidents > 0 || counts.openChangeCases > 0) ? (
+          {(counts.openIncidents > 0 ||
+            counts.openChangeCases > 0 ||
+            counts.openCancellationCases > 0) ? (
             <Button size="sm" variant="secondary" onClick={() => onOpenTab('commerce')}>
               Changes & incidents
-              {counts.openIncidents || counts.openChangeCases
-                ? ` · ${counts.openIncidents + counts.openChangeCases}`
+              {counts.openIncidents ||
+              counts.openChangeCases ||
+              counts.openCancellationCases
+                ? ` · ${counts.openIncidents + counts.openChangeCases + counts.openCancellationCases}`
                 : ''}
             </Button>
           ) : (

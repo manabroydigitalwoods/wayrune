@@ -423,6 +423,12 @@ export class RatesController {
     });
   }
 
+  @Get('rates/import-batches/:batchId/replay')
+  @RequirePermissions('quote.write')
+  importBatchReplay(@CurrentUser() user: AuthUser, @Param('batchId') batchId: string) {
+    return this.rates.getRatesImportBatchReplay(user.organizationId, batchId);
+  }
+
   @Post('transfer-fares/import/csv')
   @RequirePermissions('quote.write')
   importTransferCsv(@CurrentUser() user: AuthUser, @Body() body: unknown) {

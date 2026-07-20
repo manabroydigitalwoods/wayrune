@@ -51,6 +51,7 @@ import { usePermissions } from '../lib/permissions';
 import { useCanonicalCreateVisibility } from '../hooks/useCanonicalCreateVisibility';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { LEADS_PAGE_COPY } from '../lib/agencyPageVariants';
+import { SalesCrmSlaStrip } from '../components/agency/SalesCrmSlaStrip';
 
 type LeadRow = {
   id: string;
@@ -179,11 +180,35 @@ export function LeadsPage() {
   const { navigate } = useOrgNavigate();
   const { hasAny } = usePermissions();
   const canLeadWrite = hasAny(CAP.leadWrite);
+  const showSalesSla = hasAny(['lead.read', 'lead.read.own', 'inquiry.read']);
   const showNewLead = useCanonicalCreateVisibility('lead');
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const stageFromUrl = searchParams.get('stage') || undefined;
   const followUpFromUrl = searchParams.get('followUp') || undefined;
   const ownerFromUrl = searchParams.get('owner') || undefined;
+
+  function toggleFollowUpOverdueFilter() {
+    const params = new URLSearchParams(searchParams);
+    if (params.get('followUp') === 'overdue') {
+      params.delete('followUp');
+    } else {
+      params.set('followUp', 'overdue');
+    }
+    setSearchParams(params, { replace: true });
+    setView('table');
+  }
+
+  function toggleMyLeadsFilter() {
+    const params = new URLSearchParams(searchParams);
+    if (params.get('owner') === 'me') {
+      params.delete('owner');
+    } else {
+      params.set('owner', 'me');
+    }
+    setSearchParams(params, { replace: true });
+    setView('table');
+  }
+
   const [view, setView] = useState<'board' | 'table'>(() =>
     stageFromUrl || followUpFromUrl || ownerFromUrl ? 'table' : readLeadsView(),
   );
@@ -729,6 +754,39 @@ export function LeadsPage() {
         }
       />
       {error ? <p className="mb-4 shrink-0 text-sm text-destructive">{error}</p> : null}
+
+      <SalesCrmSlaStrip enabled={showSalesSla} highlight="followUps" />
+
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <Button
+          size="sm"
+          variant={followUpFromUrl === 'overdue' ? 'secondary' : 'outline'}
+          onClick={toggleFollowUpOverdueFilter}
+        >
+          Overdue follow-ups
+        </Button>
+        <Button
+          size="sm"
+          variant={ownerFromUrl === 'me' ? 'secondary' : 'outline'}
+          onClick={toggleMyLeadsFilter}
+        >
+          My leads
+        </Button>
+        {followUpFromUrl === 'overdue' || ownerFromUrl === 'me' ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              const params = new URLSearchParams(searchParams);
+              params.delete('followUp');
+              params.delete('owner');
+              setSearchParams(params, { replace: true });
+            }}
+          >
+            Clear filters
+          </Button>
+        ) : null}
+      </div>
 
       {view === 'table' ? (
         <DataTable

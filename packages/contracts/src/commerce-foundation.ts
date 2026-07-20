@@ -419,6 +419,12 @@ export const CreateCommercialDocumentSchema = z.object({
     .optional(),
 });
 
+export const SettleCancellationRefundSchema = z.object({
+  amount: z.number().positive().optional(),
+  method: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  reference: z.preprocess(blankToNull, z.string().nullable()).optional(),
+});
+
 export const CreatePaymentRecordSchema = z.object({
   commercialDocumentId: z.preprocess(blankToNull, z.string().nullable()).optional(),
   direction: z.enum(['inbound', 'outbound']),

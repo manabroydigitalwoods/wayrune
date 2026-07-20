@@ -727,6 +727,111 @@ describe('RatesService.resolve (activity)', () => {
     expect(result.items[0]?.unitCost).toBe(1500);
     expect(result.items[0]?.rateId).toBe('act-tiger-private');
   });
+
+  it('hard-blocks activity stop-sale on supplier contract', async () => {
+    vi.mocked(prisma.supplierActivityRate.findMany).mockResolvedValue([
+      {
+        id: 'act-tiger-private',
+        organizationId: 'org-1',
+        supplierId: 'sup-tiger',
+        placeId: 'place-tiger',
+        activityName: 'Tiger Hill sunrise',
+        activityKey: 'tiger-hill-sunrise',
+        privateOrSic: 'private',
+        adultUnitCost: { toString: () => '1800' },
+        childUnitCost: { toString: () => '900' },
+        currency: 'INR',
+        startDate: new Date('2026-01-01'),
+        endDate: new Date('2026-12-31'),
+        updatedAt: new Date('2026-07-01'),
+      },
+    ] as never);
+    vi.mocked(prisma.supplierContract.findMany).mockResolvedValue([
+      {
+        id: 'tiger-c1',
+        supplierId: 'sup-tiger',
+        blackoutJson: [],
+        stopSaleJson: [{ from: '2026-10-01', to: '2026-10-10' }],
+      },
+    ] as never);
+
+    const result = await service.resolve('org-1', {
+      items: [
+        {
+          itemId: 'line-act',
+          type: 'activity',
+          date: '2026-10-05',
+          details: {
+            supplierId: 'sup-tiger',
+            placeId: 'place-tiger',
+            propertyName: 'Tiger Hill sunrise',
+            privateOrSic: 'private',
+            adults: 2,
+            children: 0,
+          },
+        },
+      ],
+    });
+
+    expect(result.items[0]?.matched).toBe(false);
+    expect(result.items[0]?.rateMeta).toMatchObject({
+      blockReason: 'stop_sell',
+    });
+  });
+
+  it('soft-blocks activity blackout with manual-rate hint', async () => {
+    vi.mocked(prisma.supplierActivityRate.findMany).mockResolvedValue([
+      {
+        id: 'act-tiger-private',
+        organizationId: 'org-1',
+        supplierId: 'sup-tiger',
+        placeId: 'place-tiger',
+        activityName: 'Tiger Hill sunrise',
+        activityKey: 'tiger-hill-sunrise',
+        privateOrSic: 'private',
+        adultUnitCost: { toString: () => '1800' },
+        childUnitCost: { toString: () => '900' },
+        currency: 'INR',
+        startDate: new Date('2026-01-01'),
+        endDate: new Date('2026-12-31'),
+        updatedAt: new Date('2026-07-01'),
+      },
+    ] as never);
+    vi.mocked(prisma.supplierContract.findMany).mockResolvedValue([
+      {
+        id: 'tiger-c1',
+        supplierId: 'sup-tiger',
+        blackoutJson: [{ from: '2026-10-05', to: '2026-10-05' }],
+        stopSaleJson: [],
+      },
+    ] as never);
+
+    const result = await service.resolve('org-1', {
+      items: [
+        {
+          itemId: 'line-act',
+          type: 'activity',
+          date: '2026-10-05',
+          details: {
+            supplierId: 'sup-tiger',
+            placeId: 'place-tiger',
+            propertyName: 'Tiger Hill sunrise',
+            privateOrSic: 'private',
+            adults: 2,
+            children: 0,
+          },
+        },
+      ],
+    });
+
+    expect(result.items[0]?.matched).toBe(false);
+    expect(result.items[0]?.rateMeta).toMatchObject({
+      blockReason: 'blackout',
+      matchExplain: {
+        accepted: ['manual rate allowed — contracted activity in blackout'],
+      },
+    });
+  });
 });
 
 describe('RatesService.importTransferFaresCsv', () => {
@@ -885,5 +990,24 @@ describe('RatesService.importTransferFaresCsv', () => {
     expect(res.okCount).toBe(1);
     expect(res.results[0]?.summary).not.toMatch(/Fleet/);
     expect(vi.mocked(prisma.supplier.findFirst)).not.toHaveBeenCalled();
+  });
+
+  it('rejects commit when every row skips', async () => {
+    vi.mocked(prisma.supplier.findFirst).mockResolvedValue(null);
+
+    await expect(
+      service.importTransferFaresCsv('org-1', 'user-1', {
+        commit: true,
+        rows: [
+          {
+            supplierName: 'Unknown Fleet',
+            fromPlace: 'Bagdogra',
+            toPlace: 'Darjeeling',
+            vehicleType: 'Sedan',
+            unitCost: 3200,
+          },
+        ],
+      }),
+    ).rejects.toThrow(/No rows imported/i);
   });
 });

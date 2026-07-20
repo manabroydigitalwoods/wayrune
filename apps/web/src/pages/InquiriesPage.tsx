@@ -25,7 +25,6 @@ import {
   toastError,
   toastSuccess,
 } from '@wayrune/ui';
-import { useAuth } from '../auth';
 import { api } from '../api';
 import { Can } from '../components/Can';
 import { CAP } from '../lib/capabilities';
@@ -43,6 +42,8 @@ import { AGENCY_ROUTES } from '../lib/agencyRoutes';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { leadOutcomeMessage, type LeadOutcome } from '../lib/lead-outcome';
 import { placeRefsFromJson } from '../lib/placeRefs';
+import { buildInquiriesListQuery } from '../lib/inquiryQueue';
+import { TravelRequestQueueStrip } from '../components/agency/TravelRequestQueueStrip';
 
 function formatDestinations(value: unknown): string {
   return placeRefsFromJson(value)
@@ -89,16 +90,17 @@ const DOMESTIC_LABELS: Record<string, string> = {
 
 export function InquiriesPage() {
   const { navigate, toOrgPath } = useOrgNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const variant = useInquiriesPageVariant();
   const copy = INQUIRIES_PAGE_COPY[variant];
   useDocumentTitle(copy.documentTitle);
   const { hasAny } = usePermissions();
-  const { me } = useAuth();
   const canInquiryWrite = hasAny(CAP.inquiryWrite);
   const showNewInquiry = useCanonicalCreateVisibility('inquiry');
   const canConvert = hasAny(CAP.inquiryConvertTrip);
   const leadId = searchParams.get('leadId') || undefined;
+  const incompleteFilter = searchParams.get('incomplete') === '1';
+  const unassignedFilter = searchParams.get('unassigned') === '1';
   const [items, setItems] = useState<Inquiry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -113,7 +115,12 @@ export function InquiriesPage() {
   async function load() {
     setLoading(true);
     try {
-      const res = await api<{ items: Inquiry[] }>('/inquiries?pageSize=100');
+      const qs = buildInquiriesListQuery({
+        variant,
+        incomplete: incompleteFilter,
+        unassigned: unassignedFilter,
+      });
+      const res = await api<{ items: Inquiry[] }>(`/inquiries?${qs}`);
       setItems(res.items);
       setError('');
     } catch (e) {
@@ -125,7 +132,7 @@ export function InquiriesPage() {
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [variant, incompleteFilter, unassignedFilter]);
 
   useEffect(() => {
     if (leadId) setOpen(true);
@@ -189,18 +196,7 @@ export function InquiriesPage() {
   }
 
   const tableRows = useMemo(() => {
-    const planningStatuses = new Set(['open', 'qualified']);
-    const scoped =
-      variant === 'planning'
-        ? items.filter((item) => planningStatuses.has(item.status))
-        : variant === 'requests'
-          ? items.filter(
-              (item) =>
-                item.status !== 'lost' &&
-                (!item.ownerId || item.ownerId === me?.id),
-            )
-          : items;
-    return scoped.map((item) => ({
+    return items.map((item) => ({
         ...item,
         searchText: [
           item.inquiryNumber,
@@ -213,7 +209,7 @@ export function InquiriesPage() {
           .join(' '),
         completeness: (item.missingFieldsJson || []).length > 0 ? 'incomplete' : 'complete',
       }));
-  }, [items, me?.id, variant]);
+  }, [items]);
 
   const columns = useMemo<ColumnDef<(typeof tableRows)[number]>[]>(
     () => [
@@ -395,6 +391,27 @@ export function InquiriesPage() {
     [navigate],
   );
 
+  function toggleIncompleteFilter() {
+    const params = new URLSearchParams(searchParams);
+    if (incompleteFilter) params.delete('incomplete');
+    else params.set('incomplete', '1');
+    setSearchParams(params, { replace: true });
+  }
+
+  function toggleUnassignedFilter() {
+    const params = new URLSearchParams(searchParams);
+    if (unassignedFilter) params.delete('unassigned');
+    else params.set('unassigned', '1');
+    setSearchParams(params, { replace: true });
+  }
+
+  function clearQueueFilters() {
+    const params = new URLSearchParams(searchParams);
+    params.delete('incomplete');
+    params.delete('unassigned');
+    setSearchParams(params, { replace: true });
+  }
+
   if (searchParams.get('status') === 'open' && variant === 'all') {
     return <Navigate to={toOrgPath(AGENCY_ROUTES.workPlanning)} replace />;
   }
@@ -404,7 +421,15 @@ export function InquiriesPage() {
       <PageHeader
         icon={Contact}
         title={copy.title}
-        subtitle={copy.subtitle}
+        subtitle={
+          incompleteFilter && unassignedFilter
+            ? 'Showing incomplete, unassigned travel requests'
+            : incompleteFilter
+              ? 'Showing travel requests with missing fields'
+              : unassignedFilter
+                ? 'Showing unassigned travel requests'
+                : copy.subtitle
+        }
         className="mb-4 shrink-0"
         actions={
           <Can anyOf={CAP.inquiryWrite}>
@@ -414,6 +439,37 @@ export function InquiriesPage() {
           </Can>
         }
       />
+
+      {variant !== 'all' ? (
+        <TravelRequestQueueStrip enabled variant={variant} />
+      ) : null}
+
+      {variant === 'planning' || variant === 'requests' || variant === 'sales' ? (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            variant={incompleteFilter ? 'secondary' : 'outline'}
+            onClick={toggleIncompleteFilter}
+          >
+            Incomplete only
+          </Button>
+          {variant === 'planning' ? (
+            <Button
+              size="sm"
+              variant={unassignedFilter ? 'secondary' : 'outline'}
+              onClick={toggleUnassignedFilter}
+            >
+              Unassigned
+            </Button>
+          ) : null}
+          {incompleteFilter || unassignedFilter ? (
+            <Button size="sm" variant="ghost" onClick={clearQueueFilters}>
+              Clear filters
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+
       <DataTable
         columns={columns}
         data={tableRows}

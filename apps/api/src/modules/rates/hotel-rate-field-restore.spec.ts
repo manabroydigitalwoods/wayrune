@@ -30,7 +30,9 @@ describe('hotel-rate-field-restore', () => {
     );
     expect(hotelRateDiffChangeToRestorableField('meal plan')).toBe('mealPlan');
     expect(hotelRateDiffChangeToRestorableField('dates')).toBe('dates');
-    expect(hotelRateDiffChangeToRestorableField('occupancy')).toBeNull();
+    expect(hotelRateDiffChangeToRestorableField('occupancy')).toBe(
+      'occupancyPricingJson',
+    );
     expect(hotelRateDiffChangeToRestorableField('room type')).toBeNull();
   });
 
@@ -52,6 +54,17 @@ describe('hotel-rate-field-restore', () => {
 
   it('validates restorable field keys', () => {
     expect(isHotelRateRestorableField('unitCost')).toBe(true);
-    expect(isHotelRateRestorableField('occupancyPricingJson')).toBe(false);
+    expect(isHotelRateRestorableField('occupancyPricingJson')).toBe(true);
+  });
+
+  it('merges occupancyPricingJson from prior', () => {
+    const priorOcc = { adultBands: [{ adults: 2, weekdayUnitCost: 4000 }] };
+    const merged = mergeHotelRateFieldFromPrior(
+      { ...active, occupancyPricingJson: { baseAdults: 2 } },
+      { occupancyPricingJson: priorOcc },
+      'occupancyPricingJson',
+    );
+    expect(merged.occupancyPricingJson).toEqual(priorOcc);
+    expect(merged.unitCost).toBe(5000);
   });
 });

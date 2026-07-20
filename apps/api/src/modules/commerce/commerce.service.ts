@@ -62,7 +62,21 @@ import {
   pickBookingBaseAmount,
   policyFromQuoteProvenance,
 } from './booking-cancellation-preview';
-import { cancellationApplyCreditNotePlan } from './cancellation-credit-note';
+import {
+  cancellationApplyCreditNotePlan,
+  cancellationCreditNoteAlreadyAllocated,
+  composeCancellationCreditNoteAllocateUpdate,
+  loadTripReceivablesForCreditAllocation,
+  pickCancellationCreditNoteReceivableTarget,
+} from './cancellation-credit-note';
+import {
+  CANCELLATION_REFUND_LINKED_ENTITY,
+  commercialDocumentPaidStateFromNote,
+  composeCancellationRefundPaymentRecord,
+  creditNoteRefundOutstanding,
+  creditNoteRefundTotal,
+  parseCancellationRefundEval,
+} from './cancellation-refund-settle';
 import {
   buildCommercialTaxBreakdown,
   commercialDocsToGstrExportRows,
@@ -2893,6 +2907,14 @@ export class CommerceService {
           typeof evalJson.creditNoteAmount === 'number'
             ? evalJson.creditNoteAmount
             : Number(c.expectedRefund ?? 0) || null,
+        creditNoteAllocatedToDocumentId:
+          typeof evalJson.creditNoteAllocatedToDocumentId === 'string'
+            ? evalJson.creditNoteAllocatedToDocumentId
+            : null,
+        creditNoteAllocatedAmount:
+          typeof evalJson.creditNoteAllocatedAmount === 'number'
+            ? evalJson.creditNoteAllocatedAmount
+            : null,
       };
     }
 
@@ -3030,6 +3052,8 @@ export class CommerceService {
 
       // Auto draft credit note when policy expects a guest refund (idempotent).
       let creditNoteId: string | null = null;
+      let creditNoteAllocatedToDocumentId: string | null = null;
+      let creditNoteAllocatedAmount: number | null = null;
       const creditPlan = cancellationApplyCreditNotePlan({
         expectedRefund:
           c.expectedRefund != null ? Number(c.expectedRefund) : null,
@@ -3037,19 +3061,29 @@ export class CommerceService {
       });
       const refundAmount = creditPlan?.amount ?? 0;
       if (creditPlan) {
+        const priorEval =
+          c.evaluationJson &&
+          typeof c.evaluationJson === 'object' &&
+          !Array.isArray(c.evaluationJson)
+            ? (c.evaluationJson as Record<string, unknown>)
+            : {};
+        const priorCreditNoteId =
+          typeof priorEval.creditNoteId === 'string'
+            ? priorEval.creditNoteId
+            : null;
         const existingNote = await tx.commercialDocument.findFirst({
           where: {
             organizationId,
             docType: 'credit_note',
-            linkedEntityType: 'cancellation_case',
-            linkedEntityId: id,
+            OR: [
+              { linkedEntityType: 'cancellation_case', linkedEntityId: id },
+              ...(priorCreditNoteId ? [{ id: priorCreditNoteId }] : []),
+            ],
           },
-          select: { id: true },
         });
-        if (existingNote) {
-          creditNoteId = existingNote.id;
-        } else {
-          const note = await tx.commercialDocument.create({
+        let note =
+          existingNote ??
+          (await tx.commercialDocument.create({
             data: {
               organizationId,
               docType: 'credit_note',
@@ -3065,8 +3099,34 @@ export class CommerceService {
                 'Draft credit note from cancellation policy — settle / allocate manually',
               createdBy: userId,
             },
-          });
-          creditNoteId = note.id;
+          }));
+        creditNoteId = note.id;
+
+        if (cancellationCreditNoteAlreadyAllocated(note)) {
+          creditNoteAllocatedToDocumentId = note.linkedEntityId;
+          creditNoteAllocatedAmount = Number(note.amount);
+        } else if (c.tripId) {
+          const receivables = await loadTripReceivablesForCreditAllocation(
+            tx,
+            organizationId,
+            c.tripId,
+          );
+          const target = pickCancellationCreditNoteReceivableTarget(
+            receivables,
+            creditPlan.amount,
+          );
+          if (target) {
+            const allocateUpdate = composeCancellationCreditNoteAllocateUpdate({
+              cancellationCaseId: id,
+              target,
+            });
+            note = await tx.commercialDocument.update({
+              where: { id: note.id },
+              data: allocateUpdate,
+            });
+            creditNoteAllocatedToDocumentId = target.documentId;
+            creditNoteAllocatedAmount = target.allocateAmount;
+          }
         }
       }
 
@@ -3087,7 +3147,18 @@ export class CommerceService {
             applyErrors: errors,
             applied,
             failed,
-            ...(creditNoteId ? { creditNoteId, creditNoteAmount: refundAmount } : {}),
+            ...(creditNoteId
+              ? {
+                  creditNoteId,
+                  creditNoteAmount: refundAmount,
+                  ...(creditNoteAllocatedToDocumentId
+                    ? {
+                        creditNoteAllocatedToDocumentId,
+                        creditNoteAllocatedAmount,
+                      }
+                    : {}),
+                }
+              : {}),
           } as Prisma.InputJsonValue,
         },
       });
@@ -3116,6 +3187,193 @@ export class CommerceService {
         typeof evalJson.creditNoteAmount === 'number'
           ? evalJson.creditNoteAmount
           : Number(updated?.expectedRefund ?? 0) || null,
+      creditNoteAllocatedToDocumentId:
+        typeof evalJson.creditNoteAllocatedToDocumentId === 'string'
+          ? evalJson.creditNoteAllocatedToDocumentId
+          : null,
+      creditNoteAllocatedAmount:
+        typeof evalJson.creditNoteAllocatedAmount === 'number'
+          ? evalJson.creditNoteAllocatedAmount
+          : null,
+    };
+  }
+
+  async cancellationRefundStatus(organizationId: string, caseId: string) {
+    const c = await this.prisma.cancellationCase.findFirst({
+      where: { id: caseId, organizationId },
+    });
+    if (!c) throw new NotFoundException('Cancellation case not found');
+
+    const evalFields = parseCancellationRefundEval(c.evaluationJson);
+    if (!evalFields.creditNoteId) {
+      return {
+        cancellationCaseId: caseId,
+        tripId: c.tripId,
+        executionStatus: c.executionStatus,
+        creditNoteId: null as string | null,
+        creditNoteAmount: null as number | null,
+        refundDue: 0,
+        refundSettledAmount: 0,
+        refundPaymentId: evalFields.refundPaymentId,
+        currency: c.currency,
+        canSettle: false,
+      };
+    }
+
+    const note = await this.prisma.commercialDocument.findFirst({
+      where: {
+        id: evalFields.creditNoteId,
+        organizationId,
+        docType: 'credit_note',
+      },
+    });
+    if (!note) throw new NotFoundException('Credit note not found');
+
+    const creditNoteAmount = creditNoteRefundTotal(note);
+    const refundDue = creditNoteRefundOutstanding(note);
+    const refundSettledAmount = Math.max(
+      0,
+      Math.round((creditNoteAmount - refundDue) * 100) / 100,
+    );
+
+    return {
+      cancellationCaseId: caseId,
+      tripId: c.tripId,
+      executionStatus: c.executionStatus,
+      creditNoteId: note.id,
+      creditNoteAmount,
+      refundDue,
+      refundSettledAmount,
+      refundPaymentId: evalFields.refundPaymentId,
+      currency: note.currency || c.currency,
+      canSettle: c.executionStatus === 'applied' && refundDue > 0.001,
+    };
+  }
+
+  async settleCancellationRefund(
+    organizationId: string,
+    userId: string,
+    caseId: string,
+    input?: { method?: string | null; reference?: string | null },
+  ) {
+    const status = await this.cancellationRefundStatus(organizationId, caseId);
+    if (!status.creditNoteId) {
+      throw new BadRequestException(
+        'No refund credit note on this cancellation case',
+      );
+    }
+    if (status.executionStatus !== 'applied') {
+      throw new BadRequestException(
+        'Cancellation case must be applied before refund settlement',
+      );
+    }
+    if (status.refundDue <= 0.001) {
+      throw new BadRequestException('Refund already settled');
+    }
+    if (!status.tripId) {
+      throw new BadRequestException(
+        'Cancellation case has no trip — cannot settle refund',
+      );
+    }
+
+    const settleAmount = status.refundDue;
+    const c = await this.prisma.cancellationCase.findFirstOrThrow({
+      where: { id: caseId, organizationId },
+    });
+    const note = await this.prisma.commercialDocument.findFirstOrThrow({
+      where: { id: status.creditNoteId, organizationId },
+    });
+
+    const payload = composeCancellationRefundPaymentRecord({
+      cancellationCaseId: caseId,
+      creditNoteId: note.id,
+      tripId: status.tripId,
+      amount: settleAmount,
+      currency: note.currency,
+      method: input?.method,
+      reference: input?.reference,
+    });
+
+    const existingRecord = await this.prisma.paymentRecord.findFirst({
+      where: {
+        organizationId,
+        linkedEntityType: CANCELLATION_REFUND_LINKED_ENTITY,
+        linkedEntityId: caseId,
+        direction: 'outbound',
+      },
+    });
+    if (existingRecord) {
+      throw new BadRequestException('Refund payment already recorded');
+    }
+
+    const paymentId = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.paymentRecord.create({
+        data: {
+          organizationId,
+          commercialDocumentId: note.id,
+          direction: payload.direction,
+          amount: new Prisma.Decimal(payload.amount),
+          currency: payload.currency,
+          method: payload.method,
+          reference: payload.reference,
+          paidAt: new Date(),
+          linkedEntityType: payload.linkedEntityType,
+          linkedEntityId: payload.linkedEntityId,
+          tripId: payload.tripId,
+          notes: payload.notes,
+          createdBy: userId,
+          allocations: {
+            create: {
+              commercialDocumentId: note.id,
+              amount: settleAmount,
+            },
+          },
+        },
+      });
+
+      const paidState = commercialDocumentPaidStateFromNote(note, settleAmount);
+      await tx.commercialDocument.update({
+        where: { id: note.id },
+        data: {
+          amountPaid: new Prisma.Decimal(paidState.amountPaid),
+          status: paidState.status,
+        },
+      });
+
+      const priorEval =
+        c.evaluationJson &&
+        typeof c.evaluationJson === 'object' &&
+        !Array.isArray(c.evaluationJson)
+          ? (c.evaluationJson as Record<string, unknown>)
+          : {};
+
+      await tx.cancellationCase.update({
+        where: { id: caseId },
+        data: {
+          evaluationJson: {
+            ...priorEval,
+            refundPaymentId: created.id,
+            refundSettledAmount: settleAmount,
+          },
+        },
+      });
+
+      return created.id;
+    });
+
+    await this.timeline(
+      organizationId,
+      'RefundSettled',
+      'cancellation_case',
+      caseId,
+      `Refund ${settleAmount}`,
+      userId,
+    );
+
+    return {
+      ...(await this.cancellationRefundStatus(organizationId, caseId)),
+      paymentId,
+      settledAmount: settleAmount,
     };
   }
 

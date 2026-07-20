@@ -6,6 +6,7 @@ import {
   Textarea,
   toastError,
   toastSuccess,
+  toastWarning,
 } from '@wayrune/ui';
 import { api } from '../../api';
 import { loadRatesImportFile } from '../../lib/ratesSheetImport';
@@ -31,6 +32,8 @@ type ImportBatch = {
   actorName: string | null;
   createdAt: string;
   sampleSkips?: Array<{ row: number; reason: string }>;
+  replaySkipCount?: number;
+  replayAvailable?: boolean;
 };
 
 type ImportResponse = {
@@ -121,6 +124,22 @@ function transferTemplateForSupplier(supplierName?: string) {
     'supplierName,fromPlace,toPlace,vehicleType,unitCost,childUnitCost,infantUnitCost,childAgeMin,childAgeMax,pricingMode,currency,startDate,endDate\n' +
     `${safe},Bagdogra (IXB),Darjeeling,Sedan,3200,1600,400,0,11,per_adult,INR,2026-04-01,2026-10-31\n`
   );
+}
+
+function firstSkipReason(results: ImportResultRow[]): string | null {
+  for (const r of results) {
+    if (r.status === 'skip' && r.reason?.trim()) return r.reason.trim();
+  }
+  return null;
+}
+
+function replaySourceFromText(text: string) {
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (lines.length < 2) return undefined;
+  return { headerLine: lines[0]!, dataLines: lines.slice(1) };
 }
 
 export function RatesCsvImportDialog({
@@ -435,25 +454,72 @@ export function RatesCsvImportDialog({
           commit,
           fileName: fileLabel || undefined,
           lockedSupplierName: lockedSupplierName || undefined,
+          ...(commit ? { replaySource: replaySourceFromText(text) } : {}),
         }),
       });
       setPreview(res);
       if (commit) {
+        if (res.okCount === 0) {
+          const reason = firstSkipReason(res.results);
+          toastError(
+            reason ? `Nothing imported · ${reason}` : 'Nothing imported',
+          );
+          return;
+        }
         toastSuccess(
           `Imported ${res.okCount} row${res.okCount === 1 ? '' : 's'}${
             res.skipCount ? ` · ${res.skipCount} skipped` : ''
           }`,
         );
+        if (res.skipCount > 0) {
+          const reason = firstSkipReason(res.results);
+          toastWarning(
+            reason
+              ? `${res.skipCount} row(s) skipped · ${reason}${
+                  res.skipCount > 1 ? '…' : ''
+                }`
+              : `${res.skipCount} row(s) skipped`,
+          );
+        }
         onImported();
         void loadBatches();
         if (res.skipCount === 0) onOpenChange(false);
       } else {
-        toastSuccess(
-          `Preview: ${res.okCount} ready · ${res.skipCount} will skip`,
-        );
+        if (res.okCount === 0 && res.skipCount > 0) {
+          const reason = firstSkipReason(res.results);
+          toastWarning(
+            reason
+              ? `Preview: all rows will skip · ${reason}`
+              : 'Preview: all rows will skip',
+          );
+        } else {
+          toastSuccess(
+            `Preview: ${res.okCount} ready · ${res.skipCount} will skip`,
+          );
+        }
       }
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Import failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function replayBatch(batchId: string) {
+    setBusy(true);
+    try {
+      const res = await api<{ csvText: string; skipCount: number }>(
+        `/rates/import-batches/${encodeURIComponent(batchId)}/replay`,
+      );
+      setText(res.csvText);
+      setPreview(null);
+      setFileLabel(null);
+      if (fileRef.current) fileRef.current.value = '';
+      toastSuccess(
+        `Loaded ${res.skipCount} skipped row${res.skipCount === 1 ? '' : 's'} — fix and preview again`,
+      );
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not load replay rows');
     } finally {
       setBusy(false);
     }
@@ -572,7 +638,7 @@ export function RatesCsvImportDialog({
                     minute: '2-digit',
                   })
                 : b.createdAt;
-              const samples = (b.sampleSkips || []).slice(0, 3);
+              const samples = (b.sampleSkips || []).slice(0, 5);
               return (
                 <li key={b.id} className="text-muted-foreground">
                   <div>
@@ -596,6 +662,19 @@ export function RatesCsvImportDialog({
                         </li>
                       ) : null}
                     </ul>
+                  ) : null}
+                  {b.replayAvailable ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="mt-1 h-7 px-2 text-[11px]"
+                      disabled={busy}
+                      onClick={() => void replayBatch(b.batchId)}
+                    >
+                      Replay {b.replaySkipCount ?? b.skipCount} skip
+                      {(b.replaySkipCount ?? b.skipCount) === 1 ? '' : 's'}
+                    </Button>
                   ) : null}
                 </li>
               );

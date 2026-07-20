@@ -32,6 +32,7 @@ import type {
 } from '@wayrune/contracts';
 import {
   lineMarginPolicyViolation,
+  lineHasStopSaleBlock,
   lineNeedsAllotmentRiskAck,
   lineNeedsCapacityRiskAck,
   lineNeedsMinStayRiskAck,
@@ -270,6 +271,7 @@ export class QuotationsService {
             } | null;
           } | null;
           marginOverride?: { reason?: string };
+          rateBlockReason?: string | null;
         }>)
       : [];
     if (!items.length) {
@@ -326,6 +328,7 @@ export class QuotationsService {
     }
 
     await this.assertNoBlockingRateDrift(user.organizationId, items);
+    this.assertNoBlockingStopSale(items);
     this.assertNoBlockingAllotment(items);
     this.assertNoBlockingCapacity(items);
     this.assertNoBlockingMinStay(items);
@@ -387,6 +390,21 @@ export class QuotationsService {
         `Lock an FX rate for ${quote} before sending (org books in ${base})`,
       );
     }
+  }
+
+  /** Block send/approve when a line is hard stop-sold on supplier contract. */
+  private assertNoBlockingStopSale(
+    items: Array<{ rateBlockReason?: string | null }>,
+  ) {
+    const blocked = items.filter((i) =>
+      lineHasStopSaleBlock({ rateBlockReason: i.rateBlockReason }),
+    );
+    if (!blocked.length) return;
+    throw new BadRequestException(
+      `${blocked.length} service${blocked.length === 1 ? '' : 's'} ${
+        blocked.length === 1 ? 'is' : 'are'
+      } under supplier stop-sale — change dates, pick another supplier, or remove the line before sending`,
+    );
   }
 
   /** Block send/approve when hotel lines stamped with insufficient allotment (unless acked). */
@@ -3131,11 +3149,13 @@ export class QuotationsService {
       created: number;
       skipped: number;
       bookingIds: string[];
+      warnings?: string[];
     } | null = null;
     let activityBookings: {
       created: number;
       skipped: number;
       bookingIds: string[];
+      warnings?: string[];
     } | null = null;
     const materializeFailures: string[] = [];
     try {
@@ -3161,6 +3181,9 @@ export class QuotationsService {
           version.quotation.tripId,
           { versionId: updated.id },
         );
+      for (const w of transferBookings.warnings || []) {
+        materializeFailures.push(`transfer: ${w}`);
+      }
     } catch (e) {
       materializeFailures.push(
         `transfer: ${e instanceof Error ? e.message : 'materialize failed'}`,
@@ -3174,6 +3197,9 @@ export class QuotationsService {
           version.quotation.tripId,
           { versionId: updated.id },
         );
+      for (const w of activityBookings.warnings || []) {
+        materializeFailures.push(`activity: ${w}`);
+      }
     } catch (e) {
       materializeFailures.push(
         `activity: ${e instanceof Error ? e.message : 'materialize failed'}`,

@@ -90,6 +90,51 @@ describe('trip-control', () => {
     expect(summary.flags.some((f) => f.code === 'supplier_payable_open')).toBe(true);
   });
 
+  it('flags open activity and pending cancellation cases', () => {
+    const summary = buildTripControlSummary({
+      tripStartDate: '2026-11-12',
+      now: new Date('2026-11-05T12:00:00Z'),
+      bookings: [
+        {
+          id: 'a1',
+          type: 'activity',
+          title: 'Tiger Hill sunrise',
+          status: 'requested',
+          startAt: '2026-11-10',
+        },
+      ],
+      finance: financeBase,
+      readiness: readinessDone,
+      openCancellationCases: 2,
+    });
+    expect(summary.counts.activitiesOpen).toBe(1);
+    expect(summary.flags.some((f) => f.code === 'unconfirmed_activity')).toBe(true);
+    const cancel = summary.flags.find((f) => f.code === 'open_cancellation_cases');
+    expect(cancel?.severity).toBe('danger');
+    expect(cancel?.tab).toBe('commerce');
+  });
+
+  it('flags customer over credit limit', () => {
+    const summary = buildTripControlSummary({
+      tripStartDate: '2027-06-01',
+      bookings: [],
+      finance: {
+        ...financeBase,
+        partyCredit: {
+          limited: true,
+          creditLimit: 500000,
+          outstanding: 520000,
+          exposure: 520000,
+          headroom: 0,
+          overLimit: true,
+          overBy: 20000,
+        },
+      },
+      readiness: readinessDone,
+    });
+    expect(summary.flags.some((f) => f.code === 'credit_limit_exceeded')).toBe(true);
+  });
+
   it('is allClear when only info flags remain', () => {
     const summary = buildTripControlSummary({
       tripStartDate: '2027-06-01',

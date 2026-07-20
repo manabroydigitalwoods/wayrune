@@ -13,7 +13,7 @@ import {
   CreatePartyContactSchema,
   CreatePartySchema,
   ImportPartyCsvSchema,
-  PaginationQuerySchema,
+  PartyListQuerySchema,
   UpdatePartySchema,
 } from '@wayrune/contracts';
 import {
@@ -59,15 +59,39 @@ export class PartiesController {
   @Get()
   @RequirePermissions('party.read')
   list(@CurrentUser() user: AuthUser, @Query() query: unknown) {
-    const q = PaginationQuerySchema.parse(query);
-    const type = (query as { type?: string }).type;
-    return this.parties.list(user.organizationId, q.q, q.page, q.pageSize, type);
+    const q = PartyListQuerySchema.parse(query);
+    return this.parties.list(user.organizationId, {
+      q: q.q,
+      page: q.page,
+      pageSize: q.pageSize,
+      type: q.type,
+      b2b: q.b2b,
+    });
   }
 
   @Get(':id/journey')
   @RequirePermissions('party.read')
   journey(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.interactions.journeyForParty(user.organizationId, id);
+  }
+
+  @Get(':id/credit-status')
+  @RequirePermissions('party.read', 'finance.cost.read')
+  creditStatus(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Query('currency') currency?: string,
+    @Query('pendingAmount') pendingAmount?: string,
+  ) {
+    const pending =
+      pendingAmount != null && pendingAmount !== ''
+        ? Number(pendingAmount)
+        : undefined;
+    return this.parties.creditStatus(user.organizationId, id, {
+      orgCurrency: currency,
+      pendingAmount:
+        pending != null && Number.isFinite(pending) ? pending : undefined,
+    });
   }
 
   @Get(':id')

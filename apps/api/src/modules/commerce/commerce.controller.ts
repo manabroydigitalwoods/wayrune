@@ -22,6 +22,7 @@ import {
   CreatePaymentAllocationSchema,
   CreatePaymentRecordSchema,
   CreatePolicySchema,
+  SettleCancellationRefundSchema,
   CreateServiceIncidentSchema,
   CreateServiceRequestItemSchema,
   CreateServiceRequestSchema,
@@ -789,6 +790,31 @@ export class CommerceController {
       user.organizationId,
       user.sub,
       id,
+    );
+  }
+
+  @Get('cancellations/:id/refund-status')
+  @RequirePermissions('finance.cost.read', 'ops.read', 'trip.read')
+  cancellationRefundStatus(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+  ) {
+    return this.commerce.cancellationRefundStatus(user.organizationId, id);
+  }
+
+  @Post('cancellations/:id/settle-refund')
+  @RequirePermissions('finance.refund.execute', 'finance.payment.manage')
+  settleCancellationRefund(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    const parsed = SettleCancellationRefundSchema.parse(body ?? {});
+    return this.commerce.settleCancellationRefund(
+      user.organizationId,
+      user.sub,
+      id,
+      parsed,
     );
   }
 

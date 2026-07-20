@@ -53,7 +53,7 @@ describe('hotelRateVersion tip Diff', () => {
     expect(rows[4]?.thisTip).toMatch(/IN/);
     expect(rows[4]?.current).toMatch(/INTL/);
     expect(rows[4]?.current).toMatch(/2 bands/);
-    expect(rows[4]?.restoreField).toBeNull();
+    expect(rows[4]?.restoreField).toBe('occupancyPricingJson');
   });
 
   it('returns empty when no changes or no active tip', () => {

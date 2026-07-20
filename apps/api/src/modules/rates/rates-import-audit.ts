@@ -1,5 +1,10 @@
 /** Normalize rate CSV/XLSX import commit summaries for AuditEvent metadata. */
 
+import {
+  composeRatesImportReplaySkipLines,
+  type RatesImportReplaySource,
+} from './rates-import-replay';
+
 export const RATES_IMPORT_AUDIT_ACTION = 'rates.import.commit' as const;
 export const RATES_IMPORT_ENTITY_TYPE = 'rate_import' as const;
 
@@ -13,7 +18,31 @@ export type RatesImportAuditMetadata = {
   fileName?: string | null;
   lockedSupplierName?: string | null;
   sampleSkips: Array<{ row: number; reason: string }>;
+  replayHeaderLine?: string | null;
+  replaySkipLines?: string[];
 };
+
+/** Fail-closed message when commit would write zero rows (null = allowed). */
+export function ratesImportCommitError(input: {
+  commit: boolean;
+  okCount: number;
+  skipCount: number;
+}): string | null {
+  if (!input.commit || input.okCount > 0) return null;
+  if (input.skipCount > 0) {
+    return 'No rows imported — fix skip reasons and preview again';
+  }
+  return 'Nothing to import — add at least one valid row';
+}
+
+export function firstRatesImportSkipReason(
+  results: Array<{ status: 'ok' | 'skip'; reason?: string }>,
+): string | null {
+  for (const r of results) {
+    if (r.status === 'skip' && r.reason?.trim()) return r.reason.trim();
+  }
+  return null;
+}
 
 export function composeRatesImportAuditMetadata(input: {
   kind: RatesImportKind;
@@ -23,11 +52,18 @@ export function composeRatesImportAuditMetadata(input: {
   fileName?: string | null;
   lockedSupplierName?: string | null;
   results: Array<{ row: number; status: 'ok' | 'skip'; reason?: string }>;
+  replaySource?: RatesImportReplaySource | null;
 }): RatesImportAuditMetadata {
   const sampleSkips = input.results
     .filter((r) => r.status === 'skip' && r.reason?.trim())
     .slice(0, 5)
     .map((r) => ({ row: r.row, reason: r.reason!.trim() }));
+  const replaySkipLines = composeRatesImportReplaySkipLines({
+    results: input.results,
+    replaySource: input.replaySource,
+  });
+  const replayHeaderLine =
+    replaySkipLines.length > 0 ? input.replaySource?.headerLine?.trim() || null : null;
   return {
     kind: input.kind,
     okCount: Math.max(0, input.okCount),
@@ -36,6 +72,8 @@ export function composeRatesImportAuditMetadata(input: {
     fileName: input.fileName?.trim() || null,
     lockedSupplierName: input.lockedSupplierName?.trim() || null,
     sampleSkips,
+    ...(replayHeaderLine ? { replayHeaderLine } : {}),
+    ...(replaySkipLines.length ? { replaySkipLines } : {}),
   };
 }
 
@@ -51,6 +89,8 @@ export type RatesImportBatchListItem = {
   actorName: string | null;
   createdAt: string;
   sampleSkips: Array<{ row: number; reason: string }>;
+  replaySkipCount: number;
+  replayAvailable: boolean;
 };
 
 export function mapAuditEventToImportBatch(event: {
@@ -84,6 +124,17 @@ export function mapAuditEventToImportBatch(event: {
         })
         .slice(0, 5)
     : [];
+  const replaySkipLines = Array.isArray(meta.replaySkipLines)
+    ? meta.replaySkipLines
+        .flatMap((line) =>
+          typeof line === 'string' && line.trim() ? [line.trim()] : [],
+        )
+    : [];
+  const replayHeaderLine =
+    typeof meta.replayHeaderLine === 'string' && meta.replayHeaderLine.trim()
+      ? meta.replayHeaderLine.trim()
+      : null;
+  const replayAvailable = Boolean(replayHeaderLine && replaySkipLines.length);
   return {
     id: event.id,
     batchId: event.correlationId || event.id,
@@ -97,5 +148,7 @@ export function mapAuditEventToImportBatch(event: {
     actorName: event.actor?.fullName?.trim() || event.actor?.email?.trim() || null,
     createdAt,
     sampleSkips,
+    replaySkipCount: replaySkipLines.length,
+    replayAvailable,
   };
 }

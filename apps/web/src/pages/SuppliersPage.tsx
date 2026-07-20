@@ -45,8 +45,13 @@ import { toPlaceRef, type PlaceRef } from '../lib/placeRefs';
 import { AGENCY_ROUTES } from '../lib/agencyRoutes';
 import {
   SUPPLIER_TYPE_GROUPS,
+  contactCompletenessLabel,
   isInventorySupplierType,
   isStaySupplierType,
+  supplierContractListLabel,
+  supplierHasRateCatalog,
+  supplierProfileCompletenessLabel,
+  supplierRateListLabel,
   supplierTypeLabel,
 } from '../lib/supplierTypes';
 
@@ -60,6 +65,9 @@ type Supplier = {
   linkedOrganizationId?: string | null;
   linkedOrganization?: { id: string; name: string; kind: string } | null;
   linkedAsset?: { id: string; name: string; assetKind: string } | null;
+  roomProductCount?: number;
+  activeRateCount?: number | null;
+  activeContractCount?: number;
 };
 
 function emptyCreateForm() {
@@ -204,6 +212,139 @@ export function SuppliersPage() {
           />
         ),
       },
+      {
+        id: 'contact',
+        header: 'Contact',
+        meta: { label: 'Contact' },
+        size: 110,
+        minSize: 96,
+        accessorFn: (r) =>
+          contactCompletenessLabel({
+            name: r.name,
+            email: r.email,
+            phone: r.phone,
+          }),
+        cell: ({ row }) => {
+          const label = contactCompletenessLabel({
+            name: row.original.name,
+            email: row.original.email,
+            phone: row.original.phone,
+          });
+          return (
+            <span
+              className={
+                label === 'Complete'
+                  ? 'text-muted-foreground'
+                  : 'text-amber-800 dark:text-amber-200'
+              }
+            >
+              {label}
+            </span>
+          );
+        },
+      },
+      {
+        id: 'profile',
+        header: 'Profile',
+        meta: { label: 'Profile' },
+        size: 120,
+        minSize: 100,
+        accessorFn: (r) =>
+          supplierProfileCompletenessLabel(
+            r.type,
+            r.profileJson,
+            isStaySupplierType(r.type)
+              ? { roomProductCount: r.roomProductCount ?? 0 }
+              : undefined,
+          ),
+        cell: ({ row }) => {
+          const label = supplierProfileCompletenessLabel(
+            row.original.type,
+            row.original.profileJson,
+            isStaySupplierType(row.original.type)
+              ? { roomProductCount: row.original.roomProductCount ?? 0 }
+              : undefined,
+          );
+          const complete = label === 'Complete' || label === 'Optional';
+          return (
+            <span
+              className={
+                complete
+                  ? 'text-muted-foreground'
+                  : 'text-amber-800 dark:text-amber-200'
+              }
+            >
+              {label}
+            </span>
+          );
+        },
+      },
+      ...(canRates
+        ? [
+            {
+              id: 'rates',
+              header: 'Rates',
+              meta: { label: 'Rates' },
+              size: 110,
+              minSize: 96,
+              accessorFn: (r: Supplier) =>
+                supplierHasRateCatalog(r.type)
+                  ? supplierRateListLabel(r.activeRateCount) ?? ''
+                  : '',
+              cell: ({ row }: { row: { original: Supplier } }) => {
+                if (!supplierHasRateCatalog(row.original.type)) {
+                  return <span className="text-muted-foreground">—</span>;
+                }
+                const label = supplierRateListLabel(row.original.activeRateCount);
+                if (!label) {
+                  return <span className="text-muted-foreground">—</span>;
+                }
+                const ok = label !== 'No rates';
+                return (
+                  <span
+                    className={
+                      ok
+                        ? 'text-muted-foreground'
+                        : 'text-amber-800 dark:text-amber-200'
+                    }
+                  >
+                    {label}
+                  </span>
+                );
+              },
+            } satisfies ColumnDef<Supplier>,
+          ]
+        : []),
+      ...(canContracts
+        ? [
+            {
+              id: 'contracts',
+              header: 'Contracts',
+              meta: { label: 'Contracts' },
+              size: 120,
+              minSize: 100,
+              accessorFn: (r: Supplier) =>
+                supplierContractListLabel(r.activeContractCount) ?? '',
+              cell: ({ row }: { row: { original: Supplier } }) => {
+                const label = supplierContractListLabel(
+                  row.original.activeContractCount,
+                );
+                const ok = label !== 'None active';
+                return (
+                  <span
+                    className={
+                      ok
+                        ? 'text-muted-foreground'
+                        : 'text-amber-800 dark:text-amber-200'
+                    }
+                  >
+                    {label}
+                  </span>
+                );
+              },
+            } satisfies ColumnDef<Supplier>,
+          ]
+        : []),
       {
         id: 'asset',
         header: 'Linked asset',

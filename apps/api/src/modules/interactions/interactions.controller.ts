@@ -47,6 +47,7 @@ export class InteractionsController {
     const extra = query as {
       channel?: string;
       unread?: string;
+      aging?: string;
       outcome?: string;
       ownership?: string;
     };
@@ -62,6 +63,7 @@ export class InteractionsController {
       outcome: extra.outcome,
       ownership,
       unread: extra.unread === '1' || extra.unread === 'true' ? true : undefined,
+      aging: extra.aging === '1' || extra.aging === 'true' ? true : undefined,
     });
   }
 
@@ -179,6 +181,12 @@ export class InteractionsController {
   @RequirePermissions('report.sales.read')
   journeys(@CurrentUser() user: AuthUser) {
     return this.interactions.journeyAnalytics(user);
+  }
+
+  @Get('connectors/readiness')
+  @RequirePermissions('lead.read', 'lead.read.own', 'inquiry.read')
+  connectorReadiness(@CurrentUser() user: AuthUser) {
+    return this.interactions.connectorReadiness(user.organizationId);
   }
 
   @Get('connectors/capabilities')

@@ -1,6 +1,7 @@
 import { AlertCircle, Clock, FileText, Inbox, MessageCircleWarning, Target } from 'lucide-react';
 import { StatCard } from '@wayrune/ui';
 import { useOrgNavigate } from '../../hooks/useOrgNavigate';
+import { inboxAgingFilterLabel } from '../../lib/inboxAgingLabel';
 import { AGENCY_ROUTES } from '../../lib/agencyRoutes';
 import {
   formatHoursCompact,
@@ -59,6 +60,7 @@ export function SalesSlaHomeStats({ data }: { data: SalesSlaStats }) {
   const unread = data.inboxUnreadThreads ?? 0;
   const aging = data.inboxAgingUnreadThreads ?? 0;
   const agingHours = data.inboxAgingHours ?? 4;
+  const agingFilterLabel = inboxAgingFilterLabel(agingHours);
   const firstTouchCue = formatHoursTargetCue(data.firstTouchTargetHours);
   const leadToQuoteCue = formatHoursTargetCue(data.leadToQuoteTargetHours);
   const fitBuildCue = formatMinutesTargetCue(data.fitBuildTargetMinutes);
@@ -165,7 +167,7 @@ export function SalesSlaHomeStats({ data }: { data: SalesSlaStats }) {
             onClick={() => navigate(`${AGENCY_ROUTES.inbox}?unread=1`)}
           />
           <StatCard
-            label={`Aging unread (${agingHours}h+)`}
+            label={agingFilterLabel}
             value={aging}
             tone={aging ? 'danger' : 'success'}
             icon={MessageCircleWarning}

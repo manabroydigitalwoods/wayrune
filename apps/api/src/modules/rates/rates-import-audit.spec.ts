@@ -1,9 +1,43 @@
 import { describe, expect, it } from 'vitest';
 import {
   composeRatesImportAuditMetadata,
+  firstRatesImportSkipReason,
   mapAuditEventToImportBatch,
+  ratesImportCommitError,
   RATES_IMPORT_AUDIT_ACTION,
 } from './rates-import-audit';
+
+describe('ratesImportCommitError', () => {
+  it('allows preview with zero ok rows', () => {
+    expect(
+      ratesImportCommitError({ commit: false, okCount: 0, skipCount: 3 }),
+    ).toBeNull();
+  });
+
+  it('blocks commit when every row skips', () => {
+    expect(
+      ratesImportCommitError({ commit: true, okCount: 0, skipCount: 2 }),
+    ).toMatch(/No rows imported/i);
+  });
+
+  it('blocks empty commit', () => {
+    expect(
+      ratesImportCommitError({ commit: true, okCount: 0, skipCount: 0 }),
+    ).toMatch(/Nothing to import/i);
+  });
+});
+
+describe('firstRatesImportSkipReason', () => {
+  it('returns the first skip reason', () => {
+    expect(
+      firstRatesImportSkipReason([
+        { status: 'ok' },
+        { status: 'skip', reason: 'Supplier not found' },
+        { status: 'skip', reason: 'Place not found' },
+      ]),
+    ).toBe('Supplier not found');
+  });
+});
 
 describe('composeRatesImportAuditMetadata', () => {
   it('keeps a short skip sample', () => {
@@ -29,6 +63,25 @@ describe('composeRatesImportAuditMetadata', () => {
     });
     expect(meta.sampleSkips).toHaveLength(3);
     expect(RATES_IMPORT_AUDIT_ACTION).toBe('rates.import.commit');
+  });
+
+  it('stores replay skip lines when replaySource provided', () => {
+    const meta = composeRatesImportAuditMetadata({
+      kind: 'transfer',
+      okCount: 1,
+      skipCount: 1,
+      rowCount: 2,
+      results: [
+        { row: 1, status: 'ok' },
+        { row: 2, status: 'skip', reason: 'Place not found' },
+      ],
+      replaySource: {
+        headerLine: 'from,to,cost',
+        dataLines: ['IXB,DAR,3200', 'BAD,BAD,0'],
+      },
+    });
+    expect(meta.replayHeaderLine).toBe('from,to,cost');
+    expect(meta.replaySkipLines).toEqual(['BAD,BAD,0']);
   });
 });
 

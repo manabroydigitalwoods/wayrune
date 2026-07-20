@@ -92,14 +92,15 @@ export async function placeAncestorLabelsForRefs(
     const guard = new Set<string>();
     while (currentId && !guard.has(currentId)) {
       guard.add(currentId);
-      const place = await prisma.place.findFirst({
-        where: {
-          id: currentId,
-          deletedAt: null,
-          OR: [{ isSystem: true, organizationId: null }, { organizationId }],
-        },
-        select: { name: true, parentId: true },
-      });
+      const place: { name: string; parentId: string | null } | null =
+        await prisma.place.findFirst({
+          where: {
+            id: currentId,
+            deletedAt: null,
+            OR: [{ isSystem: true, organizationId: null }, { organizationId }],
+          },
+          select: { name: true, parentId: true },
+        });
       if (!place) break;
       chain.unshift(place.name);
       currentId = place.parentId;

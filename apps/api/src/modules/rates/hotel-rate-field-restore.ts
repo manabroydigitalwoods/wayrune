@@ -6,7 +6,8 @@ export type HotelRateRestorableField =
   | 'mealPlan'
   | 'startDate'
   | 'endDate'
-  | 'dates';
+  | 'dates'
+  | 'occupancyPricingJson';
 
 export const HOTEL_RATE_RESTORABLE_FIELDS: HotelRateRestorableField[] = [
   'unitCost',
@@ -15,9 +16,10 @@ export const HOTEL_RATE_RESTORABLE_FIELDS: HotelRateRestorableField[] = [
   'startDate',
   'endDate',
   'dates',
+  'occupancyPricingJson',
 ];
 
-/** Diff change label → restorable field key (occupancy / room type not in thin v1). */
+/** Diff change label → restorable field key (room type not in thin v1). */
 export function hotelRateDiffChangeToRestorableField(
   changeLabel: string,
 ): HotelRateRestorableField | null {
@@ -31,17 +33,20 @@ export function hotelRateDiffChangeToRestorableField(
       return 'mealPlan';
     case 'dates':
       return 'dates';
+    case 'occupancy':
+      return 'occupancyPricingJson';
     default:
       return null;
   }
 }
 
 export type HotelRateFieldRestoreSnapshot = {
-  unitCost?: number | string | null;
-  weekendUnitCost?: number | string | null;
+  unitCost?: number | string | { toString(): string } | null;
+  weekendUnitCost?: number | string | { toString(): string } | null;
   mealPlan?: string | null;
   startDate?: string | Date | null;
   endDate?: string | Date | null;
+  occupancyPricingJson?: unknown;
 };
 
 export function isHotelRateRestorableField(
@@ -79,6 +84,9 @@ export function mergeHotelRateFieldFromPrior<T extends HotelRateFieldRestoreSnap
     case 'dates':
       next.startDate = prior.startDate ?? null;
       next.endDate = prior.endDate ?? null;
+      break;
+    case 'occupancyPricingJson':
+      next.occupancyPricingJson = prior.occupancyPricingJson ?? null;
       break;
     default:
       break;

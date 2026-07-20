@@ -44,6 +44,8 @@ export const CAP = {
   supplierWrite: ['trip.write', 'network.write'],
   supplierInventory: ['ops.write', 'network.write'],
   settlementCreate: ['finance.payment.manage', 'network.write'],
+  refundExecute: ['finance.refund.execute', 'finance.payment.manage'],
+  creditLimitOverride: ['finance.credit_limit.override'],
   ratesWrite: ['quote.write'],
   taskWrite: ['task.write'],
   userManage: ['user.manage'],

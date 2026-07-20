@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import {
   CreateInquirySchema,
-  PaginationQuerySchema,
+  InquiryListQuerySchema,
   UpdateInquirySchema,
   UpdateInquiryStatusSchema,
 } from '@wayrune/contracts';
@@ -24,12 +24,29 @@ export class InquiriesController {
     return this.inquiries.create(user, CreateInquirySchema.parse(body));
   }
 
+  @Get('queue-summary')
+  @RequirePermissions('inquiry.read')
+  queueSummary(@CurrentUser() user: AuthUser) {
+    return this.inquiries.queueSummary(user.organizationId, user.sub);
+  }
+
   @Get()
   @RequirePermissions('inquiry.read')
   list(@CurrentUser() user: AuthUser, @Query() query: unknown) {
-    const q = PaginationQuerySchema.parse(query);
-    const status = (query as { status?: string }).status;
-    return this.inquiries.list(user.organizationId, q.page, q.pageSize, q.q, status);
+    const q = InquiryListQuerySchema.parse(query);
+    let ownerId: string | null | undefined;
+    if (q.ownerId === 'me') ownerId = user.sub;
+    else if (q.ownerId === 'unassigned') ownerId = null;
+    else ownerId = q.ownerId;
+
+    return this.inquiries.list(user.organizationId, q.page, q.pageSize, {
+      q: q.q,
+      status: q.status,
+      queue: q.queue,
+      ownerId,
+      incomplete: q.incomplete,
+      viewerUserId: user.sub,
+    });
   }
 
   @Get(':id')

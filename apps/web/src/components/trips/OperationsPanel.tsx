@@ -484,13 +484,22 @@ export function OperationsPanel({
         created: number;
         skipped: number;
         allotmentHolds?: number;
+        warnings?: string[];
         hotel?: { warnings?: string[]; allotmentHolds?: number };
+        transfer?: { warnings?: string[] };
+        activity?: { warnings?: string[] };
       }>(`/trips/${tripId}/bookings/from-accepted-quote`, {
         method: 'POST',
         body: JSON.stringify({}),
       });
       const holds = res.allotmentHolds ?? res.hotel?.allotmentHolds ?? 0;
-      const warnings = res.hotel?.warnings || [];
+      const warnings =
+        res.warnings ||
+        [
+          ...(res.hotel?.warnings || []),
+          ...(res.transfer?.warnings || []),
+          ...(res.activity?.warnings || []),
+        ];
       let msg = res.created
         ? `Created ${res.created} booking${res.created === 1 ? '' : 's'} from quote`
         : res.skipped
@@ -1168,6 +1177,8 @@ export function OperationsPanel({
       const applied = await api<{
         creditNoteId?: string | null;
         creditNoteAmount?: number | null;
+        creditNoteAllocatedToDocumentId?: string | null;
+        creditNoteAllocatedAmount?: number | null;
         currency?: string;
       }>(`/commerce/cancellations/${cancelCase.id}/apply`, {
         method: 'POST',
@@ -1184,12 +1195,21 @@ export function OperationsPanel({
         applied.creditNoteAmount != null && applied.creditNoteAmount > 0
           ? applied.creditNoteAmount
           : null;
+      const allocated =
+        applied.creditNoteAllocatedToDocumentId &&
+        applied.creditNoteAllocatedAmount != null &&
+        applied.creditNoteAllocatedAmount > 0;
       toastSuccess(
         refund != null
-          ? `Cancellation applied · booking cancelled · credit note drafted (${formatCurrency(
-              refund,
-              applied.currency || 'INR',
-            )}) — see Changes & incidents / Commerce`
+          ? allocated
+            ? `Cancellation applied · booking cancelled · credit note allocated (${formatCurrency(
+                applied.creditNoteAllocatedAmount!,
+                applied.currency || 'INR',
+              )} to receivable) — settle cash refund in Changes if due`
+            : `Cancellation applied · booking cancelled · credit note drafted (${formatCurrency(
+                refund,
+                applied.currency || 'INR',
+              )}) — settle in Changes when receivable exists`
           : 'Cancellation applied · booking cancelled',
       );
       closeCancelSheet();

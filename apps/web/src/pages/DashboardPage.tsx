@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useOrgNavigate } from '../hooks/useOrgNavigate';
 import {
   AlertCircle,
@@ -13,7 +12,7 @@ import {
   Users,
   Wallet,
 } from 'lucide-react';
-import { PageHeader, StatCard, formatCurrency } from '@wayrune/ui';
+import { PageHeader, StatCard, formatCurrency, Button } from '@wayrune/ui';
 import { api } from '../api';
 import { AgencyOnboardingChecklist } from '../components/agency/AgencyOnboardingChecklist';
 import { OpsCentreStats } from '../components/agency/OpsCentreStats';
@@ -30,7 +29,7 @@ import { usePermissions } from '../lib/permissions';
 import { PLANNING_INQUIRIES_LABEL } from '../lib/agencyStatusLabels';
 import { AGENCY_ROUTES } from '../lib/agencyRoutes';
 import { useAgencyWorkspace } from '../hooks/useAgencyWorkspace';
-import { composeDashboardWidgets, WORKSPACE_LABELS } from '../lib/progressiveComplexity';
+import { composeDashboardSections, WORKSPACE_LABELS } from '../lib/progressiveComplexity';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import {
   agencyWorkspaceSubtitle,
@@ -131,33 +130,42 @@ export function DashboardPage() {
   const { navigate } = useOrgNavigate();
   const { me } = useAuth();
   const { workspace, workspaceLabel } = useAgencyWorkspace();
-  const widgets = workspace
-    ? composeDashboardWidgets(workspace, me?.permissions ?? [])
-    : [];
-  const widgetKeys = new Set(widgets.map((w) => w.key));
+  const sections = workspace
+    ? composeDashboardSections(workspace, me?.permissions ?? [])
+    : { primary: [], secondary: [] };
+  const [showSecondaryDashboard, setShowSecondaryDashboard] = useState(false);
+  const activeWidgetKeys = new Set([
+    ...sections.primary.map((w) => w.key),
+    ...(showSecondaryDashboard ? sections.secondary.map((w) => w.key) : []),
+  ]);
+  const hasWidget = (key: string) => activeWidgetKeys.has(key);
   const showSalesStats =
-    widgetKeys.has('followups_today') ||
-    widgetKeys.has('new_requests') ||
-    widgetKeys.has('team_pipeline') ||
-    widgetKeys.has('business_health');
-  const showSalesSla = widgetKeys.has('sales_sla');
+    hasWidget('followups_today') ||
+    hasWidget('new_requests') ||
+    hasWidget('team_pipeline') ||
+    hasWidget('business_health') ||
+    hasWidget('quotes_to_send') ||
+    hasWidget('customers_waiting');
+  const showSalesSla = hasWidget('sales_sla');
   const showOpsPanels =
-    widgetKeys.has('arrivals_today') ||
-    widgetKeys.has('unconfirmed_bookings') ||
-    widgetKeys.has('readiness_blockers');
+    hasWidget('arrivals_today') ||
+    hasWidget('unconfirmed_bookings') ||
+    hasWidget('readiness_blockers') ||
+    hasWidget('open_incidents');
   const showManagerStats =
-    widgetKeys.has('unassigned_requests') ||
-    widgetKeys.has('team_pipeline') ||
-    widgetKeys.has('stale_opportunities');
-  const showChannelJourneys = widgetKeys.has('channel_journeys');
+    hasWidget('unassigned_requests') ||
+    hasWidget('team_pipeline') ||
+    hasWidget('stale_opportunities') ||
+    hasWidget('conversion_movement');
+  const showChannelJourneys = hasWidget('channel_journeys');
   const showFinancePanels =
-    widgetKeys.has('due_today') ||
-    widgetKeys.has('overdue_receivables') ||
-    widgetKeys.has('supplier_payables') ||
-    widgetKeys.has('portfolio_margin');
+    hasWidget('due_today') ||
+    hasWidget('overdue_receivables') ||
+    hasWidget('supplier_payables') ||
+    hasWidget('portfolio_margin') ||
+    hasWidget('unallocated_payments');
   const showMovement =
-    widgetKeys.has('movement_window') ||
-    widgetKeys.has('arrivals_today');
+    hasWidget('movement_window') || hasWidget('arrivals_today');
 
   useDocumentTitle(workspaceLabel ?? 'Dashboard');
   const { has } = usePermissions();
@@ -190,13 +198,13 @@ export function DashboardPage() {
         title={workspace ? WORKSPACE_LABELS[workspace] : dmc ? 'DMC operations' : 'Sales & operations'}
         subtitle={
           workspace
-            ? widgets.map((w) => w.title).slice(0, 3).join(' · ') ||
+            ? sections.primary.map((w) => w.title).slice(0, 3).join(' · ') ||
               agencyWorkspaceSubtitle(me?.organization.kind)
             : agencyWorkspaceSubtitle(me?.organization.kind)
         }
       />
       {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
-      {workspace === 'owner' || widgetKeys.has('business_health') ? (
+      {workspace === 'owner' || hasWidget('business_health') ? (
         <AgencyOnboardingChecklist />
       ) : null}
       {needSales && !data && !error ? (
@@ -392,7 +400,7 @@ export function DashboardPage() {
 
       {data && showManagerStats ? (
         <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {widgetKeys.has('unassigned_requests') ? (
+          {hasWidget('unassigned_requests') ? (
             <StatCard
               label="Unassigned requests"
               value={data.unassignedInquiries ?? 0}
@@ -401,7 +409,7 @@ export function DashboardPage() {
               onClick={() => navigate(AGENCY_ROUTES.inquiries)}
             />
           ) : null}
-          {widgetKeys.has('team_pipeline') ? (
+          {hasWidget('team_pipeline') ? (
             <StatCard
               label="Team follow-ups due"
               value={data.teamFollowUpsDue ?? 0}
@@ -410,7 +418,7 @@ export function DashboardPage() {
               onClick={() => navigate(AGENCY_ROUTES.workFollowUps)}
             />
           ) : null}
-          {widgetKeys.has('stale_opportunities') ? (
+          {hasWidget('stale_opportunities') ? (
             <StatCard
               label="Stale opportunities"
               value={data.staleOpportunities ?? 0}
@@ -419,6 +427,21 @@ export function DashboardPage() {
               onClick={() => navigate(AGENCY_ROUTES.leads)}
             />
           ) : null}
+        </div>
+      ) : null}
+
+      {sections.secondary.length > 0 ? (
+        <div className="mt-4">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowSecondaryDashboard((v) => !v)}
+          >
+            {showSecondaryDashboard
+              ? 'Hide extra metrics'
+              : `Show ${sections.secondary.length} more metric${sections.secondary.length === 1 ? '' : 's'}`}
+          </Button>
         </div>
       ) : null}
 

@@ -5,6 +5,7 @@ import {
   formatReleaseNoteDate,
   visibleReleaseNotes,
 } from '../../lib/releaseNotes';
+import { ClaimGatesPanel } from './ClaimGatesPanel';
 
 /** Settings → About: claim-safe release notes (no Save). Also used on public /changelog. */
 export function AboutReleaseNotesPanel({
@@ -16,6 +17,7 @@ export function AboutReleaseNotesPanel({
 
   return (
     <div className="space-y-6">
+      <ClaimGatesPanel />
       <div className="space-y-1">
         <p className="text-sm font-medium">{APP_RELEASE_LABEL}</p>
         <p className="text-xs text-muted-foreground">

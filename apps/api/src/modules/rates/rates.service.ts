@@ -42,8 +42,10 @@ import {
   mapAuditEventToImportBatch,
   RATES_IMPORT_AUDIT_ACTION,
   RATES_IMPORT_ENTITY_TYPE,
+  ratesImportCommitError,
   type RatesImportKind,
 } from './rates-import-audit';
+import { buildRatesImportReplayCsv } from './rates-import-replay';
 import {
   eachStayNight,
   explainHotelRejects,
@@ -1307,6 +1309,7 @@ export class RatesService {
         mealPlan: active.mealPlan,
         startDate: active.startDate,
         endDate: active.endDate,
+        occupancyPricingJson: active.occupancyPricingJson,
       },
       {
         unitCost: source.unitCost,
@@ -1314,6 +1317,7 @@ export class RatesService {
         mealPlan: source.mealPlan,
         startDate: source.startDate,
         endDate: source.endDate,
+        occupancyPricingJson: source.occupancyPricingJson,
       },
       field,
     );
@@ -1342,12 +1346,13 @@ export class RatesService {
           roomProductId: active.roomProductId,
           contractId: active.contractId,
           mealPlan: merged.mealPlan,
-          unitCost: merged.unitCost as typeof active.unitCost,
-          weekendUnitCost: merged.weekendUnitCost as typeof active.weekendUnitCost,
+          unitCost: merged.unitCost as unknown as typeof active.unitCost,
+          weekendUnitCost:
+            merged.weekendUnitCost as unknown as typeof active.weekendUnitCost,
           occupancyPricingJson:
-            active.occupancyPricingJson === null
+            merged.occupancyPricingJson === null || merged.occupancyPricingJson === undefined
               ? Prisma.JsonNull
-              : (active.occupancyPricingJson as Prisma.InputJsonValue),
+              : (merged.occupancyPricingJson as Prisma.InputJsonValue),
           currency: active.currency,
           startDate: merged.startDate as Date | null,
           endDate: merged.endDate as Date | null,
@@ -1805,9 +1810,11 @@ export class RatesService {
           fromPlaceId: active.fromPlaceId,
           toPlaceId: active.toPlaceId,
           vehicleTypeId: active.vehicleTypeId,
-          unitCost: merged.unitCost as typeof active.unitCost,
-          childUnitCost: merged.childUnitCost as typeof active.childUnitCost,
-          infantUnitCost: merged.infantUnitCost as typeof active.infantUnitCost,
+          unitCost: merged.unitCost as unknown as typeof active.unitCost,
+          childUnitCost:
+            merged.childUnitCost as unknown as typeof active.childUnitCost,
+          infantUnitCost:
+            merged.infantUnitCost as unknown as typeof active.infantUnitCost,
           childAgeMin: active.childAgeMin,
           childAgeMax: active.childAgeMax,
           pricingMode: (merged.pricingMode as typeof active.pricingMode) ?? active.pricingMode,
@@ -2241,8 +2248,10 @@ export class RatesService {
           activityName: (merged.activityName as string) || active.activityName,
           activityKey: active.activityKey,
           privateOrSic: merged.privateOrSic as typeof active.privateOrSic,
-          adultUnitCost: merged.adultUnitCost as typeof active.adultUnitCost,
-          childUnitCost: merged.childUnitCost as typeof active.childUnitCost,
+          adultUnitCost:
+            merged.adultUnitCost as unknown as typeof active.adultUnitCost,
+          childUnitCost:
+            merged.childUnitCost as unknown as typeof active.childUnitCost,
           childAgeMin: active.childAgeMin,
           childAgeMax: active.childAgeMax,
           currency: active.currency,
@@ -3299,26 +3308,19 @@ export class RatesService {
       }
     }
 
-    const response = {
+    return this.finalizeRatesImportResponse({
+      organizationId,
+      userId,
+      kind: 'hotel',
       commit: Boolean(input.commit),
       okCount,
       skipCount,
+      rowCount: input.rows.length,
+      fileName: input.fileName,
+      lockedSupplierName: input.lockedSupplierName,
+      replaySource: input.replaySource,
       results,
-    };
-    if (input.commit) {
-      await this.recordRatesImportAudit({
-        organizationId,
-        userId,
-        kind: 'hotel',
-        okCount,
-        skipCount,
-        rowCount: input.rows.length,
-        fileName: input.fileName,
-        lockedSupplierName: input.lockedSupplierName,
-        results,
-      });
-    }
-    return response;
+    });
   }
 
   async importActivityRatesCsv(
@@ -3425,26 +3427,19 @@ export class RatesService {
       }
     }
 
-    const response = {
+    return this.finalizeRatesImportResponse({
+      organizationId,
+      userId,
+      kind: 'activity',
       commit: Boolean(input.commit),
       okCount,
       skipCount,
+      rowCount: input.rows.length,
+      fileName: input.fileName,
+      lockedSupplierName: input.lockedSupplierName,
+      replaySource: input.replaySource,
       results,
-    };
-    if (input.commit) {
-      await this.recordRatesImportAudit({
-        organizationId,
-        userId,
-        kind: 'activity',
-        okCount,
-        skipCount,
-        rowCount: input.rows.length,
-        fileName: input.fileName,
-        lockedSupplierName: input.lockedSupplierName,
-        results,
-      });
-    }
-    return response;
+    });
   }
 
   async importTransferFaresCsv(
@@ -3578,26 +3573,19 @@ export class RatesService {
       }
     }
 
-    const response = {
+    return this.finalizeRatesImportResponse({
+      organizationId,
+      userId,
+      kind: 'transfer',
       commit: Boolean(input.commit),
       okCount,
       skipCount,
+      rowCount: input.rows.length,
+      fileName: input.fileName,
+      lockedSupplierName: input.lockedSupplierName,
+      replaySource: input.replaySource,
       results,
-    };
-    if (input.commit) {
-      await this.recordRatesImportAudit({
-        organizationId,
-        userId,
-        kind: 'transfer',
-        okCount,
-        skipCount,
-        rowCount: input.rows.length,
-        fileName: input.fileName,
-        lockedSupplierName: input.lockedSupplierName,
-        results,
-      });
-    }
-    return response;
+    });
   }
 
   async listRatesImportBatches(
@@ -3626,6 +3614,83 @@ export class RatesService {
     return filtered.slice(0, limit);
   }
 
+  private async finalizeRatesImportResponse(input: {
+    organizationId: string;
+    userId: string;
+    kind: RatesImportKind;
+    commit: boolean;
+    okCount: number;
+    skipCount: number;
+    rowCount: number;
+    fileName?: string | null;
+    lockedSupplierName?: string | null;
+    replaySource?: { headerLine: string; dataLines: string[] } | null;
+    results: Array<{ row: number; status: 'ok' | 'skip'; reason?: string }>;
+  }) {
+    const commitError = ratesImportCommitError({
+      commit: input.commit,
+      okCount: input.okCount,
+      skipCount: input.skipCount,
+    });
+    if (commitError) throw new BadRequestException(commitError);
+
+    const response = {
+      commit: input.commit,
+      okCount: input.okCount,
+      skipCount: input.skipCount,
+      results: input.results,
+    };
+
+    if (input.commit && input.okCount > 0) {
+      await this.recordRatesImportAudit({
+        organizationId: input.organizationId,
+        userId: input.userId,
+        kind: input.kind,
+        okCount: input.okCount,
+        skipCount: input.skipCount,
+        rowCount: input.rowCount,
+        fileName: input.fileName,
+        lockedSupplierName: input.lockedSupplierName,
+        replaySource: input.replaySource,
+        results: input.results,
+      });
+    }
+    return response;
+  }
+
+  async getRatesImportBatchReplay(organizationId: string, batchId: string) {
+    const event = await this.prisma.auditEvent.findFirst({
+      where: {
+        organizationId,
+        action: RATES_IMPORT_AUDIT_ACTION,
+        OR: [{ entityId: batchId }, { correlationId: batchId }],
+      },
+      select: { metadataJson: true },
+    });
+    if (!event?.metadataJson || typeof event.metadataJson !== 'object') {
+      throw new NotFoundException('Import batch not found');
+    }
+    const meta = event.metadataJson as Record<string, unknown>;
+    const replaySkipLines = Array.isArray(meta.replaySkipLines)
+      ? meta.replaySkipLines.flatMap((line) =>
+          typeof line === 'string' && line.trim() ? [line.trim()] : [],
+        )
+      : [];
+    const csvText = buildRatesImportReplayCsv({
+      replayHeaderLine:
+        typeof meta.replayHeaderLine === 'string' ? meta.replayHeaderLine : null,
+      replaySkipLines,
+    });
+    if (!csvText) {
+      throw new NotFoundException('No replay rows stored for this batch');
+    }
+    return {
+      batchId,
+      skipCount: replaySkipLines.length,
+      csvText,
+    };
+  }
+
   private async recordRatesImportAudit(input: {
     organizationId: string;
     userId: string;
@@ -3635,6 +3700,7 @@ export class RatesService {
     rowCount: number;
     fileName?: string | null;
     lockedSupplierName?: string | null;
+    replaySource?: { headerLine: string; dataLines: string[] } | null;
     results: Array<{ row: number; status: 'ok' | 'skip'; reason?: string }>;
   }) {
     const batchId = `imp_${Date.now().toString(36)}_${Math.random()

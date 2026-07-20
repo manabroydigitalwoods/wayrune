@@ -27,6 +27,150 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-credit-limit-gates',
+    date: '2026-07-20',
+    title: 'Customer credit limit enforcement',
+    summary:
+      'Org-wide customer receivable exposure is checked against party credit limits. Finance blocks new receivables over limit unless finance.credit_limit.override; trip control and customer hub show exposure cues.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-markup-preset-library',
+    date: '2026-07-20',
+    title: 'Org markup preset library on quotes',
+    summary:
+      'Settings stores up to 12 named markup presets (percent or fixed ₹). Trip quote toolbar shows preset chips beside Apply default markup for bulk sell pricing.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-credit-terms-automation',
+    date: '2026-07-20',
+    title: 'Customer credit terms on receivables',
+    summary:
+      'Party Net N / Pay on confirm terms auto-stamp customer receivable due dates (API + Finance prefill). Customer hub edits payment terms and credit limit.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-cancellation-refund-settle',
+    date: '2026-07-20',
+    title: 'Outbound refund settlement on cancellation cases',
+    summary:
+      'Applied cancellation credit notes can be cash-settled from Changes & incidents via POST /commerce/cancellations/:id/settle-refund. Idempotent outbound PaymentRecord links to the credit note; refund due shows until settled.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-hotel-occupancy-restore',
+    date: '2026-07-20',
+    title: 'Hotel rate occupancy field restore',
+    summary:
+      'History Diff Restore now copies occupancyPricingJson (bands, extras, nationality, gala) from a prior tip onto a new version — same dual-control Activate path as unit cost and meal plan.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-cancellation-credit-note-allocate',
+    date: '2026-07-20',
+    title: 'Cancellation credit notes auto-allocate to receivables',
+    summary:
+      'When a CancellationCase apply drafts a refund credit note, it now links to the trip receivable with the largest outstanding balance (capped to outstanding). Ops and Changes & incidents show allocated vs draft-only; Mark refund settled records outbound cash against the credit note.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-supplier-directory-list-depth',
+    date: '2026-07-20',
+    title: 'Supplier directory list depth',
+    summary:
+      'Suppliers list includes room-product count for stay properties, type-scoped active rate counts, and active contract counts from GET /suppliers. Profile, Rates, and Contracts columns match detail-page completeness cues.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-rates-import-row-replay',
+    date: '2026-07-20',
+    title: 'Rate import skip-row replay',
+    summary:
+      'Partial CSV/XLSX commits store skipped source lines in import audit metadata. Recent imports show Replay skips to reload fixable rows into the import sheet via GET /rates/import-batches/:id/replay.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-claim-readiness-ops',
+    date: '2026-07-20',
+    title: 'Marketing claim gates on Settings About',
+    summary:
+      'GET /dashboard/claim-gates shows live FIT sample progress and ops checklist in Settings → About. Platform scale protocol adds opsChecklist — registry stays Testing until manual sign-off.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-customers-b2b-parties',
+    date: '2026-07-20',
+    title: 'Customers and B2B party directory depth',
+    summary:
+      'Party list supports server-side B2B filter with open-request and active-trip counts. CSV import is fail-closed when every row skips. Customer hub shows agent-markup cue and editable B2B type for trade clients.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-blackout-stop-sale-cancellation',
+    date: '2026-07-20',
+    title: 'Contract blackout, stop-sale, and cancellation gates',
+    summary:
+      'Hard stop-sale blocks quote send/approve even when buy/sell are set manually (API + UI). Activity resolve now has parity specs for contract stop-sale and soft blackout. Cancellation tiers and CancellationCase remain on the separate ops ladder.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-inbox-channel-readiness',
+    date: '2026-07-20',
+    title: 'Inbox multi-channel connector readiness',
+    summary:
+      'GET /interactions/connectors/readiness drives WhatsApp, Instagram, and Google Business setup banners and reply gates. Aging unread filter now applies to All messages as well as Conversations.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-travel-request-queues',
+    date: '2026-07-20',
+    title: 'Travel request planning queues',
+    summary:
+      'Planning, My requests, and Sales inquiry lists use server-side queue filters. Queue summary strip shows incomplete and unassigned counts; Clients list shows open planning requests per party.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-supplier-import-directory',
+    date: '2026-07-20',
+    title: 'Supplier import guardrails and directory completeness',
+    summary:
+      'Rate CSV/XLSX commit is fail-closed when every row skips (API + UI). Partial imports toast the first skip reason; Recent imports show up to five sample skips. Suppliers list shows Contact and Profile completeness.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-crm-sla-surfaces',
+    date: '2026-07-20',
+    title: 'CRM SLA strip on Leads and Inbox',
+    summary:
+      'Overdue follow-ups, unread threads, and aging unread use the same /dashboard/sales metrics on Leads and Inbox as the home dashboard. Inbox aging filter respects org inboxAgingHours — no hard-coded 4h chip.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-trip-shell-dashboard',
+    date: '2026-07-20',
+    title: 'Trip tabs and home dashboard compose by role',
+    summary:
+      'Trip workspace tabs show control attention badges and a status-based Next cue. Home dashboard shows your top four role widgets first, with optional extra metrics behind disclosure.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-trip-control-cancellations',
+    date: '2026-07-20',
+    title: 'Trip control surfaces activity + cancellation risks',
+    summary:
+      'Overview and the compact risk strip now flag open activities, pending cancellation cases, and refresh after ops/finance changes. Refund credit notes on cancel apply auto-allocate to trip receivables when outstanding exists.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-ta-materialize-warnings',
+    date: '2026-07-20',
+    title: 'Transfer & activity bookings warn like hotels',
+    summary:
+      'Accept and From accepted quote now warn when transfer/activity lines lack a supplier or the supplier was deleted, stamp quote currency, and fold those cues into materializeFailures — same honesty path as hotel.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-scale-protocol',
     date: '2026-07-20',
     title: 'Measured public scale protocol',

@@ -33,7 +33,13 @@ import type {
   SendTripVouchersWhatsappInput,
   UpdateFinanceReportPackInput,
 } from '@wayrune/contracts';
+import { dueDateFromPaymentTerms } from '@wayrune/contracts';
 import { loadEnv } from '@wayrune/config';
+import { hasPermission } from '@wayrune/auth';
+import {
+  partyCreditLimitBlockMessage,
+} from '@wayrune/contracts';
+import { evaluatePartyCreditStatus } from '../parties/party-credit-limit';
 import {
   hotelBookingTitle,
   hotelLinesFromQuoteItems,
@@ -51,12 +57,14 @@ import {
   transferBookingTitle,
   transferCapacityStampFromLine,
   transferLinesFromQuoteItems,
+  transferLinesMissingSupplier,
   transferServiceWindow,
   type TransferQuoteLineLike,
 } from './transfer-quote-booking';
 import {
   activityBookingTitle,
   activityLinesFromQuoteItems,
+  activityLinesMissingSupplier,
   activityServiceWindow,
   type ActivityQuoteLineLike,
 } from './activity-quote-booking';
@@ -99,6 +107,7 @@ import { buildHotelVoucherPdf } from './hotel-voucher-pdf';
 import { buildTransferVoucherPdf } from './transfer-voucher-pdf';
 import { buildActivityVoucherPdf } from './activity-voucher-pdf';
 import { buildTripControlSummary } from './trip-control';
+import { mapSupplierListRow, supplierListInclude } from './supplier-list';
 import {
   buildMovementBoard,
   movementWindow,
@@ -412,7 +421,7 @@ export class OperationsService {
       ?.split(',')
       .map((t) => t.trim())
       .filter(Boolean);
-    return this.prisma.supplier.findMany({
+    const rows = await this.prisma.supplier.findMany({
       where: {
         organizationId,
         deletedAt: null,
@@ -428,18 +437,11 @@ export class OperationsService {
             }
           : {}),
       },
-      include: {
-        linkedOrganization: {
-          select: { id: true, name: true, kind: true, slug: true },
-        },
-        linkedAsset: {
-          select: { id: true, name: true, assetKind: true },
-        },
-        place: { select: { id: true, name: true, kind: true } },
-      },
+      include: supplierListInclude,
       orderBy: { name: 'asc' },
       take: 50,
     });
+    return rows.map(mapSupplierListRow);
   }
 
   async getSupplier(organizationId: string, supplierId: string) {
@@ -879,7 +881,12 @@ export class OperationsService {
     actorUserId: string | null,
     tripId: string,
     opts?: { versionId?: string },
-  ): Promise<{ created: number; skipped: number; bookingIds: string[] }> {
+  ): Promise<{
+    created: number;
+    skipped: number;
+    bookingIds: string[];
+    warnings: string[];
+  }> {
     await this.ensureTrip(organizationId, tripId);
 
     let version = opts?.versionId
@@ -904,7 +911,22 @@ export class OperationsService {
       throw new BadRequestException('No accepted quotation version for this trip');
     }
 
+    const warnings: string[] = [];
+    const missingSupplier = transferLinesMissingSupplier(version.itemsJson);
+    for (const line of missingSupplier.slice(0, 5)) {
+      warnings.push(
+        `Transfer line “${(line.description || line.id || 'transfer').trim()}” has no supplier — add supplier then run From accepted quote`,
+      );
+    }
+    if (missingSupplier.length > 5) {
+      warnings.push(
+        `(+${missingSupplier.length - 5} more transfer lines without supplier)`,
+      );
+    }
+
     const lines = transferLinesFromQuoteItems(version.itemsJson);
+    const currency =
+      (typeof version.currency === 'string' && version.currency.trim()) || 'INR';
     let created = 0;
     let skipped = 0;
     const bookingIds: string[] = [];
@@ -939,6 +961,9 @@ export class OperationsService {
       });
       if (!supplier) {
         skipped += 1;
+        warnings.push(
+          `Supplier missing for “${transferBookingTitle(line)}” — restore supplier or rematch before ops`,
+        );
         continue;
       }
 
@@ -967,7 +992,7 @@ export class OperationsService {
           quotedAmount:
             quotedAmount != null ? new Prisma.Decimal(quotedAmount) : null,
           requiredQuantity: new Prisma.Decimal(vehicles),
-          currency: 'INR',
+          currency,
           travellerRequirementsJson: {
             fromPlaceId: line.details?.fromPlaceId ?? null,
             toPlaceId: line.details?.toPlaceId ?? null,
@@ -1030,11 +1055,21 @@ export class OperationsService {
           created,
           skipped,
           bookingIds,
+          warnings,
         },
+      });
+    } else if (warnings.length) {
+      await this.audit.record({
+        organizationId,
+        actorUserId,
+        action: 'booking.materialize_transfer_from_quote_warnings',
+        entityType: 'trip',
+        entityId: tripId,
+        metadata: { versionId: version.id, skipped, warnings },
       });
     }
 
-    return { created, skipped, bookingIds };
+    return { created, skipped, bookingIds, warnings };
   }
 
   /**
@@ -1046,7 +1081,12 @@ export class OperationsService {
     actorUserId: string | null,
     tripId: string,
     opts?: { versionId?: string },
-  ): Promise<{ created: number; skipped: number; bookingIds: string[] }> {
+  ): Promise<{
+    created: number;
+    skipped: number;
+    bookingIds: string[];
+    warnings: string[];
+  }> {
     await this.ensureTrip(organizationId, tripId);
 
     let version = opts?.versionId
@@ -1071,7 +1111,22 @@ export class OperationsService {
       throw new BadRequestException('No accepted quotation version for this trip');
     }
 
+    const warnings: string[] = [];
+    const missingSupplier = activityLinesMissingSupplier(version.itemsJson);
+    for (const line of missingSupplier.slice(0, 5)) {
+      warnings.push(
+        `Activity line “${(line.description || line.id || 'activity').trim()}” has no supplier — add supplier then run From accepted quote`,
+      );
+    }
+    if (missingSupplier.length > 5) {
+      warnings.push(
+        `(+${missingSupplier.length - 5} more activity lines without supplier)`,
+      );
+    }
+
     const lines = activityLinesFromQuoteItems(version.itemsJson);
+    const currency =
+      (typeof version.currency === 'string' && version.currency.trim()) || 'INR';
     let created = 0;
     let skipped = 0;
     const bookingIds: string[] = [];
@@ -1106,6 +1161,9 @@ export class OperationsService {
       });
       if (!supplier) {
         skipped += 1;
+        warnings.push(
+          `Supplier missing for “${activityBookingTitle(line)}” — restore supplier or rematch before ops`,
+        );
         continue;
       }
 
@@ -1138,7 +1196,7 @@ export class OperationsService {
           quotedAmount:
             quotedAmount != null ? new Prisma.Decimal(quotedAmount) : null,
           requiredQuantity: new Prisma.Decimal(pax),
-          currency: 'INR',
+          currency,
           travellerRequirementsJson: {
             activityName:
               line.details?.activityName || line.description || null,
@@ -1191,11 +1249,21 @@ export class OperationsService {
           created,
           skipped,
           bookingIds,
+          warnings,
         },
+      });
+    } else if (warnings.length) {
+      await this.audit.record({
+        organizationId,
+        actorUserId,
+        action: 'booking.materialize_activity_from_quote_warnings',
+        entityType: 'trip',
+        entityId: tripId,
+        metadata: { versionId: version.id, skipped, warnings },
       });
     }
 
-    return { created, skipped, bookingIds };
+    return { created, skipped, bookingIds, warnings };
   }
 
   /** Hotel + transfer + activity materialize for Ops “from accepted quote”. */
@@ -1232,6 +1300,11 @@ export class OperationsService {
         ...activity.bookingIds,
       ],
       allotmentHolds: hotel.allotmentHolds,
+      warnings: [
+        ...(hotel.warnings || []),
+        ...(transfer.warnings || []),
+        ...(activity.warnings || []),
+      ],
       hotel,
       transfer,
       activity,
@@ -2621,6 +2694,34 @@ export class OperationsService {
     return { ...payment, ...updated };
   }
 
+  private async assertCustomerPaymentCreditLimit(
+    user: AuthUser,
+    partyId: string | null | undefined,
+    orgCurrency: string,
+    amount: number,
+    excludePaymentId?: string,
+  ) {
+    if (!partyId || !(amount > 0)) return;
+    const status = await evaluatePartyCreditStatus(
+      this.prisma,
+      user.organizationId,
+      partyId,
+      {
+        orgCurrency,
+        pendingAmount: amount,
+        excludePaymentId,
+      },
+    );
+    if (
+      status.overLimit &&
+      !hasPermission(user.permissions, 'finance.credit_limit.override')
+    ) {
+      throw new BadRequestException(
+        partyCreditLimitBlockMessage(status, status.currency),
+      );
+    }
+  }
+
   async createPayment(
     user: AuthUser,
     tripId: string,
@@ -2641,11 +2742,36 @@ export class OperationsService {
     if (!input.amount || input.amount <= 0) {
       throw new BadRequestException('Amount must be positive');
     }
-    const org = await this.prisma.organization.findUniqueOrThrow({
-      where: { id: user.organizationId },
-      select: { currency: true },
-    });
-    const dueAt = input.dueAt ? new Date(input.dueAt) : null;
+    const [org, trip] = await Promise.all([
+      this.prisma.organization.findUniqueOrThrow({
+        where: { id: user.organizationId },
+        select: { currency: true },
+      }),
+      this.prisma.trip.findFirst({
+        where: { id: tripId, organizationId: user.organizationId },
+        select: {
+          partyId: true,
+          party: { select: { paymentTerms: true } },
+        },
+      }),
+    ]);
+    const currency = (input.currency || org.currency || 'INR').toUpperCase();
+    if (input.direction === 'customer') {
+      await this.assertCustomerPaymentCreditLimit(
+        user,
+        trip?.partyId,
+        currency,
+        input.amount,
+      );
+    }
+    let dueAt = input.dueAt ? new Date(input.dueAt) : null;
+    if (
+      !dueAt &&
+      input.direction === 'customer' &&
+      trip?.party?.paymentTerms?.trim()
+    ) {
+      dueAt = dueDateFromPaymentTerms(trip.party.paymentTerms);
+    }
     const status = this.computePaymentStatus({
       status: 'scheduled',
       amount: input.amount,
@@ -2660,7 +2786,7 @@ export class OperationsService {
         label: input.label,
         amount: new Prisma.Decimal(input.amount),
         amountPaid: new Prisma.Decimal(0),
-        currency: (input.currency || org.currency || 'INR').toUpperCase(),
+        currency,
         dueAt,
         method: input.method || null,
         reference: input.reference || null,
@@ -2718,6 +2844,20 @@ export class OperationsService {
       throw new BadRequestException('Cancelled payments cannot be edited');
     }
     const amount = input.amount ?? Number(existing.amount);
+    if (existing.direction === 'customer' && input.amount !== undefined) {
+      const trip = await this.prisma.trip.findFirst({
+        where: { id: tripId, organizationId: user.organizationId },
+        select: { partyId: true },
+      });
+      const currency = (input.currency || existing.currency || 'INR').toUpperCase();
+      await this.assertCustomerPaymentCreditLimit(
+        user,
+        trip?.partyId,
+        currency,
+        amount,
+        paymentId,
+      );
+    }
     const dueAt =
       input.dueAt !== undefined
         ? input.dueAt
@@ -4705,6 +4845,7 @@ export class OperationsService {
         organization: {
           select: { currency: true, taxLabel: true, settingsJson: true },
         },
+        party: { select: { id: true, creditLimit: true } },
         quotations: {
           include: {
             versions: { orderBy: { versionNumber: 'desc' } },
@@ -4807,6 +4948,15 @@ export class OperationsService {
       return s + Math.max(0, Number(i.amount) - paid);
     }, 0);
 
+    const partyCredit = trip.partyId
+      ? await evaluatePartyCreditStatus(
+          this.prisma,
+          user.organizationId,
+          trip.partyId,
+          { orgCurrency },
+        )
+      : null;
+
     return {
       orgCurrency,
       quote: accepted
@@ -4845,6 +4995,7 @@ export class OperationsService {
       latestFeedback: feedback[0] || null,
       audit: financeAudit,
       otherCurrencyPayments: active.filter((p) => !sameCurrency(p.currency)),
+      partyCredit,
     };
   }
 
@@ -4922,7 +5073,8 @@ export class OperationsService {
     });
     if (!trip) throw new NotFoundException('Trip not found');
 
-    const [bookings, finance, readiness, openIncidents, openChangeCases] = await Promise.all([
+    const [bookings, finance, readiness, openIncidents, openChangeCases, openCancellationCases] =
+      await Promise.all([
       this.listBookings(user, tripId),
       this.getFinanceSummary(user, tripId),
       this.getReadiness(user, tripId),
@@ -4938,6 +5090,14 @@ export class OperationsService {
           organizationId: user.organizationId,
           tripId,
           status: { notIn: ['closed', 'resolved', 'cancelled', 'applied'] },
+        },
+      }),
+      this.prisma.cancellationCase.count({
+        where: {
+          organizationId: user.organizationId,
+          tripId,
+          approvalStatus: { in: ['draft', 'awaiting_approval', 'approved'] },
+          executionStatus: { in: ['pending', 'applying', 'failed'] },
         },
       }),
     ]);
@@ -4963,6 +5123,7 @@ export class OperationsService {
             }
           : null,
         summary: finance.summary,
+        partyCredit: finance.partyCredit,
       },
       readiness: {
         items: readiness.items.map((i) => ({ done: i.done })),
@@ -4970,6 +5131,7 @@ export class OperationsService {
       },
       openIncidents,
       openChangeCases,
+      openCancellationCases,
     });
   }
 

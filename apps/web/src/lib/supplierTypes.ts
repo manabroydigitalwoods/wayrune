@@ -113,6 +113,14 @@ export function isExperienceSupplierType(type?: string | null): boolean {
   return type === 'activity' || type === 'guide';
 }
 
+export function supplierHasRateCatalog(type?: string | null): boolean {
+  return (
+    isStaySupplierType(type) ||
+    type === 'activity' ||
+    isTransportSupplierType(type)
+  );
+}
+
 /** Query param for GET /suppliers?type=… when picking stay suppliers. */
 export const STAY_SUPPLIER_TYPE_QUERY = 'hotel,homestay,farmstay';
 
@@ -264,4 +272,20 @@ export function contactCompletenessLabel(input: {
   if (!input.name?.trim()) return 'Incomplete';
   if (!input.email?.trim() && !input.phone?.trim()) return 'Incomplete';
   return 'Complete';
+}
+
+/** List column label for active supplier rates (detail + directory list). */
+export function supplierRateListLabel(
+  count: number | null | undefined,
+): string | null {
+  if (count == null) return null;
+  return count === 0 ? 'No rates' : `${count} active`;
+}
+
+/** List column label for active supplier contracts (detail + directory list). */
+export function supplierContractListLabel(
+  count: number | null | undefined,
+): string | null {
+  if (count == null) return null;
+  return count === 0 ? 'None active' : `${count} active`;
 }
