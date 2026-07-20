@@ -275,6 +275,9 @@ importers:
       '@wayrune/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@wayrune/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@wayrune/observability':
         specifier: workspace:*
         version: link:../../packages/observability

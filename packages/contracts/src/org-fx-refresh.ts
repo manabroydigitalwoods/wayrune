@@ -196,3 +196,65 @@ export function mergeOrgFxRatesAfterRefresh(
   }
   return out;
 }
+
+/** Default max age before worker auto-refresh (7 days). */
+export const FX_AUTO_REFRESH_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+function asSettingsRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+/** Read `settingsJson.fxRatesMeta` when present. */
+export function parseOrgFxRatesMeta(
+  settingsJson: unknown,
+): OrgFxRatesMeta | null {
+  const meta = asSettingsRecord(settingsJson).fxRatesMeta;
+  if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return null;
+  const o = meta as Record<string, unknown>;
+  const fetchedAt =
+    typeof o.fetchedAt === 'string' ? o.fetchedAt : undefined;
+  if (!fetchedAt && o.source !== 'frankfurter') return null;
+  return {
+    fetchedAt: fetchedAt || '',
+    source: 'frankfurter',
+    asOf: typeof o.asOf === 'string' ? o.asOf : undefined,
+    baseCurrency:
+      typeof o.baseCurrency === 'string' ? o.baseCurrency : '',
+    refreshed: Array.isArray(o.refreshed)
+      ? o.refreshed.filter((x): x is string => typeof x === 'string')
+      : [],
+    skipped: Array.isArray(o.skipped)
+      ? o.skipped.filter((x): x is string => typeof x === 'string')
+      : [],
+  };
+}
+
+/** True when meta is missing/invalid or older than maxAgeMs. */
+export function fxAutoRefreshDue(
+  meta: { fetchedAt?: string | null } | null | undefined,
+  now: Date = new Date(),
+  maxAgeMs: number = FX_AUTO_REFRESH_MAX_AGE_MS,
+): boolean {
+  const raw = meta?.fetchedAt;
+  if (!raw || typeof raw !== 'string') return true;
+  const t = Date.parse(raw);
+  if (!Number.isFinite(t)) return true;
+  return now.getTime() - t >= maxAgeMs;
+}
+
+/** Merge Frankfurter result into org settingsJson (fxRates + fxRatesMeta). */
+export function applyFxRefreshToSettingsJson(
+  settingsJson: unknown,
+  fetched: FetchOrgFxRatesResult,
+): Record<string, unknown> {
+  const settings = asSettingsRecord(settingsJson);
+  const priorFx = asSettingsRecord(settings.fxRates);
+  const fxRates = mergeOrgFxRatesAfterRefresh(priorFx, fetched.rates);
+  return {
+    ...settings,
+    fxRates,
+    fxRatesMeta: fetched.meta,
+  };
+}

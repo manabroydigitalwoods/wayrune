@@ -37,8 +37,8 @@ import {
 } from './agency-starter-pack';
 import {
   fetchFrankfurterOrgFxRates,
-  mergeOrgFxRatesAfterRefresh,
-} from './org-fx-refresh';
+  applyFxRefreshToSettingsJson,
+} from '@wayrune/contracts';
 import {
   defaultValidUntilDate,
   syncTermsWithValidUntil,
@@ -419,13 +419,8 @@ export class OrganizationsService {
     }
 
     const settings = asRecord(org.settingsJson);
-    const priorFx = asRecord(settings.fxRates);
-    const fxRates = mergeOrgFxRatesAfterRefresh(priorFx, fetched.rates);
-    const nextSettings = {
-      ...settings,
-      fxRates,
-      fxRatesMeta: fetched.meta,
-    };
+    const nextSettings = applyFxRefreshToSettingsJson(settings, fetched);
+    const fxRates = nextSettings.fxRates as Record<string, number>;
 
     const updated = await this.prisma.organization.update({
       where: { id: organizationId },

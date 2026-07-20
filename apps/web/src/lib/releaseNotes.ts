@@ -27,6 +27,14 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-fx-auto-cron',
+    date: '2026-07-20',
+    title: 'Weekly FX auto-refresh',
+    summary:
+      'Worker refreshes org FX rates from Frankfurter when the last fetch is missing or older than seven days. AED stays skipped with prior values kept; failures leave rates unchanged.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-refund-request-approve',
     date: '2026-07-20',
     title: 'Refund request → approve → settle',

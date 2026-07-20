@@ -1,11 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  applyFxRefreshToSettingsJson,
   fetchFrankfurterOrgFxRates,
+  fxAutoRefreshDue,
   invertFrankfurterRates,
   mergeOrgFxRatesAfterRefresh,
+  parseOrgFxRatesMeta,
   planOrgFxRefresh,
   roundOrgFxRate,
-} from './org-fx-refresh';
+} from '@wayrune/contracts';
 
 describe('org-fx-refresh', () => {
   it('inverts foreign-per-base into base-per-foreign', () => {
@@ -72,5 +75,36 @@ describe('org-fx-refresh', () => {
     await expect(
       fetchFrankfurterOrgFxRates({ baseCurrency: 'INR', fetchImpl }),
     ).rejects.toThrow(/502/);
+  });
+
+  it('marks auto-refresh due when meta missing or stale', () => {
+    const now = new Date('2026-07-20T12:00:00.000Z');
+    expect(fxAutoRefreshDue(null, now)).toBe(true);
+    expect(fxAutoRefreshDue({ fetchedAt: 'not-a-date' }, now)).toBe(true);
+    expect(
+      fxAutoRefreshDue({ fetchedAt: '2026-07-10T12:00:00.000Z' }, now),
+    ).toBe(true);
+    expect(
+      fxAutoRefreshDue({ fetchedAt: '2026-07-18T12:00:00.000Z' }, now),
+    ).toBe(false);
+  });
+
+  it('applies refresh into settingsJson without inventing rates on empty fetch', () => {
+    const next = applyFxRefreshToSettingsJson(
+      { fxRates: { USD: 83, AED: 22 }, other: true },
+      {
+        rates: { USD: 90 },
+        meta: {
+          fetchedAt: '2026-07-20T00:00:00.000Z',
+          source: 'frankfurter',
+          baseCurrency: 'INR',
+          refreshed: ['USD'],
+          skipped: ['AED'],
+        },
+      },
+    );
+    expect(next.fxRates).toEqual({ USD: 90, AED: 22 });
+    expect(next.other).toBe(true);
+    expect(parseOrgFxRatesMeta(next)?.refreshed).toEqual(['USD']);
   });
 });

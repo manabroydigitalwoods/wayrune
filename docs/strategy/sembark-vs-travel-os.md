@@ -1738,7 +1738,17 @@ Protocol for claim flip (ops, not engineering):
 | **2 Channels / UI** | **Done** | Settings → General **Refresh from market** + last-fetched cue; toast lists refreshed / kept codes |
 | **3 Proof** | **Done** | `org-fx-refresh` + cue helper specs; this ladder in memo |
 
-**Defer:** auto-refresh cron; live fetch inside quote Lock FX; paid providers; *(cross-pair closed — see Cross-pair FX convert)*; portfolio FX rollup; AED via another feed.
+**Defer:** *(closed — see FX auto-cron below)* · live fetch inside quote Lock FX; paid providers; *(cross-pair closed — see Cross-pair FX convert)*; portfolio FX rollup; AED via another feed.
+
+#### Prod-ready ladder — FX auto-cron (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | Worker hourly tick; refresh when `fxRatesMeta.fetchedAt` missing/older than 7d; Frankfurter fail → log + skip write; AED skip/prior keep |
+| **2 Channels / UI** | **Done** | Settings meta cue unchanged (shows last auto/manual fetch) |
+| **3 Proof** | **Done** | `fxAutoRefreshDue` + apply specs; About note; this ladder in memo |
+
+**Defer:** live fetch inside quote Lock FX; paid FX APIs; true hourly rate writes; per-org disable cron; AED feed.
 
 #### Prod-ready ladder — Inbox / WA: Quote proposal template designation (**done**)
 

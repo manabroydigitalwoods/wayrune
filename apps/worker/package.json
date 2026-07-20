@@ -13,6 +13,7 @@
   "dependencies": {
     "@prisma/client": "^6.1.0",
     "@wayrune/config": "workspace:*",
+    "@wayrune/contracts": "workspace:*",
     "@wayrune/observability": "workspace:*",
     "bullmq": "^5.34.5",
     "ioredis": "^5.4.2",

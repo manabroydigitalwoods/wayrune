@@ -12,6 +12,7 @@ import {
   resolveCsvAttachmentsFromPayload,
   runFinanceReportPackDeliveries,
 } from './finance-report-pack-delivery';
+import { runOrgFxAutoRefresh } from './org-fx-auto-refresh';
 import { runUnreadSlaAutomations } from './unread-sla-automation';
 
 bootstrapEnv();
@@ -834,6 +835,14 @@ async function main() {
   }, 60 * 60 * 1000);
 
   setInterval(() => {
+    runOrgFxAutoRefresh({ prisma, log: logger }).catch((err) =>
+      logger.error('Org FX auto-refresh failed', {
+        message: err instanceof Error ? err.message : String(err),
+      }),
+    );
+  }, 60 * 60 * 1000);
+
+  setInterval(() => {
     runUnreadSlaAutomations({ prisma, log: logger }).catch((err) =>
       logger.error('Unread SLA automation failed', {
         message: err instanceof Error ? err.message : String(err),
@@ -849,6 +858,11 @@ async function main() {
     sendEmail,
     log: logger,
   });
+  await runOrgFxAutoRefresh({ prisma, log: logger }).catch((err) =>
+    logger.error('Org FX auto-refresh failed', {
+      message: err instanceof Error ? err.message : String(err),
+    }),
+  );
   await runUnreadSlaAutomations({ prisma, log: logger }).catch((err) =>
     logger.error('Unread SLA automation failed', {
       message: err instanceof Error ? err.message : String(err),
