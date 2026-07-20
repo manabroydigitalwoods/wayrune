@@ -5803,6 +5803,9 @@ export function TripWorkspacePage() {
                 ? Number(trip.party.creditLimit)
                 : null
             }
+            tripStartDate={
+              trip.startDate ? String(trip.startDate).slice(0, 10) : null
+            }
             onChanged={load}
           />
         </TabsContent>

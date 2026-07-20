@@ -1,7 +1,6 @@
 import {
-  dueDateFromPaymentTerms,
   formatPaymentTermsDueDate,
-  parsePaymentTermsNetDays,
+  parsePaymentTermsDueRule,
 } from './payment-terms';
 
 export type InstalmentScheduleStepInput = {
@@ -104,7 +103,7 @@ export function percentStepsFromTermsText(
   return null;
 }
 
-/** Balance due: Net N from trip start, else trip start, else fromDate + Net N, else fromDate. */
+/** Balance due: offset terms from trip start (else today); trip-relative → travel start. */
 export function balanceDueDateFromTerms(input: {
   partyPaymentTerms?: string | null;
   tripStartDate?: string | Date | null;
@@ -113,11 +112,17 @@ export function balanceDueDateFromTerms(input: {
   const from = input.fromDate ?? new Date();
   const tripStart = asLocalDate(input.tripStartDate);
   const anchor = tripStart ?? from;
-  const netDays = parsePaymentTermsNetDays(input.partyPaymentTerms);
-  if (netDays != null) {
+  const rule = parsePaymentTermsDueRule(input.partyPaymentTerms);
+  if (rule?.kind === 'offset') {
     return formatPaymentTermsDueDate(input.partyPaymentTerms, anchor);
   }
-  if (tripStart) return formatLocalDate(tripStart);
+  if (rule?.kind === 'trip_start' || tripStart) {
+    return tripStart
+      ? formatLocalDate(tripStart)
+      : formatLocalDate(
+          new Date(from.getFullYear(), from.getMonth(), from.getDate()),
+        );
+  }
   return formatLocalDate(
     new Date(from.getFullYear(), from.getMonth(), from.getDate()),
   );
@@ -189,14 +194,17 @@ export function instalmentScheduleSourceLabel(input: {
   usedTermsPercents: boolean;
   partyPaymentTerms?: string | null;
 }): string {
+  const rule = parsePaymentTermsDueRule(input.partyPaymentTerms);
   const dueHint =
-    parsePaymentTermsNetDays(input.partyPaymentTerms) != null
-      ? `balance due per ${input.partyPaymentTerms?.trim()}`
-      : 'balance due on trip start';
+    rule?.kind === 'trip_start'
+      ? 'balance due on travel start'
+      : rule?.kind === 'offset'
+        ? `balance due per ${input.partyPaymentTerms?.trim()}`
+        : 'balance due on trip start';
   if (input.usedStorySteps) return `From proposal payment schedule · ${dueHint}`;
   if (input.usedTermsPercents) return `From quote terms % · ${dueHint}`;
   return `Default Advance 50% / Balance 50% · ${dueHint}`;
 }
 
 /** Re-export for callers that only need due math. */
-export { dueDateFromPaymentTerms };
+export { dueDateFromPaymentTerms } from './payment-terms';

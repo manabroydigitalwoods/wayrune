@@ -292,7 +292,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Finance + customer hub credit cues; trip control **over credit limit** flag; `GET /parties/:id/credit-status` |
 | **3 Proof** | **Done** | `party-credit-limit.spec` + `party-credit-limit` (API) + trip-control flag spec; this ladder in memo |
 
-**Defer:** *(closed — see Instalment schedules from terms below)* · non-Net custom terms parsing; *(per-party markup — see Per-party markup override above)*.
+**Defer:** *(closed — see Instalment schedules from terms + Non-Net custom terms parsing below)* · *(per-party markup — see Per-party markup override above)*.
 
 #### Prod-ready ladder — Instalment schedules from terms (**done**)
 
@@ -302,7 +302,17 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Finance **Schedule from terms** preview → confirm; source label + due rows |
 | **3 Proof** | **Done** | `instalment-schedule.spec` (contracts + API smoke); this ladder in memo |
 
-**Defer:** non-Net custom terms parsing; auto-schedule on quote accept (explicitly out — staff action only).
+**Defer:** *(closed — see Non-Net custom terms parsing below)* · auto-schedule on quote accept (explicitly out — staff action only).
+
+#### Prod-ready ladder — Non-Net custom terms parsing (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `parsePaymentTermsDueRule` — COD/immediate, Due in N / Within N / N days, Before travel / On arrival; `createPayment` stamps due with trip start for travel-relative terms |
+| **2 Channels / UI** | **Done** | Customer hub presets (COD, Due in 7, Before travel, On arrival); Finance cue + receivable due prefill use trip start |
+| **3 Proof** | **Done** | `payment-terms.spec` + `payment-terms-due.spec` + web `paymentTerms.test`; this ladder in memo |
+
+**Defer:** free-form NLP / End-of-month; auto-schedule on quote accept (explicitly out).
 
 #### Prod-ready ladder — Claim readiness ops panel (**done**)
 

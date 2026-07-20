@@ -185,10 +185,12 @@ function emptyPaymentForm(
   orgCurrency: string,
   direction: 'customer' | 'supplier' = 'customer',
   partyPaymentTerms?: string | null,
+  tripStartDate?: string | null,
 ) {
   const dueAt =
     direction === 'customer'
-      ? formatPaymentTermsDueDate(partyPaymentTerms) || ''
+      ? formatPaymentTermsDueDate(partyPaymentTerms, new Date(), tripStartDate) ||
+        ''
       : '';
   return {
     direction,
@@ -210,6 +212,7 @@ export function FinancePanel({
   orgCurrency: orgCurrencyProp,
   partyPaymentTerms,
   partyCreditLimit,
+  tripStartDate,
   onChanged,
 }: {
   tripId: string;
@@ -217,6 +220,7 @@ export function FinancePanel({
   orgCurrency?: string;
   partyPaymentTerms?: string | null;
   partyCreditLimit?: number | null;
+  tripStartDate?: string | null;
   onChanged: () => Promise<void> | void;
 }) {
   const { hasAny } = usePermissions();
@@ -229,7 +233,12 @@ export function FinancePanel({
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [editingPaymentId, setEditingPaymentId] = useState<string | null>(null);
   const [paymentForm, setPaymentForm] = useState(() =>
-    emptyPaymentForm(orgCurrencyProp || 'INR', 'customer', partyPaymentTerms),
+    emptyPaymentForm(
+      orgCurrencyProp || 'INR',
+      'customer',
+      partyPaymentTerms,
+      tripStartDate,
+    ),
   );
   const [paymentSubmitting, setPaymentSubmitting] = useState(false);
   const [chaseBusyId, setChaseBusyId] = useState<string | null>(null);
@@ -318,12 +327,16 @@ export function FinancePanel({
   function openNewPayment(direction: 'customer' | 'supplier') {
     setEditingPaymentId(null);
     setPaymentForm(
-      emptyPaymentForm(orgCurrency, direction, partyPaymentTerms),
+      emptyPaymentForm(orgCurrency, direction, partyPaymentTerms, tripStartDate),
     );
     setPaymentOpen(true);
   }
 
-  const partyTermsCue = paymentTermsDueCue(partyPaymentTerms);
+  const partyTermsCue = paymentTermsDueCue(
+    partyPaymentTerms,
+    new Date(),
+    tripStartDate,
+  );
   const partyCreditCue =
     data?.partyCredit != null
       ? partyCreditLimitCue(data.partyCredit, orgCurrency)

@@ -84,10 +84,17 @@ describe('buildCustomerInstalmentPlan', () => {
 });
 
 describe('balanceDueDateFromTerms', () => {
-  it('falls back to trip start when terms are not Net', () => {
+  it('anchors COD offset and trip-relative terms to travel start', () => {
     expect(
       balanceDueDateFromTerms({
         partyPaymentTerms: 'COD',
+        tripStartDate: '2026-08-10',
+        fromDate: new Date(2026, 6, 1),
+      }),
+    ).toBe('2026-08-10');
+    expect(
+      balanceDueDateFromTerms({
+        partyPaymentTerms: 'Before travel',
         tripStartDate: '2026-08-10',
         fromDate: new Date(2026, 6, 1),
       }),

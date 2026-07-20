@@ -2755,6 +2755,7 @@ export class OperationsService {
         where: { id: tripId, organizationId: user.organizationId },
         select: {
           partyId: true,
+          startDate: true,
           party: { select: { paymentTerms: true } },
         },
       }),
@@ -2774,7 +2775,11 @@ export class OperationsService {
       input.direction === 'customer' &&
       trip?.party?.paymentTerms?.trim()
     ) {
-      dueAt = dueDateFromPaymentTerms(trip.party.paymentTerms);
+      dueAt = dueDateFromPaymentTerms(
+        trip.party.paymentTerms,
+        new Date(),
+        trip.startDate,
+      );
     }
     const status = this.computePaymentStatus({
       status: 'scheduled',

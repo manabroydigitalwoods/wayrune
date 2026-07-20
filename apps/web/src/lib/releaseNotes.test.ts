@@ -44,11 +44,14 @@ describe('releaseNotes', () => {
     ).toBe(true);
     // Newest array entries surface first on the About strip.
     const top = visibleReleaseNotes(RELEASE_NOTES, { limit: 5 });
-    expect(top[0]?.id).toBe('2026-07-20-instalment-schedule-from-terms');
-    expect(top[1]?.id).toBe('2026-07-20-party-markup-override');
-    expect(top[2]?.id).toBe('2026-07-20-credit-limit-gates');
-    expect(top[3]?.id).toBe('2026-07-20-markup-preset-library');
-    expect(top[4]?.id).toBe('2026-07-20-credit-terms-automation');
+    expect(top[0]?.id).toBe('2026-07-20-non-net-payment-terms');
+    expect(top[1]?.id).toBe('2026-07-20-instalment-schedule-from-terms');
+    expect(top[2]?.id).toBe('2026-07-20-party-markup-override');
+    expect(top[3]?.id).toBe('2026-07-20-credit-limit-gates');
+    expect(top[4]?.id).toBe('2026-07-20-markup-preset-library');
+    expect(
+      allBuyer.some((n) => n.id === '2026-07-20-credit-terms-automation'),
+    ).toBe(true);
     expect(
       allBuyer.some((n) => n.id === '2026-07-20-cancellation-refund-settle'),
     ).toBe(true);

@@ -27,6 +27,14 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-non-net-payment-terms',
+    date: '2026-07-20',
+    title: 'Non-Net payment terms auto due dates',
+    summary:
+      'Party terms like COD, Due in N days, Before travel, and On arrival now auto-stamp receivable due dates (Finance prefill + createPayment). Travel-relative terms use the trip start date; unrecognized free text still stays manual.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-instalment-schedule-from-terms',
     date: '2026-07-20',
     title: 'Schedule customer instalments from terms',

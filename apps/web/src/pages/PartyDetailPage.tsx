@@ -70,6 +70,10 @@ const PAYMENT_TERMS_PRESETS = [
   { value: 'Net 30', label: 'Net 30' },
   { value: 'Net 45', label: 'Net 45' },
   { value: 'Pay on confirm', label: 'On confirm' },
+  { value: 'COD', label: 'COD' },
+  { value: 'Due in 7 days', label: 'Due in 7' },
+  { value: 'Before travel', label: 'Before travel' },
+  { value: 'On arrival', label: 'On arrival' },
 ] as const;
 
 function journeyOutcomeLabel(outcome: string) {
