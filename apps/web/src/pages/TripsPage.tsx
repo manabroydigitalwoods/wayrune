@@ -65,7 +65,9 @@ import {
   tripsEmptyShowInstallPack,
 } from '../lib/agencyFitPack';
 import { Can } from '../components/Can';
+import { PackageFolderTree } from '../components/agency/PackageFolderTree';
 import { CAP } from '../lib/capabilities';
+import { usePermissions } from '../lib/permissions';
 import { TRIP_STATUS_OPTIONS, tripStatusLabel } from '../lib/agencyStatusLabels';
 import {
   TRIPS_PAGE_COPY,
@@ -154,6 +156,8 @@ export function TripsPage() {
   const statusFromUrl =
     variant === 'quotations' ? 'quoted' : variant === 'drafts' ? 'draft' : undefined;
   const showNewTrip = useCanonicalCreateVisibility('trip');
+  const { hasAny } = usePermissions();
+  const canQuoteWrite = hasAny(CAP.quoteWrite);
   const [searchParams] = useSearchParams();
   const [items, setItems] = useState<Trip[]>([]);
   const [loading, setLoading] = useState(true);
@@ -307,16 +311,6 @@ export function TripsPage() {
     [packageFolderIndex, packageFolderFilter],
   );
 
-  const packageFolderIsEmpty = useMemo(
-    () =>
-      Boolean(packageFolderFilter.trim()) &&
-      !templatesUnderFolder(
-        templates.map((t) => t.content?.folder),
-        packageFolderFilter,
-      ),
-    [templates, packageFolderFilter],
-  );
-
   useEffect(() => {
     setForm((prev) => {
       const nextId = clearTemplateIdIfFilteredOut(
@@ -360,12 +354,18 @@ export function TripsPage() {
       from,
     );
     if (next == null) return;
+    await applyPackageFolderRename(from, next);
+  }
+
+  async function applyPackageFolderRename(fromFolder: string, toFolderRaw: string) {
+    const from = normalizeTemplateFolderLabel(fromFolder);
+    if (!from) return;
     try {
       const res = await api<{ updated: number; toFolder: string | null }>(
         '/quote-templates/rename-folder',
         {
           method: 'POST',
-          body: JSON.stringify({ fromFolder: from, toFolder: next }),
+          body: JSON.stringify({ fromFolder: from, toFolder: toFolderRaw }),
         },
       );
       toastSuccess(
@@ -373,7 +373,7 @@ export function TripsPage() {
           ? `Updated ${res.updated} package${res.updated === 1 ? '' : 's'}`
           : 'No packages in that folder',
       );
-      const to = normalizeTemplateFolderLabel(res.toFolder ?? next) || '';
+      const to = normalizeTemplateFolderLabel(res.toFolder ?? toFolderRaw) || '';
       setPackageFolderFilter(to);
       await loadTemplates();
     } catch (e) {
@@ -996,75 +996,47 @@ export function TripsPage() {
                           New folder…
                         </button>
                       </Can>
-                      {packageFolderFilter.trim() ? (
-                        <Can anyOf={CAP.quoteWrite}>
-                          <button
-                            type="button"
-                            className="rounded border border-border/60 px-1.5 py-px font-medium text-muted-foreground hover:bg-muted/80"
-                            onClick={() =>
-                              void renamePackageFolder(packageFolderFilter)
-                            }
-                          >
-                            Rename folder…
-                          </button>
-                          {packageFolderIsEmpty ? (
+                    </div>
+                    <PackageFolderTree
+                      folders={packageFolderIndex}
+                      selectedPath={packageFolderFilter}
+                      canWrite={canQuoteWrite}
+                      onSelect={setPackageFolderFilter}
+                      onMove={(from, to) => void applyPackageFolderRename(from, to)}
+                      onRename={(path) => void renamePackageFolder(path)}
+                      onRemoveEmpty={(path) => void removeEmptyPackageFolder(path)}
+                      isEmptyFolder={(path) =>
+                        !templatesUnderFolder(
+                          templates.map((t) => t.content?.folder),
+                          path,
+                        )
+                      }
+                    />
+                    {packageMetaChips.tags.length ? (
+                      <div className="flex flex-wrap gap-1">
+                        {packageMetaChips.tags.map((tag) => {
+                          const active =
+                            packageTagFilter.trim().toLowerCase() ===
+                            tag.toLowerCase();
+                          return (
                             <button
+                              key={`tag-${tag}`}
                               type="button"
-                              className="rounded border border-border/60 px-1.5 py-px font-medium text-muted-foreground hover:bg-muted/80"
+                              className={
+                                active
+                                  ? 'rounded bg-muted px-1.5 py-px text-[10px] font-medium text-foreground ring-1 ring-border'
+                                  : 'rounded bg-muted px-1.5 py-px text-[10px] font-medium text-muted-foreground hover:bg-muted/80'
+                              }
                               onClick={() =>
-                                void removeEmptyPackageFolder(packageFolderFilter)
+                                setPackageTagFilter(active ? '' : tag)
                               }
                             >
-                              Remove empty…
+                              {tag}
                             </button>
-                          ) : null}
-                        </Can>
-                      ) : null}
-                    </div>
-                    <div className="flex flex-wrap gap-1">
-                      {packageFolderNav.children.map((folder) => {
-                        const active =
-                          packageFolderFilter.trim().toLowerCase() ===
-                          folder.toLowerCase();
-                        const label = folder.includes('/')
-                          ? folder.slice(folder.lastIndexOf('/') + 1)
-                          : folder;
-                        return (
-                          <button
-                            key={`folder-${folder}`}
-                            type="button"
-                            className={
-                              active
-                                ? 'rounded bg-primary/20 px-1.5 py-px text-[10px] font-medium text-primary'
-                                : 'rounded bg-primary/10 px-1.5 py-px text-[10px] font-medium text-primary hover:bg-primary/15'
-                            }
-                            onClick={() =>
-                              setPackageFolderFilter(active ? '' : folder)
-                            }
-                          >
-                            {label}
-                          </button>
-                        );
-                      })}
-                      {packageMetaChips.tags.map((tag) => {
-                        const active =
-                          packageTagFilter.trim().toLowerCase() === tag.toLowerCase();
-                        return (
-                          <button
-                            key={`tag-${tag}`}
-                            type="button"
-                            className={
-                              active
-                                ? 'rounded bg-muted px-1.5 py-px text-[10px] font-medium text-foreground ring-1 ring-border'
-                                : 'rounded bg-muted px-1.5 py-px text-[10px] font-medium text-muted-foreground hover:bg-muted/80'
-                            }
-                            onClick={() => setPackageTagFilter(active ? '' : tag)}
-                          >
-                            {tag}
-                          </button>
-                        );
-                      })}
-                    </div>
+                          );
+                        })}
+                      </div>
+                    ) : null}
                   </div>
               </div>
             ) : (

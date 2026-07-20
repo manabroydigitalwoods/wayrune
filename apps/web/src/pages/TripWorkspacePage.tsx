@@ -131,6 +131,7 @@ import {
   type PlaceRef,
 } from '../lib/placeRefs';
 import { PlaceMultiPicker } from '../components/places/PlacePicker';
+import { PackageFolderTree } from '../components/agency/PackageFolderTree';
 import { OperationsPanel } from '../components/trips/OperationsPanel';
 import { FinancePanel } from '../components/trips/FinancePanel';
 import { TripControlCentre } from '../components/trips/TripControlCentre';
@@ -2315,12 +2316,21 @@ export function TripWorkspacePage() {
       from,
     );
     if (next == null) return;
+    await applyQuoteTemplateFolderRename(from, next);
+  }
+
+  async function applyQuoteTemplateFolderRename(
+    fromFolder: string,
+    toFolderRaw: string,
+  ) {
+    const from = normalizeTemplateFolderLabel(fromFolder);
+    if (!from) return;
     try {
       const res = await api<{ updated: number; toFolder: string | null }>(
         '/quote-templates/rename-folder',
         {
           method: 'POST',
-          body: JSON.stringify({ fromFolder: from, toFolder: next }),
+          body: JSON.stringify({ fromFolder: from, toFolder: toFolderRaw }),
         },
       );
       toastSuccess(
@@ -2329,7 +2339,7 @@ export function TripWorkspacePage() {
           : 'No packages in that folder',
       );
       setTemplateFolderFilter(
-        normalizeTemplateFolderLabel(res.toFolder ?? next) || '',
+        normalizeTemplateFolderLabel(res.toFolder ?? toFolderRaw) || '',
       );
       await loadQuoteTemplates();
     } catch (e) {
@@ -6620,12 +6630,6 @@ export function TripWorkspacePage() {
               packageFolderIndex,
               templateFolderFilter,
             );
-            const folderIsEmpty =
-              Boolean(templateFolderFilter.trim()) &&
-              !templatesUnderFolder(
-                quoteTemplates.map((t) => t.content?.folder),
-                templateFolderFilter,
-              );
             const rows = [...quoteTemplates]
               .map((t) => {
                 const lineCount = Array.isArray(t.content?.items) ? t.content.items.length : 0;
@@ -6694,32 +6698,6 @@ export function TripWorkspacePage() {
                         </span>
                       );
                     })}
-                    {templateFolderFilter.trim() && canQuoteWrite ? (
-                      <>
-                        <button
-                          type="button"
-                          className="ml-1 rounded border border-border/60 px-1.5 py-px font-medium text-muted-foreground hover:bg-muted/80"
-                          onClick={() =>
-                            void renameQuoteTemplateFolder(templateFolderFilter)
-                          }
-                        >
-                          Rename folder…
-                        </button>
-                        {folderIsEmpty ? (
-                          <button
-                            type="button"
-                            className="rounded border border-border/60 px-1.5 py-px font-medium text-muted-foreground hover:bg-muted/80"
-                            onClick={() =>
-                              void removeEmptyQuoteTemplateFolder(
-                                templateFolderFilter,
-                              )
-                            }
-                          >
-                            Remove empty…
-                          </button>
-                        ) : null}
-                      </>
-                    ) : null}
                   </div>
                 ) : null}
                 {canQuoteWrite ? (
@@ -6733,34 +6711,25 @@ export function TripWorkspacePage() {
                     </button>
                   </div>
                 ) : null}
-                {folderNav.children.length ? (
-                  <div className="flex flex-wrap gap-1">
-                    {folderNav.children.map((folder) => {
-                      const active =
-                        templateFolderFilter.trim().toLowerCase() ===
-                        folder.toLowerCase();
-                      const label = folder.includes('/')
-                        ? folder.slice(folder.lastIndexOf('/') + 1)
-                        : folder;
-                      return (
-                        <button
-                          key={`nav-${folder}`}
-                          type="button"
-                          className={
-                            active
-                              ? 'rounded bg-primary/20 px-1.5 py-px text-[10px] font-medium text-primary'
-                              : 'rounded bg-primary/10 px-1.5 py-px text-[10px] font-medium text-primary hover:bg-primary/15'
-                          }
-                          onClick={() =>
-                            setTemplateFolderFilter(active ? '' : folder)
-                          }
-                        >
-                          {label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : null}
+                <PackageFolderTree
+                  folders={packageFolderIndex}
+                  selectedPath={templateFolderFilter}
+                  canWrite={canQuoteWrite}
+                  onSelect={setTemplateFolderFilter}
+                  onMove={(from, to) =>
+                    void applyQuoteTemplateFolderRename(from, to)
+                  }
+                  onRename={(path) => void renameQuoteTemplateFolder(path)}
+                  onRemoveEmpty={(path) =>
+                    void removeEmptyQuoteTemplateFolder(path)
+                  }
+                  isEmptyFolder={(path) =>
+                    !templatesUnderFolder(
+                      quoteTemplates.map((t) => t.content?.folder),
+                      path,
+                    )
+                  }
+                />
               </div>
             {rows.length === 0 ? (
                 <p className="text-sm text-muted-foreground">

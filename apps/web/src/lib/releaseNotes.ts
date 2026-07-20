@@ -27,6 +27,14 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-package-folder-dnd',
+    date: '2026-07-20',
+    title: 'Package folder drag-drop tree',
+    summary:
+      'Expandable folder tree on new-trip and Use-template pickers. Drag a folder onto another folder or All folders to move via rename-folder; Rename/Remove stay on the selected node.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-auto-extend-min-stay',
     date: '2026-07-20',
     title: 'Auto-extend check-out to meet min stay',

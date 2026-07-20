@@ -149,3 +149,93 @@ export function templatesUnderFolder(
     return fl === ql || fl.startsWith(`${ql}/`);
   });
 }
+
+export type FolderTreeNode = {
+  path: string;
+  label: string;
+  children: FolderTreeNode[];
+};
+
+/** Drop target id for library root in the folder tree. */
+export const FOLDER_TREE_ROOT_ID = '__folder_root__';
+
+export function folderLeafLabel(path: string): string {
+  const n = normalizeTemplateFolderLabel(path) || '';
+  if (!n) return '';
+  const i = n.lastIndexOf('/');
+  return i >= 0 ? n.slice(i + 1) : n;
+}
+
+/** Nested folder tree from unique full paths (includes ancestor shelves). */
+export function buildFolderTree(
+  folders: Array<string | null | undefined>,
+): FolderTreeNode[] {
+  type Mutable = { path: string; label: string; children: Map<string, Mutable> };
+  const root = new Map<string, Mutable>();
+
+  const ensurePath = (full: string) => {
+    const segs = folderPathSegments(full);
+    let level = root;
+    let prefix = '';
+    for (const label of segs) {
+      prefix = prefix ? `${prefix}/${label}` : label;
+      const key = label.toLowerCase();
+      let node = level.get(key);
+      if (!node) {
+        node = { path: prefix, label, children: new Map() };
+        level.set(key, node);
+      }
+      level = node.children;
+    }
+  };
+
+  for (const raw of folders) {
+    const n = normalizeTemplateFolderLabel(raw);
+    if (!n) continue;
+    const segs = folderPathSegments(n);
+    for (let depth = 1; depth <= segs.length; depth++) {
+      ensurePath(segs.slice(0, depth).join('/'));
+    }
+  }
+
+  const toNodes = (map: Map<string, Mutable>): FolderTreeNode[] =>
+    [...map.values()]
+      .sort((a, b) => a.label.localeCompare(b.label))
+      .map((n) => ({
+        path: n.path,
+        label: n.label,
+        children: toNodes(n.children),
+      }));
+
+  return toNodes(root);
+}
+
+/**
+ * Drop folder `fromFolder` onto `dropOnFolder` (empty = root).
+ * Moves the leaf segment under the target; rejects self/descendant drops.
+ */
+export function computeFolderDropRename(opts: {
+  fromFolder: string;
+  dropOnFolder: string | null | undefined;
+}): { fromFolder: string; toFolder: string } | null {
+  const from = normalizeTemplateFolderLabel(opts.fromFolder);
+  if (!from) return null;
+  const leaf = folderLeafLabel(from);
+  if (!leaf) return null;
+
+  const dropRaw =
+    opts.dropOnFolder === FOLDER_TREE_ROOT_ID ? '' : opts.dropOnFolder;
+  const dropOn = normalizeTemplateFolderLabel(dropRaw) || '';
+
+  if (dropOn) {
+    const fl = from.toLowerCase();
+    const dl = dropOn.toLowerCase();
+    if (fl === dl || dl.startsWith(`${fl}/`)) return null;
+  }
+
+  const toFolder = dropOn
+    ? normalizeTemplateFolderLabel(`${dropOn}/${leaf}`)
+    : leaf;
+  if (!toFolder || toFolder.toLowerCase() === from.toLowerCase()) return null;
+  return { fromFolder: from, toFolder };
+}

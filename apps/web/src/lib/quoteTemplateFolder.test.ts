@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildFolderNav,
+  buildFolderTree,
+  computeFolderDropRename,
+  folderLeafLabel,
   folderPathPrefix,
   folderPathSegments,
   normalizeTemplateFolderLabel,
@@ -88,5 +91,54 @@ describe('quoteTemplateFolder', () => {
     ).toBe(true);
     expect(templatesUnderFolder(['Beach/Goa'], 'Hill stations')).toBe(false);
     expect(templatesUnderFolder(['Beach'], 'Beach')).toBe(true);
+  });
+
+  it('builds nested folder tree', () => {
+    const tree = buildFolderTree([
+      'Hill stations/Darjeeling',
+      'Hill stations/Gangtok',
+      'Beach/Goa',
+      'Beach',
+    ]);
+    expect(tree.map((n) => n.path)).toEqual(['Beach', 'Hill stations']);
+    expect(tree[0].children.map((c) => c.path)).toEqual(['Beach/Goa']);
+    expect(tree[1].children.map((c) => c.path)).toEqual([
+      'Hill stations/Darjeeling',
+      'Hill stations/Gangtok',
+    ]);
+    expect(folderLeafLabel('Hill stations/Darjeeling')).toBe('Darjeeling');
+  });
+
+  it('maps drop onto folder/root to rename payload', () => {
+    expect(
+      computeFolderDropRename({
+        fromFolder: 'Hill stations/Darjeeling',
+        dropOnFolder: 'Beach',
+      }),
+    ).toEqual({
+      fromFolder: 'Hill stations/Darjeeling',
+      toFolder: 'Beach/Darjeeling',
+    });
+    expect(
+      computeFolderDropRename({
+        fromFolder: 'Hill stations/Darjeeling',
+        dropOnFolder: '',
+      }),
+    ).toEqual({
+      fromFolder: 'Hill stations/Darjeeling',
+      toFolder: 'Darjeeling',
+    });
+    expect(
+      computeFolderDropRename({
+        fromFolder: 'Hill stations',
+        dropOnFolder: 'Hill stations/Darjeeling',
+      }),
+    ).toBeNull();
+    expect(
+      computeFolderDropRename({
+        fromFolder: 'Beach/Goa',
+        dropOnFolder: 'Beach',
+      }),
+    ).toBeNull();
   });
 });

@@ -536,7 +536,17 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | New-trip + Use-template **New folder…** / **Remove empty…**; nav uses index ∪ templates |
 | **3 Proof** | **Done** | folder-index + templatesUnderFolder specs; About note; this ladder in memo |
 
-**Defer:** drag-drop tree CRUD.
+**Defer:** *(closed — see Package folder drag-drop tree below)*
+
+#### Prod-ready ladder — Package folder drag-drop tree (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | Tree build + drop→`rename-folder` payload helpers (`buildFolderTree`, `computeFolderDropRename`); self/descendant drops rejected |
+| **2 Channels / UI** | **Done** | Expandable `@dnd-kit` folder tree on new-trip + Use-template pickers; drag folder onto folder/root; Rename/Remove on selected node |
+| **3 Proof** | **Done** | Tree + drop-rename specs; About note; this ladder in memo |
+
+**Defer:** template-row DnD; sibling sort persistence; cascade delete packages; dedicated Packages page.
 
 #### Prod-ready ladder — Quote post-expiry grace (**done**)
 
