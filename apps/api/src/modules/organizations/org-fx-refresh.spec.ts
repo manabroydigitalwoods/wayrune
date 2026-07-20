@@ -8,6 +8,7 @@ import {
   parseOrgFxRatesMeta,
   planOrgFxRefresh,
   roundOrgFxRate,
+  tryRefreshOrgFxForLock,
 } from '@wayrune/contracts';
 
 describe('org-fx-refresh', () => {
@@ -106,5 +107,37 @@ describe('org-fx-refresh', () => {
     expect(next.fxRates).toEqual({ USD: 90, AED: 22 });
     expect(next.other).toBe(true);
     expect(parseOrgFxRatesMeta(next)?.refreshed).toEqual(['USD']);
+  });
+
+  it('tryRefreshOrgFxForLock returns market or stale without inventing rates', async () => {
+    const okFetch = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        base: 'INR',
+        date: '2026-07-17',
+        rates: { USD: 0.01 },
+      }),
+    })) as unknown as typeof fetch;
+    const market = await tryRefreshOrgFxForLock({
+      baseCurrency: 'INR',
+      settingsJson: { fxRates: { USD: 83, AED: 22 } },
+      fetchImpl: okFetch,
+      now: new Date('2026-07-20T12:00:00.000Z'),
+    });
+    expect(market.status).toBe('market');
+    expect(market.settingsJson.fxRates).toMatchObject({ USD: 100, AED: 22 });
+
+    const badFetch = vi.fn(async () => ({
+      ok: false,
+      status: 503,
+      json: async () => ({}),
+    })) as unknown as typeof fetch;
+    const stale = await tryRefreshOrgFxForLock({
+      baseCurrency: 'INR',
+      settingsJson: { fxRates: { USD: 83, AED: 22 } },
+      fetchImpl: badFetch,
+    });
+    expect(stale.status).toBe('stale');
+    expect(stale.settingsJson.fxRates).toEqual({ USD: 83, AED: 22 });
   });
 });

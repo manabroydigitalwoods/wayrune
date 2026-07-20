@@ -42,6 +42,7 @@ import {
   resolvePartyMarkupStamp,
   resolveTripWindowDisplay,
   stampPartyMarkupOntoQuoteItems,
+  tryRefreshOrgFxForLock,
 } from '@wayrune/contracts';
 import { hashPassword } from '@wayrune/auth';
 import { loadEnv } from '@wayrune/config';
@@ -2682,8 +2683,22 @@ export class QuotationsService {
       select: { currency: true, settingsJson: true },
     });
     const baseCurrency = normalizeCurrency(org?.currency || 'INR');
+
+    const refreshed = await tryRefreshOrgFxForLock({
+      baseCurrency,
+      settingsJson: org?.settingsJson,
+    });
+    if (refreshed.status === 'market') {
+      await this.prisma.organization.update({
+        where: { id: user.organizationId },
+        data: {
+          settingsJson: refreshed.settingsJson as Prisma.InputJsonValue,
+        },
+      });
+    }
+
+    const orgFxRates = parseOrgFxRates(refreshed.settingsJson);
     const quoteCurrency = normalizeCurrency(input.quoteCurrency);
-    const orgFxRates = parseOrgFxRates(org?.settingsJson);
     let lock;
     try {
       lock = buildQuoteFxLock({
@@ -2773,12 +2788,14 @@ export class QuotationsService {
         rate: lock.rate,
         source: lock.source,
         convertCount,
+        fxRefresh: refreshed.status,
       },
     });
 
     return {
       ...this.presentVersion(user, updated),
       convertCount,
+      fxRefresh: refreshed.status,
     };
   }
 

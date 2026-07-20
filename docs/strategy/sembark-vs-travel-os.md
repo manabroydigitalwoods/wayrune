@@ -1738,7 +1738,7 @@ Protocol for claim flip (ops, not engineering):
 | **2 Channels / UI** | **Done** | Settings → General **Refresh from market** + last-fetched cue; toast lists refreshed / kept codes |
 | **3 Proof** | **Done** | `org-fx-refresh` + cue helper specs; this ladder in memo |
 
-**Defer:** *(closed — see FX auto-cron below)* · live fetch inside quote Lock FX; paid providers; *(cross-pair closed — see Cross-pair FX convert)*; portfolio FX rollup; AED via another feed.
+**Defer:** *(closed — see FX auto-cron below)* · *(closed — see Lock FX live fetch below)* · paid providers; *(cross-pair closed — see Cross-pair FX convert)*; portfolio FX rollup; AED via another feed.
 
 #### Prod-ready ladder — FX auto-cron (**done**)
 
@@ -1748,7 +1748,17 @@ Protocol for claim flip (ops, not engineering):
 | **2 Channels / UI** | **Done** | Settings meta cue unchanged (shows last auto/manual fetch) |
 | **3 Proof** | **Done** | `fxAutoRefreshDue` + apply specs; About note; this ladder in memo |
 
-**Defer:** live fetch inside quote Lock FX; paid FX APIs; true hourly rate writes; per-org disable cron; AED feed.
+**Defer:** *(closed — see Lock FX live fetch below)* · paid FX APIs; true hourly rate writes; per-org disable cron; AED feed.
+
+#### Prod-ready ladder — Lock FX live fetch (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | Lock FX attempts Frankfurter refresh then locks; refresh fail → stale org rates; missing rate still fail-closed |
+| **2 Channels / UI** | **Done** | Lock FX toast notes market refresh vs stale |
+| **3 Proof** | **Done** | `tryRefreshOrgFxForLock` + cue specs; About note; this ladder in memo |
+
+**Defer:** paid providers; portfolio multi-currency rollup; AED alternate feed.
 
 #### Prod-ready ladder — Inbox / WA: Quote proposal template designation (**done**)
 

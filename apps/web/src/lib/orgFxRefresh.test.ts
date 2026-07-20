@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatOrgFxRatesMetaCue, formatOrgFxRefreshToast } from './orgFxRefresh';
+import { formatLockFxRefreshCue, formatOrgFxRatesMetaCue, formatOrgFxRefreshToast } from './orgFxRefresh';
 
 describe('orgFxRefresh cues', () => {
   it('formats refresh toast with skipped codes', () => {
@@ -23,5 +23,11 @@ describe('orgFxRefresh cues', () => {
       }),
     ).toBe('ECB as of 2026-07-17 · AED not in feed');
     expect(formatOrgFxRatesMetaCue(null)).toBeNull();
+  });
+
+  it('formats Lock FX refresh cue', () => {
+    expect(formatLockFxRefreshCue('market')).toContain('refreshed from market');
+    expect(formatLockFxRefreshCue('stale')).toContain('saved org rates');
+    expect(formatLockFxRefreshCue(null)).toBe('');
   });
 });

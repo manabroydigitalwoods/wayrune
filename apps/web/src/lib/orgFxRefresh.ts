@@ -33,3 +33,12 @@ export function formatOrgFxRatesMetaCue(
   const skip = skipped.length ? ` · ${skipped.join(', ')} not in feed` : '';
   return `${when}${skip}`;
 }
+
+/** Toast suffix after Lock FX when market refresh was attempted. */
+export function formatLockFxRefreshCue(
+  status: 'market' | 'stale' | string | null | undefined,
+): string {
+  if (status === 'market') return ' · rates refreshed from market';
+  if (status === 'stale') return ' · used saved org rates (market refresh unavailable)';
+  return '';
+}

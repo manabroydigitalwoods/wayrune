@@ -27,6 +27,14 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-fx-lock-live-fetch',
+    date: '2026-07-20',
+    title: 'Lock FX refreshes market rates',
+    summary:
+      'Lock FX pulls Frankfurter into org rates first, then locks. If the market call fails, saved org rates are used — never invented. Toast notes refresh vs stale.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-fx-auto-cron',
     date: '2026-07-20',
     title: 'Weekly FX auto-refresh',

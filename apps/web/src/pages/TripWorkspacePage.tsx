@@ -210,6 +210,7 @@ import {
   QUOTE_FX_CURRENCY_OPTIONS,
   type QuoteFxLock,
 } from '../lib/quoteFx';
+import { formatLockFxRefreshCue } from '../lib/orgFxRefresh';
 import {
   isWhatsappCloudConfigured,
   pickQuoteProposalTemplate,
@@ -2794,6 +2795,7 @@ export function TripWorkspacePage() {
         currency?: string;
         fx?: QuoteFxLock | null;
         convertCount?: number;
+        fxRefresh?: 'market' | 'stale';
       }>(`/quotations/${selectedQuoteVersion.id}/fx/lock`, {
         method: 'POST',
         body: JSON.stringify({
@@ -2802,10 +2804,11 @@ export function TripWorkspacePage() {
           convertLines: true,
         }),
       });
+      const refreshCue = formatLockFxRefreshCue(res.fxRefresh);
       toastSuccess(
         res.convertCount
-          ? `FX locked · ${res.convertCount} line amount${res.convertCount === 1 ? '' : 's'} converted`
-          : `FX locked for ${quoteCurrencyCode}`,
+          ? `FX locked · ${res.convertCount} line amount${res.convertCount === 1 ? '' : 's'} converted${refreshCue}`
+          : `FX locked for ${quoteCurrencyCode}${refreshCue}`,
       );
       setFxRateInput('');
       await load();

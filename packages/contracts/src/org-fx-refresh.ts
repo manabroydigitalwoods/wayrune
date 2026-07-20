@@ -258,3 +258,34 @@ export function applyFxRefreshToSettingsJson(
     fxRatesMeta: fetched.meta,
   };
 }
+
+/**
+ * Attempt Frankfurter refresh for Lock FX; on failure keep prior settings (stale).
+ * Never invents rates.
+ */
+export async function tryRefreshOrgFxForLock(opts: {
+  baseCurrency: string;
+  settingsJson: unknown;
+  fetchImpl?: typeof fetch;
+  now?: Date;
+}): Promise<{
+  settingsJson: Record<string, unknown>;
+  status: 'market' | 'stale';
+  meta?: OrgFxRatesMeta;
+}> {
+  const prior = asSettingsRecord(opts.settingsJson);
+  try {
+    const fetched = await fetchFrankfurterOrgFxRates({
+      baseCurrency: opts.baseCurrency,
+      fetchImpl: opts.fetchImpl,
+      now: opts.now,
+    });
+    return {
+      settingsJson: applyFxRefreshToSettingsJson(prior, fetched),
+      status: 'market',
+      meta: fetched.meta,
+    };
+  } catch {
+    return { settingsJson: prior, status: 'stale' };
+  }
+}
