@@ -3143,9 +3143,37 @@ export const RestoreTransferFareVersionSchema = z.object({
   sourceVersionId: z.string().min(1),
 });
 
+/** Restore one commercial field from a historical transfer fare tip. */
+export const RestoreTransferFareFieldSchema = z.object({
+  sourceVersionId: z.string().min(1),
+  field: z.enum([
+    'unitCost',
+    'childUnitCost',
+    'infantUnitCost',
+    'pricingMode',
+    'startDate',
+    'endDate',
+    'dates',
+  ]),
+});
+
 /** Restore a historical activity rate tip as a new active version. */
 export const RestoreActivityRateVersionSchema = z.object({
   sourceVersionId: z.string().min(1),
+});
+
+/** Restore one commercial field from a historical activity rate tip. */
+export const RestoreActivityRateFieldSchema = z.object({
+  sourceVersionId: z.string().min(1),
+  field: z.enum([
+    'adultUnitCost',
+    'childUnitCost',
+    'privateOrSic',
+    'activityName',
+    'startDate',
+    'endDate',
+    'dates',
+  ]),
 });
 
 export const ActivityPrivateOrSicSchema = z.enum(['private', 'sic']);
@@ -3923,8 +3951,14 @@ export type RestoreHotelRateFieldInput = z.infer<typeof RestoreHotelRateFieldSch
 export type RestoreTransferFareVersionInput = z.infer<
   typeof RestoreTransferFareVersionSchema
 >;
+export type RestoreTransferFareFieldInput = z.infer<
+  typeof RestoreTransferFareFieldSchema
+>;
 export type RestoreActivityRateVersionInput = z.infer<
   typeof RestoreActivityRateVersionSchema
+>;
+export type RestoreActivityRateFieldInput = z.infer<
+  typeof RestoreActivityRateFieldSchema
 >;
 export type CreateSupplierActivityRateInput = z.infer<typeof CreateSupplierActivityRateSchema>;
 export type UpdateSupplierActivityRateInput = z.infer<typeof UpdateSupplierActivityRateSchema>;

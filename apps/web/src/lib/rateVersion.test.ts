@@ -109,11 +109,15 @@ describe('rateVersion', () => {
       'Dates',
     ]);
     expect(rows[0]?.current).toMatch(/4,?500/);
+    expect(rows[0]?.restoreField).toBe('unitCost');
     expect(rows[1]?.thisTip).toBe('—');
+    expect(rows[1]?.restoreField).toBe('infantUnitCost');
     expect(rows[2]).toMatchObject({
       thisTip: 'per_vehicle',
       current: 'per_adult',
+      restoreField: 'pricingMode',
     });
+    expect(rows[3]?.restoreField).toBe('dates');
   });
 
   it('builds activity side-by-side Diff rows', () => {
@@ -137,7 +141,14 @@ describe('rateVersion', () => {
       ['adult cost', 'child cost', 'private/SIC', 'activity name'],
     );
     expect(rows).toHaveLength(4);
-    expect(rows[2]).toMatchObject({ thisTip: 'sic', current: 'private' });
+    expect(rows[0]?.restoreField).toBe('adultUnitCost');
+    expect(rows[1]?.restoreField).toBe('childUnitCost');
+    expect(rows[2]).toMatchObject({
+      thisTip: 'sic',
+      current: 'private',
+      restoreField: 'privateOrSic',
+    });
+    expect(rows[3]?.restoreField).toBe('activityName');
   });
 
   it('offers Diff expand only for superseded tips with summary', () => {

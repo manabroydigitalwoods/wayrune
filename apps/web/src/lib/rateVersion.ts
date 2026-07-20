@@ -48,10 +48,29 @@ export function rateTipLooksPendingActivation(
 /** @deprecated Prefer rateTipLooksPendingActivation */
 export const hotelRateLooksPendingActivation = rateTipLooksPendingActivation;
 
+export type TransferFareRestorableFieldUi =
+  | 'unitCost'
+  | 'childUnitCost'
+  | 'infantUnitCost'
+  | 'pricingMode'
+  | 'dates';
+
+export type ActivityRateRestorableFieldUi =
+  | 'adultUnitCost'
+  | 'childUnitCost'
+  | 'privateOrSic'
+  | 'activityName'
+  | 'dates';
+
 export type RateVersionTipDiffRow = {
   field: string;
   thisTip: string;
   current: string;
+  /** When set, History Diff offers Restore for this commercial field. */
+  restoreField?:
+    | TransferFareRestorableFieldUi
+    | ActivityRateRestorableFieldUi
+    | null;
 };
 
 export function formatRateVersionHistoryLine(
@@ -191,6 +210,7 @@ export function buildTransferFareTipDiffRows(
           field: 'Adult cost',
           thisTip: tipMoneyDisplay(prior.unitCost, opts?.formatAmount),
           current: tipMoneyDisplay(active.unitCost, opts?.formatAmount),
+          restoreField: 'unitCost',
         });
         break;
       case 'child cost':
@@ -198,6 +218,7 @@ export function buildTransferFareTipDiffRows(
           field: 'Child cost',
           thisTip: tipMoneyDisplay(prior.childUnitCost, opts?.formatAmount),
           current: tipMoneyDisplay(active.childUnitCost, opts?.formatAmount),
+          restoreField: 'childUnitCost',
         });
         break;
       case 'infant cost':
@@ -205,6 +226,7 @@ export function buildTransferFareTipDiffRows(
           field: 'Infant cost',
           thisTip: tipMoneyDisplay(prior.infantUnitCost, opts?.formatAmount),
           current: tipMoneyDisplay(active.infantUnitCost, opts?.formatAmount),
+          restoreField: 'infantUnitCost',
         });
         break;
       case 'pricing mode':
@@ -212,6 +234,7 @@ export function buildTransferFareTipDiffRows(
           field: 'Pricing mode',
           thisTip: tipTextDisplay(prior.pricingMode, 'fare'),
           current: tipTextDisplay(active.pricingMode, 'fare'),
+          restoreField: 'pricingMode',
         });
         break;
       case 'dates':
@@ -219,6 +242,7 @@ export function buildTransferFareTipDiffRows(
           field: 'Dates',
           thisTip: tipDatesDisplay(prior.startDate, prior.endDate),
           current: tipDatesDisplay(active.startDate, active.endDate),
+          restoreField: 'dates',
         });
         break;
       default:
@@ -264,6 +288,7 @@ export function buildActivityRateTipDiffRows(
           field: 'Adult cost',
           thisTip: tipMoneyDisplay(prior.unitCost, opts?.formatAmount),
           current: tipMoneyDisplay(active.unitCost, opts?.formatAmount),
+          restoreField: 'adultUnitCost',
         });
         break;
       case 'child cost':
@@ -271,6 +296,7 @@ export function buildActivityRateTipDiffRows(
           field: 'Child cost',
           thisTip: tipMoneyDisplay(prior.childUnitCost, opts?.formatAmount),
           current: tipMoneyDisplay(active.childUnitCost, opts?.formatAmount),
+          restoreField: 'childUnitCost',
         });
         break;
       case 'private/sic':
@@ -278,6 +304,7 @@ export function buildActivityRateTipDiffRows(
           field: 'Private / SIC',
           thisTip: tipTextDisplay(prior.privateOrSic),
           current: tipTextDisplay(active.privateOrSic),
+          restoreField: 'privateOrSic',
         });
         break;
       case 'activity name':
@@ -285,6 +312,7 @@ export function buildActivityRateTipDiffRows(
           field: 'Activity',
           thisTip: tipTextDisplay(prior.activityName, 'Activity'),
           current: tipTextDisplay(active.activityName, 'Activity'),
+          restoreField: 'activityName',
         });
         break;
       case 'dates':
@@ -292,6 +320,7 @@ export function buildActivityRateTipDiffRows(
           field: 'Dates',
           thisTip: tipDatesDisplay(prior.startDate, prior.endDate),
           current: tipDatesDisplay(active.startDate, active.endDate),
+          restoreField: 'dates',
         });
         break;
       default:

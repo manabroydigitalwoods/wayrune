@@ -228,19 +228,54 @@ export function SupplierActivityRatesPanel({
     if (!historyAnchorId) return;
     setHistorySaving(true);
     try {
-      const created = await api<ActivityRate>(
+      const created = await api<ActivityRate & { pendingActivation?: boolean }>(
         `/activity-rates/${historyAnchorId}/restore-version`,
         {
           method: 'POST',
           body: JSON.stringify({ sourceVersionId }),
         },
       );
-      toastSuccess(`Restored as ${rateVersionLabel(created.versionNumber)}`);
+      toastSuccess(
+        created.pendingActivation
+          ? `Restored as ${rateVersionLabel(created.versionNumber)} — pending activation`
+          : `Restored as ${rateVersionLabel(created.versionNumber)}`,
+      );
       setHistoryOpen(false);
       await load();
       startEdit(created);
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Could not restore version');
+    } finally {
+      setHistorySaving(false);
+    }
+  }
+
+  async function restoreRateField(
+    sourceVersionId: string,
+    field: NonNullable<
+      ReturnType<typeof buildActivityRateTipDiffRows>[number]['restoreField']
+    >,
+  ) {
+    if (!historyAnchorId || !field) return;
+    setHistorySaving(true);
+    try {
+      const created = await api<ActivityRate & { pendingActivation?: boolean }>(
+        `/activity-rates/${historyAnchorId}/restore-field`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ sourceVersionId, field }),
+        },
+      );
+      toastSuccess(
+        created.pendingActivation
+          ? `Field restored as ${rateVersionLabel(created.versionNumber)} — pending activation`
+          : `Field restored as ${rateVersionLabel(created.versionNumber)}`,
+      );
+      setHistoryOpen(false);
+      await load();
+      startEdit(created);
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not restore field');
     } finally {
       setHistorySaving(false);
     }
@@ -752,6 +787,7 @@ export function SupplierActivityRatesPanel({
                               <th className="px-2 py-1.5 font-medium">Field</th>
                               <th className="px-2 py-1.5 font-medium">This tip</th>
                               <th className="px-2 py-1.5 font-medium">Current</th>
+                              <th className="px-2 py-1.5 font-medium" />
                             </tr>
                           </thead>
                           <tbody>
@@ -768,6 +804,32 @@ export function SupplierActivityRatesPanel({
                                 </td>
                                 <td className="px-2 py-1.5 text-foreground">
                                   {row.current}
+                                </td>
+                                <td className="px-2 py-1.5 text-right">
+                                  {row.restoreField ? (
+                                    <Can anyOf={CAP.ratesWrite}>
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="ghost"
+                                        className="h-7 cursor-pointer px-2 text-[11px]"
+                                        disabled={historySaving || hasPending}
+                                        title={
+                                          hasPending
+                                            ? 'Activate the pending tip before restore'
+                                            : 'Create a new tip with this field from the prior version'
+                                        }
+                                        onClick={() =>
+                                          void restoreRateField(
+                                            v.id,
+                                            row.restoreField!,
+                                          )
+                                        }
+                                      >
+                                        Restore
+                                      </Button>
+                                    </Can>
+                                  ) : null}
                                 </td>
                               </tr>
                             ))}

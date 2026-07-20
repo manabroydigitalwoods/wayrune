@@ -24,7 +24,9 @@ import {
   RestoreHotelRateVersionSchema,
   RestoreHotelRateFieldSchema,
   RestoreTransferFareVersionSchema,
+  RestoreTransferFareFieldSchema,
   RestoreActivityRateVersionSchema,
+  RestoreActivityRateFieldSchema,
 } from '@wayrune/contracts';
 import {
   CurrentUser,
@@ -226,6 +228,23 @@ export class RatesController {
     );
   }
 
+  @Post('activity-rates/:id/restore-field')
+  @RequirePermissions('quote.write')
+  restoreActivityField(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    const parsed = RestoreActivityRateFieldSchema.parse(body);
+    return this.rates.restoreActivityRateField(
+      user.organizationId,
+      user,
+      id,
+      parsed.sourceVersionId,
+      parsed.field,
+    );
+  }
+
   @Post('activity-rates/import/csv')
   @RequirePermissions('quote.write')
   importActivityCsv(@CurrentUser() user: AuthUser, @Body() body: unknown) {
@@ -307,6 +326,23 @@ export class RatesController {
       user,
       id,
       parsed.sourceVersionId,
+    );
+  }
+
+  @Post('transfer-fares/:id/restore-field')
+  @RequirePermissions('quote.write')
+  restoreTransferField(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    const parsed = RestoreTransferFareFieldSchema.parse(body);
+    return this.rates.restoreTransferFareField(
+      user.organizationId,
+      user,
+      id,
+      parsed.sourceVersionId,
+      parsed.field,
     );
   }
 
