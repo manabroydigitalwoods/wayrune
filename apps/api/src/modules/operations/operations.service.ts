@@ -20,6 +20,9 @@ import {
   parseBusinessContact,
   parseOrgBranding,
 } from '../../common/customer-proposal';
+import { inferDestinationPlaceOfSupplyFromLabels } from '../../common/destination-pos-infer';
+import { placeAncestorLabelsForRefs } from '../../common/place-refs';
+import { resolveQuoteTaxIdentityForDisplay } from '../../common/quote-tax-identity';
 import type {
   ConfirmTripPaymentLinkInput,
   CreateFinanceReportPackInput,
@@ -4539,7 +4542,9 @@ export class OperationsService {
     const trip = await this.prisma.trip.findFirst({
       where: { id: tripId, organizationId: user.organizationId, deletedAt: null },
       include: {
-        organization: { select: { currency: true } },
+        organization: {
+          select: { currency: true, taxLabel: true, settingsJson: true },
+        },
         quotations: {
           include: {
             versions: { orderBy: { versionNumber: 'desc' } },
@@ -4553,6 +4558,25 @@ export class OperationsService {
     const accepted = trip.quotations
       .flatMap((q) => q.versions)
       .find((v) => v.status === 'accepted');
+
+    let quoteTaxIdentity = null as ReturnType<
+      typeof resolveQuoteTaxIdentityForDisplay
+    > | null;
+    if (accepted) {
+      const labels = await placeAncestorLabelsForRefs(
+        this.prisma,
+        user.organizationId,
+        trip.destinationsJson,
+      );
+      const inferred = inferDestinationPlaceOfSupplyFromLabels(labels);
+      quoteTaxIdentity = resolveQuoteTaxIdentityForDisplay({
+        taxIdentityJson: accepted.taxIdentityJson,
+        taxLabel: trip.organization.taxLabel,
+        settingsJson: trip.organization.settingsJson,
+        destinationPlaceOfSupply: trip.destinationPlaceOfSupply,
+        inferredDestinationPlaceOfSupply: inferred,
+      });
+    }
 
     const [payments, invoices, bookings, feedback] = await Promise.all([
       this.listPayments(user, tripId),
@@ -4635,6 +4659,7 @@ export class OperationsService {
             marginAmount: Number(accepted.marginAmount),
             marginPercent: Number(accepted.marginPercent),
             currency: accepted.currency,
+            taxIdentity: quoteTaxIdentity,
           }
         : null,
       costCompare: {

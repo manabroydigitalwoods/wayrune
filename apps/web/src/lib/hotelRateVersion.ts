@@ -3,6 +3,7 @@
 import {
   formatHotelRateTipDiffCue,
   formatRateVersionHistoryLine,
+  hotelRateLooksPendingActivation,
   rateVersionLabel,
   type RateVersionListItem,
 } from './rateVersion';
@@ -18,7 +19,7 @@ export function formatHotelRateVersionHistoryLine(
   return formatRateVersionHistoryLine(row, { kind: 'hotel', ...opts });
 }
 
-export { formatHotelRateTipDiffCue };
+export { formatHotelRateTipDiffCue, hotelRateLooksPendingActivation };
 
 export type HotelRateTipDiffRow = {
   field: string;

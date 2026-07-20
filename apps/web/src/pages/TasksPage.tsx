@@ -40,6 +40,7 @@ import { useDocumentTitle } from '../hooks/useDocumentTitle';
 type Task = {
   id: string;
   title: string;
+  description?: string | null;
   status: string;
   priority: string;
   dueAt?: string | null;
@@ -61,11 +62,22 @@ function isOverdue(task: Task) {
   return new Date(task.dueAt).getTime() < Date.now();
 }
 
-function entityPath(type?: string | null, id?: string | null) {
+function entityPath(
+  type?: string | null,
+  id?: string | null,
+  description?: string | null,
+) {
   if (!type || !id) return null;
   if (type === 'lead') return `/leads/${id}`;
   if (type === 'inquiry') return `/inquiries`;
   if (type === 'trip') return `/trips/${id}`;
+  if (type === 'supplier_hotel_rate') {
+    const fromDesc = description?.match(
+      /\/suppliers\/([A-Za-z0-9_-]+)(?:#|\?|$|\s)/,
+    );
+    if (fromDesc?.[1]) return `/suppliers/${fromDesc[1]}#supplier-rate-chart`;
+    return null;
+  }
   return null;
 }
 
@@ -236,7 +248,7 @@ export function TasksPage() {
         cell: ({ row }) => {
           const t = row.original;
           if (!t.entityType) return <span className="text-muted-foreground">—</span>;
-          const href = entityPath(t.entityType, t.entityId);
+          const href = entityPath(t.entityType, t.entityId, t.description);
           const label = humanizeEntityType(t.entityType);
           if (href && t.entityId) {
             return (
@@ -258,7 +270,7 @@ export function TasksPage() {
         enableHiding: false,
         cell: ({ row }) => {
           const task = row.original;
-          const href = entityPath(task.entityType, task.entityId);
+          const href = entityPath(task.entityType, task.entityId, task.description);
           return (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>

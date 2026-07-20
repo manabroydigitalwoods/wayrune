@@ -36,7 +36,7 @@ Maturity labels: **early** | **partial** | **mature** | **structural** (architec
 | Communication | WhatsApp notifications, calling add-on, email parsing | Unified inbox (WhatsApp / email / Instagram / website / Google Business), AI rewrite/summarize; Microsoft = SSO only; quote WA share = Cloud template/session + `wa.me` Mark-as-sent; **Quote proposal template picker** | **Stronger foundation; uneven channel depth** — no Microsoft messaging claim; **HubSpot out of scope** |
 | Itinerary creation | Productised ~60s workflow with costing | Flexible itinerary builder + public proposal; **package apply + rematch + Story seed**; FIT build minutes instrumented (do not claim 60s publicly) | **Sembark for polished speed**; we are closing via packages + telemetry |
 | Quotation pricing | Multi-currency, tax, component markup, reusable supplier data | Versioned quotes; hotel/transfer/activity resolve; cost/sell/tax/margin; **fixed + % + agent markup**; **org default tax**; branded PDF/email/WA; public accept; **Quote FX lock** + **Settings live FX refresh (Frankfurter)** | **Near parity on INR FIT path**; **Sembark** on tax regimes / cross-pair / auto FX |
-| Supplier contracts | Mature rates, seasons, stop/blackout, bulk upload, occupancy grids | **Supplier Directory + Profile V1**; hotel/transfer/activity charts; seasons/weekend/gala/occupancy extras; **SGL/DBL/TPL adultBands** + **copy-as-meal** + **meal×occupancy matrix (Wk/We)** + **weekend-per-band** + **min stay (hard gate)** + **IN/INTL + per-ISO + full ISO-3166 + multi-guest mixed nationality** + **hotel/transfer/activity rate version chains** + **hotel/transfer/activity tip diffs**; blackout vs stop-sale; CSV/XLSX + import audit; hard allotment + capacity gates; cancel policy stamp | **Sembark** on multi-approver rate inbox; **near parity** on daily contracting thin path |
+| Supplier contracts | Mature rates, seasons, stop/blackout, bulk upload, occupancy grids | **Supplier Directory + Profile V1**; hotel/transfer/activity charts; seasons/weekend/gala/occupancy extras; **SGL/DBL/TPL adultBands** + **copy-as-meal** + **meal×occupancy matrix (Wk/We)** + **weekend-per-band** + **min stay (hard gate)** + **IN/INTL + per-ISO + full ISO-3166 + multi-guest mixed nationality** + **hotel/transfer/activity rate version chains** + **hotel/transfer/activity tip diffs**; **hotel tip dual-control Activate (`rates.approve`)**; blackout vs stop-sale; CSV/XLSX + import audit; hard allotment + capacity gates; cancel policy stamp | **Near parity** on daily contracting thin path; transfer/activity pending Activate + quorum still open |
 | Booking operations | Reservations, assignment, vouchers, movement charts | Booking components + readiness; hotel/transfer/activity enquiry→confirm→payable→voucher; **movement board + calendar**; driver/fleet assign + DriverJob sync; **allotment release+reallocate**; type-aware partner Confirm | **Near parity on agency ops thin slice**; partner fleet OS depth still open |
 | Payments and accounting | Receivables, payables, instalments, payment links, ledgers | Per-trip AR/AP + margin; payment links + Razorpay; org aging/portfolio; **chase + AP Mark paid/Unmark**; report packs + scheduled CSV email; **FX honesty cues** | **Sembark** on full ledger; **near parity** on collect/chase thin path |
 | Multi-brand / multi-org | Multiple brands under one login | Org kinds (agency, hotel, DMC, driver, …), multi-membership, org switcher; partner OS / Travel Exchange unfinished | **Structural advantage; productized partner network still early** |
@@ -65,8 +65,8 @@ Maturity labels: **early** | **partial** | **mature** | **structural** (architec
 
 ### Honest remaining Sembark leads (do not paper over)
 
-1. **Tax / ledger depth** — full accounting ledger / e-invoice (CGST/SGST/IGST **display** thin-complete; compliance **do not claim**)  
-2. **Quote speed productisation** — measured sub-3-minute FIT median + public claim gated by `fitClaimProtocol` (testing until n≥20)  
+1. **Tax / ledger depth** — full accounting ledger / e-invoice (CGST/SGST/IGST **display** thin-complete including Finance parity; compliance **do not claim**)  
+2. **Quote speed productisation** — measured sub-3-minute FIT median + public claim gated by `fitClaimProtocol` (demo-travel seed can clear n≥20 locally; production waits on real samples)  
 3. **Market credibility** — release notes, docs, scale proof  
 4. **Partner fleet OS** — inventory OS beyond booking-linked holds  
 5. **Rate-grid leftovers** — *(per-pax buy splits + 2A mixed with children thin-complete)* · 3+ adults / multi-room splits deferred
@@ -480,7 +480,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Rate chart **vN** badge, **New version** (branch) + **History**; restore opens edit on new tip |
 | **3 Proof** | **Done** | hotel-rate-version + web label specs; this ladder in memo |
 
-**Defer:** multi-approver rate inbox.
+**Defer:** *(closed — see Multi-approver hotel rate inbox)* · multi-approver rate inbox.
 
 #### Prod-ready ladder — Transfer + activity rate version chains (**done**)
 
@@ -500,7 +500,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Hotel History sheet shows **Diff vs current** cue on superseded tips |
 | **3 Proof** | **Done** | hotel-rate-diff + web cue specs; this ladder in memo |
 
-**Defer:** *(closed — see Hotel tip Diff side-by-side below)* · multi-approver inbox.
+**Defer:** *(closed — see Hotel tip Diff side-by-side below)* · *(multi-approver closed — see Multi-approver hotel rate inbox)*.
 
 #### Prod-ready ladder — Hotel tip Diff side-by-side (**done**)
 
@@ -510,7 +510,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Hotel History **Diff** expand — Field / This tip / Current table for changed commercial rows |
 | **3 Proof** | **Done** | `buildHotelRateTipDiffRows` specs; claim registry; About release note; this ladder in memo |
 
-**Defer:** multi-approver inbox; field-level restore (transfer/activity side-by-side closed below).
+**Defer:** *(multi-approver closed — see Multi-approver hotel rate inbox)* · field-level restore (transfer/activity side-by-side closed below).
 
 #### Prod-ready ladder — Transfer + activity tip diff (**done**)
 
@@ -520,7 +520,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Transfer + activity History sheets show **Diff vs current** cue on superseded tips |
 | **3 Proof** | **Done** | transfer-activity-rate-diff + web cue specs; this ladder in memo |
 
-**Defer:** *(closed — see Transfer/activity tip Diff side-by-side below)* · multi-approver inbox; field-level restore.
+**Defer:** *(closed — see Transfer/activity tip Diff side-by-side below)* · *(multi-approver closed — see Multi-approver hotel rate inbox)* · field-level restore.
 
 #### Prod-ready ladder — Transfer + activity tip Diff side-by-side (**done**)
 
@@ -530,7 +530,17 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Transfer + activity History **Diff** expand — Field / This tip / Current (mirror hotel) |
 | **3 Proof** | **Done** | `buildTransferFareTipDiffRows` / `buildActivityRateTipDiffRows` specs; this ladder in memo |
 
-**Defer:** multi-approver inbox; field-level restore.
+**Defer:** *(closed — see Multi-approver hotel rate inbox below)* · field-level restore.
+
+#### Prod-ready ladder — Multi-approver hotel rate inbox (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `rates.approve` RBAC; non-approvers create inactive tip + leave live tip Match-active; `POST …/activate` swaps live tip; pending blocks further branch/restore; activation Task + notify assignee |
+| **2 Channels / UI** | **Done** | Rate chart **Pending activation** + **Activate**; History Activate; Tasks link → supplier rate chart; toast when submitted for approval |
+| **3 Proof** | **Done** | hotel-rate-pending specs; claim registry; About release note; this ladder in memo |
+
+**Defer:** transfer/activity pending Activate; multi-step quorum; quote Keep-buy inbox; field-level restore; ApprovalRequest schema.
 
 #### Prod-ready ladder — Hotel nationality markets (IN / INTL) (**done**)
 
@@ -660,7 +670,17 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Overview soft cue + placeholder when suggested; proposals/preview prefer stamped identity when present |
 | **3 Proof** | **Done** | infer + freeze + precedence specs; this ladder in memo |
 
-**Defer:** hotel buy rates; e-invoice / GST compliance claim (stays do-not-claim).
+**Defer:** hotel buy rates; *(Finance display parity closed below)* · e-invoice / GST compliance claim (stays do-not-claim).
+
+#### Prod-ready ladder — Trip Finance accepted-quote tax display parity (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `getFinanceSummary` returns `quote.taxTotal` + `taxIdentity` via `resolveQuoteTaxIdentityForDisplay` (stamp ?? live trip/infer/org) — no new stamp write |
+| **2 Channels / UI** | **Done** | Finance accepted-quote card shows sell-ex-tax, tax label/total, CGST/SGST or IGST lines, identity + display-only cue (mirror Quotes) |
+| **3 Proof** | **Done** | quote-tax-identity display resolve specs; claim registry; About release note; this ladder in memo |
+
+**Defer:** place-of-supply hotel buy rates; commercial-document / instalment tax split; public pay-page tax breakdown; e-invoice / GSTR / full GL (do not claim).
 
 #### Prod-ready ladder — FIT &lt;3m claim protocol gate (**done**)
 
@@ -670,7 +690,17 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Sales strip FIT card + samples line show testing/ready cue; copy says public claim gated |
 | **3 Proof** | **Done** | Protocol + cue specs; claim registry + 90-day scorecard in memo |
 
-**Defer:** public marketing page; help centre; Settings-configurable protocol; 60s claim.
+**Defer:** *(closed — see Demo FIT n≥20 timing seed below)* · public marketing page; help centre; Settings-configurable protocol; 60s claim.
+
+#### Prod-ready ladder — Demo FIT n≥20 timing seed (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `buildDemoFitBuildTimingSamples` (20 under-3m minutes); `seedDemoFitBuildTimingSamples` writes `quote.fit_build` audits on **demo-travel only** (`source: demo_seed`); idempotent; not on FIT pack install |
+| **2 Channels / UI** | **Done** | Existing sales strip shows claim-ready after `pnpm db:seed` on demo org (no new UI) |
+| **3 Proof** | **Done** | Demo sample + claim-gate specs; this ladder in memo |
+
+**Defer:** production sample growth; public marketing page; 60s claim; FIT-pack telemetry.
 
 #### Prod-ready ladder — In-app release notes (About) (**done**)
 
@@ -1186,7 +1216,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **Sales response / quote-turnaround telemetry** | `GET /dashboard/sales`, Lead/Activity/Inquiry→Trip→Quotation | **Thin + FIT minutes:** overdue lead follow-ups + median first-touch + median lead→quote (30d) + **median FIT build minutes** (workspace open → first send via `quote.fit_build` audit). `/leads?followUp=overdue` click-through. **Task→followUpAt sync:** creating a lead (or inquiry→lead) task with `dueAt` stamps `Lead.followUpAt`. **Reverse:** editing lead `followUpAt` stamps the newest open lead-linked task `dueAt`. **Inbox unread SLA thin:** unread + aging thread counts + `/inbox?unread=1` / `?aging=1`; **org `settingsJson.inboxAgingHours` (1–72, default 4)** on Settings → General, dashboard, and aging list filter. **Org sales SLA targets thin-complete:** optional `firstTouchTargetHours` / `leadToQuoteTargetHours` / `fitBuildTargetMinutes` on Settings → General; dashboard returns targets; Sales response strip tones medians (success / warn / danger) + target cues. **`conversation.unread_sla` fire:** worker 15m tick + opportunistic on sales dashboard / aging inbox; idempotent `[unread_sla:…]` subject marker; Integrations rule UI. **`conversation.waiting` fire** when status set to waiting. **Round-robin polish:** skip inactive members, preserve cursor on save, next-up / last-assigned on Lead sources, create toast shows owner, `/leads?owner=me`. Defer: dual-source merge / task PATCH |
 | Itinerary → priced lines loop | `POST /rates/resolve`, Trip workspace quote UI | Live auto-rematch in hotel/transfer drawer when match keys change; bulk refresh uses same apply helper |
 | Markup presets (fixed + %) | Org `defaultMarkupPercent`, rate resolve | **Thin slice complete:** Fixed ₹ and % both persist on open/save/rematch (no longer force-percent); Match apply keeps Fixed; **Apply default markup** uses org `defaultMarkupPercent` (not hardcoded 20%). **Agent / B2B markup:** org `agentMarkupPercent` for travel_agency / reseller / DMC parties (Settings + Match / rematch / Apply default via `partyId`). Defer: preset libraries |
-| Tax default apply | Org `defaultTaxPercent` | **Thin slice complete:** new/import lines + unmatched resolve stamp org default (fallback 5%); **Apply default tax** (attention strip + ···) sets 0% billable lines to org default without overwriting set tax. **Tax identity thin-complete:** org `taxLabel` + business `gstin` / `placeOfSupply` on proposal PDF/email/public preview + workspace summary (display only). **CGST/SGST/IGST display split thin-complete:** destination POS vs agency POS drives breakdown of the same tax total (not filing). **Trip destination POS override thin-complete.** **Quote freeze + destination infer thin-complete** (`taxIdentityJson` on send/PDF; infer from place labels, never persisted). Defer: place-of-supply–driven hotel buy rates / e-invoice / GST compliance |
+| Tax default apply | Org `defaultTaxPercent` | **Thin slice complete:** new/import lines + unmatched resolve stamp org default (fallback 5%); **Apply default tax** (attention strip + ···) sets 0% billable lines to org default without overwriting set tax. **Tax identity thin-complete:** org `taxLabel` + business `gstin` / `placeOfSupply` on proposal PDF/email/public preview + workspace summary (display only). **CGST/SGST/IGST display split thin-complete:** destination POS vs agency POS drives breakdown of the same tax total (not filing). **Trip destination POS override thin-complete.** **Quote freeze + destination infer thin-complete** (`taxIdentityJson` on send/PDF; infer from place labels, never persisted). **Finance accepted-quote tax display parity thin-complete.** Defer: place-of-supply–driven hotel buy rates / e-invoice / GST compliance |
 | Margin warning + `below_margin.approve` | Org `minMarginPercent` + line override audit | API blocks send/approval; UI Send opens override when margin is the only gate |
 | One-click branded proposal | PDF + email already | WhatsApp Cloud send (`POST …/send-whatsapp`) with public proposal link; **cold send requires Meta template** designated via Integrations `quoteProposalTemplateId` (or name/`quote_proposal` fallback); `wa.me` fallback + **Mark as sent** when Cloud is off; Send dialog readiness cue |
 | Quote revision UX polish | Versioning + revise-from-accepted | **Thin slice complete:** org `defaultQuoteValidityDays` stamped on create/clone/template/revise; **missing `validUntil` blocks send**; **near-expiry / grace extend is opt-in** on send, request-approval, and mark-sent; **post-expiry grace** keeps date in-window; **past grace blocks send** (reset required); Reset to org default + cues; attention click-through + Save & next; rate-drift strip/preflight; **attention table auto-scroll**; **version label display + edit + preset picker**. Defer: *(validity extend opt-in closed)* |
@@ -1205,7 +1235,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | Blackout / stop-sale **enforced** in `rates/resolve` | `SupplierContract.blackoutJson`, inventory stop-sell | Soft blackout (manual allowed) vs hard stop-sale; room-scoped contract + allotment stop-sale; quote UI distinguishes both. **Drawer:** soft blackout Match shows amber **Blackout · …** + **Open contracts**; hard stop-sale shows destructive **Stop-sale · …** + **Open contracts** (`/suppliers/:id#contracts`) |
 | Transfer capacity / closing dates / point-to-point polish | `TransferFare`, transfer matrix, `rates/resolve` | **Thin slice complete:** supplier contract stop-sale (hard) + blackout (soft) on transfer resolve; `matchExplain` + vehicle capacity seats; reverse-corridor P2P hints; catalog season labeled as closing window; seeded North Bengal Fleet contract (Puja blackout + July stop-sale). **Supplier-owned TransferFare** (`supplierId`) + Rate chart on transport suppliers; resolve prefers supplier corridor (+40) over org/system; seed Siliguri/Bagdogra → Darjeeling Innova. **Ops fleet unit pick + vehicle_conflict + DriverJob↔unit / calendar writeback + partner create-job unit picker shipped.** **CSV supplierName on transfer import** shipped (optional; locked on supplier Rate chart). **Partner allocate holds UI** thin-shipped. **Hard capacity at quote:** Match stamps `rateProvenance.capacityWarn` (party vs seats × vehicles) → attention **Capacity** chip + drawer destructive cue + **blocks** send/approve. **Override ack + reason + manager gate** + **auto vehicle bump on Match + party edit** + **live Vehicles/party capacity restamp** shipped + **dedicated `inventory_risk.approve`** + **rate-drift Keep-buy RBAC** (`rate_drift.approve`). **Per-adult child-age banding thin-complete:** `childAgeMin`/`Max` on TransferFare + Match reclassify + Ages cue|
 | CSV/XLSX bulk import + draft preview | Negotiated-rate CSV pattern | **Thin slice complete:** hotel + transfer + activity import accepts `.xlsx`/`.xls`/`.csv` (first sheet → existing preview/commit APIs); **import batch audit** (`rates.import.commit` + Import dialog **Recent imports**). Supplier Rate chart + Catalog Rates. **Recent imports show sample skip reasons** (`sampleSkips` from audit metadata, ≤3 lines). Defer: row replay |
-| Rate-change detection + effective dates | Rate date windows | **Thin slice complete:** Match rate shows chart last updated + matched-at; soft drift when live chart `updatedAt` is newer than snapshot; rematch toast when buy changes; **send/approve blocked** until rematch or **Keep buy (acknowledge)** (`rateDriftAckForUpdatedAt` + `rateDriftAckReason`). Quote Contract badge tooltip includes chart updated. **Attention Rate drift chip + send preflight:** `POST /rates/chart-freshness` feeds strip/Save&next + client send blocked copy (aligned with API gate). **Rematch drifted:** attention strip + ··· rematch only `rate_drift` lines via `/rates/resolve`. **Hotel rate version chain thin-complete.** **Transfer + activity version chains thin-complete.** **Hotel tip Diff vs current + side-by-side expand thin-complete.** Defer: multi-approver inbox / field-level restore |
+| Rate-change detection + effective dates | Rate date windows | **Thin slice complete:** Match rate shows chart last updated + matched-at; soft drift when live chart `updatedAt` is newer than snapshot; rematch toast when buy changes; **send/approve blocked** until rematch or **Keep buy (acknowledge)** (`rateDriftAckForUpdatedAt` + `rateDriftAckReason`). Quote Contract badge tooltip includes chart updated. **Attention Rate drift chip + send preflight:** `POST /rates/chart-freshness` feeds strip/Save&next + client send blocked copy (aligned with API gate). **Rematch drifted:** attention strip + ··· rematch only `rate_drift` lines via `/rates/resolve`. **Hotel rate version chain thin-complete.** **Transfer + activity version chains thin-complete.** **Hotel tip Diff vs current + side-by-side expand thin-complete.** **Multi-approver hotel tip Activate thin-complete** (`rates.approve` + pending tip + Task). Defer: transfer/activity pending Activate / field-level restore / quorum |
 
 **Defer past P0.5 thin slices:** credit-note settle/allocate automation, agencyAbsorption, PolicyAttachment graph. (Contract cancel tiers + Match stamp + Ops cancel preview/request/approve/apply + draft credit note thin-complete.)
 
@@ -1316,7 +1346,7 @@ Then introduce differentiators: connected WhatsApp and email → agency website 
 
 | Claim | Status |
 |-------|--------|
-| Build a standard FIT quotation in under three minutes | **Testing** — gated by dashboard `fitClaimProtocol` |
+| Build a standard FIT quotation in under three minutes | **Testing** — gated by dashboard `fitClaimProtocol`; demo-travel seed can clear n≥20 locally |
 | Integrated lead → quote → book → collect → ops workflow | **Proven** (thin-complete) |
 | Multi-organization travel operating platform | **Architecture proven** — do not claim finished partner network |
 | Automated GST-compliant / full accounting ledger | **Do not claim** |
@@ -1338,11 +1368,13 @@ Then introduce differentiators: connected WhatsApp and email → agency website 
 | CGST/SGST/IGST display split (POS-driven) | **Proven** (thin · display only) |
 | Trip destination POS override | **Proven** (thin · display only) |
 | Quote tax identity freeze + destination POS infer | **Proven** (thin · display only) |
+| Trip Finance accepted-quote tax display parity | **Proven** (thin · display only) |
 | Automated GST-compliant ledger | **Do not claim** |
 | Hotel rate version chain | **Proven** (thin) |
 | Transfer + activity rate version chains | **Proven** (thin) |
 | Hotel rate tip diff | **Proven** (thin) |
 | Hotel tip Diff side-by-side | **Proven** (thin) |
+| Multi-approver hotel rate inbox | **Proven** (thin · dual-control Activate) |
 | Per-pax buy splits (2A mixed DBL/2) | **Proven** (thin) |
 | Per-pax buy + children extras (2A mixed) | **Proven** (thin) |
 | Transfer + activity tip diff | **Proven** (thin) |
@@ -1355,7 +1387,7 @@ Then introduce differentiators: connected WhatsApp and email → agency website 
 | Bet | Done when | Status |
 |-----|-----------|--------|
 | Hotel occupancy depth | Contracting enters SGL/DBL/TPL without sales spreadsheet override on seeded FIT | **Adult bands → nationality + traveller default + rate-version chains + tip diffs + per-pax DBL/2 buy split (2A mixed + children extras) done**; 3+A / multi-room splits open |
-| FIT speed claim | Protocol stamped; n≥20; median ≤3m; `publicClaimAllowed` | **Gate shipped**; waiting on sample |
+| FIT speed claim | Protocol stamped; n≥20; median ≤3m; `publicClaimAllowed` | **Gate shipped**; **demo-travel seed stamps n=20 under 3m** (local demos only — production still waiting on real samples) |
 | Market credibility | Claim registry live; release notes + polished demo org | **Registry + About notes + named demo trip done**; public changelog open |
 | Deal-gated FX/fleet | Open only with signed need; keep locks/meta pluggable | **Discipline** |
 

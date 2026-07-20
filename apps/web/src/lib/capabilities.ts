@@ -35,6 +35,8 @@ export const CAP = {
   inventoryRiskApprove: ['inventory_risk.approve'],
   /** Authorise Keep-buy when rate chart drifted since match. */
   rateDriftApprove: ['rate_drift.approve'],
+  /** Activate pending hotel rate tip (contracting dual-control). */
+  ratesApprove: ['rates.approve'],
   /** Authorise below-cost / below-floor margin overrides on quote lines. */
   belowMarginApprove: ['below_margin.approve'],
   partyWrite: ['party.write'],

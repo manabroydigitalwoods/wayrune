@@ -1,9 +1,11 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { hasPermission } from '@wayrune/auth';
 import type {
   CreateSupplierActivityRateInput,
   CreateSupplierHotelRateInput,
@@ -26,7 +28,13 @@ import {
 } from '@wayrune/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PlacesService } from '../places/places.service';
+import type { AuthUser } from '../../common/helpers';
+import {
+  hotelRateTipPendingActivation,
+  hotelRateVersionRequiresPendingActivation,
+} from './hotel-rate-pending';
 import {
   composeRatesImportAuditMetadata,
   mapAuditEventToImportBatch,
@@ -208,7 +216,115 @@ export class RatesService {
     private prisma: PrismaService,
     private places: PlacesService,
     private audit: AuditService,
+    private notifications: NotificationsService,
   ) {}
+
+  /** Prefer org owner; else first membership with rates.approve via role key heuristics. */
+  private async pickRateApproverUserId(
+    organizationId: string,
+    excludeUserId: string,
+  ): Promise<string | null> {
+    const owner = await this.prisma.organizationMembership.findFirst({
+      where: {
+        organizationId,
+        isOwner: true,
+        userId: { not: excludeUserId },
+      },
+      select: { userId: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (owner?.userId) return owner.userId;
+
+    const managers = await this.prisma.organizationMembership.findMany({
+      where: {
+        organizationId,
+        userId: { not: excludeUserId },
+        roles: {
+          some: {
+            role: { key: { in: ['sales_manager', 'admin', 'owner'] } },
+          },
+        },
+      },
+      select: { userId: true },
+      take: 5,
+      orderBy: { createdAt: 'asc' },
+    });
+    return managers[0]?.userId ?? null;
+  }
+
+  private async enqueueHotelRateActivationTask(opts: {
+    organizationId: string;
+    actorUserId: string;
+    tipId: string;
+    supplierId: string | null;
+    versionNumber: number;
+    roomType: string | null;
+  }) {
+    const assigneeId =
+      (await this.pickRateApproverUserId(
+        opts.organizationId,
+        opts.actorUserId,
+      )) ?? opts.actorUserId;
+    const room = opts.roomType?.trim() || 'Room';
+    const title = `Activate hotel rate ${hotelRateVersionLabel(opts.versionNumber)} · ${room}`;
+    const linkPath = opts.supplierId
+      ? `/suppliers/${opts.supplierId}#supplier-rate-chart`
+      : `/rates`;
+    const task = await this.prisma.task.create({
+      data: {
+        organizationId: opts.organizationId,
+        title,
+        description: [
+          'New tip is pending dual-control. Open History and Activate when buy is correct.',
+          linkPath,
+        ].join('\n'),
+        priority: 'high',
+        assigneeId,
+        entityType: 'supplier_hotel_rate',
+        entityId: opts.tipId,
+        createdBy: opts.actorUserId,
+        updatedBy: opts.actorUserId,
+      },
+    });
+    if (assigneeId !== opts.actorUserId) {
+      try {
+        const flags = await this.notifications.orgNotifyFlags(
+          opts.organizationId,
+        );
+        await this.notifications.notify({
+          organizationId: opts.organizationId,
+          userId: assigneeId,
+          title: 'Rate tip needs activation',
+          body: title,
+          linkPath,
+          channel: flags.notifyOnTask === false ? 'in_app' : 'both',
+        });
+      } catch {
+        /* non-blocking */
+      }
+    }
+    return { taskId: task.id, linkPath };
+  }
+
+  private async completeHotelRateActivationTasks(
+    organizationId: string,
+    tipId: string,
+    actorUserId: string,
+  ) {
+    await this.prisma.task.updateMany({
+      where: {
+        organizationId,
+        entityType: 'supplier_hotel_rate',
+        entityId: tipId,
+        status: { not: 'done' },
+        deletedAt: null,
+      },
+      data: {
+        status: 'done',
+        updatedBy: actorUserId,
+      },
+    });
+  }
 
   private async orgPricing(
     organizationId: string,
@@ -628,7 +744,7 @@ export class RatesService {
    */
   async createHotelRateVersion(
     organizationId: string,
-    userId: string,
+    user: AuthUser,
     rateId: string,
   ) {
     const source = await this.prisma.supplierHotelRate.findFirst({
@@ -646,16 +762,36 @@ export class RatesService {
       );
     }
 
+    const pendingChild = await this.prisma.supplierHotelRate.findFirst({
+      where: {
+        organizationId,
+        supersedesId: source.id,
+        isActive: false,
+        deletedAt: null,
+      },
+      select: { id: true, versionNumber: true },
+      orderBy: { versionNumber: 'desc' },
+    });
+    if (pendingChild) {
+      throw new BadRequestException(
+        `Tip v${pendingChild.versionNumber} is pending activation — Activate it before branching again`,
+      );
+    }
+
     const plan = planHotelRateNewVersion({
       id: source.id,
       versionNumber: source.versionNumber,
     });
+    const canActivate = hasPermission(user.permissions, 'rates.approve');
+    const pending = hotelRateVersionRequiresPendingActivation(canActivate);
 
     const created = await this.prisma.$transaction(async (tx) => {
-      await tx.supplierHotelRate.update({
-        where: { id: source.id },
-        data: { isActive: false },
-      });
+      if (!pending) {
+        await tx.supplierHotelRate.update({
+          where: { id: source.id },
+          data: { isActive: false },
+        });
+      }
       return tx.supplierHotelRate.create({
         data: {
           organizationId: source.organizationId,
@@ -675,23 +811,122 @@ export class RatesService {
           currency: source.currency,
           startDate: source.startDate,
           endDate: source.endDate,
-          isActive: true,
+          isActive: !pending,
           versionNumber: plan.versionNumber,
           supersedesId: plan.supersedesId,
-          createdBy: userId,
+          createdBy: user.sub,
         },
         include: this.hotelInclude,
       });
     });
 
+    let activationTaskId: string | null = null;
+    if (pending) {
+      const queued = await this.enqueueHotelRateActivationTask({
+        organizationId,
+        actorUserId: user.sub,
+        tipId: created.id,
+        supplierId: created.supplierId,
+        versionNumber: created.versionNumber,
+        roomType: created.roomType,
+      });
+      activationTaskId = queued.taskId;
+      await this.audit.record({
+        organizationId,
+        actorUserId: user.sub,
+        action: 'rate.pending_activation',
+        entityType: 'supplier_hotel_rate',
+        entityId: created.id,
+        metadata: {
+          previousRateId: source.id,
+          versionNumber: plan.versionNumber,
+          taskId: activationTaskId,
+        },
+      });
+    }
+
     return {
       ...created,
+      pendingActivation: pending,
       versionMeta: {
         previousRateId: source.id,
         previousVersionNumber: plan.previousVersionNumber,
         versionNumber: plan.versionNumber,
+        pendingActivation: pending,
+        activationTaskId,
       },
     };
+  }
+
+  /** Manager activates a pending tip; deactivates the previous live tip. */
+  async activateHotelRateVersion(
+    organizationId: string,
+    user: AuthUser,
+    rateId: string,
+  ) {
+    if (!hasPermission(user.permissions, 'rates.approve')) {
+      throw new ForbiddenException('Missing rates.approve');
+    }
+    const tip = await this.prisma.supplierHotelRate.findFirst({
+      where: {
+        id: rateId,
+        organizationId,
+        isSystem: false,
+        deletedAt: null,
+      },
+      include: this.hotelInclude,
+    });
+    if (!tip) throw new NotFoundException('Hotel rate not found');
+    if (tip.isActive) {
+      return { ...tip, pendingActivation: false, alreadyActive: true };
+    }
+    if (!tip.supersedesId) {
+      throw new BadRequestException('Only a branched tip can be activated');
+    }
+
+    const live = await this.prisma.supplierHotelRate.findFirst({
+      where: {
+        id: tip.supersedesId,
+        organizationId,
+        deletedAt: null,
+      },
+      select: { id: true, isActive: true },
+    });
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      if (live?.isActive) {
+        await tx.supplierHotelRate.update({
+          where: { id: live.id },
+          data: { isActive: false },
+        });
+      }
+      // Deactivate any other active tips in the same supplier/room/meal window family
+      // that somehow stayed live (thin safety).
+      return tx.supplierHotelRate.update({
+        where: { id: tip.id },
+        data: { isActive: true },
+        include: this.hotelInclude,
+      });
+    });
+
+    await this.completeHotelRateActivationTasks(
+      organizationId,
+      tip.id,
+      user.sub,
+    );
+    await this.audit.record({
+      organizationId,
+      actorUserId: user.sub,
+      action: 'rate.activate',
+      entityType: 'supplier_hotel_rate',
+      entityId: tip.id,
+      metadata: {
+        previousRateId: tip.supersedesId,
+        versionNumber: tip.versionNumber,
+      },
+    });
+
+    return { ...updated, pendingActivation: false, alreadyActive: false };
   }
 
   /** Linear supersedes chain for a rate (any tip in the family). */
@@ -810,22 +1045,32 @@ export class RatesService {
       }
     }
 
-    const activeTip =
-      [...byId.values()].find((r) => r.isActive) ||
+    const liveTip =
+      [...byId.values()].find((r) => r.isActive) ?? null;
+    const newestTip =
       [...byId.values()].sort((a, b) => b.versionNumber - a.versionNumber)[0]!;
-    const versions = orderHotelRateVersionChain(activeTip, byId).map((v) => {
-      if (v.id === activeTip.id) {
-        return { ...v, diffVsActive: null as ReturnType<typeof diffHotelRateTips> | null };
+    const chainRoot = newestTip;
+    const versions = orderHotelRateVersionChain(chainRoot, byId).map((v) => {
+      const pendingActivation = hotelRateTipPendingActivation({
+        isActive: v.isActive,
+        isNewestInFamily: v.id === newestTip.id,
+      });
+      const base = { ...v, pendingActivation };
+      if (!liveTip || v.id === liveTip.id) {
+        return {
+          ...base,
+          diffVsActive: null as ReturnType<typeof diffHotelRateTips> | null,
+        };
       }
       return {
-        ...v,
-        diffVsActive: diffHotelRateTips(v, activeTip),
+        ...base,
+        diffVsActive: diffHotelRateTips(v, liveTip),
       };
     });
 
     return {
       rateId,
-      activeRateId: activeTip.id,
+      activeRateId: liveTip?.id ?? newestTip.id,
       versions,
     };
   }
@@ -836,7 +1081,7 @@ export class RatesService {
    */
   async restoreHotelRateVersion(
     organizationId: string,
-    userId: string,
+    user: AuthUser,
     rateId: string,
     sourceVersionId: string,
   ) {
@@ -864,14 +1109,23 @@ export class RatesService {
     });
     if (!active) throw new NotFoundException('Active rate tip not found');
 
+    const pendingTip = chain.versions.find((v) => v.pendingActivation);
+    if (pendingTip) {
+      throw new BadRequestException(
+        `Tip v${pendingTip.versionNumber} is pending activation — Activate it before restore`,
+      );
+    }
+
     // Version from active tip, copying content from historical source.
     const plan = planHotelRateNewVersion({
       id: active.id,
       versionNumber: active.versionNumber,
     });
+    const canActivate = hasPermission(user.permissions, 'rates.approve');
+    const pending = hotelRateVersionRequiresPendingActivation(canActivate);
 
-    return this.prisma.$transaction(async (tx) => {
-      if (active.isActive) {
+    const created = await this.prisma.$transaction(async (tx) => {
+      if (!pending && active.isActive) {
         await tx.supplierHotelRate.update({
           where: { id: active.id },
           data: { isActive: false },
@@ -896,14 +1150,39 @@ export class RatesService {
           currency: source.currency,
           startDate: source.startDate,
           endDate: source.endDate,
-          isActive: true,
+          isActive: !pending,
           versionNumber: plan.versionNumber,
           supersedesId: plan.supersedesId,
-          createdBy: userId,
+          createdBy: user.sub,
         },
         include: this.hotelInclude,
       });
     });
+
+    if (pending) {
+      await this.enqueueHotelRateActivationTask({
+        organizationId,
+        actorUserId: user.sub,
+        tipId: created.id,
+        supplierId: created.supplierId,
+        versionNumber: created.versionNumber,
+        roomType: created.roomType,
+      });
+      await this.audit.record({
+        organizationId,
+        actorUserId: user.sub,
+        action: 'rate.pending_activation',
+        entityType: 'supplier_hotel_rate',
+        entityId: created.id,
+        metadata: {
+          previousRateId: active.id,
+          restoredFromId: source.id,
+          versionNumber: plan.versionNumber,
+        },
+      });
+    }
+
+    return { ...created, pendingActivation: pending };
   }
 
   // ── Transfer fare versions ─────────────────────────────────────────

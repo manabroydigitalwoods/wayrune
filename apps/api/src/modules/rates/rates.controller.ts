@@ -81,11 +81,13 @@ export class RatesController {
   @Post('hotel-rates/:id/new-version')
   @RequirePermissions('quote.write')
   newHotelVersion(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.rates.createHotelRateVersion(
-      user.organizationId,
-      user.sub,
-      id,
-    );
+    return this.rates.createHotelRateVersion(user.organizationId, user, id);
+  }
+
+  @Post('hotel-rates/:id/activate')
+  @RequirePermissions('rates.approve')
+  activateHotelVersion(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.rates.activateHotelRateVersion(user.organizationId, user, id);
   }
 
   @Get('hotel-rates/:id/versions')
@@ -104,7 +106,7 @@ export class RatesController {
     const parsed = RestoreHotelRateVersionSchema.parse(body);
     return this.rates.restoreHotelRateVersion(
       user.organizationId,
-      user.sub,
+      user,
       id,
       parsed.sourceVersionId,
     );

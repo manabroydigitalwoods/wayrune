@@ -65,6 +65,7 @@ export function humanizeEntityType(type: string): string {
     inquiry: 'Inquiry',
     trip: 'Trip',
     party: 'Client',
+    supplier_hotel_rate: 'Hotel rate',
   };
   return map[type] ?? humanizeFieldKey(type);
 }

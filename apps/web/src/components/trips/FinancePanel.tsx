@@ -34,6 +34,13 @@ import {
   sendTripPaymentLinkWhatsapp,
   toastForPaymentLinkWhatsapp,
 } from '../../lib/paymentLinkActions';
+import {
+  formatOrgTaxDisplaySplitLinesUi,
+  formatOrgTaxIdentityLinesUi,
+  orgTaxDisplaySplitCueUi,
+  orgTaxTotalsLabelUi,
+  type OrgTaxIdentityUi,
+} from '../../lib/orgTaxIdentity';
 
 type Payment = {
   id: string;
@@ -100,9 +107,11 @@ type FinanceSummary = {
     versionNumber: number;
     sellTotal: number;
     costTotal: number;
+    taxTotal?: number;
     marginAmount: number;
     marginPercent: number;
     currency: string;
+    taxIdentity?: OrgTaxIdentityUi | null;
   } | null;
   costCompare?: {
     estimatedCost: number | null;
@@ -569,6 +578,25 @@ export function FinancePanel({
   const summary = data?.summary;
   const quote = data?.quote;
   const costCompare = data?.costCompare;
+  const quoteTaxTotal = Number(quote?.taxTotal ?? 0);
+  const quoteTaxIdentity = quote?.taxIdentity ?? null;
+  const quoteTaxLabel = quoteTaxIdentity
+    ? orgTaxTotalsLabelUi(quoteTaxIdentity)
+    : 'Tax';
+  const quoteTaxSplitLines = quoteTaxIdentity
+    ? formatOrgTaxDisplaySplitLinesUi(quoteTaxIdentity, quoteTaxTotal, {
+        formatAmount: (n) => formatCurrency(n, quote?.currency),
+      })
+    : [];
+  const quoteTaxSplitCue = quoteTaxIdentity
+    ? orgTaxDisplaySplitCueUi(quoteTaxIdentity, quoteTaxTotal)
+    : null;
+  const quoteTaxIdentityLines = quoteTaxIdentity
+    ? formatOrgTaxIdentityLinesUi(quoteTaxIdentity)
+    : [];
+  const quoteSellExTax = quote
+    ? Math.max(0, Number(quote.sellTotal) - quoteTaxTotal)
+    : 0;
 
   return (
     <div className="space-y-4">
@@ -582,6 +610,31 @@ export function FinancePanel({
               <div className="text-lg font-semibold tabular-nums">
                 Sell {formatCurrency(quote.sellTotal, quote.currency)}
               </div>
+              {quoteTaxTotal > 0 ? (
+                <div className="mt-1 space-y-0.5 text-[11px] text-muted-foreground">
+                  <div className="flex justify-between gap-2 tabular-nums">
+                    <span>Sell before tax</span>
+                    <span>{formatCurrency(quoteSellExTax, quote.currency)}</span>
+                  </div>
+                  <div className="flex justify-between gap-2 tabular-nums">
+                    <span>{quoteTaxLabel}</span>
+                    <span>{formatCurrency(quoteTaxTotal, quote.currency)}</span>
+                  </div>
+                  {quoteTaxSplitLines.map((line) => (
+                    <div
+                      key={line}
+                      className="flex justify-between gap-2 tabular-nums"
+                    >
+                      <span>{line.split(' ')[0]}</span>
+                      <span>{line.replace(/^\S+\s+/, '')}</span>
+                    </div>
+                  ))}
+                  {quoteTaxSplitCue ? <p>{quoteTaxSplitCue}</p> : null}
+                  {quoteTaxIdentityLines.map((line) => (
+                    <p key={line}>{line}</p>
+                  ))}
+                </div>
+              ) : null}
             </div>
             <div>
               <div className="text-xs text-muted-foreground">Estimated cost (quote)</div>

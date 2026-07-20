@@ -4,6 +4,7 @@ import { matchKnownPlaceOfSupply } from './tax-display-split';
 import {
   parseQuoteTaxIdentity,
   quoteTaxIdentityToJson,
+  resolveQuoteTaxIdentityForDisplay,
 } from './quote-tax-identity';
 import { parseOrgTaxIdentity } from './org-tax-identity';
 
@@ -52,6 +53,55 @@ describe('quote-tax-identity freeze', () => {
   it('rejects incomplete stamp', () => {
     expect(parseQuoteTaxIdentity({ taxLabel: 'GST' })).toBeNull();
     expect(parseQuoteTaxIdentity(null)).toBeNull();
+  });
+
+  it('prefers stamp over live for display resolve', () => {
+    const stamped = quoteTaxIdentityToJson(
+      parseOrgTaxIdentity('GST', {
+        business: {
+          gstin: '29AABCD1234E1Z5',
+          placeOfSupply: 'KA',
+          destinationPlaceOfSupply: 'MH',
+        },
+      }),
+      'send',
+    );
+    const resolved = resolveQuoteTaxIdentityForDisplay({
+      taxIdentityJson: stamped,
+      taxLabel: 'VAT',
+      settingsJson: {
+        business: {
+          placeOfSupply: 'DL',
+          destinationPlaceOfSupply: 'DL',
+        },
+      },
+      destinationPlaceOfSupply: 'WB',
+    });
+    expect(resolved).toMatchObject({
+      taxLabel: 'GST',
+      placeOfSupply: 'KA',
+      destinationPlaceOfSupply: 'MH',
+    });
+  });
+
+  it('falls back to live when stamp missing', () => {
+    const resolved = resolveQuoteTaxIdentityForDisplay({
+      taxIdentityJson: null,
+      taxLabel: 'GST',
+      settingsJson: {
+        business: {
+          placeOfSupply: 'KA',
+          destinationPlaceOfSupply: 'MH',
+        },
+      },
+      destinationPlaceOfSupply: 'WB',
+    });
+    expect(resolved).toMatchObject({
+      taxLabel: 'GST',
+      placeOfSupply: 'KA',
+      destinationPlaceOfSupply: 'WB',
+      destinationPlaceOfSupplySource: 'trip',
+    });
   });
 });
 

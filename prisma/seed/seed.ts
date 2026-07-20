@@ -27,6 +27,7 @@ import {
   orgKindToAssetKind,
   ensureDefaultPartnerAsset,
 } from '../../apps/api/src/modules/partner-assets/partner-assets.helpers';
+import { buildDemoFitBuildTimingSamples } from '../../apps/api/src/modules/dashboard/demo-fit-build-timing';
 import {
   backfillHotelRateRoomProducts,
   ensureSupplierLinkedStayInventory,
@@ -4971,6 +4972,69 @@ async function seedRichAgencyData(
   await seedInboxReplyDemo(prisma, organizationId, ownerId, parties);
 }
 
+/**
+ * Demo-travel only: stamp ≥20 quote.fit_build audits so local sales strip can
+ * show claim-ready. Idempotent; never used by FIT pack install.
+ */
+async function seedDemoFitBuildTimingSamples(
+  prisma: PrismaClient,
+  organizationId: string,
+  actorUserId: string,
+) {
+  const org = await prisma.organization.findUnique({
+    where: { id: organizationId },
+    select: { slug: true },
+  });
+  if (org?.slug !== 'demo-travel') return;
+
+  const samples = buildDemoFitBuildTimingSamples();
+  const entityIds = samples.map((s) => s.entityId);
+  const existing = await prisma.auditEvent.count({
+    where: {
+      organizationId,
+      action: 'quote.fit_build',
+      entityId: { in: entityIds },
+    },
+  });
+  if (existing >= samples.length) {
+    console.log(
+      `Demo FIT timing samples already present (${existing}); skipping`,
+    );
+    return;
+  }
+
+  const now = Date.now();
+  let created = 0;
+  for (const sample of samples) {
+    const found = await prisma.auditEvent.findFirst({
+      where: {
+        organizationId,
+        action: 'quote.fit_build',
+        entityId: sample.entityId,
+      },
+      select: { id: true },
+    });
+    if (found) continue;
+    await prisma.auditEvent.create({
+      data: {
+        organizationId,
+        actorUserId,
+        action: 'quote.fit_build',
+        entityType: 'quotation_version',
+        entityId: sample.entityId,
+        metadataJson: sample.metadata,
+        createdAt: new Date(now - sample.daysAgo * 24 * 60 * 60 * 1000),
+      },
+    });
+    created += 1;
+  }
+  if (created) {
+    console.log(
+      `Seeded ${created} demo FIT build timing sample(s) on demo-travel (claim-gate demo only)`,
+    );
+  }
+}
+
 /** Inbox threads the agency can practice replying on (WhatsApp / Email / Google / Instagram). */
 async function seedInboxReplyDemo(
   prisma: PrismaClient,
@@ -5598,6 +5662,7 @@ async function main() {
   await ensureAgencyBootstrap(prisma, org.id);
   await seedDemoLeads(prisma, org.id, user.id);
   await seedRichAgencyData(prisma, org.id, user.id);
+  await seedDemoFitBuildTimingSamples(prisma, org.id, user.id);
   await seedAgencyPackageTemplate(prisma, org.id);
   await seedPartnerOperationalData(prisma);
 

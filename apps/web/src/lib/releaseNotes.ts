@@ -27,6 +27,30 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-finance-quote-tax-display',
+    date: '2026-07-20',
+    title: 'Finance quote tax breakdown',
+    summary:
+      'Trip Finance shows the accepted quote’s tax total with the same CGST/SGST or IGST display split as Quotes — display only, not a GST invoice claim.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-multi-approver-hotel-rate',
+    date: '2026-07-20',
+    title: 'Hotel rate dual-control Activate',
+    summary:
+      'Consultants without rates.approve create a pending tip; Match keeps the live tip until a manager Activates. Tasks link to the supplier rate chart.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-demo-fit-timing-seed',
+    date: '2026-07-20',
+    title: 'Demo FIT timing samples',
+    summary:
+      'Local db:seed stamps 20 under-3-minute FIT build samples on demo-travel so the sales strip can show claim-ready. Production orgs still need real send timings.',
+    claimStatus: 'architecture',
+  },
+  {
     id: '2026-07-20-per-pax-buy-children',
     date: '2026-07-20',
     title: 'Per-pax buy with children',

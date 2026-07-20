@@ -49,10 +49,12 @@ import {
   buildHotelRateTipDiffRows,
   formatHotelRateTipDiffCue,
   formatHotelRateVersionHistoryLine,
+  hotelRateLooksPendingActivation,
   hotelRateVersionLabel,
   showHotelRateTipDiffExpand,
 } from '../../lib/hotelRateVersion';
 import type { HotelRateVersionListItem } from '../../lib/hotelRateVersion';
+import { usePermissions } from '../../lib/permissions';
 import {
   MEAL_MATRIX_PLANS,
   MATRIX_ADULT_BANDS,
@@ -307,6 +309,8 @@ export function SupplierHotelRatesPanel({
   supplierName: string;
   linkedAssetId?: string | null;
 }) {
+  const { hasAny } = usePermissions();
+  const canActivateRates = hasAny(CAP.ratesApprove);
   const [rates, setRates] = useState<HotelRate[]>([]);
   const [contracts, setContracts] = useState<SupplierContractRow[]>([]);
   const [roomProducts, setRoomProducts] = useState<AssetRoomProductRow[]>([]);
@@ -336,6 +340,7 @@ export function SupplierHotelRatesPanel({
     null,
   );
   const [versioningId, setVersioningId] = useState<string | null>(null);
+  const [activatingId, setActivatingId] = useState<string | null>(null);
 
   const activeContract = useMemo(
     () => contracts.find((c) => c.status === 'active') ?? null,
@@ -405,7 +410,11 @@ export function SupplierHotelRatesPanel({
 
   const sorted = useMemo(() => {
     return [...rates]
-      .filter((r) => r.isActive !== false)
+      .filter(
+        (r) =>
+          r.isActive !== false ||
+          hotelRateLooksPendingActivation(r, rates),
+      )
       .sort((a, b) => {
         const room = (a.roomType || '').localeCompare(b.roomType || '');
         if (room) return room;
@@ -418,12 +427,25 @@ export function SupplierHotelRatesPanel({
   async function createRateVersion(rate: HotelRate) {
     setVersioningId(rate.id);
     try {
-      const created = await api<HotelRate & { versionMeta?: { versionNumber?: number } }>(
-        `/hotel-rates/${rate.id}/new-version`,
-        { method: 'POST', body: JSON.stringify({}) },
-      );
+      const created = await api<
+        HotelRate & {
+          pendingActivation?: boolean;
+          versionMeta?: {
+            versionNumber?: number;
+            pendingActivation?: boolean;
+          };
+        }
+      >(`/hotel-rates/${rate.id}/new-version`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      const pending =
+        created.pendingActivation === true ||
+        created.versionMeta?.pendingActivation === true;
       toastSuccess(
-        `Created ${hotelRateVersionLabel(created.versionMeta?.versionNumber ?? created.versionNumber)} — edit costs then Save`,
+        pending
+          ? `Submitted ${hotelRateVersionLabel(created.versionMeta?.versionNumber ?? created.versionNumber)} for activation — edit buy, then a manager Activates`
+          : `Created ${hotelRateVersionLabel(created.versionMeta?.versionNumber ?? created.versionNumber)} — edit costs then Save`,
       );
       await load();
       startEdit(created);
@@ -431,6 +453,30 @@ export function SupplierHotelRatesPanel({
       toastError(e instanceof Error ? e.message : 'Could not create rate version');
     } finally {
       setVersioningId(null);
+    }
+  }
+
+  async function activateRateVersion(rateId: string) {
+    setActivatingId(rateId);
+    try {
+      const updated = await api<HotelRate>(`/hotel-rates/${rateId}/activate`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      toastSuccess(
+        `Activated ${hotelRateVersionLabel(updated.versionNumber)} — Match uses this tip`,
+      );
+      await load();
+      if (historyOpen && historyAnchorId) {
+        const res = await api<{
+          versions: HotelRateVersionListItem[];
+        }>(`/hotel-rates/${historyAnchorId}/versions`);
+        setHistoryVersions(res.versions || []);
+      }
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not activate rate');
+    } finally {
+      setActivatingId(null);
     }
   }
 
@@ -457,7 +503,7 @@ export function SupplierHotelRatesPanel({
     if (!historyAnchorId) return;
     setHistorySaving(true);
     try {
-      const created = await api<HotelRate>(
+      const created = await api<HotelRate & { pendingActivation?: boolean }>(
         `/hotel-rates/${historyAnchorId}/restore-version`,
         {
           method: 'POST',
@@ -465,7 +511,9 @@ export function SupplierHotelRatesPanel({
         },
       );
       toastSuccess(
-        `Restored as ${hotelRateVersionLabel(created.versionNumber)}`,
+        created.pendingActivation
+          ? `Restored as ${hotelRateVersionLabel(created.versionNumber)} — pending activation`
+          : `Restored as ${hotelRateVersionLabel(created.versionNumber)}`,
       );
       setHistoryOpen(false);
       await load();
@@ -1084,11 +1132,24 @@ export function SupplierHotelRatesPanel({
                       </span>
                     ) : null;
                   })()}
-                  {!r.isActive ? (
-                    <span className="text-[10px] text-amber-700 dark:text-amber-400">
-                      Inactive
-                    </span>
-                  ) : null}
+                  {(() => {
+                    const pending = hotelRateLooksPendingActivation(r, rates);
+                    if (pending) {
+                      return (
+                        <span className="text-[10px] font-medium uppercase tracking-wide text-amber-700 dark:text-amber-400">
+                          Pending activation
+                        </span>
+                      );
+                    }
+                    if (!r.isActive) {
+                      return (
+                        <span className="text-[10px] text-amber-700 dark:text-amber-400">
+                          Inactive
+                        </span>
+                      );
+                    }
+                    return null;
+                  })()}
                 </div>
                 <div className="mt-0.5 text-xs text-muted-foreground">
                   {seasonLabel(r)}
@@ -1121,6 +1182,18 @@ export function SupplierHotelRatesPanel({
               </div>
               <Can anyOf={CAP.ratesWrite}>
                 <div className="flex items-center gap-0.5">
+                  {hotelRateLooksPendingActivation(r, rates) && canActivateRates ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2 text-xs"
+                      disabled={activatingId === r.id}
+                      onClick={() => void activateRateVersion(r.id)}
+                    >
+                      Activate
+                    </Button>
+                  ) : null}
                   <Button
                     type="button"
                     size="icon"
@@ -1161,7 +1234,11 @@ export function SupplierHotelRatesPanel({
                     className="size-7"
                     aria-label="New rate version"
                     title="New version (keeps history)"
-                    disabled={versioningId === r.id}
+                    disabled={
+                      versioningId === r.id ||
+                      hotelRateLooksPendingActivation(r, rates) ||
+                      r.isActive === false
+                    }
                     onClick={() => void createRateVersion(r)}
                   >
                     <GitBranch className="size-3.5" />
@@ -1738,8 +1815,8 @@ export function SupplierHotelRatesPanel({
           } else setHistoryOpen(true);
         }}
         title="Rate version history"
-        description="Superseded tips stay on file. Restore copies content into a new active tip."
-        submitting={historySaving}
+        description="Superseded tips stay on file. Restore copies content into a new tip. Tips without rates.approve stay pending until a manager Activates."
+        submitting={historySaving || activatingId != null}
         footer={
           <Button
             type="button"
@@ -1761,6 +1838,9 @@ export function SupplierHotelRatesPanel({
             {(() => {
               const activeTip =
                 historyVersions.find((row) => row.isActive) ?? null;
+              const hasPending = historyVersions.some(
+                (row) => row.pendingActivation,
+              );
               const moneyFmt = (n: number) =>
                 formatCurrency(n, { maximumFractionDigits: 0 });
               return [...historyVersions].reverse().map((v) => {
@@ -1802,22 +1882,46 @@ export function SupplierHotelRatesPanel({
                             {diffOpen ? 'Hide' : 'Diff'}
                           </Button>
                         ) : null}
-                        <Can anyOf={CAP.ratesWrite}>
-                          {!v.isActive ? (
+                        {v.pendingActivation ? (
+                          <Can anyOf={CAP.ratesApprove}>
                             <Button
                               type="button"
                               size="sm"
                               variant="outline"
-                              disabled={historySaving}
+                              disabled={activatingId === v.id}
+                              onClick={() => void activateRateVersion(v.id)}
+                            >
+                              Activate
+                            </Button>
+                          </Can>
+                        ) : null}
+                        {v.pendingActivation && !canActivateRates ? (
+                          <span className="text-[10px] font-medium uppercase tracking-wide text-amber-700 dark:text-amber-400">
+                            Pending
+                          </span>
+                        ) : null}
+                        <Can anyOf={CAP.ratesWrite}>
+                          {!v.isActive && !v.pendingActivation ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              disabled={historySaving || hasPending}
+                              title={
+                                hasPending
+                                  ? 'Activate the pending tip before restore'
+                                  : undefined
+                              }
                               onClick={() => void restoreRateVersion(v.id)}
                             >
                               Restore as new tip
                             </Button>
-                          ) : (
+                          ) : null}
+                          {v.isActive ? (
                             <span className="text-[10px] font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
                               Current
                             </span>
-                          )}
+                          ) : null}
                         </Can>
                       </div>
                     </div>

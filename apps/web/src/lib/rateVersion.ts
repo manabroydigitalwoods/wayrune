@@ -10,6 +10,8 @@ export type RateVersionListItem = {
   versionNumber: number;
   supersedesId: string | null;
   isActive: boolean;
+  /** Newest tip still inactive — awaiting rates.approve Activate. */
+  pendingActivation?: boolean;
   unitCost?: number | string | null;
   weekendUnitCost?: number | string | null;
   childUnitCost?: number | string | null;
@@ -28,6 +30,20 @@ export type RateVersionListItem = {
   activityName?: string | null;
   privateOrSic?: string | null;
 };
+
+/** Client-side pending tip: inactive tip with no child in the loaded family. */
+export function hotelRateLooksPendingActivation(
+  rate: {
+    id: string;
+    isActive: boolean;
+    supersedesId?: string | null;
+  },
+  family: Array<{ id: string; supersedesId?: string | null }>,
+): boolean {
+  if (rate.isActive) return false;
+  if (!rate.supersedesId) return false;
+  return !family.some((r) => r.supersedesId === rate.id);
+}
 
 export type RateVersionTipDiffRow = {
   field: string;
@@ -50,7 +66,11 @@ export function formatRateVersionHistoryLine(
       : Number.isFinite(cost)
         ? `₹${Math.round(cost).toLocaleString('en-IN')}`
         : '';
-  const state = row.isActive ? 'active' : 'superseded';
+  const state = row.pendingActivation
+    ? 'pending activation'
+    : row.isActive
+      ? 'active'
+      : 'superseded';
   const kind = opts?.kind ?? 'hotel';
   if (kind === 'hotel') {
     const meal = row.mealPlan?.trim() || 'Any meal';

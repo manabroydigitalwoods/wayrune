@@ -4,6 +4,7 @@ import {
   buildTransferFareTipDiffRows,
   formatRateVersionHistoryLine,
   formatRateVersionTipDiffCue,
+  hotelRateLooksPendingActivation,
   rateVersionLabel,
   showRateVersionTipDiffExpand,
 } from './rateVersion';
@@ -11,6 +12,51 @@ import {
 describe('rateVersion', () => {
   it('labels versions', () => {
     expect(rateVersionLabel(3)).toBe('v3');
+  });
+
+  it('flags pending activation tips', () => {
+    const family = [
+      { id: 'live', supersedesId: null as string | null },
+      { id: 'pending', supersedesId: 'live' },
+    ];
+    expect(
+      hotelRateLooksPendingActivation(
+        { id: 'pending', isActive: false, supersedesId: 'live' },
+        family,
+      ),
+    ).toBe(true);
+    expect(
+      hotelRateLooksPendingActivation(
+        { id: 'live', isActive: true, supersedesId: null },
+        family,
+      ),
+    ).toBe(false);
+    expect(
+      hotelRateLooksPendingActivation(
+        { id: 'old', isActive: false, supersedesId: null },
+        [
+          { id: 'old', supersedesId: null },
+          { id: 'live', supersedesId: 'old' },
+        ],
+      ),
+    ).toBe(false);
+  });
+
+  it('formats pending history state', () => {
+    expect(
+      formatRateVersionHistoryLine(
+        {
+          id: '1',
+          versionNumber: 3,
+          supersedesId: '2',
+          isActive: false,
+          pendingActivation: true,
+          unitCost: 5000,
+          mealPlan: 'MAP',
+        },
+        { kind: 'hotel' },
+      ),
+    ).toContain('pending activation');
   });
 
   it('formats transfer history line', () => {

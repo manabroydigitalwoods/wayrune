@@ -1,6 +1,9 @@
 /** Write-once tax identity freeze on QuotationVersion (FX-lock style). */
 
-import type { OrgTaxIdentity } from './org-tax-identity';
+import {
+  parseOrgTaxIdentity,
+  type OrgTaxIdentity,
+} from './org-tax-identity';
 
 export type QuoteTaxIdentityLock = OrgTaxIdentity & {
   lockedAt: string;
@@ -66,4 +69,28 @@ export function quoteTaxIdentityToJson(
     lockedAt,
     lockSource,
   };
+}
+
+/**
+ * Prefer write-once stamp on the quotation version; otherwise live org/trip resolve.
+ * Does not persist — Finance and other read paths use this.
+ */
+export function resolveQuoteTaxIdentityForDisplay(opts: {
+  taxIdentityJson: unknown;
+  taxLabel: string | null | undefined;
+  settingsJson: unknown;
+  destinationPlaceOfSupply?: string | null;
+  inferredDestinationPlaceOfSupply?: string | null;
+}): OrgTaxIdentity {
+  const stamped = parseQuoteTaxIdentity(opts.taxIdentityJson);
+  if (stamped) {
+    const { lockedAt: _l, lockSource: _s, ...identity } = stamped;
+    void _l;
+    void _s;
+    return identity;
+  }
+  return parseOrgTaxIdentity(opts.taxLabel, opts.settingsJson, {
+    destinationPlaceOfSupply: opts.destinationPlaceOfSupply,
+    inferredDestinationPlaceOfSupply: opts.inferredDestinationPlaceOfSupply,
+  });
 }
