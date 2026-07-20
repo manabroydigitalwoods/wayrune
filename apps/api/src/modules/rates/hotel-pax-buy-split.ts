@@ -1,6 +1,6 @@
 /**
  * Thin mixed-nationality hotel buy: DBL/2 share per adult from each guest's tip.
- * Gate: 1 room, 2 adults, exactly two distinct guest nationality codes,
+ * Gate: adults === 2 × rooms (1+ rooms), exactly two distinct guest nationality codes,
  * and a compatible tip for each code in the candidate pool.
  * Children allowed — extras compose via applyOccupancyPricing after the split.
  */
@@ -58,7 +58,10 @@ function money(v: number | string | null | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-/** Exactly two adult nationality slots when split is allowed; else null. */
+/**
+ * Exactly two adult nationality slots when split is allowed; else null.
+ * Multi-room 2A×N: adults must equal 2 × rooms (same DBL/2 math × rooms).
+ */
 export function hotelPaxBuySplitAdultSlots(
   guestCodes: Array<string | null | undefined> | null | undefined,
   opts: { adults: number; children: number; rooms: number },
@@ -66,7 +69,7 @@ export function hotelPaxBuySplitAdultSlots(
   const rooms = Math.max(1, Math.floor(opts.rooms) || 1);
   const adults = Math.max(0, Math.floor(opts.adults) || 0);
   void opts.children; // allowed; child extras apply after split on Match tip
-  if (rooms !== 1 || adults !== 2) return null;
+  if (adults !== 2 * rooms) return null;
   const codes = collectGuestNationalityCodes({ nationalities: guestCodes });
   if (!guestNationalitiesAreMixed(codes)) return null;
   if (codes.length !== 2) return null;
@@ -198,7 +201,10 @@ export function tryHotelPaxBuySplit<T extends HotelPaxBuySplitTip>(opts: {
 }
 
 export function hotelPaxBuySplitMatchAccepted(
-  split: Pick<HotelPaxBuySplitResult, 'paxBuySplits' | 'paxBuySplitTotalPerNight'>,
+  split: Pick<
+    HotelPaxBuySplitResult,
+    'paxBuySplits' | 'paxBuySplitTotalPerNight' | 'rooms'
+  >,
   opts?: { formatAmount?: (n: number) => string },
 ): string[] {
   const fmt =
@@ -207,7 +213,9 @@ export function hotelPaxBuySplitMatchAccepted(
   const bits = split.paxBuySplits.map(
     (s) => `${s.nationality} ${fmt(s.sharePerNight)}`,
   );
+  const rooms = Math.max(1, Math.floor(Number(split.rooms) || 1));
+  const roomsBit = rooms > 1 ? ` · × ${rooms} rooms` : '';
   return [
-    `Per-pax buy · ${bits.join(' + ')} = ${fmt(split.paxBuySplitTotalPerNight)}/n`,
+    `Per-pax buy · ${bits.join(' + ')} = ${fmt(split.paxBuySplitTotalPerNight)}/n${roomsBit}`,
   ];
 }

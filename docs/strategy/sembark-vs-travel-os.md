@@ -69,7 +69,7 @@ Maturity labels: **early** | **partial** | **mature** | **structural** (architec
 2. **Quote speed productisation** — measured sub-3-minute FIT median + public claim gated by `fitClaimProtocol` (demo-travel seed can clear n≥20 locally; production waits on real samples)  
 3. **Market credibility** — release notes, docs, scale proof  
 4. **Partner fleet OS** — inventory OS beyond booking-linked holds  
-5. **Rate-grid leftovers** — *(per-pax buy splits + 2A mixed with children thin-complete)* · 3+ adults / multi-room splits deferred
+5. **Rate-grid leftovers** — *(per-pax + children + multi-room 2A×N thin-complete)* · 3+ adults / 1 room + uneven multi-room deferred
 
 ---
 
@@ -630,7 +630,17 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Occupancy cue **Split · … · +₹… · N child…** when extras present |
 | **3 Proof** | **Done** | Gate + cue specs; this ladder in memo |
 
-**Defer:** 3+ adults / multi-room splits; per-child nationality tips; full Sembark per-pax matrix.
+**Defer:** *(closed — see Multi-room 2A×N per-pax buy below)* · 3+ adults / 1 room; per-child nationality tips; full Sembark per-pax matrix.
+
+#### Prod-ready ladder — Multi-room 2A×N per-pax buy (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | Gate `adults === 2 × rooms` (was rooms===1); same DBL/2 shares; `hotelStayCalculation` already × rooms |
+| **2 Channels / UI** | **Done** | Occupancy / Match explain cue appends **× N rooms** when N>1 |
+| **3 Proof** | **Done** | hotel-pax-buy-split + cue specs; claim registry; About release note; this ladder in memo |
+
+**Defer:** 3+ adults / 1 room (TPL/3); uneven multi-room (3A/2R); >2 nationality codes; per-child nationality tips; full Sembark per-pax matrix.
 
 #### Prod-ready ladder — Tax identity on proposals (**done**)
 
@@ -1377,6 +1387,7 @@ Then introduce differentiators: connected WhatsApp and email → agency website 
 | Multi-approver hotel rate inbox | **Proven** (thin · dual-control Activate) |
 | Per-pax buy splits (2A mixed DBL/2) | **Proven** (thin) |
 | Per-pax buy + children extras (2A mixed) | **Proven** (thin) |
+| Multi-room 2A×N per-pax buy | **Proven** (thin) |
 | Transfer + activity tip diff | **Proven** (thin) |
 | Transfer + activity tip Diff side-by-side | **Proven** (thin) |
 | Package template History Diff side-by-side | **Proven** (thin) |
@@ -1386,7 +1397,7 @@ Then introduce differentiators: connected WhatsApp and email → agency website 
 
 | Bet | Done when | Status |
 |-----|-----------|--------|
-| Hotel occupancy depth | Contracting enters SGL/DBL/TPL without sales spreadsheet override on seeded FIT | **Adult bands → nationality + traveller default + rate-version chains + tip diffs + per-pax DBL/2 buy split (2A mixed + children extras) done**; 3+A / multi-room splits open |
+| Hotel occupancy depth | Contracting enters SGL/DBL/TPL without sales spreadsheet override on seeded FIT | **Adult bands → nationality + traveller default + rate-version chains + tip diffs + per-pax DBL/2 buy split (2A mixed + children + multi-room 2A×N) done**; 3+A / 1 room + uneven multi-room open |
 | FIT speed claim | Protocol stamped; n≥20; median ≤3m; `publicClaimAllowed` | **Gate shipped**; **demo-travel seed stamps n=20 under 3m** (local demos only — production still waiting on real samples) |
 | Market credibility | Claim registry live; release notes + polished demo org | **Registry + About notes + named demo trip done**; public changelog open |
 | Deal-gated FX/fleet | Open only with signed need; keep locks/meta pluggable | **Discipline** |

@@ -95,4 +95,18 @@ describe('formatHotelOccupancyExtraNote', () => {
       'Split · IN ₹2,250 + US ₹3,100 = ₹5,350/n · +₹1,800 · 1 child w/ bed',
     );
   });
+
+  it('appends × N rooms on multi-room per-pax split cue', () => {
+    expect(
+      formatHotelPaxBuySplitNote({
+        buyMode: 'per_pax_split',
+        paxBuySplitTotalPerNight: 5350,
+        rooms: 2,
+        paxBuySplits: [
+          { nationality: 'IN', sharePerNight: 2250 },
+          { nationality: 'US', sharePerNight: 3100 },
+        ],
+      }),
+    ).toBe('Split · IN ₹2,250 + US ₹3,100 = ₹5,350/n · × 2 rooms');
+  });
 });

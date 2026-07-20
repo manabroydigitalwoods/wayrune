@@ -27,6 +27,14 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-multi-room-pax-buy-split',
+    date: '2026-07-20',
+    title: 'Multi-room per-pax hotel buy',
+    summary:
+      'Mixed-nationality DBL/2 split applies when adults = 2 × rooms (e.g. 4 adults / 2 doubles). Occupancy cue shows × N rooms.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-finance-quote-tax-display',
     date: '2026-07-20',
     title: 'Finance quote tax breakdown',

@@ -38,7 +38,7 @@ function tip(opts: {
 }
 
 describe('hotel-pax-buy-split', () => {
-  it('gates on 1 room / 2 adults / exactly two mixed codes (children allowed)', () => {
+  it('gates on adults === 2×rooms / exactly two mixed codes (children allowed)', () => {
     expect(
       hotelPaxBuySplitAdultSlots(['IN', 'US'], {
         adults: 2,
@@ -53,6 +53,20 @@ describe('hotel-pax-buy-split', () => {
         rooms: 1,
       }),
     ).toEqual(['IN', 'US']);
+    expect(
+      hotelPaxBuySplitAdultSlots(['IN', 'US'], {
+        adults: 4,
+        children: 0,
+        rooms: 2,
+      }),
+    ).toEqual(['IN', 'US']);
+    expect(
+      hotelPaxBuySplitAdultSlots(['IN', 'US'], {
+        adults: 3,
+        children: 0,
+        rooms: 2,
+      }),
+    ).toBeNull();
     expect(
       hotelPaxBuySplitAdultSlots(['IN', 'US', 'GB'], {
         adults: 2,
@@ -136,6 +150,31 @@ describe('hotel-pax-buy-split', () => {
     expect(split).not.toBeNull();
     expect(split!.paxBuySplitTotalPerNight).toBe(5350);
     expect(split!.paxBuySplits).toHaveLength(2);
+  });
+
+  it('multiplies stay buy by rooms for 2A×N (4 adults / 2 rooms)', () => {
+    const pool = [
+      tip({ id: 'in', unitCost: 4000, nationality: 'IN', dbl: 4500 }),
+      tip({ id: 'us', unitCost: 6000, nationality: 'US', dbl: 6200 }),
+    ];
+    const stayDates = [
+      new Date('2026-04-10T00:00:00.000Z'),
+      new Date('2026-04-11T00:00:00.000Z'),
+    ];
+    const split = tryHotelPaxBuySplit({
+      guestCodes: ['IN', 'US'],
+      adults: 4,
+      children: 0,
+      rooms: 2,
+      stayDates,
+      candidatePool: pool,
+      pickBest: (rows) => rows[0],
+    });
+    expect(split).not.toBeNull();
+    expect(split!.rooms).toBe(2);
+    expect(split!.paxBuySplitTotalPerNight).toBe(5350);
+    expect(split!.totalBuy).toBe(5350 * 2 * 2);
+    expect(hotelPaxBuySplitMatchAccepted(split!)[0]).toMatch(/× 2 rooms/);
   });
 
   it('falls back when a nationality tip is missing', () => {

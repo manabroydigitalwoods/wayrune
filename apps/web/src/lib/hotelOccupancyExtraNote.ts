@@ -15,6 +15,7 @@ export type HotelOccupancyExtraCalc = {
   buyMode?: string | null;
   paxBuySplitTotalPerNight?: number | null;
   paxBuySplits?: HotelPaxBuySplitShareUi[] | null;
+  rooms?: number | null;
 };
 
 export function formatHotelAdultBandNote(
@@ -53,7 +54,9 @@ export function formatHotelPaxBuySplitNote(
   const total = Number(calc.paxBuySplitTotalPerNight);
   const totalBit =
     Number.isFinite(total) && total >= 0 ? ` = ${fmt(total)}/n` : '';
-  return `Split · ${bits.join(' + ')}${totalBit}`;
+  const rooms = Math.max(0, Math.round(Number(calc.rooms) || 0));
+  const roomsBit = rooms > 1 ? ` · × ${rooms} rooms` : '';
+  return `Split · ${bits.join(' + ')}${totalBit}${roomsBit}`;
 }
 
 function occupancyExtraBits(
