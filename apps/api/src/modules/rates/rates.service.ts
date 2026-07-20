@@ -193,6 +193,7 @@ type FareRow = {
   childAgeMin: number | null;
   childAgeMax: number | null;
   pricingMode: string;
+  pricingJson?: unknown;
   currency: string;
   startDate: Date | null;
   endDate: Date | null;

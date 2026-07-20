@@ -2272,7 +2272,7 @@ export class LeadsService {
       action: 'whatsapp.templates.sync',
       entityType: 'organization',
       entityId: user.organizationId,
-      after: { created, updated, skipped, remote: remote.length },
+      metadata: { created, updated, skipped, remote: remote.length },
     });
 
     return {

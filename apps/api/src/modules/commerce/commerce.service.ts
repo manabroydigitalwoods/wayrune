@@ -3359,7 +3359,9 @@ export class CommerceService {
 
     await this.prisma.cancellationCase.update({
       where: { id: caseId },
-      data: { evaluationJson },
+      data: {
+        evaluationJson: evaluationJson as unknown as Prisma.InputJsonValue,
+      },
     });
 
     await this.timeline(
@@ -3408,7 +3410,9 @@ export class CommerceService {
 
     await this.prisma.cancellationCase.update({
       where: { id: caseId },
-      data: { evaluationJson },
+      data: {
+        evaluationJson: evaluationJson as unknown as Prisma.InputJsonValue,
+      },
     });
 
     await this.timeline(

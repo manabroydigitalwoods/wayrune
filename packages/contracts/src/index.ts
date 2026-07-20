@@ -3506,6 +3506,10 @@ export const ResolveRatesItemSchema = z.object({
       mealPlan: z.string().optional(),
       nights: z.number().optional(),
       rooms: z.number().optional(),
+      /** ISO date check-in for min-stay auto-extend. */
+      checkIn: z.string().optional(),
+      /** ISO date check-out (informational / extend stamp). */
+      checkOut: z.string().optional(),
       adults: z.number().optional(),
       children: z.number().optional(),
       infants: z.number().optional(),
