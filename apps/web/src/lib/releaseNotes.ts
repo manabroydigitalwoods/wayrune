@@ -27,6 +27,14 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-tpl-pax-buy-split',
+    date: '2026-07-20',
+    title: 'Triple per-pax hotel buy',
+    summary:
+      'Mixed-nationality TPL/3 split applies for 3 adults in one room with three guest markets. Occupancy cue lists each share.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-multi-room-pax-buy-split',
     date: '2026-07-20',
     title: 'Multi-room per-pax hotel buy',

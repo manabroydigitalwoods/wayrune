@@ -3532,8 +3532,8 @@ export class RatesService {
           totalBuy: paxSplit.totalBuy,
         };
         occPricingForExtras = occupancyPricing
-          ? { ...occupancyPricing, baseAdults: 2 }
-          : { baseAdults: 2, baseChildren: 0 };
+          ? { ...occupancyPricing, baseAdults: paxSplit.bandAdults }
+          : { baseAdults: paxSplit.bandAdults, baseChildren: 0 };
       } else if (adultBand) {
         baseCalc = hotelStayCalculation(
           {
@@ -3585,9 +3585,9 @@ export class RatesService {
               buyMode: paxSplit.buyMode,
               paxBuySplits: paxSplit.paxBuySplits,
               paxBuySplitTotalPerNight: paxSplit.paxBuySplitTotalPerNight,
-              adultBandAdults: 2,
+              adultBandAdults: paxSplit.bandAdults,
               adultBandUnitCost: paxSplit.paxBuySplitTotalPerNight,
-              adultsPerRoom: 2,
+              adultsPerRoom: paxSplit.bandAdults,
             }
           : adultBand
             ? {

@@ -13,26 +13,39 @@ function tip(opts: {
   nationality?: string | null;
   dbl?: number;
   dblWeekend?: number;
+  tpl?: number;
+  tplWeekend?: number;
 }) {
-  const adultBands =
-    opts.dbl != null
-      ? [
-          {
-            adults: 2,
-            unitCostPerNight: opts.dbl,
-            ...(opts.dblWeekend != null
-              ? { weekendUnitCostPerNight: opts.dblWeekend }
-              : {}),
-          },
-        ]
-      : undefined;
+  const adultBands: Array<{
+    adults: number;
+    unitCostPerNight: number;
+    weekendUnitCostPerNight?: number;
+  }> = [];
+  if (opts.dbl != null) {
+    adultBands.push({
+      adults: 2,
+      unitCostPerNight: opts.dbl,
+      ...(opts.dblWeekend != null
+        ? { weekendUnitCostPerNight: opts.dblWeekend }
+        : {}),
+    });
+  }
+  if (opts.tpl != null) {
+    adultBands.push({
+      adults: 3,
+      unitCostPerNight: opts.tpl,
+      ...(opts.tplWeekend != null
+        ? { weekendUnitCostPerNight: opts.tplWeekend }
+        : {}),
+    });
+  }
   return {
     id: opts.id,
     unitCost: opts.unitCost,
     weekendUnitCost: opts.weekendUnitCost ?? null,
     occupancyPricingJson: {
       ...(opts.nationality ? { nationality: opts.nationality } : {}),
-      ...(adultBands ? { adultBands } : {}),
+      ...(adultBands.length ? { adultBands } : {}),
     },
   };
 }
@@ -79,6 +92,30 @@ describe('hotel-pax-buy-split', () => {
         adults: 2,
         children: 0,
         rooms: 1,
+      }),
+    ).toBeNull();
+  });
+
+  it('gates TPL/3 on 1 room / 3 adults / exactly three mixed codes', () => {
+    expect(
+      hotelPaxBuySplitAdultSlots(['IN', 'US', 'GB'], {
+        adults: 3,
+        children: 0,
+        rooms: 1,
+      }),
+    ).toEqual(['IN', 'US', 'GB']);
+    expect(
+      hotelPaxBuySplitAdultSlots(['IN', 'US'], {
+        adults: 3,
+        children: 0,
+        rooms: 1,
+      }),
+    ).toBeNull();
+    expect(
+      hotelPaxBuySplitAdultSlots(['IN', 'US', 'GB'], {
+        adults: 3,
+        children: 0,
+        rooms: 2,
       }),
     ).toBeNull();
   });
@@ -172,9 +209,45 @@ describe('hotel-pax-buy-split', () => {
     });
     expect(split).not.toBeNull();
     expect(split!.rooms).toBe(2);
+    expect(split!.bandAdults).toBe(2);
     expect(split!.paxBuySplitTotalPerNight).toBe(5350);
     expect(split!.totalBuy).toBe(5350 * 2 * 2);
     expect(hotelPaxBuySplitMatchAccepted(split!)[0]).toMatch(/× 2 rooms/);
+  });
+
+  it('splits IN+US+GB TPL/3 shares for 3 adults / 1 room', () => {
+    const pool = [
+      tip({ id: 'in', unitCost: 4000, nationality: 'IN', tpl: 6600 }),
+      tip({ id: 'us', unitCost: 6000, nationality: 'US', tpl: 7200 }),
+      tip({ id: 'gb', unitCost: 5500, nationality: 'GB', tpl: 6900 }),
+    ];
+    const split = tryHotelPaxBuySplit({
+      guestCodes: ['IN', 'US', 'GB'],
+      adults: 3,
+      children: 0,
+      rooms: 1,
+      stayDates: [new Date('2026-04-10T00:00:00.000Z')],
+      candidatePool: pool,
+      pickBest: (rows) => rows[0],
+    });
+    expect(split).not.toBeNull();
+    expect(split!.bandAdults).toBe(3);
+    expect(split!.paxBuySplits).toHaveLength(3);
+    expect(split!.paxBuySplits[0]).toMatchObject({
+      nationality: 'IN',
+      sharePerNight: 2200,
+      tipUnitCostPerNight: 6600,
+    });
+    expect(split!.paxBuySplits[1]).toMatchObject({
+      nationality: 'US',
+      sharePerNight: 2400,
+    });
+    expect(split!.paxBuySplits[2]).toMatchObject({
+      nationality: 'GB',
+      sharePerNight: 2300,
+    });
+    expect(split!.paxBuySplitTotalPerNight).toBe(6900);
+    expect(split!.totalBuy).toBe(6900);
   });
 
   it('falls back when a nationality tip is missing', () => {

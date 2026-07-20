@@ -109,4 +109,18 @@ describe('formatHotelOccupancyExtraNote', () => {
       }),
     ).toBe('Split · IN ₹2,250 + US ₹3,100 = ₹5,350/n · × 2 rooms');
   });
+
+  it('formats three-way TPL per-pax split cue', () => {
+    expect(
+      formatHotelPaxBuySplitNote({
+        buyMode: 'per_pax_split',
+        paxBuySplitTotalPerNight: 6900,
+        paxBuySplits: [
+          { nationality: 'IN', sharePerNight: 2200 },
+          { nationality: 'US', sharePerNight: 2400 },
+          { nationality: 'GB', sharePerNight: 2300 },
+        ],
+      }),
+    ).toBe('Split · IN ₹2,200 + US ₹2,400 + GB ₹2,300 = ₹6,900/n');
+  });
 });
