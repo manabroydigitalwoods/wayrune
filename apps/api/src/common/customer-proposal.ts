@@ -891,6 +891,12 @@ export type CustomerQuotePayload = {
   inclusions: string | null;
   exclusions: string | null;
   terms: string | null;
+  /** True when versionNumber > 1 (revised proposal). */
+  isRevision: boolean;
+  /** e.g. "Revised quote · v2" */
+  revisionBanner: string | null;
+  /** Optional short change blurb from version label. */
+  changeBlurb: string | null;
 };
 
 export function presentCustomerQuote(version: {
@@ -926,11 +932,17 @@ export function presentCustomerQuote(version: {
     };
   });
 
+  const versionNumber = Number(version.versionNumber) || 1;
+  const isRevision = versionNumber > 1;
+  const label = version.label?.trim() || null;
+  const changeBlurb =
+    isRevision && label && !/^v\d+/i.test(label) ? label : null;
+
   return {
     quoteNumber: version.quotation.quoteNumber,
     versionId: version.id,
     versionLabel: version.label,
-    versionNumber: version.versionNumber,
+    versionNumber,
     status: version.status,
     currency: version.currency,
     validUntil: version.validUntil ? version.validUntil.toISOString() : null,
@@ -941,5 +953,8 @@ export function presentCustomerQuote(version: {
     inclusions: version.inclusions,
     exclusions: version.exclusions,
     terms: version.terms,
+    isRevision,
+    revisionBanner: isRevision ? `Revised quote · v${versionNumber}` : null,
+    changeBlurb,
   };
 }

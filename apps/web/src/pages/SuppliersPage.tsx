@@ -4,6 +4,7 @@ import {
   Building2,
   ClipboardList,
   FileUser,
+  Import,
   IndianRupee,
   MoreHorizontal,
   Plus,
@@ -43,6 +44,8 @@ import { SupplierContractsPanel } from '../components/agency/SupplierContractsPa
 import { SupplierHotelRatesPanel } from '../components/agency/SupplierHotelRatesPanel';
 import { toPlaceRef, type PlaceRef } from '../lib/placeRefs';
 import { AGENCY_ROUTES } from '../lib/agencyRoutes';
+import { isDemoOperateSupplier } from '../lib/demoOperate';
+import { formatSupplierImportSkipReason } from '../lib/supplierImportSkip';
 import {
   SUPPLIER_TYPE_GROUPS,
   contactCompletenessLabel,
@@ -61,6 +64,7 @@ type Supplier = {
   type: string;
   email?: string | null;
   phone?: string | null;
+  notes?: string | null;
   profileJson?: Record<string, unknown> | null;
   linkedOrganizationId?: string | null;
   linkedOrganization?: { id: string; name: string; kind: string } | null;
@@ -111,6 +115,11 @@ export function SuppliersPage() {
     name: string;
   } | null>(null);
   const [form, setForm] = useState(emptyCreateForm);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importText, setImportText] = useState(
+    'name,type,email,phone\n',
+  );
+  const [importing, setImporting] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -166,6 +175,66 @@ export function SuppliersPage() {
     }
   }
 
+  async function importCsv() {
+    const lines = importText
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+    if (lines.length < 2) {
+      toastError('Paste a header row plus at least one data row');
+      return;
+    }
+    const headers = lines[0]!.split(',').map((h) => h.trim().toLowerCase());
+    const nameIdx = headers.indexOf('name');
+    const typeIdx = headers.indexOf('type');
+    const emailIdx = headers.indexOf('email');
+    const phoneIdx = headers.indexOf('phone');
+    if (nameIdx < 0) {
+      toastError('CSV must include a name column');
+      return;
+    }
+    const rows = lines
+      .slice(1)
+      .map((line) => {
+        const cols = line.split(',').map((c) => c.trim());
+        return {
+          name: cols[nameIdx] || '',
+          type: typeIdx >= 0 ? cols[typeIdx] || undefined : undefined,
+          email: emailIdx >= 0 ? cols[emailIdx] || undefined : undefined,
+          phone: phoneIdx >= 0 ? cols[phoneIdx] || undefined : undefined,
+        };
+      })
+      .filter((r) => r.name);
+
+    if (!rows.length) {
+      toastError('No valid rows found');
+      return;
+    }
+
+    setImporting(true);
+    try {
+      const res = await api<{
+        imported: number;
+        skipped: number;
+        results?: Array<{ status: 'created' | 'skipped'; reason?: string }>;
+      }>('/suppliers/import/csv', {
+        method: 'POST',
+        body: JSON.stringify({ rows }),
+      });
+      const firstSkip = res.results?.find((r) => r.status === 'skipped')?.reason;
+      const skipHint = firstSkip
+        ? ` — ${formatSupplierImportSkipReason(firstSkip)}`
+        : '';
+      toastSuccess(`Imported ${res.imported}, skipped ${res.skipped}${skipHint}`);
+      setImportOpen(false);
+      await load();
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Import failed');
+    } finally {
+      setImporting(false);
+    }
+  }
+
   const columns = useMemo<ColumnDef<Supplier>[]>(
     () => [
       {
@@ -192,6 +261,13 @@ export function SuppliersPage() {
               )}
               {s.linkedOrganization ? (
                 <StatusBadge value="network" label="Network" showIcon={false} />
+              ) : null}
+              {isDemoOperateSupplier(s) ? (
+                <StatusBadge
+                  value="draft"
+                  label="Demo — not for live booking"
+                  showIcon={false}
+                />
               ) : null}
             </div>
           );
@@ -548,10 +624,16 @@ export function SuppliersPage() {
         className="mb-4 shrink-0"
         actions={
           <Can anyOf={CAP.supplierWrite}>
-            <Button onClick={() => setOpen(true)}>
-              <Plus className="size-4" />
-              New supplier
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => setImportOpen(true)}>
+                <Import className="size-4" />
+                Import CSV
+              </Button>
+              <Button onClick={() => setOpen(true)}>
+                <Plus className="size-4" />
+                New supplier
+              </Button>
+            </div>
           </Can>
         }
       />
@@ -576,6 +658,27 @@ export function SuppliersPage() {
           </Can>
         }
       />
+      <RecordSheet
+        open={importOpen}
+        onOpenChange={(next) => {
+          setImportOpen(next);
+          if (!next) setImportText('name,type,email,phone\n');
+        }}
+        title="Import suppliers"
+        description="CSV columns: name, type, email, phone. Type examples: hotel, car_rental, activity. Email or phone required for Operate-ready."
+        submitLabel="Import"
+        submitting={importing}
+        onSubmit={() => void importCsv()}
+      >
+        <FormField label="CSV">
+          <textarea
+            className="min-h-[12rem] w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs"
+            value={importText}
+            onChange={(e) => setImportText(e.target.value)}
+            spellCheck={false}
+          />
+        </FormField>
+      </RecordSheet>
       <RecordSheet
         open={open}
         onOpenChange={(next) => {

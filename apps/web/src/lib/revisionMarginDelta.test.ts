@@ -4,6 +4,7 @@ import {
   commercialTotalsFromLines,
   commercialTotalsFromVersion,
   resolveRevisionBaseline,
+  revisionChangedLineSummaries,
   signedMoneyDelta,
   signedPpDelta,
 } from './revisionMarginDelta';
@@ -74,6 +75,53 @@ describe('revisionMarginDelta', () => {
     expect(delta?.deltaMarginPp).toBeCloseTo(after.marginPercent - before.marginPercent);
     expect(signedMoneyDelta(20)).toEqual({ sign: '+', abs: 20 });
     expect(signedPpDelta(-1.2).sign).toBe('−');
+  });
+
+  it('computes tax delta and changed-line summaries', () => {
+    const before = commercialTotalsFromLines([
+      { quantity: 1, unitCost: 100, unitSell: 200, taxPercent: 5 },
+      { quantity: 1, unitCost: 50, unitSell: 80, taxPercent: 0 },
+    ]);
+    const after = commercialTotalsFromLines([
+      { quantity: 1, unitCost: 100, unitSell: 200, taxPercent: 18 },
+      { quantity: 2, unitCost: 50, unitSell: 90, taxPercent: 0 },
+    ]);
+    const delta = buildRevisionMarginDelta({
+      before,
+      after,
+      source: 'prior_version',
+      canViewCost: true,
+      beforeLines: [
+        { id: 'h1', description: 'Hotel', quantity: 1, unitCost: 100, unitSell: 200, taxPercent: 5 },
+        { id: 't1', description: 'Transfer', quantity: 1, unitCost: 50, unitSell: 80, taxPercent: 0 },
+      ],
+      afterLines: [
+        { id: 'h1', description: 'Hotel', quantity: 1, unitCost: 100, unitSell: 200, taxPercent: 18 },
+        { id: 't1', description: 'Transfer', quantity: 2, unitCost: 50, unitSell: 90, taxPercent: 0 },
+        { id: 'a1', description: 'Activity', quantity: 1, unitCost: 20, unitSell: 40, taxPercent: 0 },
+      ],
+    });
+    // Tax rose on the hotel line: 200*0.05 -> 200*0.18.
+    expect(delta?.deltaTax).toBeCloseTo(200 * 0.18 - 200 * 0.05, 5);
+    expect(delta?.changedLineSummaries).toContain('~ Hotel');
+    expect(delta?.changedLineSummaries).toContain('~ Transfer');
+    expect(delta?.changedLineSummaries).toContain('+ Activity');
+  });
+
+  it('summarizes added, removed, and changed lines', () => {
+    const summaries = revisionChangedLineSummaries(
+      [
+        { id: 'a', description: 'Keep', quantity: 1, unitCost: 1, unitSell: 2, taxPercent: 0 },
+        { id: 'b', description: 'Drop me', quantity: 1, unitCost: 1, unitSell: 2, taxPercent: 0 },
+      ],
+      [
+        { id: 'a', description: 'Keep', quantity: 1, unitCost: 1, unitSell: 2, taxPercent: 0 },
+        { id: 'c', description: 'New one', quantity: 1, unitCost: 1, unitSell: 2, taxPercent: 0 },
+      ],
+    );
+    expect(summaries).toContain('+ New one');
+    expect(summaries).toContain('− Drop me');
+    expect(summaries).not.toContain('~ Keep');
   });
 
   it('hides when cost cannot be viewed', () => {

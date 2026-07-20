@@ -31,6 +31,7 @@ import {
   markupPresetSummary,
   type MarkupPreset,
 } from '../../lib/markupPresets';
+import type { LastUsedMarkup } from '../../lib/lastUsedMarkup';
 import { partyMarkupStampSourceLabel } from '../../lib/orgMarkup';
 import { serviceTypeLabel } from '../../lib/quoteImportFromItinerary';
 import {
@@ -74,6 +75,11 @@ import {
 } from '../../lib/hotelNationalityNote';
 import { formatHotelCancellationNote } from '../../lib/hotelCancellationNote';
 import { WhyThisRatePanel } from './WhyThisRatePanel';
+import {
+  MATCH_ALT_SORT_CHIPS,
+  sortMatchAlternatives,
+  type MatchAltSortMode,
+} from '../../lib/matchAltSort';
 import {
   activityChildAgeCalcFromProvenance,
   formatActivityChildAgeNote,
@@ -188,6 +194,13 @@ type MatchAlternativeRow = {
   chartUnitCost: number | null;
   /** Est. stay/line buy from resolve (single-tip preview). */
   previewBuyTotal: number | null;
+  preferred?: boolean;
+  roomType?: string | null;
+  mealPlan?: string | null;
+  vehicleLabel?: string | null;
+  routeLabel?: string | null;
+  stopSaleCue?: string | null;
+  cancelCue?: string | null;
 };
 
 function parseMatchAlternatives(
@@ -219,6 +232,8 @@ function parseMatchAlternatives(
         : Number.isFinite(Number(previewRaw))
           ? Number(previewRaw)
           : null;
+    const str = (v: unknown) =>
+      typeof v === 'string' && v.trim() ? v.trim() : null;
     return [
       {
         rateId,
@@ -226,6 +241,13 @@ function parseMatchAlternatives(
         score: Number.isFinite(score) ? score : 0,
         chartUnitCost,
         previewBuyTotal,
+        preferred: r.preferred === true,
+        roomType: str(r.roomType),
+        mealPlan: str(r.mealPlan),
+        vehicleLabel: str(r.vehicleLabel),
+        routeLabel: str(r.routeLabel),
+        stopSaleCue: str(r.stopSaleCue),
+        cancelCue: str(r.cancelCue),
       },
     ];
   });
@@ -495,6 +517,8 @@ export function QuoteServiceDetailSheet({
   partyId,
   defaultMarkupPercent = 20,
   markupPresets = [],
+  lastUsedMarkup = null,
+  onMarkupApplied,
   seedDetails,
   tripTravellers,
   destinationPlaceOfSupply,
@@ -535,6 +559,10 @@ export function QuoteServiceDetailSheet({
   defaultMarkupPercent?: number;
   /** Org markup preset library — apply to this line only. */
   markupPresets?: MarkupPreset[];
+  /** Last markup this org user applied — seeds new/blank lines before Match. */
+  lastUsedMarkup?: LastUsedMarkup | null;
+  /** Fired when the user picks/changes a markup so the parent can remember it. */
+  onMarkupApplied?: (markup: LastUsedMarkup) => void;
   seedDetails?: QuoteServiceDetails | null;
   onSave: (patch: Partial<QuoteServiceDetailLine> & { id: string }) => void;
   /** When set, footer shows Next issue · N of M for attention-strip queue. */
@@ -589,6 +617,7 @@ export function QuoteServiceDetailSheet({
   const [matchAlternatives, setMatchAlternatives] = useState<MatchAlternativeRow[]>(
     [],
   );
+  const [matchAltSort, setMatchAltSort] = useState<MatchAltSortMode>('best');
   const [lastMatchBlockReason, setLastMatchBlockReason] = useState<
     'blackout' | 'stop_sell' | null
   >(null);
@@ -613,6 +642,10 @@ export function QuoteServiceDetailSheet({
     setServiceType(line.serviceType || 'custom');
     const merged = { ...(seedDetails || {}), ...(line.details || {}) };
     let parsed = parseQuoteServiceDetails(merged) || {};
+    // Seed a blank line's markup from the consultant's last-used markup, else org default.
+    const seedMarkupMode: QuoteMarkupMode = lastUsedMarkup?.mode ?? 'percent';
+    const seedMarkupValue =
+      lastUsedMarkup?.value != null ? lastUsedMarkup.value : defaultMarkupPercent;
     if ((line.serviceType || 'custom') === 'hotel') {
       parsed = withCalculatedHotelNights(parsed);
       if (parsed.adults == null && partyAdults) parsed.adults = partyAdults;
@@ -620,8 +653,8 @@ export function QuoteServiceDetailSheet({
       if (parsed.infants == null && partyInfants != null) parsed.infants = partyInfants;
       if (!parsed.rateBasis) parsed.rateBasis = 'per_room_night';
       parsed.rateBasis = 'per_room_night';
-      if (!parsed.markupMode) parsed.markupMode = 'percent';
-      if (parsed.markupValue == null) parsed.markupValue = defaultMarkupPercent;
+      if (!parsed.markupMode) parsed.markupMode = seedMarkupMode;
+      if (parsed.markupValue == null) parsed.markupValue = seedMarkupValue;
       if (!parsed.availability) parsed.availability = 'unknown';
       if (!parsed.rooms) parsed.rooms = 1;
       {
@@ -652,8 +685,8 @@ export function QuoteServiceDetailSheet({
       }
     }
     if ((line.serviceType || 'custom') === 'transfer') {
-      if (!parsed.markupMode) parsed.markupMode = 'percent';
-      if (parsed.markupValue == null) parsed.markupValue = defaultMarkupPercent;
+      if (!parsed.markupMode) parsed.markupMode = seedMarkupMode;
+      if (parsed.markupValue == null) parsed.markupValue = seedMarkupValue;
       if (!parsed.vehicles) parsed.vehicles = 1;
       if (parsed.adults == null && partyAdults) parsed.adults = partyAdults;
       if (parsed.children == null && partyChildren != null) parsed.children = partyChildren;
@@ -677,8 +710,8 @@ export function QuoteServiceDetailSheet({
     if (line.serviceType === 'activity') {
       if (parsed.adults == null && partyAdults) parsed.adults = partyAdults;
       if (parsed.children == null && partyChildren != null) parsed.children = partyChildren;
-      if (!parsed.markupMode) parsed.markupMode = 'percent';
-      if (parsed.markupValue == null) parsed.markupValue = defaultMarkupPercent;
+      if (!parsed.markupMode) parsed.markupMode = seedMarkupMode;
+      if (parsed.markupValue == null) parsed.markupValue = seedMarkupValue;
       if (
         !parsed.priceSource &&
         (line.unitCost != null || line.unitSell != null)
@@ -688,8 +721,8 @@ export function QuoteServiceDetailSheet({
     }
     if ((line.serviceType || 'custom') === 'custom') {
       if (!parsed.unitLabel) parsed.unitLabel = 'service';
-      if (parsed.markupMode == null) parsed.markupMode = 'percent';
-      if (parsed.markupValue == null) parsed.markupValue = defaultMarkupPercent;
+      if (parsed.markupMode == null) parsed.markupMode = seedMarkupMode;
+      if (parsed.markupValue == null) parsed.markupValue = seedMarkupValue;
     }
     setDetails(parsed);
     setUnitCost(
@@ -733,7 +766,7 @@ export function QuoteServiceDetailSheet({
     setMaxStayAckReason(line.rateProvenance?.maxStayRiskAckReason?.trim() || '');
     setRateDriftAckReason(line.rateProvenance?.rateDriftAckReason?.trim() || '');
     setRouteDistanceKm(null);
-  }, [open, line, seedDetails, partyAdults, partyChildren, partyInfants, defaultMarkupPercent, tripStartDate]);
+  }, [open, line, seedDetails, partyAdults, partyChildren, partyInfants, defaultMarkupPercent, lastUsedMarkup?.mode, lastUsedMarkup?.value, tripStartDate]);
 
   /** Soft detect: chart row edited after this line was matched. */
   useEffect(() => {
@@ -1088,13 +1121,19 @@ export function QuoteServiceDetailSheet({
   ) {
     const preset = opts?.preset;
     patchDetails({
-      markupMode: mode,
-      markupValue: value,
-      sellManual: false,
       ...(preset
         ? markupDetailsFromPreset(preset)
-        : { markupPresetId: undefined, markupPresetLabel: undefined }),
+        : {
+            markupPresetId: undefined,
+            markupPresetLabel: undefined,
+            sellManual: false,
+          }),
+      markupMode: mode,
+      markupValue: value,
     });
+    if (value != null && Number.isFinite(value)) {
+      onMarkupApplied?.({ mode, value });
+    }
     if (serviceType === 'hotel') {
       const base = hotelBaseCost(buyUnit, { ...details, markupMode: mode, markupValue: value });
       const suggested = suggestedSellFromMarkup(base, mode, value);
@@ -1328,7 +1367,10 @@ export function QuoteServiceDetailSheet({
       });
       const next = {
         ...details,
-        markupMode: (details.markupMode === 'fixed' ? 'fixed' : 'percent') as const,
+        markupMode:
+          details.markupMode === 'fixed'
+            ? ('fixed' as const)
+            : ('percent' as const),
         vehicles: transferSaveCapacity.vehicles,
       };
       const check = validateTransferV1(next, {
@@ -1373,7 +1415,10 @@ export function QuoteServiceDetailSheet({
     if (serviceType === 'activity') {
       const next = {
         ...details,
-        markupMode: (details.markupMode === 'fixed' ? 'fixed' : 'percent') as const,
+        markupMode:
+          details.markupMode === 'fixed'
+            ? ('fixed' as const)
+            : ('percent' as const),
       };
       const check = validateActivityV1(next, {
         buyUnit: parseMoney(unitCost),
@@ -1638,19 +1683,36 @@ export function QuoteServiceDetailSheet({
     detailsOverride?: QuoteServiceDetails;
     /** Pick a Match alternative (eligible chart row). */
     preferredRateId?: string | null;
+    /** Keep current line markup when applying an alt (vs org default). */
+    keepMarkup?: boolean;
+    sortMode?: MatchAltSortMode;
   }) {
     if (!line || readOnly) return;
     const auto = Boolean(opts?.auto);
     const preferredRateId = opts?.preferredRateId?.trim() || null;
+    const keepMarkup = Boolean(opts?.keepMarkup);
     const baseDetails = opts?.detailsOverride ?? details;
+    const markupSeed = keepMarkup
+      ? {
+          markupMode: (baseDetails.markupMode || 'percent') as 'percent' | 'fixed',
+          markupValue:
+            baseDetails.markupValue ??
+            defaultMarkupPercent ??
+            20,
+        }
+      : lastUsedMarkup
+        ? { markupMode: lastUsedMarkup.mode, markupValue: lastUsedMarkup.value }
+        : {};
     const withNights =
       serviceType === 'hotel'
         ? withCalculatedHotelNights({
             ...baseDetails,
+            ...markupSeed,
             rateBasis: 'per_room_night',
           })
         : {
             ...baseDetails,
+            ...markupSeed,
             vehicles: Math.max(1, Math.round(baseDetails.vehicles ?? 1)),
           };
     if (serviceType === 'hotel') {
@@ -1763,12 +1825,46 @@ export function QuoteServiceDetailSheet({
           infants: withNights.infants ?? partyInfants ?? undefined,
         },
         hit,
-        defaultMarkupPercent,
+        defaultMarkupPercent: keepMarkup
+          ? Number(withNights.markupValue) || defaultMarkupPercent
+          : defaultMarkupPercent,
         previousUnitSell: parseMoney(unitSell),
         // Auto rematch and manual Match rate both refresh sell from markup unless
         // the user already confirmed keep-manual (handled separately).
         forceSell: true,
       });
+
+      if (
+        hit.matched &&
+        appliedForced.details.markupMode &&
+        appliedForced.details.markupValue != null
+      ) {
+        onMarkupApplied?.({
+          mode:
+            appliedForced.details.markupMode === 'fixed' ? 'fixed' : 'percent',
+          value: Number(appliedForced.details.markupValue) || 0,
+        });
+      }
+
+      if (preferredRateId && hit.matched) {
+        try {
+          await api('/audit/client-events', {
+            method: 'POST',
+            body: JSON.stringify({
+              action: 'match_alt_use',
+              entityType: 'quotation_line',
+              entityId: line.id,
+              metadata: {
+                sortMode: opts?.sortMode || matchAltSort,
+                keepMarkup,
+                rateId: preferredRateId,
+              },
+            }),
+          });
+        } catch {
+          // Telemetry best-effort
+        }
+      }
 
       setDetails(appliedForced.details);
       setUnitCost(
@@ -2188,51 +2284,123 @@ export function QuoteServiceDetailSheet({
 
         {matchAlternatives.length > 0 && !readOnly ? (
           <div className="rounded-md border border-border/50 bg-muted/20 px-2.5 py-2 text-xs">
-            <p className="font-medium text-foreground">Other eligible rates</p>
-            <p className="mt-0.5 text-muted-foreground">
-              Same Match filters — pick another chart without rebuilding this line.
-              Est. stay/line buy follows Match (per-pax split, multi-cab, child
-              age×market extras when gated). Use still re-matches to apply.
-            </p>
-            <ul className="mt-2 space-y-1">
-              {matchAlternatives.map((alt) => (
-                <li
-                  key={alt.rateId}
-                  className="flex flex-wrap items-center justify-between gap-2"
-                >
-                  <span className="min-w-0 flex-1 text-muted-foreground">
-                    <span className="font-medium text-foreground">{alt.label}</span>
-                    {alt.previewBuyTotal != null
-                      ? ` · est. ${
-                          serviceType === 'hotel' ? 'stay' : 'line'
-                        } buy ${formatCurrency(alt.previewBuyTotal, {
-                          currency,
-                          maximumFractionDigits: 0,
-                        })}`
-                      : alt.chartUnitCost != null
-                        ? ` · chart ${formatCurrency(alt.chartUnitCost, {
-                            currency,
-                            maximumFractionDigits: 0,
-                          })}`
-                        : ''}
-                    {alt.previewBuyTotal != null && alt.chartUnitCost != null
-                      ? ` · chart ${formatCurrency(alt.chartUnitCost, {
-                          currency,
-                          maximumFractionDigits: 0,
-                        })}`
-                      : ''}
-                    {alt.score > 0 ? ` · score ${alt.score}` : ''}
-                  </span>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="font-medium text-foreground">Other eligible rates</p>
+              <div className="flex flex-wrap gap-1">
+                {MATCH_ALT_SORT_CHIPS.map((chip) => (
                   <Button
+                    key={chip.id}
                     type="button"
                     size="sm"
-                    variant="secondary"
-                    className="h-7 shrink-0"
-                    disabled={matching}
-                    onClick={() => void matchRate({ preferredRateId: alt.rateId })}
+                    variant={matchAltSort === chip.id ? 'secondary' : 'ghost'}
+                    className="h-6 px-2 text-[11px]"
+                    onClick={() => setMatchAltSort(chip.id)}
                   >
-                    Use
+                    {chip.label}
                   </Button>
+                ))}
+              </div>
+            </div>
+            <p className="mt-0.5 text-muted-foreground">
+              Same Match filters — pick another chart without rebuilding this line.
+              Est. stay/line buy follows Match. Use (keep markup) preserves this
+              line’s markup; Use applies last-used or org default.
+            </p>
+            <ul className="mt-2 grid gap-2 sm:grid-cols-2">
+              {sortMatchAlternatives(
+                matchAlternatives.map((a) => ({
+                  ...a,
+                  id: a.rateId,
+                  estimatedBuy: a.previewBuyTotal ?? a.chartUnitCost,
+                })),
+                matchAltSort,
+              ).map((alt) => (
+                <li
+                  key={alt.rateId}
+                  className="rounded-md border border-border/40 bg-background/60 px-2 py-1.5"
+                >
+                  <p className="font-medium text-foreground">{alt.label}</p>
+                  <p className="mt-0.5 text-muted-foreground">
+                    {serviceType === 'hotel' ? (
+                      <>
+                        {[alt.roomType, alt.mealPlan].filter(Boolean).join(' · ') ||
+                          'Room · meal'}
+                        {alt.previewBuyTotal != null
+                          ? ` · est. stay ${formatCurrency(alt.previewBuyTotal, {
+                              currency,
+                              maximumFractionDigits: 0,
+                            })}`
+                          : ''}
+                        {alt.stopSaleCue || alt.cancelCue
+                          ? ` · ${[alt.stopSaleCue, alt.cancelCue]
+                              .filter(Boolean)
+                              .join(' · ')}`
+                          : ''}
+                      </>
+                    ) : serviceType === 'transfer' ? (
+                      <>
+                        {[alt.vehicleLabel, alt.routeLabel]
+                          .filter(Boolean)
+                          .join(' · ') || 'Vehicle · route'}
+                        {alt.previewBuyTotal != null
+                          ? ` · est. buy ${formatCurrency(alt.previewBuyTotal, {
+                              currency,
+                              maximumFractionDigits: 0,
+                            })}`
+                          : ''}
+                      </>
+                    ) : (
+                      <>
+                        {alt.previewBuyTotal != null
+                          ? `est. buy ${formatCurrency(alt.previewBuyTotal, {
+                              currency,
+                              maximumFractionDigits: 0,
+                            })}`
+                          : alt.chartUnitCost != null
+                            ? `chart ${formatCurrency(alt.chartUnitCost, {
+                                currency,
+                                maximumFractionDigits: 0,
+                              })}`
+                            : 'Eligible rate'}
+                      </>
+                    )}
+                    {alt.preferred ? ' · preferred' : ''}
+                    {alt.score > 0 ? ` · score ${alt.score}` : ''}
+                  </p>
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      className="h-7"
+                      disabled={matching}
+                      onClick={() =>
+                        void matchRate({
+                          preferredRateId: alt.rateId,
+                          keepMarkup: true,
+                          sortMode: matchAltSort,
+                        })
+                      }
+                    >
+                      Use (keep markup)
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-7"
+                      disabled={matching}
+                      onClick={() =>
+                        void matchRate({
+                          preferredRateId: alt.rateId,
+                          keepMarkup: false,
+                          sortMode: matchAltSort,
+                        })
+                      }
+                    >
+                      Use
+                    </Button>
+                  </div>
                 </li>
               ))}
             </ul>

@@ -448,6 +448,54 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 
 **Defer:** flipping claim registry to Proven (manual ops); public scale snapshot publish; unit board utilization %.
 
+#### Prod-ready ladder — Quote-ready / Operate-ready onboarding (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | Dual `quoteReady` / `operateReady` tracks; Operate requires contact-complete hotel+transfer+activity suppliers, rates each, and ≥1 booking with `supplierId`; honest operate-through dogfood Import step |
+| **2 Channels / UI** | **Done** | Agency onboarding checklist two sections; About claim kit operate-through deep-links |
+| **3 Proof** | **Done** | `onboarding-status.spec` + `parity-dogfood-kit.spec`; release note; this ladder |
+
+#### Prod-ready ladder — Demo operate pack + replace (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | FIT pack install upserts labeled `[Demo]` hotel/transfer/activity suppliers + thin rates; stamps `supplierId` on FIT templates; `POST /organizations/demo-operate/replace` soft-archives; audit `operate_demo_install` / `replace_demo` |
+| **2 Channels / UI** | **Done** | Demo badges on suppliers; Settings → About **Replace demo with real data** |
+| **3 Proof** | **Done** | `demo-operate-pack.spec`; release note; this ladder; FIT claim stays Testing |
+
+#### Prod-ready ladder — Supplier contact CSV import (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `POST /suppliers/import/csv` (name, type, email/phone); contact required; fail-closed when nothing imports; duplicate name skip |
+| **2 Channels / UI** | **Done** | Suppliers **Import CSV**; contact completeness remains Operate-ready gate |
+| **3 Proof** | **Done** | `supplier-import.spec`; release note; this ladder |
+
+#### Prod-ready ladder — Use previous trip + last markup (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `POST …/quotations/from-previous` date-shift + rematch; audit `use_previous_trip`; last-used markup localStorage |
+| **2 Channels / UI** | **Done** | Use previous trip on empty quote; rail Hotels→Transfers→Activities soft hint |
+| **3 Proof** | **Done** | fitQuoteProgress + lastUsedMarkup tests; release note; this ladder |
+
+#### Prod-ready ladder — Quote revision customer story (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `presentCustomerQuote` revision banner; revision tax Δ + changed lines |
+| **2 Channels / UI** | **Done** | Public “Revised quote · vN”; Resend latest on locked tip; swap hotel keeps dates |
+| **3 Proof** | **Done** | revisionMarginDelta tests; release note; this ladder |
+
+#### Prod-ready ladder — Match alt side-by-side compare (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `matchAltSort` Best/Lowest/Preferred; client audit `match_alt_use` |
+| **2 Channels / UI** | **Done** | Sort chips + Use (keep markup) in Match sheet |
+| **3 Proof** | **Done** | matchAltSort tests; release note; this ladder |
+
 #### Prod-ready ladder — Movement + transfer assign (**done**)
 
 | Wave | Status | What shipped |

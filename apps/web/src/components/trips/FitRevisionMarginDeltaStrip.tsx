@@ -70,6 +70,12 @@ export function FitRevisionMarginDeltaStrip({
           </dd>
         </div>
         <div className="flex gap-1.5">
+          <dt className="text-muted-foreground">Tax</dt>
+          <dd>
+            {moneyDeltaLabel(delta.deltaTax, currency)}
+          </dd>
+        </div>
+        <div className="flex gap-1.5">
           <dt className="text-muted-foreground">Margin</dt>
           <dd
             className={cn(
@@ -84,6 +90,11 @@ export function FitRevisionMarginDeltaStrip({
           </dd>
         </div>
       </dl>
+      {delta.changedLineSummaries.length ? (
+        <p className="mt-1.5 text-[11px] text-muted-foreground">
+          Changed: {delta.changedLineSummaries.join(' · ')}
+        </p>
+      ) : null}
     </div>
   );
 }

@@ -182,12 +182,69 @@ export type RevisionMarginDelta = {
   deltaCost: number;
   deltaSellExTax: number;
   deltaSellTotal: number;
+  deltaTax: number;
   deltaMarginAmount: number;
   deltaMarginPp: number;
   source: RevisionBaselineSource;
   baselineLabel: string;
+  changedLineSummaries: string[];
   visible: boolean;
 };
+
+export type RevisionLineSnapshot = {
+  id?: string;
+  description?: string;
+  serviceType?: string;
+  quantity: number;
+  unitCost: number | null | undefined;
+  unitSell: number | null | undefined;
+  taxPercent?: number | null;
+};
+
+function lineKey(line: RevisionLineSnapshot): string {
+  return (
+    line.id?.trim() ||
+    `${(line.serviceType || '').toLowerCase()}|${(line.description || '')
+      .trim()
+      .toLowerCase()}`
+  );
+}
+
+function lineFingerprint(line: RevisionLineSnapshot): string {
+  return [
+    line.quantity,
+    line.unitCost ?? 'x',
+    line.unitSell ?? 'x',
+    line.taxPercent ?? 0,
+    (line.description || '').trim(),
+  ].join('|');
+}
+
+/** Short staff-facing list of lines that changed vs baseline. */
+export function revisionChangedLineSummaries(
+  beforeLines: RevisionLineSnapshot[],
+  afterLines: RevisionLineSnapshot[],
+  limit = 6,
+): string[] {
+  const beforeMap = new Map(beforeLines.map((l) => [lineKey(l), l]));
+  const afterMap = new Map(afterLines.map((l) => [lineKey(l), l]));
+  const out: string[] = [];
+  for (const [key, after] of afterMap) {
+    const before = beforeMap.get(key);
+    if (!before) {
+      out.push(`+ ${after.description || after.serviceType || 'line'}`);
+    } else if (lineFingerprint(before) !== lineFingerprint(after)) {
+      out.push(`~ ${after.description || after.serviceType || 'line'}`);
+    }
+    if (out.length >= limit) return out;
+  }
+  for (const [key, before] of beforeMap) {
+    if (afterMap.has(key)) continue;
+    out.push(`− ${before.description || before.serviceType || 'line'}`);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
 
 export function buildRevisionMarginDelta(input: {
   before: QuoteCommercialSnapshot | null;
@@ -195,20 +252,29 @@ export function buildRevisionMarginDelta(input: {
   source: RevisionBaselineSource | null;
   baselineLabel?: string;
   canViewCost: boolean;
+  beforeLines?: RevisionLineSnapshot[];
+  afterLines?: RevisionLineSnapshot[];
 }): RevisionMarginDelta | null {
   if (!input.canViewCost || !input.before || !input.after || !input.source) {
     return null;
   }
+  const beforeTax = input.before.sellTotal - input.before.sellExTax;
+  const afterTax = input.after.sellTotal - input.after.sellExTax;
   return {
     before: input.before,
     after: input.after,
     deltaCost: input.after.costTotal - input.before.costTotal,
     deltaSellExTax: input.after.sellExTax - input.before.sellExTax,
     deltaSellTotal: input.after.sellTotal - input.before.sellTotal,
+    deltaTax: afterTax - beforeTax,
     deltaMarginAmount: input.after.marginAmount - input.before.marginAmount,
     deltaMarginPp: input.after.marginPercent - input.before.marginPercent,
     source: input.source,
     baselineLabel: input.baselineLabel || (input.source === 'accepted' ? 'Accepted' : 'Prior version'),
+    changedLineSummaries: revisionChangedLineSummaries(
+      input.beforeLines || [],
+      input.afterLines || [],
+    ),
     visible: true,
   };
 }

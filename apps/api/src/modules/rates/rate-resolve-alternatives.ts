@@ -16,6 +16,13 @@ export type MatchAlternative = {
    * Null when dims incomplete. Not the post-Use final total.
    */
   previewBuyTotal: number | null;
+  preferred?: boolean;
+  roomType?: string | null;
+  mealPlan?: string | null;
+  vehicleLabel?: string | null;
+  routeLabel?: string | null;
+  stopSaleCue?: string | null;
+  cancelCue?: string | null;
 };
 
 /** Clamp resolve `alternativesLimit` (0 = off, max 5). */
@@ -50,11 +57,13 @@ export function toMatchAlternatives<T extends { id: string }>(
   labelFn: (row: T) => string,
   chartUnitCostFn: (row: T) => number | null,
   previewBuyTotalFn?: (row: T) => number | null,
+  enrichFn?: (row: T) => Partial<MatchAlternative>,
 ): MatchAlternative[] {
   if (limit <= 0 || !rest.length) return [];
   return rest.slice(0, limit).map((r) => {
     const preview =
       previewBuyTotalFn != null ? previewBuyTotalFn(r.row) : null;
+    const extra = enrichFn ? enrichFn(r.row) : {};
     return {
       rateId: r.row.id,
       label: labelFn(r.row) || r.row.id,
@@ -62,6 +71,7 @@ export function toMatchAlternatives<T extends { id: string }>(
       chartUnitCost: chartUnitCostFn(r.row),
       previewBuyTotal:
         preview != null && Number.isFinite(preview) ? preview : null,
+      ...extra,
     };
   });
 }

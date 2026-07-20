@@ -24,18 +24,26 @@ describe('parity-dogfood-kit', () => {
 
   it('lists operate-through path without inventing adoption proof', () => {
     const steps = operateThroughDogfoodSteps();
-    expect(steps.some((s) => /bring-your-data|FIT pack/i.test(s))).toBe(true);
+    expect(steps.some((s) => /FIT pack alone|operate demo|suppliers/i.test(s))).toBe(
+      true,
+    );
     expect(steps.some((s) => /Schedule instalments|Schedule from terms/i.test(s))).toBe(
       true,
     );
-    expect(steps.some((s) => /Cancel|credit note/i.test(s))).toBe(true);
+    expect(steps.some((s) => /enquiry/i.test(s))).toBe(true);
+    expect(steps.some((s) => /Cancel|credit note|voucher/i.test(s))).toBe(true);
     expect(/guaranteed|proven agency|100% adopt/i.test(steps.join(' '))).toBe(false);
   });
 
-  it('builds kit with scale reminder', () => {
+  it('builds kit with interactive operate-through deep-links', () => {
     const kit = buildParityDogfoodKit();
-    expect(kit.fitCaptureSteps).toEqual(fitCaptureDogfoodSteps());
-    expect(kit.pilotSmokeSteps).toEqual(pilotSmokeDogfoodSteps());
+    expect(kit.operateThroughInteractive.length).toBeGreaterThanOrEqual(6);
+    expect(kit.operateThroughInteractive.some((s) => s.id === 'import')).toBe(
+      true,
+    );
+    expect(kit.operateThroughInteractive.every((s) => s.href.length > 0)).toBe(
+      true,
+    );
     expect(kit.operateThroughSteps).toEqual(operateThroughDogfoodSteps());
     expect(kit.scaleReminder).toMatch(/scale/i);
   });

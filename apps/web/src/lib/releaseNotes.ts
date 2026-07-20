@@ -27,6 +27,54 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-match-alt-compare',
+    date: '2026-07-20',
+    title: 'Match alts — sort + keep markup',
+    summary:
+      'Other eligible rates: Best / Lowest buy / Preferred chips, side-by-side card columns (room · meal · est. stay · stop-sale/cancel cue; vehicle/route · est. buy), and Use (keep markup) vs Use. Friction audit match_alt_use. Not multi-select PDF packages.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-revision-customer-story',
+    date: '2026-07-20',
+    title: 'Revised quote banner + change summary',
+    summary:
+      'Staff revision strip shows tax Δ and changed lines. Public proposal shows “Revised quote · vN”. Locked tip: Resend latest. Hotel swap keeps stay dates.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-use-previous-trip',
+    date: '2026-07-20',
+    title: 'Use previous trip + last markup',
+    summary:
+      'Empty quote: Use previous trip clones last FIT tip with date shift + rematch. Match remembers last-used markup. Progress rail soft-hints Hotels → Transfers → Activities.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-operate-ready-onboarding',
+    date: '2026-07-20',
+    title: 'Quote-ready · Operate-ready checklist',
+    summary:
+      'Onboarding splits Quote-ready (branding · supplier · rate · quote) from Operate-ready (contact-complete hotel/transfer/activity + rates + supplier booking). FIT pack alone is not enough for enquiry→voucher.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-demo-operate-pack',
+    date: '2026-07-20',
+    title: 'Demo operate suppliers on FIT pack',
+    summary:
+      'Install sample FIT pack stamps labeled [Demo] hotel/transfer/activity suppliers + thin rates onto templates so accept can materialize bookings. Settings → About: Replace demo with real data. Not for live booking; FIT claim stays Testing.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-supplier-csv-import',
+    date: '2026-07-20',
+    title: 'Supplier CSV import',
+    summary:
+      'Suppliers page Import CSV (name, type, email, phone). Email or phone required — contact completeness gates Operate-ready. Fail-closed when nothing imports.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-inquiry-rooms-stamp',
     date: '2026-07-20',
     title: 'Apply inquiry party — hotel rooms',

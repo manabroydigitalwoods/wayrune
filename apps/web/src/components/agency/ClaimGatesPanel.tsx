@@ -25,6 +25,12 @@ type ClaimGatesResponse = {
     fitCaptureSteps: string[];
     pilotSmokeSteps: string[];
     operateThroughSteps?: string[];
+    operateThroughInteractive?: Array<{
+      id: string;
+      label: string;
+      detail: string;
+      href: string;
+    }>;
     scaleReminder: string;
   };
 };
@@ -156,20 +162,38 @@ export function ClaimGatesPanel() {
               ))}
             </ul>
           </div>
-          {data.parityDogfoodKit.operateThroughSteps?.length ? (
+          {data.parityDogfoodKit.operateThroughInteractive?.length ||
+          data.parityDogfoodKit.operateThroughSteps?.length ? (
             <div>
               <h3 className="text-xs font-semibold text-foreground">
                 Operate-through dogfood
               </h3>
               <p className="mt-0.5 text-[11px] text-muted-foreground">
-                Self-serve path from import to cancel — process kit only; not agency
-                adoption proof.
+                Self-serve path — process kit only; not agency adoption proof. FIT
+                pack alone is Quote-ready; Operate-ready needs suppliers/rates or
+                operate demo.
               </p>
-              <ul className="mt-1 list-disc space-y-1 pl-4 text-xs text-muted-foreground">
-                {data.parityDogfoodKit.operateThroughSteps.map((step) => (
-                  <li key={step}>{step}</li>
-                ))}
-              </ul>
+              {data.parityDogfoodKit.operateThroughInteractive?.length ? (
+                <ol className="mt-2 list-decimal space-y-1.5 pl-4 text-xs text-muted-foreground">
+                  {data.parityDogfoodKit.operateThroughInteractive.map((step) => (
+                    <li key={step.id}>
+                      <Link
+                        to={step.href}
+                        className="font-medium text-foreground hover:underline"
+                      >
+                        {step.label}
+                      </Link>
+                      <span className="mt-0.5 block">{step.detail}</span>
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <ul className="mt-1 list-disc space-y-1 pl-4 text-xs text-muted-foreground">
+                  {(data.parityDogfoodKit.operateThroughSteps || []).map((step) => (
+                    <li key={step}>{step}</li>
+                  ))}
+                </ul>
+              )}
             </div>
           ) : null}
           <p className="text-xs text-muted-foreground">{data.parityDogfoodKit.scaleReminder}</p>

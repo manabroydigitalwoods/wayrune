@@ -69,6 +69,21 @@ describe('fitQuoteProgress', () => {
     expect(progress.steps[1]?.hint).toBe('1 need Match');
   });
 
+  it('soft-hints Hotels → Transfers → Activities on Match step', () => {
+    const progress = buildFitQuoteProgress({
+      itemCount: 3,
+      attentionRows: [
+        { id: 't1', reasons: ['no_rate'], serviceKind: 'transfer' },
+        { id: 'h1', reasons: ['no_rate'], serviceKind: 'hotel' },
+        { id: 'a1', reasons: ['no_rate'], serviceKind: 'activity' },
+      ],
+      marginGateCount: 0,
+      canViewCost: true,
+      canSend: false,
+    });
+    expect(progress.steps[1]?.hint).toBe('3 need Match · Start with hotels');
+  });
+
   it('moves to Margin OK after match blockers clear', () => {
     const progress = buildFitQuoteProgress({
       itemCount: 2,

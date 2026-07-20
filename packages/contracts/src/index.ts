@@ -538,6 +538,17 @@ export const ImportPartyCsvSchema = z.object({
   rows: z.array(ImportPartyCsvRowSchema).min(1).max(500),
 });
 
+export const ImportSupplierCsvRowSchema = z.object({
+  name: RequiredText('Name'),
+  type: SupplierTypeSchema.optional(),
+  email: OptionalEmail,
+  phone: OptionalPhone,
+});
+
+export const ImportSupplierCsvSchema = z.object({
+  rows: z.array(ImportSupplierCsvRowSchema).min(1).max(500),
+});
+
 export const CreateLeadSchema = z.object({
   title: RequiredText('Title'),
   contactName: z.preprocess(blankToNull, z.string().nullable()).optional(),
@@ -3820,6 +3831,19 @@ export const ApplyQuoteTemplateSchema = z.object({
   rooms: z.number().int().min(1).max(99).optional(),
 });
 
+/** Clone last org FIT quotation tip onto this trip with date shift + rematch. */
+export const ApplyPreviousQuoteSchema = z.object({
+  startDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Travel start must be YYYY-MM-DD')
+    .optional(),
+  adults: z.number().int().min(1).max(99).optional(),
+  children: z.number().int().min(0).max(99).optional(),
+  childAges: z.array(z.number().int().min(0).max(17)).max(99).optional(),
+  childrenWithoutBed: z.number().int().min(0).max(99).optional(),
+  rooms: z.number().int().min(1).max(99).optional(),
+});
+
 export const CloneQuotationSchema = z.object({
   versionId: z.string().min(1).optional(),
 });
@@ -4184,6 +4208,7 @@ export type ReorderQuoteTemplateSiblingsInput = z.infer<
 >;
 export type RestoreQuoteTemplateInput = z.infer<typeof RestoreQuoteTemplateSchema>;
 export type ApplyQuoteTemplateInput = z.infer<typeof ApplyQuoteTemplateSchema>;
+export type ApplyPreviousQuoteInput = z.infer<typeof ApplyPreviousQuoteSchema>;
 export type CloneQuotationInput = z.infer<typeof CloneQuotationSchema>;
 export type HotelOccupancyPricing = NonNullable<z.infer<typeof HotelOccupancyPricingSchema>>;
 export type CreateSupplierHotelRateInput = z.infer<typeof CreateSupplierHotelRateSchema>;

@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
 import {
   ApplyQuoteTemplateSchema,
+  ApplyPreviousQuoteSchema,
   CloneQuotationSchema,
   CreateQuoteTemplateSchema,
   CreateTripFromPackageSchema,
@@ -182,6 +183,20 @@ export class QuotationsController {
       user,
       tripId,
       ApplyQuoteTemplateSchema.parse(body),
+    );
+  }
+
+  @Post('trips/:tripId/quotations/from-previous')
+  @RequirePermissions('quote.write')
+  createFromPrevious(
+    @CurrentUser() user: AuthUser,
+    @Param('tripId') tripId: string,
+    @Body() body: unknown,
+  ) {
+    return this.quotations.createFromPrevious(
+      user,
+      tripId,
+      ApplyPreviousQuoteSchema.parse(body ?? {}),
     );
   }
 

@@ -22,6 +22,15 @@ type OnboardingItem = {
   detail: string;
   done: boolean;
   href: string;
+  track?: string;
+};
+
+type TrackStatus = {
+  items: OnboardingItem[];
+  doneCount: number;
+  total: number;
+  complete: boolean;
+  scorePercent: number;
 };
 
 type OnboardingStatus = {
@@ -30,12 +39,69 @@ type OnboardingStatus = {
   total: number;
   complete: boolean;
   scorePercent: number;
+  quoteReady?: TrackStatus;
+  operateReady?: TrackStatus;
 };
 
 type Props = {
-  /** When true, hide the panel after dismiss or when complete. */
+  /** When true, hide the panel after dismiss or when Operate-ready is complete. */
   hideWhenComplete?: boolean;
 };
+
+function TrackList({
+  title,
+  track,
+  navigate,
+}: {
+  title: string;
+  track: TrackStatus;
+  navigate: (href: string) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          {title}
+        </h3>
+        <span className="text-[11px] text-muted-foreground tabular-nums">
+          {track.scorePercent}% · {track.doneCount}/{track.total}
+          {track.complete ? ' · ready' : ''}
+        </span>
+      </div>
+      <ul className="space-y-1.5">
+        {track.items.map((item) => (
+          <li key={item.key}>
+            <button
+              type="button"
+              className="flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-muted/40"
+              onClick={() => navigate(item.href)}
+            >
+              {item.done ? (
+                <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600" />
+              ) : (
+                <Circle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+              )}
+              <span className="min-w-0 flex-1">
+                <span
+                  className={
+                    item.done
+                      ? 'font-medium text-muted-foreground line-through'
+                      : 'font-medium'
+                  }
+                >
+                  {item.label}
+                </span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">
+                  {item.detail}
+                </span>
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 export function AgencyOnboardingChecklist({ hideWhenComplete = true }: Props) {
   const { navigate } = useOrgNavigate();
@@ -62,10 +128,17 @@ export function AgencyOnboardingChecklist({ hideWhenComplete = true }: Props) {
 
   if (dismissed) return null;
   if (!data) return null;
-  if (hideWhenComplete && data.complete) return null;
 
-  const next = data.items.find((i) => !i.done);
-  const needsTemplates = data.items.some(
+  const operateComplete = data.operateReady?.complete ?? data.complete;
+  if (hideWhenComplete && operateComplete) return null;
+
+  const quote = data.quoteReady;
+  const operate = data.operateReady;
+  const next =
+    operate?.items.find((i) => !i.done) ||
+    quote?.items.find((i) => !i.done) ||
+    data.items.find((i) => !i.done);
+  const needsTemplates = (quote?.items || data.items).some(
     (i) => i.key === 'quote_template' && !i.done,
   );
 
@@ -116,7 +189,8 @@ export function AgencyOnboardingChecklist({ hideWhenComplete = true }: Props) {
           <div>
             <h2 className="text-sm font-semibold">Get your agency ready</h2>
             <p className="text-xs text-muted-foreground">
-              Setup health {data.scorePercent}% · {data.doneCount}/{data.total} complete
+              Quote-ready {quote?.scorePercent ?? data.scorePercent}% · Operate-ready{' '}
+              {operate?.scorePercent ?? 0}%
             </p>
           </div>
         </div>
@@ -130,21 +204,12 @@ export function AgencyOnboardingChecklist({ hideWhenComplete = true }: Props) {
         </Button>
       </div>
 
-      <div className="mb-3 h-1.5 overflow-hidden rounded-full bg-muted">
-        <div
-          className="h-full rounded-full bg-primary transition-[width]"
-          style={{ width: `${data.scorePercent}%` }}
-        />
-      </div>
-
       {needsTemplates ? (
         <div className="mb-3 rounded-lg border border-primary/20 bg-primary/5 p-3">
           <p className="text-xs text-muted-foreground">
-            Jump-start with priced Darjeeling and Goa templates plus{' '}
-            <span className="font-medium text-foreground">
-              Darjeeling classic FIT — demo
-            </span>{' '}
-            (draft quote, sample guest, hotel + transfer lines).
+            Jump-start Quote-ready with priced Darjeeling and Goa templates. For
+            Operate-ready (enquiry→voucher), also install operate demo suppliers or
+            import real suppliers + rates — FIT pack alone is not enough for Ops.
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
             <Button
@@ -173,37 +238,38 @@ export function AgencyOnboardingChecklist({ hideWhenComplete = true }: Props) {
         </div>
       )}
 
-      <ul className="space-y-2">
-        {data.items.map((item) => (
-          <li key={item.key}>
-            <button
-              type="button"
-              className="flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-muted/40"
-              onClick={() => navigate(item.href)}
-            >
-              {item.done ? (
-                <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600" />
-              ) : (
-                <Circle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-              )}
-              <span className="min-w-0 flex-1">
-                <span
-                  className={
-                    item.done
-                      ? 'font-medium text-muted-foreground line-through'
-                      : 'font-medium'
-                  }
+      <div className="space-y-4">
+        {quote ? (
+          <TrackList title="Quote-ready" track={quote} navigate={navigate} />
+        ) : null}
+        {operate ? (
+          <TrackList title="Operate-ready" track={operate} navigate={navigate} />
+        ) : (
+          <ul className="space-y-2">
+            {data.items.map((item) => (
+              <li key={item.key}>
+                <button
+                  type="button"
+                  className="flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-muted/40"
+                  onClick={() => navigate(item.href)}
                 >
-                  {item.label}
-                </span>
-                <span className="mt-0.5 block text-xs text-muted-foreground">
-                  {item.detail}
-                </span>
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
+                  {item.done ? (
+                    <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600" />
+                  ) : (
+                    <Circle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                  )}
+                  <span className="min-w-0 flex-1">
+                    <span className="font-medium">{item.label}</span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">
+                      {item.detail}
+                    </span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       {next ? (
         <div className="mt-3">
@@ -213,7 +279,7 @@ export function AgencyOnboardingChecklist({ hideWhenComplete = true }: Props) {
         </div>
       ) : (
         <p className="mt-3 text-xs text-muted-foreground">
-          All set —{' '}
+          Operate-ready —{' '}
           <button
             type="button"
             className="font-medium text-primary hover:underline"

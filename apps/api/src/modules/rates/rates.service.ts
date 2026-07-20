@@ -4604,6 +4604,31 @@ export class RatesService {
             splitTips,
             pickBestTip: pickBestForPaxSplit,
           }),
+        (r) => {
+          const sid = r.supplierId || '';
+          const assetId = sid ? ctx.supplierAssetId.get(sid) : undefined;
+          const hasStopSale =
+            (Boolean(sid) &&
+              (ctx.contractStopSaleBySupplier.get(sid)?.length ?? 0) > 0) ||
+            (Boolean(assetId) &&
+              (ctx.stopSellByAsset.get(assetId ?? '')?.length ?? 0) > 0) ||
+            (Boolean(sid) &&
+              (ctx.blackoutsBySupplier.get(sid)?.length ?? 0) > 0);
+          const cancelRaw =
+            (r.contractId
+              ? ctx.cancellationByContractId.get(r.contractId)
+              : undefined) ??
+            (sid ? ctx.cancellationBySupplierId.get(sid) : undefined);
+          return {
+            roomType: r.roomType,
+            mealPlan: r.mealPlan,
+            preferred:
+              (!!r.contractId && ctx.activeContractIds.has(r.contractId)) ||
+              (!r.isSystem && !!r.organizationId),
+            stopSaleCue: hasStopSale ? 'stop-sale set' : null,
+            cancelCue: cancelRaw != null ? 'cancel policy' : null,
+          };
+        },
       );
       const paxSplit = tryHotelPaxBuySplit({
         guestCodes,
@@ -5184,6 +5209,17 @@ export class RatesService {
             childFareFactor: ctx.pricing.childFareFactor,
             infantFareFactor: ctx.pricing.infantFareFactor,
           }),
+        (f) => ({
+          vehicleLabel: f.vehicleType?.name || f.vehicleTypeId,
+          routeLabel: f.supplierId
+            ? 'Supplier chart'
+            : f.isSystem
+              ? 'System'
+              : 'Org catalog',
+          preferred:
+            (!!supplierId && f.supplierId === supplierId) ||
+            (!f.isSystem && !!f.organizationId),
+        }),
       );
       if (!best) {
         const rejected = explainTransferRejects(routePool, undefined, {
@@ -5749,6 +5785,11 @@ export class RatesService {
             childAges,
           });
         },
+        (r) => ({
+          preferred:
+            (!!supplierId && r.supplierId === supplierId) ||
+            Boolean(r.supplierId),
+        }),
       );
 
       if (!best) {

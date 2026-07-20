@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { X } from 'lucide-react';
 import { Button, cn } from '@wayrune/ui';
 import type { FitReviseMove, FitReviseMoveId } from '../../lib/fitReviseMoves';
@@ -8,6 +9,7 @@ type FitReviseMovesStripProps = {
   actions: FitReviseMove[];
   onAction: (id: FitReviseMoveId) => void;
   onDismiss?: () => void;
+  trailing?: ReactNode;
 };
 
 /** Compact date / rematch / hotel-swap chips after revise unlock. */
@@ -17,6 +19,7 @@ export function FitReviseMovesStrip({
   actions,
   onAction,
   onDismiss,
+  trailing,
 }: FitReviseMovesStripProps) {
   if (!actions.length) return null;
 
@@ -44,6 +47,7 @@ export function FitReviseMovesStrip({
           {action.label}
         </Button>
       ))}
+      {trailing}
       {onDismiss ? (
         <Button
           type="button"

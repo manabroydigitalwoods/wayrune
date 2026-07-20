@@ -14,6 +14,7 @@ import {
   CreateFinanceReportPackSchema,
   CreateSupplierInvoiceSchema,
   CreateSupplierSchema,
+  ImportSupplierCsvSchema,
   CreateTripPaymentLinkSchema,
   CreateTripPaymentSchema,
   MarkPaymentPaidSchema,
@@ -71,6 +72,15 @@ export class OperationsController {
     @Body() body: unknown,
   ) {
     return this.operations.createSupplier(user, CreateSupplierSchema.parse(body));
+  }
+
+  @Post('suppliers/import/csv')
+  @RequirePermissions('trip.write', 'network.write')
+  importSuppliersCsv(@CurrentUser() user: AuthUser, @Body() body: unknown) {
+    return this.operations.importSuppliersCsv(
+      user,
+      ImportSupplierCsvSchema.parse(body),
+    );
   }
 
   @Patch('suppliers/:id')

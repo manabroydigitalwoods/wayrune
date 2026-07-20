@@ -66,4 +66,38 @@ describe('rate-resolve-alternatives', () => {
     );
     expect(alts[0]?.previewBuyTotal).toBe(2500);
   });
+
+  it('merges enrichFn card cues (preferred / stop-sale / cancel)', () => {
+    const alts = toMatchAlternatives(
+      [
+        {
+          row: { id: 'x', roomType: 'DLX', mealPlan: 'CP' },
+          score: 12,
+        },
+      ],
+      1,
+      (r) => `${r.roomType} · ${r.mealPlan}`,
+      () => 4500,
+      () => 9000,
+      (r) => ({
+        roomType: r.roomType,
+        mealPlan: r.mealPlan,
+        preferred: true,
+        stopSaleCue: 'stop-sale set',
+        cancelCue: 'cancel policy',
+      }),
+    );
+    expect(alts[0]).toEqual({
+      rateId: 'x',
+      label: 'DLX · CP',
+      score: 12,
+      chartUnitCost: 4500,
+      previewBuyTotal: 9000,
+      roomType: 'DLX',
+      mealPlan: 'CP',
+      preferred: true,
+      stopSaleCue: 'stop-sale set',
+      cancelCue: 'cancel policy',
+    });
+  });
 });

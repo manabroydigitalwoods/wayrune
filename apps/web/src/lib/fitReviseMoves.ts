@@ -57,6 +57,63 @@ export function firstUnmatchedLineIdFromAttention(
   return firstAttentionLineForReasons(rows, FIT_MATCH_BLOCK_REASONS);
 }
 
+/** Detail keys cleared on a hotel swap (chosen property + stale rate identity). */
+const HOTEL_SWAP_CLEARED_DETAIL_KEYS = [
+  'supplierId',
+  'supplierName',
+  'propertyName',
+  'roomProductId',
+  'roomType',
+  'rateLabel',
+  'rateSupplierLabel',
+  'rateValidFrom',
+  'rateValidTo',
+  'rateLastUpdated',
+] as const;
+
+export type HotelSwapLine = {
+  details?: Record<string, unknown> | null;
+  rateId?: string | null;
+  rateProvenance?: unknown;
+  rateUnmatched?: boolean;
+  unitCost?: number | null;
+  unitSell?: number | null;
+};
+
+export type HotelSwapResult = {
+  details: Record<string, unknown>;
+  rateId: null;
+  rateProvenance: undefined;
+  rateUnmatched: true;
+  unitCost: null;
+  unitSell: null;
+};
+
+/**
+ * Prepare a hotel line for a supplier/property swap: drop the chosen property
+ * and stale rate snapshot but KEEP stay dates (checkIn/checkOut/nights), the
+ * story-day link, occupancy, and markup so the next Match reprices in place.
+ */
+export function prepareHotelSwapLine<T extends HotelSwapLine>(
+  line: T,
+): T & HotelSwapResult {
+  const details: Record<string, unknown> = { ...(line.details || {}) };
+  for (const key of HOTEL_SWAP_CLEARED_DETAIL_KEYS) {
+    delete details[key];
+  }
+  // Flag the line as awaiting a fresh Match; stay dates + storyDayId stay intact.
+  details.priceSource = 'none';
+  return {
+    ...line,
+    details,
+    rateId: null,
+    rateProvenance: undefined,
+    rateUnmatched: true,
+    unitCost: null,
+    unitSell: null,
+  };
+}
+
 /**
  * Compact revise-move chips for locked quotes or freshly unlocked drafts.
  * Reuses existing Travel dates / rematch / Match sheet — no new APIs.
@@ -135,7 +192,7 @@ export function buildFitReviseMoves(
     actions.push({
       id: 'swap_hotel',
       label: 'Swap hotel',
-      hint: 'Open hotel line — change supplier, then Match rate',
+      hint: 'Clear the property but keep stay dates + story day, then Match a new hotel',
     });
   }
   if (input.inquiryPax) {

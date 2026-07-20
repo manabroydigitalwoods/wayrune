@@ -1769,6 +1769,194 @@ export class QuotationsService {
     };
   }
 
+  /**
+   * Clone the org's most recent FIT tip (sent/accepted preferred) onto this trip
+   * with date shift + rematch — thin "Use previous trip".
+   */
+  async createFromPrevious(
+    user: AuthUser,
+    tripId: string,
+    input: {
+      startDate?: string;
+      adults?: number;
+      children?: number;
+      childAges?: number[];
+      childrenWithoutBed?: number;
+      rooms?: number;
+    },
+  ) {
+    let trip = await this.ensureTrip(user.organizationId, tripId);
+
+    const prior = await this.prisma.quotationVersion.findFirst({
+      where: {
+        status: { in: ['accepted', 'sent', 'draft'] },
+        quotation: {
+          organizationId: user.organizationId,
+          tripId: { not: tripId },
+        },
+      },
+      orderBy: [{ updatedAt: 'desc' }, { versionNumber: 'desc' }],
+      include: {
+        quotation: { select: { id: true, quoteNumber: true, tripId: true } },
+      },
+    });
+    if (!prior) {
+      throw new NotFoundException(
+        'No previous trip quote found — send or accept a FIT first',
+      );
+    }
+
+    const itemsRaw = Array.isArray(prior.itemsJson) ? prior.itemsJson : [];
+    if (!itemsRaw.length) {
+      throw new BadRequestException('Previous quote has no service lines');
+    }
+
+    let travelStart: { isoDay: string; shouldStampTrip: boolean };
+    try {
+      travelStart = resolveTemplateApplyTravelStart({
+        tripStartDate: trip.startDate,
+        requestedStartDate: input.startDate,
+      });
+    } catch (e) {
+      throw new BadRequestException(
+        e instanceof Error
+          ? e.message
+          : 'Travel start date is required to use a previous trip',
+      );
+    }
+
+    if (travelStart.shouldStampTrip) {
+      trip = await this.prisma.trip.update({
+        where: { id: trip.id },
+        data: { startDate: new Date(travelStart.isoDay) },
+      });
+    }
+
+    const reminted = remintQuoteItems(itemsRaw as QuotationItem[]);
+    const { items: shifted, shiftDays, anchorDay } = shiftQuoteItemsToTripStart(
+      reminted,
+      travelStart.isoDay,
+    );
+    const applyPax = resolveApplyPax({
+      adults: input.adults,
+      children: input.children,
+      childAges: input.childAges,
+      childrenWithoutBed: input.childrenWithoutBed,
+      rooms: input.rooms,
+    });
+    const { items: stampedItems, stampedCount: paxStampedCount } = applyPax
+      ? stampApplyPaxOntoQuoteItems(shifted, applyPax)
+      : { items: shifted, stampedCount: 0 };
+    const tripTravellerRows = await this.prisma.tripTraveller.findMany({
+      where: { tripId },
+      select: {
+        isLead: true,
+        traveller: { select: { nationality: true } },
+      },
+    });
+    const rematch = await rematchQuoteItemsFromRates(
+      this.rates,
+      user.organizationId,
+      stampedItems,
+      {
+        startDate: travelStart.isoDay,
+        adults: applyPax?.adults,
+        children: applyPax?.children,
+        partyId: trip.partyId ?? null,
+        ...resolveNationalityOptsFromTripTravellers(tripTravellerRows),
+        destinationPlaceOfSupply: trip.destinationPlaceOfSupply ?? null,
+      },
+    );
+    const items = rematch.items;
+    const totals = calcQuoteTotals(items, 0);
+    const count = await this.prisma.quotation.count({
+      where: { organizationId: user.organizationId },
+    });
+    const { validUntil, termsWithValidity } = await this.freshQuoteValidity(
+      user.organizationId,
+    );
+
+    const quotation = await this.prisma.quotation.create({
+      data: {
+        organizationId: user.organizationId,
+        tripId,
+        quoteNumber: `QT-${String(count + 1).padStart(5, '0')}`,
+        versions: {
+          create: {
+            versionNumber: 1,
+            label: `v1 (from ${prior.quotation.quoteNumber} v${prior.versionNumber})`,
+            status: 'draft',
+            currency: prior.currency || 'INR',
+            validUntil,
+            itemsJson: items as unknown as Prisma.InputJsonValue,
+            inclusions: prior.inclusions,
+            exclusions: prior.exclusions,
+            terms: termsWithValidity(prior.terms ?? null),
+            exchangeRatesJson: quoteFxLockToJson(
+              sameCurrencyLock(normalizeCurrency(prior.currency || 'INR')),
+            ) as Prisma.InputJsonValue,
+            ...totals,
+            createdBy: user.sub,
+          },
+        },
+      },
+      include: { versions: { orderBy: { versionNumber: 'desc' } } },
+    });
+
+    // Carry the source trip's story days (+ story meta) onto this draft when present.
+    const sourceSnapshot = prior.quotation.tripId
+      ? await this.loadTripItinerarySnapshot(
+          user.organizationId,
+          prior.quotation.tripId,
+        )
+      : null;
+    const itineraryApply = sourceSnapshot
+      ? await this.applyTemplateItineraryToTrip(
+          user.organizationId,
+          tripId,
+          travelStart.isoDay,
+          sourceSnapshot as ReturnType<
+            typeof parseQuoteTemplateContent
+          >['itinerary'],
+          items,
+        )
+      : { seeded: false, reanchored: false, builtFromHotels: false };
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorUserId: user.sub,
+      action: 'use_previous_trip',
+      entityType: 'quotation',
+      entityId: quotation.id,
+      metadata: {
+        sourceQuotationId: prior.quotation.id,
+        sourceVersionId: prior.id,
+        sourceQuoteNumber: prior.quotation.quoteNumber,
+        dateShiftDays: shiftDays,
+        templateAnchorDay: anchorDay,
+        rematchMatched: rematch.matchedCount,
+        rematchUnmatched: rematch.unmatchedCount,
+        paxStampedCount,
+        itineraryDaysSeeded: itineraryApply.seeded,
+        itineraryDaysBuiltFromHotels: itineraryApply.builtFromHotels,
+      },
+    });
+
+    return {
+      ...quotation,
+      dateShiftDays: shiftDays,
+      tripStartDate: travelStart.isoDay,
+      rematchMatched: rematch.matchedCount,
+      rematchUnmatched: rematch.unmatchedCount,
+      paxStampedCount,
+      itineraryDaysSeeded: itineraryApply.seeded,
+      itineraryDaysBuiltFromHotels: itineraryApply.builtFromHotels,
+      itineraryDaysReanchored: itineraryApply.reanchored,
+      sourceQuoteNumber: prior.quotation.quoteNumber,
+      sourceVersionNumber: prior.versionNumber,
+    };
+  }
+
   /** Create trip + apply package in one transaction (no orphan trip on apply failure). */
   async createTripFromPackage(user: AuthUser, input: CreateTripFromPackageInput) {
     const startDate = input.startDate.slice(0, 10);

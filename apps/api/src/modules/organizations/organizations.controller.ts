@@ -44,6 +44,13 @@ export class OrganizationsController {
     return this.orgs.installStarterPack(user, packId);
   }
 
+  @Post('demo-operate/replace')
+  @RequireAgencyOrg()
+  @RequirePermissions('quote.write', 'org.settings.write')
+  replaceDemoOperatePack(@CurrentUser() user: AuthUser) {
+    return this.orgs.replaceDemoOperatePack(user);
+  }
+
   @Get('current/members')
   @RequirePermissions('org.settings.read')
   members(@CurrentUser() user: AuthUser) {

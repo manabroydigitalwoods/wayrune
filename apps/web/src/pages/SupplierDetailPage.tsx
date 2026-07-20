@@ -34,6 +34,7 @@ import { SupplierProfilePanel } from '../components/agency/SupplierProfilePanel'
 import { PlaceSinglePicker } from '../components/places/PlacePicker';
 import { CAP } from '../lib/capabilities';
 import { AGENCY_ROUTES } from '../lib/agencyRoutes';
+import { isDemoOperateSupplier } from '../lib/demoOperate';
 import { reportError } from '../lib/errors';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useOrgNavigate } from '../hooks/useOrgNavigate';
@@ -55,6 +56,7 @@ type SupplierDetail = {
   type: string;
   email?: string | null;
   phone?: string | null;
+  notes?: string | null;
   placeId?: string | null;
   profileJson?: Record<string, unknown> | null;
   linkedOrganizationId?: string | null;
@@ -453,6 +455,7 @@ export function SupplierDetailPage() {
     detail.linkedOrganization ? 'Claimed' : 'Unclaimed',
     'Active',
     verified,
+    isDemoOperateSupplier(detail) ? 'Demo data — not for live booking' : null,
   ].filter(Boolean) as string[];
 
   return (

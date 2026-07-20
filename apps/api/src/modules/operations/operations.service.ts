@@ -17,6 +17,11 @@ import { MetaCloudMessagingProvider } from '../messaging/meta-cloud.messaging';
 import { DriverService } from '../driver/driver.service';
 import type { AuthUser } from '../../common/helpers';
 import {
+  normalizeSupplierImportType,
+  supplierImportCommitError,
+  supplierImportRowSkipReason,
+} from './supplier-import';
+import {
   parseBusinessContact,
   parseOrgBranding,
 } from '../../common/customer-proposal';
@@ -481,6 +486,92 @@ export class OperationsService {
     });
     if (!supplier) throw new NotFoundException('Supplier not found');
     return supplier;
+  }
+
+  async importSuppliersCsv(
+    user: AuthUser,
+    input: {
+      rows: Array<{
+        name: string;
+        type?: string;
+        email?: string | null;
+        phone?: string | null;
+      }>;
+    },
+  ) {
+    const results: Array<{
+      name: string;
+      status: 'created' | 'skipped';
+      id?: string;
+      reason?: string;
+    }> = [];
+
+    for (const row of input.rows) {
+      const name = row.name.trim();
+      const type =
+        normalizeSupplierImportType(row.type) ||
+        (row.type?.trim() ? null : 'other');
+      const email = row.email?.trim() || null;
+      const phone = row.phone?.trim() || null;
+      const skip = supplierImportRowSkipReason({
+        name,
+        email,
+        phone,
+        type: type ?? row.type ?? null,
+      });
+      if (skip) {
+        results.push({ name, status: 'skipped', reason: skip });
+        continue;
+      }
+      if (!type) {
+        results.push({ name, status: 'skipped', reason: 'invalid_type' });
+        continue;
+      }
+
+      const existing = await this.prisma.supplier.findFirst({
+        where: {
+          organizationId: user.organizationId,
+          deletedAt: null,
+          name,
+        },
+        select: { id: true },
+      });
+      if (existing) {
+        results.push({
+          name,
+          status: 'skipped',
+          id: existing.id,
+          reason: 'name_exists',
+        });
+        continue;
+      }
+
+      const supplier = await this.createSupplier(user, {
+        name,
+        type,
+        email,
+        phone,
+      });
+      results.push({ name, status: 'created', id: supplier.id });
+    }
+
+    const created = results.filter((r) => r.status === 'created').length;
+    const skipped = results.length - created;
+    const commitError = supplierImportCommitError({
+      imported: created,
+      skipped,
+    });
+    if (commitError) throw new BadRequestException(commitError);
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorUserId: user.sub,
+      action: 'supplier.import_csv',
+      entityType: 'supplier',
+      metadata: { imported: created, skipped },
+    });
+
+    return { imported: created, skipped, results };
   }
 
   async createSupplier(

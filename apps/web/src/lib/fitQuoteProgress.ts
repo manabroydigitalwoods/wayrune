@@ -27,6 +27,8 @@ export type FitQuoteProgressStep = {
 export type FitQuoteProgressAttentionRow = {
   id: string;
   reasons: QuoteAttentionReason[];
+  /** hotel | transfer | activity | other — for soft rail hints. */
+  serviceKind?: 'hotel' | 'transfer' | 'activity' | 'other';
 };
 
 /** Match blockers that keep the FIT rail on “Lines matched”. */
@@ -63,6 +65,31 @@ export type BuildFitQuoteProgressInput = {
   /** Locked / accepted versions — hide the rail. */
   quoteLocked?: boolean;
 };
+
+/** Soft next-kind cue when Match blockers remain (Hotels → Transfers → Activities). */
+export function unmatchedKindHint(
+  rows: FitQuoteProgressAttentionRow[],
+): string | null {
+  const blocked = rows.filter((row) =>
+    row.reasons.some((r) =>
+      (FIT_MATCH_BLOCK_REASONS as readonly string[]).includes(r),
+    ),
+  );
+  if (!blocked.length) return null;
+  const kinds = new Set(
+    blocked.map((r) => r.serviceKind || 'other').filter(Boolean),
+  );
+  const order: Array<'hotel' | 'transfer' | 'activity'> = [
+    'hotel',
+    'transfer',
+    'activity',
+  ];
+  const next = order.find((k) => kinds.has(k));
+  if (!next) return null;
+  if (next === 'hotel') return 'Start with hotels';
+  if (next === 'transfer') return 'Then transfers';
+  return 'Then activities';
+}
 
 export type FitQuoteProgress = {
   steps: FitQuoteProgressStep[];
@@ -132,6 +159,7 @@ export function buildFitQuoteProgress(
       input.attentionRows,
       FIT_MATCH_BLOCK_REASONS,
     );
+    const kindCue = unmatchedKindHint(input.attentionRows);
     steps.push({
       id: 'lines_matched',
       label: 'Lines matched',
@@ -140,7 +168,9 @@ export function buildFitQuoteProgress(
         ? 'After package'
         : linesMatchedDone
           ? 'Rates OK'
-          : `${matchBlockCount} need Match`,
+          : kindCue
+            ? `${matchBlockCount} need Match · ${kindCue}`
+            : `${matchBlockCount} need Match`,
       action: linesMatchedDone || !packageDone ? null : 'open_line',
       fixTargetLineId: fixId,
     });

@@ -84,6 +84,9 @@ export type CustomerQuotePayload = {
   inclusions?: string | null;
   exclusions?: string | null;
   terms?: string | null;
+  isRevision?: boolean;
+  revisionBanner?: string | null;
+  changeBlurb?: string | null;
 };
 
 export type RouteStop = {
@@ -1114,6 +1117,18 @@ export function ItineraryPreviewView({
           <section className="space-y-4">
             <SectionEyebrow>Your package</SectionEyebrow>
             <div className="overflow-hidden rounded-2xl border glass">
+              {quote.revisionBanner ? (
+                <div className="border-b border-primary/20 bg-primary/5 px-5 py-2.5">
+                  <p className="text-sm font-semibold text-foreground">
+                    {quote.revisionBanner}
+                  </p>
+                  {quote.changeBlurb ? (
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {quote.changeBlurb}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
               <div className="flex items-start gap-3 border-b border-white/40 px-5 py-4 dark:border-white/10">
                 <SoftIcon icon={Receipt} className="mt-0.5 size-9 shrink-0" />
                 <div className="min-w-0 flex-1">

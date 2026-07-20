@@ -93,12 +93,14 @@ import {
   buildFitReviseMoves,
   firstHotelLineId,
   firstUnmatchedLineIdFromAttention,
+  prepareHotelSwapLine,
 } from '../lib/fitReviseMoves';
 import {
   buildRevisionMarginDelta,
   commercialTotalsFromLines,
   commercialTotalsFromVersion,
   resolveRevisionBaseline,
+  type RevisionBaselineVersion,
 } from '../lib/revisionMarginDelta';
 import {
   resolveInquiryPaxForStamp,
@@ -188,6 +190,12 @@ import {
   readQuoteLocalDraft,
   writeQuoteLocalDraft,
 } from '../lib/quoteLocalDraft';
+import {
+  lastUsedMarkupStorageKey,
+  readLastUsedMarkup,
+  writeLastUsedMarkup,
+  type LastUsedMarkup,
+} from '../lib/lastUsedMarkup';
 import { parseApplyChildAgesCsv, defaultRoomsFromAdults } from '../lib/createTripFromPackage';
 import {
   countMarginPolicyViolations,
@@ -770,6 +778,23 @@ export function TripWorkspacePage() {
   const { navigate, toOrgPath } = useOrgNavigate();
   const { me } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
+  const lastUsedMarkupKey = lastUsedMarkupStorageKey(
+    me?.organization?.id,
+    me?.id,
+  );
+  const [lastUsedMarkup, setLastUsedMarkup] = useState<LastUsedMarkup | null>(
+    () => readLastUsedMarkup(lastUsedMarkupKey),
+  );
+  useEffect(() => {
+    setLastUsedMarkup(readLastUsedMarkup(lastUsedMarkupKey));
+  }, [lastUsedMarkupKey]);
+  const rememberLastUsedMarkup = useCallback(
+    (markup: LastUsedMarkup) => {
+      writeLastUsedMarkup(lastUsedMarkupKey, markup);
+      setLastUsedMarkup(markup);
+    },
+    [lastUsedMarkupKey],
+  );
   const [trip, setTrip] = useState<any>(null);
   const [tripLoadError, setTripLoadError] = useState<string | null>(null);
   const [controlRefreshKey, setControlRefreshKey] = useState(0);
@@ -865,6 +890,7 @@ export function TripWorkspacePage() {
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [templateSaveAsNew, setTemplateSaveAsNew] = useState(false);
   const [applyingTemplateId, setApplyingTemplateId] = useState<string | null>(null);
+  const [usingPreviousTrip, setUsingPreviousTrip] = useState(false);
   const [templateHistoryForId, setTemplateHistoryForId] = useState<string | null>(null);
   const [templateHistoryItems, setTemplateHistoryItems] = useState<
     TemplateVersionListItem[]
@@ -1109,7 +1135,13 @@ export function TripWorkspacePage() {
             id: local.versionId || 'local',
             itemsJson: local.items,
           });
-          nextMeta = { ...local.meta };
+          nextMeta = {
+            inclusions: local.meta.inclusions,
+            exclusions: local.meta.exclusions,
+            terms: local.meta.terms,
+            validUntil: local.meta.validUntil,
+            label: local.meta.label ?? '',
+          };
           // Keep the server lock so the first sync does not 409 on a stale local lock.
           const lockVal = target
             ? (target as Record<string, unknown>).versionLock
@@ -1847,7 +1879,7 @@ export function TripWorkspacePage() {
   const attentionLines = useMemo(
     () =>
       listQuoteAttentionLines(attentionLineInputs, {
-        canViewCost,
+        canViewCost: Boolean(canViewCost),
         minMarginPercent: quoteMinMarginPercent,
       }),
     [attentionLineInputs, canViewCost, quoteMinMarginPercent],
@@ -2114,7 +2146,18 @@ export function TripWorkspacePage() {
     () =>
       buildFitQuoteProgress({
         itemCount: quoteItems.length,
-        attentionRows: attentionLines,
+        attentionRows: attentionLines.map((row) => {
+          const t = (row.serviceType || '').toLowerCase();
+          const serviceKind =
+            t === 'hotel' || t === 'homestay' || t === 'farmstay'
+              ? 'hotel'
+              : t === 'transfer' || t === 'car_rental' || t === 'transport'
+                ? 'transfer'
+                : t === 'activity' || t === 'sightseeing'
+                  ? 'activity'
+                  : 'other';
+          return { id: row.id, reasons: row.reasons, serviceKind };
+        }),
         marginGateCount,
         canViewCost: Boolean(canViewCost),
         canSend: canSendQuote,
@@ -2172,7 +2215,10 @@ export function TripWorkspacePage() {
     const tripAcceptedVersions = (trip?.quotations || []).flatMap(
       (q: { versions?: unknown[] }) =>
         (Array.isArray(q.versions) ? q.versions : []).filter(
-          (v: { status?: string }) => v?.status === 'accepted',
+          (v): v is RevisionBaselineVersion =>
+            !!v &&
+            typeof v === 'object' &&
+            (v as { status?: string }).status === 'accepted',
         ),
     );
     const resolved = resolveRevisionBaseline({
@@ -2183,12 +2229,39 @@ export function TripWorkspacePage() {
     if (!resolved) return null;
     const before = commercialTotalsFromVersion(resolved.baseline);
     const after = commercialTotalsFromLines(quoteItems);
+    const beforeLines = Array.isArray(resolved.baseline.itemsJson)
+      ? (resolved.baseline.itemsJson as Array<Record<string, unknown>>).map(
+          (item, idx) => ({
+            id: typeof item.id === 'string' ? item.id : `b-${idx}`,
+            description:
+              typeof item.description === 'string' ? item.description : '',
+            serviceType:
+              typeof item.serviceType === 'string' ? item.serviceType : '',
+            quantity: Number(item.quantity) || 0,
+            unitCost:
+              item.unitCost == null ? null : Number(item.unitCost),
+            unitSell:
+              item.unitSell == null ? null : Number(item.unitSell),
+            taxPercent: Number(item.taxPercent) || 0,
+          }),
+        )
+      : [];
     return buildRevisionMarginDelta({
       before,
       after,
       source: resolved.source,
       baselineLabel: quoteVersionOptionLabel(resolved.baseline),
       canViewCost: true,
+      beforeLines,
+      afterLines: quoteItems.map((l) => ({
+        id: l.id,
+        description: l.description,
+        serviceType: l.serviceType,
+        quantity: l.quantity,
+        unitCost: l.unitCost,
+        unitSell: l.unitSell,
+        taxPercent: l.taxPercent,
+      })),
     });
   }, [
     canViewCost,
@@ -3018,6 +3091,75 @@ export function TripWorkspacePage() {
     });
   }
 
+  async function usePreviousTrip() {
+    if (!id) return;
+    const startDate =
+      templateApplyStartDate ||
+      (trip?.startDate ? String(trip.startDate).slice(0, 10) : '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
+      toastError('Set a travel start date before using a previous trip');
+      return;
+    }
+    setUsingPreviousTrip(true);
+    try {
+      const quotation = await api<{
+        id: string;
+        quoteNumber?: string;
+        sourceQuoteNumber?: string;
+        dateShiftDays?: number;
+        rematchMatched?: number;
+        rematchUnmatched?: number;
+        itineraryDaysSeeded?: boolean;
+        itineraryDaysBuiltFromHotels?: boolean;
+        versions?: Array<{ id: string }>;
+      }>(`/trips/${id}/quotations/from-previous`, {
+        method: 'POST',
+        body: JSON.stringify({
+          startDate,
+          adults: Math.max(1, Math.round(templateApplyAdults) || 2),
+          children: Math.max(0, Math.round(templateApplyChildren) || 0),
+          rooms: Math.max(1, Math.round(templateApplyRooms) || 1),
+        }),
+      });
+      setSelectedQuotationId(quotation.id);
+      selectedQuotationIdRef.current = quotation.id;
+      selectedQuoteVersionIdRef.current = quotation.versions?.[0]?.id ?? null;
+      setSelectedQuoteVersionId(quotation.versions?.[0]?.id ?? null);
+      writeQuoteQuery(quotation.id, quotation.versions?.[0]?.id ?? null);
+      dismissFirstQuoteWalkthrough();
+      const bits = [
+        quotation.quoteNumber
+          ? `Started ${quotation.quoteNumber} from previous trip`
+          : 'Quotation created from previous trip',
+      ];
+      if (quotation.sourceQuoteNumber) {
+        bits.push(`source ${quotation.sourceQuoteNumber}`);
+      }
+      const rematchMatched = Number(quotation.rematchMatched) || 0;
+      const rematchUnmatched = Number(quotation.rematchUnmatched) || 0;
+      if (rematchMatched > 0 || rematchUnmatched > 0) {
+        bits.push(
+          `${rematchMatched} rate-matched${
+            rematchUnmatched ? ` · ${rematchUnmatched} need rates` : ''
+          }`,
+        );
+      }
+      if (quotation.itineraryDaysSeeded) {
+        bits.push('story itinerary seeded');
+      } else if (quotation.itineraryDaysBuiltFromHotels) {
+        bits.push('story days built from hotels');
+      }
+      toastSuccess(bits.join(' · '));
+      await load();
+    } catch (e) {
+      toastError(
+        e instanceof Error ? e.message : 'Could not use previous trip',
+      );
+    } finally {
+      setUsingPreviousTrip(false);
+    }
+  }
+
   async function approveQuote() {
     const version = requireSelectedQuoteVersion();
     if (!version) return;
@@ -3784,6 +3926,22 @@ export function TripWorkspacePage() {
     toastError(sendBlockedReason || 'Complete pricing before sending');
   }
 
+  /** One-click resend for locked sent/accepted tips (reuses email/WA send sheet). */
+  function openResendLatest() {
+    if (!selectedQuoteVersion || !quoteCan.has('send')) {
+      toastError('Cannot resend this version');
+      return;
+    }
+    const st = selectedQuoteVersion.status;
+    if (st !== 'sent' && st !== 'accepted' && st !== 'approved') {
+      toastError('Resend is for the latest locked proposal');
+      return;
+    }
+    setSendEmail(trip?.party?.email || sendEmail);
+    setSendPhone(trip?.party?.phone || sendPhone);
+    setSendOpen(true);
+  }
+
   async function applyNegativeMarginOverride() {
     const reason = marginOverrideReason.trim();
     if (!reason) {
@@ -3996,6 +4154,7 @@ export function TripWorkspacePage() {
       }),
     );
     setMarkupConfirmOpen(false);
+    rememberLastUsedMarkup({ mode: input.mode, value: input.value });
     toastSuccess(
       `Applied ${input.label} markup to ${targets.length} service${targets.length === 1 ? '' : 's'}`,
     );
@@ -5241,6 +5400,21 @@ export function TripWorkspacePage() {
                     ? () => setReviseMovesCue(false)
                     : undefined
                 }
+                trailing={
+                  quoteReadOnly &&
+                  (quoteStatus === 'sent' ||
+                    quoteStatus === 'accepted' ||
+                    quoteStatus === 'approved') ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7"
+                      onClick={() => openResendLatest()}
+                    >
+                      Resend latest
+                    </Button>
+                  ) : null
+                }
                 onAction={(actionId) => {
                   if (actionId === 'revise_draft') {
                     if (quoteStatus === 'accepted') void reviseFromAccepted();
@@ -5272,8 +5446,20 @@ export function TripWorkspacePage() {
                   if (actionId === 'swap_hotel') {
                     const hotelId = firstHotelLineId(quoteItems);
                     if (hotelId) {
+                      // Clear the chosen property + stale rate but keep stay dates
+                      // and the story-day link, then open Match for a fresh hotel.
+                      setQuoteItems((prev) =>
+                        prev.map((line) =>
+                          line.id === hotelId
+                            ? (prepareHotelSwapLine(line) as typeof line)
+                            : line,
+                        ),
+                      );
                       setQuoteDetailLineId(hotelId);
                       setAttentionOpen(true);
+                      toastSuccess(
+                        'Cleared the hotel — stay dates and story day kept. Match a new property.',
+                      );
                     }
                     return;
                   }
@@ -5486,6 +5672,13 @@ export function TripWorkspacePage() {
                                   : 'Install sample FIT pack'}
                               </Button>
                             )}
+                            <Button
+                              variant="outline"
+                              disabled={usingPreviousTrip}
+                              onClick={() => void usePreviousTrip()}
+                            >
+                              {usingPreviousTrip ? 'Cloning…' : 'Use previous trip'}
+                            </Button>
                             <Button
                               variant="secondary"
                               onClick={() => openImportItineraryReview()}
@@ -6501,6 +6694,8 @@ export function TripWorkspacePage() {
         partyInfants={Number(trip?.inquiry?.infants) || undefined}
         defaultMarkupPercent={quoteDefaultMarkupPercent()}
         markupPresets={quoteMarkupPresets()}
+        lastUsedMarkup={lastUsedMarkup}
+        onMarkupApplied={rememberLastUsedMarkup}
         partyId={trip?.party?.id}
         tripTravellers={trip?.travellers || null}
         destinationPlaceOfSupply={trip?.destinationPlaceOfSupply}

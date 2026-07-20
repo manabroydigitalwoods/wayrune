@@ -3,10 +3,19 @@
  * Pure helpers; no DB. Surfaced on Settings → About claim gates.
  */
 
+export type OperateThroughStep = {
+  id: string;
+  label: string;
+  detail: string;
+  href: string;
+};
+
 export type ParityDogfoodKit = {
   fitCaptureSteps: string[];
   pilotSmokeSteps: string[];
+  /** @deprecated Prefer operateThroughInteractive — kept for string lists. */
   operateThroughSteps: string[];
+  operateThroughInteractive: OperateThroughStep[];
   scaleReminder: string;
 };
 
@@ -31,26 +40,85 @@ export function pilotSmokeDogfoodSteps(): string[] {
 }
 
 /**
- * Self-serve operate-through path (import → quote → accept → collect → ops → cancel).
- * Claim-safe process only — does not prove agency adoption.
+ * Interactive operate-through path with deep-links.
+ * FIT pack alone is Quote-ready only — Operate-ready needs suppliers/rates (or Install operate demo).
  */
-export function operateThroughDogfoodSteps(): string[] {
+export function operateThroughInteractiveSteps(): OperateThroughStep[] {
   return [
-    'Import: bring rates/clients via CSV/XLSX or Install the sample FIT pack (/docs#bring-your-data).',
-    'Quote: Match lines on a trip Quotations tab, then Send.',
-    'Accept: guest or staff accept — workspace jumps toward Operations; Next action ranks the open step.',
-    'Collect: when no receivables exist, Next action → Schedule instalments (Finance → Schedule from terms).',
-    'Ops: enquiry → Confirm → voucher note; Next action focuses the booking when known.',
-    'Depart: complete the Operations readiness checklist before travel.',
-    'Cancel/refund: Commerce → Changes & incidents (credit note → settle) when needed.',
+    {
+      id: 'import',
+      label: 'Import suppliers + rates',
+      detail:
+        'CSV/XLSX suppliers and rates, or Install operate demo (labeled demo — not for live booking). FIT pack alone does not unlock enquiry→voucher.',
+      href: '/docs#bring-your-data',
+    },
+    {
+      id: 'quote',
+      label: 'Quote',
+      detail: 'Match lines on a trip Quotations tab, then Send.',
+      href: '/work/quotation-drafts',
+    },
+    {
+      id: 'accept',
+      label: 'Accept',
+      detail:
+        'Guest or staff accept — workspace jumps toward Operations when lines have suppliers.',
+      href: '/work/quotations',
+    },
+    {
+      id: 'enquiry',
+      label: 'Supplier enquiry',
+      detail: 'Open Operations and send/log supplier enquiry on a booking.',
+      href: '/trips',
+    },
+    {
+      id: 'confirm',
+      label: 'Confirmation',
+      detail: 'Confirm the supplier booking when they accept.',
+      href: '/trips',
+    },
+    {
+      id: 'payable',
+      label: 'Payable',
+      detail: 'Record or schedule supplier payable on the booking / Finance.',
+      href: '/finance/payables',
+    },
+    {
+      id: 'voucher',
+      label: 'Voucher',
+      detail: 'Issue voucher note once confirmed.',
+      href: '/trips',
+    },
+    {
+      id: 'collection',
+      label: 'Collection',
+      detail:
+        'When no receivables exist, Next action → Schedule instalments (Finance → Schedule from terms).',
+      href: '/finance',
+    },
+    {
+      id: 'movement',
+      label: 'Movement / operations',
+      detail: 'Assign driver/fleet on the movement board before depart.',
+      href: '/operations/movement',
+    },
   ];
 }
 
+/** String form for kits / tests — mirrors interactive steps. */
+export function operateThroughDogfoodSteps(): string[] {
+  return operateThroughInteractiveSteps().map(
+    (s) => `${s.label}: ${s.detail}`,
+  );
+}
+
 export function buildParityDogfoodKit(): ParityDogfoodKit {
+  const operateThroughInteractive = operateThroughInteractiveSteps();
   return {
     fitCaptureSteps: fitCaptureDogfoodSteps(),
     pilotSmokeSteps: pilotSmokeDogfoodSteps(),
     operateThroughSteps: operateThroughDogfoodSteps(),
+    operateThroughInteractive,
     scaleReminder:
       'Public scale strip stays gated — do not invent agency/trip counts until GET /platform/scale minima clear and snapshot is published.',
   };

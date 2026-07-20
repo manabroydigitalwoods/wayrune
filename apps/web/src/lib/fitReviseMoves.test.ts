@@ -3,6 +3,7 @@ import {
   buildFitReviseMoves,
   firstHotelLineId,
   firstUnmatchedLineIdFromAttention,
+  prepareHotelSwapLine,
 } from './fitReviseMoves';
 
 describe('fitReviseMoves', () => {
@@ -64,6 +65,47 @@ describe('fitReviseMoves', () => {
     expect(moves.actions.find((a) => a.id === 'apply_inquiry_pax')?.label).toBe(
       'Apply 2A+1C · 1R',
     );
+  });
+
+  it('swap hotel keeps dates + story day, clears property and rate', () => {
+    const swapped = prepareHotelSwapLine({
+      details: {
+        supplierId: 'sup-1',
+        supplierName: 'Old Hotel',
+        propertyName: 'Old Hotel',
+        roomType: 'Deluxe',
+        checkIn: '2026-08-01',
+        checkOut: '2026-08-03',
+        nights: 2,
+        storyDayId: 'day-2',
+        rooms: 1,
+        adults: 2,
+        markupMode: 'percent',
+        markupValue: 18,
+        rateLabel: 'Old · Deluxe',
+      },
+      rateId: 'rate-1',
+      rateProvenance: { rateId: 'rate-1' },
+      unitCost: 5000,
+      unitSell: 5900,
+    });
+    // Preserved
+    expect(swapped.details?.checkIn).toBe('2026-08-01');
+    expect(swapped.details?.checkOut).toBe('2026-08-03');
+    expect(swapped.details?.nights).toBe(2);
+    expect(swapped.details?.storyDayId).toBe('day-2');
+    expect(swapped.details?.rooms).toBe(1);
+    expect(swapped.details?.markupValue).toBe(18);
+    // Cleared
+    expect(swapped.details?.supplierId).toBeUndefined();
+    expect(swapped.details?.propertyName).toBeUndefined();
+    expect(swapped.details?.roomType).toBeUndefined();
+    expect(swapped.details?.priceSource).toBe('none');
+    expect(swapped.rateId).toBeNull();
+    expect(swapped.rateProvenance).toBeUndefined();
+    expect(swapped.rateUnmatched).toBe(true);
+    expect(swapped.unitCost).toBeNull();
+    expect(swapped.unitSell).toBeNull();
   });
 
   it('hides when idle or empty draft', () => {
