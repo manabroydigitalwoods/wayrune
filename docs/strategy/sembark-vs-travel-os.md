@@ -36,7 +36,7 @@ Maturity labels: **early** | **partial** | **mature** | **structural** (architec
 | Communication | WhatsApp notifications, calling add-on, email parsing | Unified inbox (WhatsApp / email / Instagram / website / Google Business), AI rewrite/summarize; Microsoft = SSO only; quote WA share = Cloud template/session + `wa.me` Mark-as-sent; **Quote proposal template picker** | **Stronger foundation; uneven channel depth** — no Microsoft messaging claim; **HubSpot out of scope** |
 | Itinerary creation | Productised ~60s workflow with costing | Flexible itinerary builder + public proposal; **package apply + rematch + Story seed**; FIT build minutes instrumented (do not claim 60s publicly) | **Sembark for polished speed**; we are closing via packages + telemetry |
 | Quotation pricing | Multi-currency, tax, component markup, reusable supplier data | Versioned quotes; hotel/transfer/activity resolve; cost/sell/tax/margin; **fixed + % + agent markup**; **org default tax**; branded PDF/email/WA; public accept; **Quote FX lock** + **Settings live FX refresh (Frankfurter)** | **Near parity on INR FIT path**; **Sembark** on tax regimes / cross-pair / auto FX |
-| Supplier contracts | Mature rates, seasons, stop/blackout, bulk upload, occupancy grids | **Supplier Directory + Profile V1**; hotel/transfer/activity charts; seasons/weekend/gala/occupancy extras; **SGL/DBL/TPL adultBands** + **copy-as-meal** + **meal×occupancy matrix (Wk/We)** + **weekend-per-band** + **min stay (hard gate)** + **IN/INTL + per-ISO + full ISO-3166 + multi-guest mixed nationality** + **hotel/transfer/activity rate version chains** + **hotel/transfer/activity tip diffs**; **hotel/transfer/activity tip dual-control Activate (`rates.approve`)** + **activation Tasks for hotel/transfer/activity**; blackout vs stop-sale; CSV/XLSX + import audit; hard allotment + capacity gates; cancel policy stamp | **Near parity** on daily contracting thin path; multi-step quorum still open |
+| Supplier contracts | Mature rates, seasons, stop/blackout, bulk upload, occupancy grids | **Supplier Directory + Profile V1**; hotel/transfer/activity charts; seasons/weekend/gala/occupancy extras; **SGL/DBL/TPL adultBands** + **copy-as-meal** + **meal×occupancy matrix (Wk/We)** + **weekend-per-band** + **min stay (hard gate)** + **IN/INTL + per-ISO + full ISO-3166 + multi-guest mixed nationality** + **hotel/transfer/activity rate version chains** + **hotel/transfer/activity tip diffs**; **hotel/transfer/activity tip dual-control Activate (`rates.approve`)** + **activation Tasks for hotel/transfer/activity** + **hotel tip field restore**; blackout vs stop-sale; CSV/XLSX + import audit; hard allotment + capacity gates; cancel policy stamp | **Near parity** on daily contracting thin path; **multi-step quorum parked** (Activate inbox sufficient) |
 | Booking operations | Reservations, assignment, vouchers, movement charts | Booking components + readiness; hotel/transfer/activity enquiry→confirm→payable→voucher; **movement board + calendar**; driver/fleet assign + DriverJob sync; **allotment release+reallocate**; type-aware partner Confirm | **Near parity on agency ops thin slice**; partner fleet OS depth still open |
 | Payments and accounting | Receivables, payables, instalments, payment links, ledgers | Per-trip AR/AP + margin; payment links + Razorpay; org aging/portfolio; **chase + AP Mark paid/Unmark**; report packs + scheduled CSV email; **FX honesty cues** | **Sembark** on full ledger; **near parity** on collect/chase thin path |
 | Multi-brand / multi-org | Multiple brands under one login | Org kinds (agency, hotel, DMC, driver, …), multi-membership, org switcher; partner OS / Travel Exchange unfinished | **Structural advantage; productized partner network still early** |
@@ -65,7 +65,7 @@ Maturity labels: **early** | **partial** | **mature** | **structural** (architec
 
 ### Honest remaining Sembark leads (do not paper over)
 
-1. **Tax / ledger depth** — full accounting ledger / e-invoice (CGST/SGST/IGST **display** thin-complete including Finance + public pay-page + receivable CD; compliance **do not claim**)
+1. **Tax / ledger depth** — **Parked** full accounting ledger / e-invoice / GSTR (CGST/SGST/IGST **display** thin-complete including Finance + public pay-page + receivable CD; compliance **do not claim**)
 2. **Quote speed productisation** — measured sub-3-minute FIT median + public claim gated by `fitClaimProtocol` (demo-travel seed can clear n≥20 locally; production waits on real samples)  
 3. **Market credibility** — *(About + public `/changelog` thin-complete)* · docs / scale proof still open
 4. **Partner fleet OS** — *(booking-linked holds + allocate UI thin-complete)* · full unit board / utilization still deal-gated
@@ -610,7 +610,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Tasks Open → supplier Rates tab for `transfer_fare` / `supplier_activity_rate` (same as hotel) |
 | **3 Proof** | **Done** | rate-tip-activation-task + task href specs; About note; this ladder in memo |
 
-**Defer:** multi-step quorum; ApprovalRequest schema; *(hotel field restore closed — see Hotel tip field-level restore)*; transfer/activity field restore.
+**Defer:** **Parked** — multi-step quorum / `ApprovalRequest` (dual-control Activate + Task inbox already thin-complete); transfer/activity field restore.
 
 #### Prod-ready ladder — Hotel nationality markets (IN / INTL) (**done**)
 
@@ -850,7 +850,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Commerce Invoices list shows total + tax when set |
 | **3 Proof** | **Done** | hotel-payable-settle + payment-link-tax-display specs; claim registry; About note; this ladder in memo |
 
-**Defer:** place-of-supply hotel buy rates; e-invoice / GSTR / full GL (do not claim).
+**Defer:** place-of-supply hotel buy rates; **Parked** e-invoice / GSTR / full GL (**do not claim** — display path thin-complete).
 
 #### Prod-ready ladder — FIT &lt;3m claim protocol gate (**done**)
 
