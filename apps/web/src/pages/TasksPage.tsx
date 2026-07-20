@@ -36,6 +36,7 @@ import { usePermissions } from '../lib/permissions';
 import { TASKS_PAGE_COPY, useTasksPageVariant } from '../lib/agencyPageVariants';
 import { AGENCY_ROUTES } from '../lib/agencyRoutes';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import { rateTipActivationTaskHref } from '../lib/rateTipActivationTaskHref';
 
 type Task = {
   id: string;
@@ -71,14 +72,7 @@ function entityPath(
   if (type === 'lead') return `/leads/${id}`;
   if (type === 'inquiry') return `/inquiries`;
   if (type === 'trip') return `/trips/${id}`;
-  if (type === 'supplier_hotel_rate') {
-    const fromDesc = description?.match(
-      /\/suppliers\/([A-Za-z0-9_-]+)(?:#|\?|$|\s)/,
-    );
-    if (fromDesc?.[1]) return `/suppliers/${fromDesc[1]}#supplier-rate-chart`;
-    return null;
-  }
-  return null;
+  return rateTipActivationTaskHref(type, description);
 }
 
 export function TasksPage() {

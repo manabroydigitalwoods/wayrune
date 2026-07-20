@@ -118,6 +118,10 @@ import {
   planRateNewVersion,
   type RateVersionRef,
 } from './rate-version-chain';
+import {
+  rateTipActivationSupplierLinkPath,
+  rateTipActivationTaskTitle,
+} from './rate-tip-activation-task';
 import { backfillHotelRateRoomProducts as backfillHotelRateRoomProductsHelper } from './rates-backfill.helpers';
 
 function round2(n: number) {
@@ -258,35 +262,34 @@ export class RatesService {
     return managers[0]?.userId ?? null;
   }
 
-  private async enqueueHotelRateActivationTask(opts: {
+  private async enqueueRateTipActivationTask(opts: {
     organizationId: string;
     actorUserId: string;
     tipId: string;
     supplierId: string | null;
-    versionNumber: number;
-    roomType: string | null;
+    entityType:
+      | 'supplier_hotel_rate'
+      | 'transfer_fare'
+      | 'supplier_activity_rate';
+    title: string;
   }) {
     const assigneeId =
       (await this.pickRateApproverUserId(
         opts.organizationId,
         opts.actorUserId,
       )) ?? opts.actorUserId;
-    const room = opts.roomType?.trim() || 'Room';
-    const title = `Activate hotel rate ${hotelRateVersionLabel(opts.versionNumber)} · ${room}`;
-    const linkPath = opts.supplierId
-      ? `/suppliers/${opts.supplierId}#supplier-rate-chart`
-      : `/rates`;
+    const linkPath = rateTipActivationSupplierLinkPath(opts.supplierId);
     const task = await this.prisma.task.create({
       data: {
         organizationId: opts.organizationId,
-        title,
+        title: opts.title,
         description: [
           'New tip is pending dual-control. Open History and Activate when buy is correct.',
           linkPath,
         ].join('\n'),
         priority: 'high',
         assigneeId,
-        entityType: 'supplier_hotel_rate',
+        entityType: opts.entityType,
         entityId: opts.tipId,
         createdBy: opts.actorUserId,
         updatedBy: opts.actorUserId,
@@ -301,7 +304,7 @@ export class RatesService {
           organizationId: opts.organizationId,
           userId: assigneeId,
           title: 'Rate tip needs activation',
-          body: title,
+          body: opts.title,
           linkPath,
           channel: flags.notifyOnTask === false ? 'in_app' : 'both',
         });
@@ -312,15 +315,41 @@ export class RatesService {
     return { taskId: task.id, linkPath };
   }
 
-  private async completeHotelRateActivationTasks(
+  private async enqueueHotelRateActivationTask(opts: {
+    organizationId: string;
+    actorUserId: string;
+    tipId: string;
+    supplierId: string | null;
+    versionNumber: number;
+    roomType: string | null;
+  }) {
+    return this.enqueueRateTipActivationTask({
+      organizationId: opts.organizationId,
+      actorUserId: opts.actorUserId,
+      tipId: opts.tipId,
+      supplierId: opts.supplierId,
+      entityType: 'supplier_hotel_rate',
+      title: rateTipActivationTaskTitle({
+        product: 'hotel',
+        versionNumber: opts.versionNumber,
+        detail: opts.roomType,
+      }),
+    });
+  }
+
+  private async completeRateTipActivationTasks(
     organizationId: string,
     tipId: string,
     actorUserId: string,
+    entityType:
+      | 'supplier_hotel_rate'
+      | 'transfer_fare'
+      | 'supplier_activity_rate',
   ) {
     await this.prisma.task.updateMany({
       where: {
         organizationId,
-        entityType: 'supplier_hotel_rate',
+        entityType,
         entityId: tipId,
         status: { not: 'done' },
         deletedAt: null,
@@ -330,6 +359,19 @@ export class RatesService {
         updatedBy: actorUserId,
       },
     });
+  }
+
+  private async completeHotelRateActivationTasks(
+    organizationId: string,
+    tipId: string,
+    actorUserId: string,
+  ) {
+    return this.completeRateTipActivationTasks(
+      organizationId,
+      tipId,
+      actorUserId,
+      'supplier_hotel_rate',
+    );
   }
 
   private async orgPricing(
@@ -1265,7 +1307,20 @@ export class RatesService {
         include: this.fareInclude,
       });
     });
+    let activationTaskId: string | null = null;
     if (pending) {
+      const queued = await this.enqueueRateTipActivationTask({
+        organizationId,
+        actorUserId: user.sub,
+        tipId: created.id,
+        supplierId: created.supplierId,
+        entityType: 'transfer_fare',
+        title: rateTipActivationTaskTitle({
+          product: 'transfer',
+          versionNumber: created.versionNumber,
+        }),
+      });
+      activationTaskId = queued.taskId;
       await this.audit.record({
         organizationId,
         actorUserId: user.sub,
@@ -1275,6 +1330,7 @@ export class RatesService {
         metadata: {
           previousRateId: source.id,
           versionNumber: plan.versionNumber,
+          taskId: activationTaskId,
         },
       });
     }
@@ -1286,6 +1342,7 @@ export class RatesService {
         previousVersionNumber: plan.previousVersionNumber,
         versionNumber: plan.versionNumber,
         pendingActivation: pending,
+        activationTaskId,
       },
     };
   }
@@ -1335,6 +1392,12 @@ export class RatesService {
         include: this.fareInclude,
       });
     });
+    await this.completeRateTipActivationTasks(
+      organizationId,
+      tip.id,
+      user.sub,
+      'transfer_fare',
+    );
     await this.audit.record({
       organizationId,
       actorUserId: user.sub,
@@ -1474,6 +1537,31 @@ export class RatesService {
         include: this.fareInclude,
       });
     });
+    if (pending) {
+      await this.enqueueRateTipActivationTask({
+        organizationId,
+        actorUserId: user.sub,
+        tipId: created.id,
+        supplierId: created.supplierId,
+        entityType: 'transfer_fare',
+        title: rateTipActivationTaskTitle({
+          product: 'transfer',
+          versionNumber: created.versionNumber,
+        }),
+      });
+      await this.audit.record({
+        organizationId,
+        actorUserId: user.sub,
+        action: 'rate.pending_activation',
+        entityType: 'transfer_fare',
+        entityId: created.id,
+        metadata: {
+          previousRateId: active.id,
+          restoredFromId: source.id,
+          versionNumber: plan.versionNumber,
+        },
+      });
+    }
     return { ...created, pendingActivation: pending };
   }
 
@@ -1544,7 +1632,21 @@ export class RatesService {
         include: this.activityInclude,
       });
     });
+    let activationTaskId: string | null = null;
     if (pending) {
+      const queued = await this.enqueueRateTipActivationTask({
+        organizationId,
+        actorUserId: user.sub,
+        tipId: created.id,
+        supplierId: created.supplierId,
+        entityType: 'supplier_activity_rate',
+        title: rateTipActivationTaskTitle({
+          product: 'activity',
+          versionNumber: created.versionNumber,
+          detail: created.activityName,
+        }),
+      });
+      activationTaskId = queued.taskId;
       await this.audit.record({
         organizationId,
         actorUserId: user.sub,
@@ -1554,6 +1656,7 @@ export class RatesService {
         metadata: {
           previousRateId: source.id,
           versionNumber: plan.versionNumber,
+          taskId: activationTaskId,
         },
       });
     }
@@ -1565,6 +1668,7 @@ export class RatesService {
         previousVersionNumber: plan.previousVersionNumber,
         versionNumber: plan.versionNumber,
         pendingActivation: pending,
+        activationTaskId,
       },
     };
   }
@@ -1609,6 +1713,12 @@ export class RatesService {
         include: this.activityInclude,
       });
     });
+    await this.completeRateTipActivationTasks(
+      organizationId,
+      tip.id,
+      user.sub,
+      'supplier_activity_rate',
+    );
     await this.audit.record({
       organizationId,
       actorUserId: user.sub,
@@ -1735,6 +1845,32 @@ export class RatesService {
         include: this.activityInclude,
       });
     });
+    if (pending) {
+      await this.enqueueRateTipActivationTask({
+        organizationId,
+        actorUserId: user.sub,
+        tipId: created.id,
+        supplierId: created.supplierId,
+        entityType: 'supplier_activity_rate',
+        title: rateTipActivationTaskTitle({
+          product: 'activity',
+          versionNumber: created.versionNumber,
+          detail: created.activityName,
+        }),
+      });
+      await this.audit.record({
+        organizationId,
+        actorUserId: user.sub,
+        action: 'rate.pending_activation',
+        entityType: 'supplier_activity_rate',
+        entityId: created.id,
+        metadata: {
+          previousRateId: active.id,
+          restoredFromId: source.id,
+          versionNumber: plan.versionNumber,
+        },
+      });
+    }
     return { ...created, pendingActivation: pending };
   }
 

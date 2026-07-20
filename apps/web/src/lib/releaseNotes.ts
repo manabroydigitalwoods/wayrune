@@ -27,6 +27,14 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-transfer-activity-activation-task',
+    date: '2026-07-20',
+    title: 'Tasks when transfer or activity tips need Activate',
+    summary:
+      'Without rates.approve, a new transfer or activity tip now creates a high-priority Task (and notifies the assignee). Open jumps to the supplier Rates tab; Activate marks the Task done — same dual-control inbox as hotel.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-csv-matrix-meals',
     date: '2026-07-20',
     title: 'One CSV row for EP/CP/MAP/AP hotel tips',
