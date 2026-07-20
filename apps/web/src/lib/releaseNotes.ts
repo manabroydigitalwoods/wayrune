@@ -27,6 +27,14 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-weighted-2code-3a-pax',
+    date: '2026-07-20',
+    title: 'Weighted 2-market triple buy',
+    summary:
+      'Three adults with two guest markets (e.g. IN+US) weight the first market twice on TPL/3 or DBL+SGL. Cue lists both IN shares.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-dbl-sgl-pax-buy-split',
     date: '2026-07-20',
     title: 'Uneven 3 adults / 2 rooms buy',

@@ -2,8 +2,8 @@
  * Thin mixed-nationality hotel buy: equal share from each guest tip's occupancy band.
  * Gates:
  * - DBL/2: adults === 2 × rooms, exactly two distinct codes
- * - TPL/3: 1 room, 3 adults, exactly three distinct codes
- * - DBL+SGL: 2 rooms, 3 adults, exactly three distinct codes (ordered: DBL, DBL, SGL)
+ * - TPL/3: 1 room, 3 adults, 3 codes or weighted 2 (2× first + 1× second)
+ * - DBL+SGL: 2 rooms, 3 adults, 3 codes or weighted 2 (same expansion)
  * Children allowed — extras compose via applyOccupancyPricing after the split.
  */
 
@@ -88,6 +88,21 @@ function money(v: number | string | null | undefined): number {
 }
 
 /**
+ * Expand distinct codes into three adult slots for 3A parties.
+ * - 3 codes → one each
+ * - 2 codes → lead (first) twice + other once (weighted fiction)
+ */
+export function expandThreeAdultNationalitySlots(
+  codes: string[],
+): string[] | null {
+  if (codes.length === 3) return [...codes];
+  if (codes.length === 2) {
+    return [codes[0]!, codes[0]!, codes[1]!];
+  }
+  return null;
+}
+
+/**
  * Plan nationality slots + band size when split is allowed; else null.
  */
 export function hotelPaxBuySplitPlan(
@@ -100,11 +115,12 @@ export function hotelPaxBuySplitPlan(
   const codes = collectGuestNationalityCodes({ nationalities: guestCodes });
   if (!guestNationalitiesAreMixed(codes)) return null;
 
-  // TPL/3: one room, three adults, three markets
+  // TPL/3: one room, three adults — 3 markets or weighted 2 (2× first + 1× second)
   if (rooms === 1 && adults === 3) {
-    if (codes.length !== 3) return null;
+    const expanded = expandThreeAdultNationalitySlots(codes);
+    if (!expanded) return null;
     return {
-      slots: codes.map((code) => ({ code, bandAdults: 3 })),
+      slots: expanded.map((code) => ({ code, bandAdults: 3 })),
       bandAdults: 3,
       composition: 'equal',
       displayRooms: 1,
@@ -113,13 +129,15 @@ export function hotelPaxBuySplitPlan(
   }
 
   // Uneven 3A/2R: first two share a double, third takes a single (code order).
+  // Weighted 2-code: 2× first on the double halves + second on the single.
   if (rooms === 2 && adults === 3) {
-    if (codes.length !== 3) return null;
+    const expanded = expandThreeAdultNationalitySlots(codes);
+    if (!expanded) return null;
     return {
       slots: [
-        { code: codes[0]!, bandAdults: 2 },
-        { code: codes[1]!, bandAdults: 2 },
-        { code: codes[2]!, bandAdults: 1 },
+        { code: expanded[0]!, bandAdults: 2 },
+        { code: expanded[1]!, bandAdults: 2 },
+        { code: expanded[2]!, bandAdults: 1 },
       ],
       bandAdults: 2,
       composition: 'dbl_sgl',
@@ -252,8 +270,10 @@ export function tryHotelPaxBuySplit<T extends HotelPaxBuySplitTip>(opts: {
     });
   }
 
-  // Same tip for multiple adults → room tip is clearer; skip split.
-  if (tipIds.size < plan.slots.length) return null;
+  // Same tip for every distinct market → room tip is clearer; skip split.
+  // Weighted 2-code may reuse one tip across two slots (same nationality).
+  const distinctMarkets = new Set(plan.slots.map((s) => s.code)).size;
+  if (tipIds.size < distinctMarkets) return null;
 
   const weekdayUnit = round2(
     shares.reduce((sum, s) => sum + s.sharePerNight, 0),

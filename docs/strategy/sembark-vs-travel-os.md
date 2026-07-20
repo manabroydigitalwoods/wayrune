@@ -69,7 +69,7 @@ Maturity labels: **early** | **partial** | **mature** | **structural** (architec
 2. **Quote speed productisation** — measured sub-3-minute FIT median + public claim gated by `fitClaimProtocol` (demo-travel seed can clear n≥20 locally; production waits on real samples)  
 3. **Market credibility** — *(About + public `/changelog` thin-complete)* · docs / scale proof still open
 4. **Partner fleet OS** — *(booking-linked holds + allocate UI thin-complete)* · full unit board / utilization still deal-gated
-5. **Rate-grid leftovers** — *(per-pax + children + 2A×N + TPL/3 + 3A/2R DBL+SGL thin-complete)* · weighted duplicates / 3A×N / rooming UI deferred
+5. **Rate-grid leftovers** — *(per-pax depth through weighted 2-code 3A thin-complete)* · rooming UI / traveller multiplicity / 3A×N deferred
 
 ---
 
@@ -660,7 +660,17 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Cue **· DBL+SGL** (not × 2 rooms) |
 | **3 Proof** | **Done** | hotel-pax-buy-split + cue specs; claim registry; About release note; this ladder in memo |
 
-**Defer:** who sleeps alone (rooming UI); 3A/2R with only 2 codes; weighted duplicates; 3A×N; per-child nationality tips; full Sembark matrix.
+**Defer:** *(closed — see Weighted 2-code 3A below)* · who sleeps alone (rooming UI); 3A×N; per-child nationality tips; full Sembark matrix.
+
+#### Prod-ready ladder — Weighted 2-code 3A per-pax buy (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | 3A with exactly 2 distinct codes expands to `[c0,c0,c1]` (lead-weighted); tip reuse allowed across duplicate slots; still needs ≥2 distinct tips |
+| **2 Channels / UI** | **Done** | Cue already lists repeated nationality shares (e.g. IN + IN + US) |
+| **3 Proof** | **Done** | hotel-pax-buy-split specs; claim registry; About release note; this ladder in memo |
+
+**Defer:** traveller-count multiplicity (non-lead majority); rooming UI; 3A×N; per-child nationality tips; full Sembark matrix.
 
 #### Prod-ready ladder — Tax identity on proposals (**done**)
 
@@ -1420,6 +1430,7 @@ Then introduce differentiators: connected WhatsApp and email → agency website 
 | Multi-room 2A×N per-pax buy | **Proven** (thin) |
 | 3A TPL/3 per-pax buy | **Proven** (thin) |
 | Uneven 3A/2R DBL+SGL per-pax buy | **Proven** (thin) |
+| Weighted 2-code 3A per-pax buy | **Proven** (thin · lead-weighted) |
 | Transfer + activity tip diff | **Proven** (thin) |
 | Transfer + activity tip Diff side-by-side | **Proven** (thin) |
 | Package template History Diff side-by-side | **Proven** (thin) |
@@ -1429,7 +1440,7 @@ Then introduce differentiators: connected WhatsApp and email → agency website 
 
 | Bet | Done when | Status |
 |-----|-----------|--------|
-| Hotel occupancy depth | Contracting enters SGL/DBL/TPL without sales spreadsheet override on seeded FIT | **Adult bands → nationality + traveller default + rate-version chains + tip diffs + per-pax DBL/2 + multi-room 2A×N + 3A TPL/3 + 3A/2R DBL+SGL done**; weighted duplicates / rooming UI / 3A×N open |
+| Hotel occupancy depth | Contracting enters SGL/DBL/TPL without sales spreadsheet override on seeded FIT | **Adult bands → nationality + traveller default + rate-version chains + tip diffs + per-pax through weighted 2-code 3A done**; rooming UI / traveller multiplicity / 3A×N open |
 | FIT speed claim | Protocol stamped; n≥20; median ≤3m; `publicClaimAllowed` | **Gate shipped**; **demo-travel seed stamps n=20 under 3m** (local demos only — production still waiting on real samples) |
 | Market credibility | Claim registry live; release notes + polished demo org | **Registry + About + public `/changelog` + named demo trip done**; public scale claim still open |
 | Deal-gated FX/fleet | Open only with signed need; keep locks/meta pluggable | **Discipline** |
