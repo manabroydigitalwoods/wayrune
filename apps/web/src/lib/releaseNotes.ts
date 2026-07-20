@@ -27,6 +27,22 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-hotel-max-stay',
+    date: '2026-07-20',
+    title: 'Hotel max stay on rate card and quote',
+    summary:
+      'Rate chart Max stay (1–30 nights) stamps Match when stay is longer. Send and approve stay blocked until nights are shortened or a manager with inventory_risk.approve acknowledges with a reason. No auto-extend of check-out.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-companion-type-edit',
+    date: '2026-07-20',
+    title: 'Edit traveller adult/child/infant type',
+    summary:
+      'Trip Edit traveller sheet can change companion type (adult, child, infant) alongside name, nationality, and lead — same PATCH as Add traveller.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-party-markup-stamp-on-send',
     date: '2026-07-20',
     title: 'Party markup frozen on quote lines at send',

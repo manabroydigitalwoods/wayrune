@@ -48,6 +48,11 @@ function preserveExistingInventoryRiskAcks(
     const prevMinStayAck = prevProv?.minStayRiskAckForNote?.trim() || '';
     const prevMinStayReason = prevProv?.minStayRiskAckReason?.trim() || '';
 
+    const nextMaxStayAck = nextProv?.maxStayRiskAckForNote?.trim() || '';
+    const nextMaxStayReason = nextProv?.maxStayRiskAckReason?.trim() || '';
+    const prevMaxStayAck = prevProv?.maxStayRiskAckForNote?.trim() || '';
+    const prevMaxStayReason = prevProv?.maxStayRiskAckReason?.trim() || '';
+
     const rateProvenance = nextProv ? { ...nextProv } : undefined;
 
     const allotmentCleared = !nextAllotmentAck || !nextAllotmentReason;
@@ -103,6 +108,25 @@ function preserveExistingInventoryRiskAcks(
         } else {
           delete rateProvenance.minStayRiskAckForNote;
           delete rateProvenance.minStayRiskAckReason;
+        }
+      }
+    }
+
+    const maxStayCleared = !nextMaxStayAck || !nextMaxStayReason;
+    const maxStaySame =
+      nextMaxStayAck === prevMaxStayAck &&
+      nextMaxStayReason === prevMaxStayReason;
+    if (rateProvenance) {
+      if (maxStayCleared) {
+        delete rateProvenance.maxStayRiskAckForNote;
+        delete rateProvenance.maxStayRiskAckReason;
+      } else if (!maxStaySame) {
+        if (prevMaxStayAck && prevMaxStayReason) {
+          rateProvenance.maxStayRiskAckForNote = prevProv!.maxStayRiskAckForNote;
+          rateProvenance.maxStayRiskAckReason = prevProv!.maxStayRiskAckReason;
+        } else {
+          delete rateProvenance.maxStayRiskAckForNote;
+          delete rateProvenance.maxStayRiskAckReason;
         }
       }
     }
@@ -222,5 +246,33 @@ describe('preserveExistingInventoryRiskAcks', () => {
     );
     expect(out[0]?.rateProvenance?.minStayRiskAckForNote).toBeUndefined();
     expect(out[0]?.rateProvenance?.minStayRiskAckReason).toBeUndefined();
+  });
+
+  it('strips forged max-stay ack when none was audited', () => {
+    const note = 'Max stay 3 nights — this stay is 5';
+    const out = preserveExistingInventoryRiskAcks(
+      [
+        {
+          id: '1',
+          rateProvenance: {
+            maxStayWarn: true,
+            maxStayNote: note,
+            maxStayRiskAckForNote: note,
+            maxStayRiskAckReason: 'forged',
+          },
+        },
+      ],
+      [
+        {
+          id: '1',
+          rateProvenance: {
+            maxStayWarn: true,
+            maxStayNote: note,
+          },
+        },
+      ],
+    );
+    expect(out[0]?.rateProvenance?.maxStayRiskAckForNote).toBeUndefined();
+    expect(out[0]?.rateProvenance?.maxStayRiskAckReason).toBeUndefined();
   });
 });

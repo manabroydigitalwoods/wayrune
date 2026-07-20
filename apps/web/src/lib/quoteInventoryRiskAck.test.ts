@@ -3,6 +3,7 @@ import {
   lineNeedsAllotmentRiskAck,
   lineNeedsCapacityRiskAck,
   lineNeedsMinStayRiskAck,
+  lineNeedsMaxStayRiskAck,
 } from '@wayrune/contracts';
 
 describe('lineNeedsAllotmentRiskAck', () => {
@@ -123,6 +124,38 @@ describe('lineNeedsMinStayRiskAck', () => {
         minStayNote: note,
         minStayRiskAckForNote: note,
         minStayRiskAckReason: 'Client accepts short stay surcharge',
+      }),
+    ).toBe(false);
+  });
+});
+
+describe('lineNeedsMaxStayRiskAck', () => {
+  it('blocks when warn and unacked', () => {
+    expect(
+      lineNeedsMaxStayRiskAck({
+        maxStayWarn: true,
+        maxStayNote: 'Max stay 3 nights — this stay is 5',
+      }),
+    ).toBe(true);
+  });
+
+  it('blocks from calculation.maxStayLong when top-level stamp missing', () => {
+    expect(
+      lineNeedsMaxStayRiskAck({
+        maxStayLong: true,
+        maxStayNote: 'Max stay 2 nights — this stay is 4',
+      }),
+    ).toBe(true);
+  });
+
+  it('clears when ack matches note and reason is set', () => {
+    const note = 'Max stay 3 nights — this stay is 5';
+    expect(
+      lineNeedsMaxStayRiskAck({
+        maxStayWarn: true,
+        maxStayNote: note,
+        maxStayRiskAckForNote: note,
+        maxStayRiskAckReason: 'Extended booking agreed',
       }),
     ).toBe(false);
   });

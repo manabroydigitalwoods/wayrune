@@ -298,6 +298,7 @@ export type HotelOccupancyPricing = {
     weekendUnitCostPerNight?: number;
   }>;
   minStayNights?: number;
+  maxStayNights?: number;
   nationality?: string;
   dateSupplements?: Array<{
     date?: string;

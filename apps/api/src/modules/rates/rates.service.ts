@@ -92,6 +92,10 @@ import {
   hotelMinStayMatchAccepted,
 } from './hotel-min-stay';
 import {
+  evaluateHotelMaxStay,
+  hotelMaxStayMatchAccepted,
+} from './hotel-max-stay';
+import {
   filterHotelByNationality,
   hotelNationalityMatchAccepted,
   nationalityFromOccupancy,
@@ -4686,6 +4690,13 @@ export class RatesService {
       if (minStay) {
         accepted.push(...hotelMinStayMatchAccepted(minStay));
       }
+      const maxStay = evaluateHotelMaxStay({
+        maxStayNights: occupancyPricing?.maxStayNights,
+        nights: nightsCount,
+      });
+      if (maxStay) {
+        accepted.push(...hotelMaxStayMatchAccepted(maxStay));
+      }
       const cancelSummary = summarizeCancellationForMatch(
         (best.contractId
           ? ctx.cancellationByContractId.get(best.contractId)
@@ -4751,6 +4762,14 @@ export class RatesService {
                   minStayNote: minStay.note,
                 }
               : {}),
+            ...(maxStay
+              ? {
+                  maxStayNights: maxStay.maxStayNights,
+                  stayNights: maxStay.nights,
+                  maxStayLong: maxStay.long,
+                  maxStayNote: maxStay.note,
+                }
+              : {}),
             ...(rateNationality || guestNationality || guestMixed
               ? {
                   nationality: rateNationality,
@@ -4773,6 +4792,12 @@ export class RatesService {
             ? {
                 minStayWarn: true as const,
                 minStayNote: minStay.note,
+              }
+            : {}),
+          ...(maxStay?.long
+            ? {
+                maxStayWarn: true as const,
+                maxStayNote: maxStay.note,
               }
             : {}),
         },

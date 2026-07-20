@@ -49,6 +49,11 @@ import {
   hotelMinStayTone,
 } from '../../lib/hotelMinStayNote';
 import {
+  formatHotelMaxStayNote,
+  hotelMaxStayBlocksSend,
+  hotelMaxStayTone,
+} from '../../lib/hotelMaxStayNote';
+import {
   HOTEL_NATIONALITY_GUEST_OPTIONS,
   collectGuestNationalityBagUi,
   collectGuestNationalityCodesUi,
@@ -537,6 +542,7 @@ export function QuoteServiceDetailSheet({
   const [allotmentAckReason, setAllotmentAckReason] = useState('');
   const [capacityAckReason, setCapacityAckReason] = useState('');
   const [minStayAckReason, setMinStayAckReason] = useState('');
+  const [maxStayAckReason, setMaxStayAckReason] = useState('');
   const [rateDriftAckReason, setRateDriftAckReason] = useState('');
   const unitCostRef = useRef(unitCost);
   unitCostRef.current = unitCost;
@@ -659,6 +665,7 @@ export function QuoteServiceDetailSheet({
     setAllotmentAckReason(line.rateProvenance?.allotmentRiskAckReason?.trim() || '');
     setCapacityAckReason(line.rateProvenance?.capacityRiskAckReason?.trim() || '');
     setMinStayAckReason(line.rateProvenance?.minStayRiskAckReason?.trim() || '');
+    setMaxStayAckReason(line.rateProvenance?.maxStayRiskAckReason?.trim() || '');
     setRateDriftAckReason(line.rateProvenance?.rateDriftAckReason?.trim() || '');
     setRouteDistanceKm(null);
   }, [open, line, seedDetails, partyAdults, partyChildren, partyInfants, defaultMarkupPercent, tripStartDate]);
@@ -1496,7 +1503,9 @@ export function QuoteServiceDetailSheet({
     }
   }
 
-  async function recordInventoryRiskAck(kind: 'allotment' | 'capacity' | 'min_stay') {
+  async function recordInventoryRiskAck(
+    kind: 'allotment' | 'capacity' | 'min_stay' | 'max_stay',
+  ) {
     if (!line || readOnly || !rateProvenance) return;
     if (!canOverrideInventoryRisk) {
       toastError('A manager with inventory_risk.approve must acknowledge this shortfall');
@@ -1511,21 +1520,29 @@ export function QuoteServiceDetailSheet({
         ? allotmentAckReason.trim()
         : kind === 'capacity'
           ? capacityAckReason.trim()
-          : minStayAckReason.trim();
+          : kind === 'min_stay'
+            ? minStayAckReason.trim()
+            : maxStayAckReason.trim();
     const note =
       kind === 'allotment'
         ? allotmentNote?.trim() || rateProvenance.allotmentNote?.trim() || ''
         : kind === 'capacity'
           ? capacityNote?.trim() || rateProvenance.capacityNote?.trim() || ''
-          : formatHotelMinStayNote(rateProvenance.calculation) ||
-            rateProvenance.minStayNote?.trim() ||
-            '';
+          : kind === 'min_stay'
+            ? formatHotelMinStayNote(rateProvenance.calculation) ||
+              rateProvenance.minStayNote?.trim() ||
+              ''
+            : formatHotelMaxStayNote(rateProvenance.calculation) ||
+              rateProvenance.maxStayNote?.trim() ||
+              '';
     const blocks =
       kind === 'allotment'
         ? hotelAllotmentBlocksSend(rateProvenance)
         : kind === 'capacity'
           ? transferCapacityBlocksSend(rateProvenance)
-          : hotelMinStayBlocksSend(rateProvenance);
+          : kind === 'min_stay'
+            ? hotelMinStayBlocksSend(rateProvenance)
+            : hotelMaxStayBlocksSend(rateProvenance);
     if (!note || !reason || !blocks) return;
     try {
       const updated = await api<{
@@ -2264,6 +2281,58 @@ export function QuoteServiceDetailSheet({
                           <p className="text-[11px] text-destructive/90">
                             Ask a manager with inventory_risk.approve to acknowledge this
                             shortfall before send.
+                          </p>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })()}
+              {(() => {
+                const note =
+                  formatHotelMaxStayNote(rateProvenance?.calculation) ||
+                  rateProvenance?.maxStayNote?.trim() ||
+                  null;
+                if (!note) return null;
+                const blocks = hotelMaxStayBlocksSend(
+                  rateProvenance ?? {
+                    maxStayNote: note,
+                    maxStayWarn: true,
+                  },
+                );
+                return (
+                  <div
+                    className={
+                      hotelMaxStayTone(note) === 'block' && blocks
+                        ? 'space-y-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive'
+                        : hotelMaxStayTone(note) === 'block'
+                          ? 'rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-900 dark:text-amber-200'
+                          : 'rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground'
+                    }
+                  >
+                    <p>Max stay · {note}</p>
+                    {!readOnly && blocks ? (
+                      <div className="space-y-2">
+                        {canOverrideInventoryRisk ? (
+                          <>
+                            <Input
+                              placeholder="Reason for sending anyway…"
+                              value={maxStayAckReason}
+                              onChange={(e) => setMaxStayAckReason(e.target.value)}
+                            />
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={!maxStayAckReason.trim() || !quotationVersionId}
+                              onClick={() => void recordInventoryRiskAck('max_stay')}
+                            >
+                              Send anyway (acknowledge)
+                            </Button>
+                          </>
+                        ) : (
+                          <p className="text-[11px] text-destructive/90">
+                            Ask a manager with inventory_risk.approve to acknowledge this
+                            overage before send.
                           </p>
                         )}
                       </div>

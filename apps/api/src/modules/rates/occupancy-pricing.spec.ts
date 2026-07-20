@@ -125,6 +125,7 @@ describe('occupancy-pricing', () => {
       })?.adultBands,
     ).toEqual([{ adults: 2, unitCostPerNight: 4500 }]);
     expect(parseOccupancyPricing({ minStayNights: 2 })?.minStayNights).toBe(2);
+    expect(parseOccupancyPricing({ maxStayNights: 7 })?.maxStayNights).toBe(7);
   });
 
   it('picks band weekend absolute over chart ratio', () => {

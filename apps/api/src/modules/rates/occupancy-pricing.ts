@@ -1,6 +1,7 @@
 /** Hotel rate occupancy supplements (thin R2 matrix — extras + SGL/DBL/TPL bands). */
 
 import { parseMinStayNights } from './hotel-min-stay';
+import { parseMaxStayNights } from './hotel-max-stay';
 import { normalizeHotelNationality } from './hotel-nationality';
 import { normalizePlaceOfSupply } from './hotel-place-of-supply';
 
@@ -30,6 +31,8 @@ export type OccupancyPricing = {
   adultBands?: AdultBand[];
   /** Minimum stay nights for this rate card (soft Match cue). */
   minStayNights?: number;
+  /** Maximum stay nights for this rate card (soft Match cue). */
+  maxStayNights?: number;
   /** Market segment: IN | INTL (blank/any when omitted). */
   nationality?: string;
   /** Destination place of supply for this buy tip (blank/any when omitted). */
@@ -224,6 +227,7 @@ export function parseOccupancyPricing(raw: unknown): OccupancyPricing | null {
   const childWithoutBedPerNight = numField(o.childWithoutBedPerNight);
   const adultBands = parseAdultBands(o.adultBands);
   const minStayNights = parseMinStayNights(o.minStayNights);
+  const maxStayNights = parseMaxStayNights(o.maxStayNights);
   const nationality = normalizeHotelNationality(
     typeof o.nationality === 'string' ? o.nationality : null,
   );
@@ -239,6 +243,7 @@ export function parseOccupancyPricing(raw: unknown): OccupancyPricing | null {
     childAgeMax == null &&
     adultBands.length === 0 &&
     minStayNights == null &&
+    maxStayNights == null &&
     nationality == null &&
     placeOfSupply == null
   ) {
@@ -250,6 +255,7 @@ export function parseOccupancyPricing(raw: unknown): OccupancyPricing | null {
       o.baseChildren == null &&
       o.adultBands == null &&
       o.minStayNights == null &&
+      o.maxStayNights == null &&
       o.nationality == null &&
       o.placeOfSupply == null
     ) {
@@ -265,6 +271,7 @@ export function parseOccupancyPricing(raw: unknown): OccupancyPricing | null {
     ...(childWithoutBedPerNight != null ? { childWithoutBedPerNight } : {}),
     ...(adultBands.length ? { adultBands } : {}),
     ...(minStayNights != null ? { minStayNights } : {}),
+    ...(maxStayNights != null ? { maxStayNights } : {}),
     ...(nationality != null ? { nationality } : {}),
     ...(placeOfSupply != null ? { placeOfSupply } : {}),
   };

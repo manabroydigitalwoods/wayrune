@@ -149,6 +149,7 @@ function emptyForm(defaultContractId = '') {
     /** Up to 3 gala / date supplements (single night + amount). */
     galaRows: emptyGalaRows(),
     minStayNights: '',
+    maxStayNights: '',
     nationality: '',
     placeOfSupply: '',
     place: null as PlaceRef | null,
@@ -169,6 +170,7 @@ function occupancyFromRate(rate: HotelRate) {
       adultBandRows: emptyAdultBandRows(),
       galaRows: emptyGalaRows(),
       minStayNights: '',
+      maxStayNights: '',
       nationality: '',
       placeOfSupply: '',
     };
@@ -229,6 +231,10 @@ function occupancyFromRate(rate: HotelRate) {
       o.minStayNights != null && Number(o.minStayNights) >= 1
         ? String(Math.floor(Number(o.minStayNights)))
         : '',
+    maxStayNights:
+      o.maxStayNights != null && Number(o.maxStayNights) >= 1
+        ? String(Math.floor(Number(o.maxStayNights)))
+        : '',
     nationality: normalizeHotelNationalityUi(
       typeof o.nationality === 'string' ? o.nationality : '',
     ),
@@ -277,6 +283,9 @@ function occupancyHint(rate: HotelRate): string | null {
   if (gala > 0) parts.push(`${gala} gala night${gala === 1 ? '' : 's'}`);
   if (o.minStayNights != null && Number(o.minStayNights) >= 1) {
     parts.push(`min ${Math.floor(Number(o.minStayNights))}n`);
+  }
+  if (o.maxStayNights != null && Number(o.maxStayNights) >= 1) {
+    parts.push(`max ${Math.floor(Number(o.maxStayNights))}n`);
   }
   const nat = normalizeHotelNationalityUi(
     typeof o.nationality === 'string' ? o.nationality : '',
@@ -947,6 +956,24 @@ export function SupplierHotelRatesPanel({
       }
       minStayNights = Math.floor(n);
     }
+    const maxStayRaw = form.maxStayNights.trim();
+    let maxStayNights: number | undefined;
+    if (maxStayRaw) {
+      const n = Number(maxStayRaw);
+      if (!Number.isFinite(n) || n < 1 || n > 30) {
+        toastError('Max stay must be between 1 and 30 nights');
+        return;
+      }
+      maxStayNights = Math.floor(n);
+    }
+    if (
+      minStayNights != null &&
+      maxStayNights != null &&
+      maxStayNights < minStayNights
+    ) {
+      toastError('Max stay must be at least min stay');
+      return;
+    }
     const nationality = normalizeHotelNationalityUi(form.nationality) || undefined;
     const placeOfSupply =
       normalizeHotelPlaceOfSupplyUi(form.placeOfSupply) || undefined;
@@ -967,6 +994,7 @@ export function SupplierHotelRatesPanel({
       dateSupplements.length > 0 ||
       adultBands.length > 0 ||
       minStayNights != null ||
+      maxStayNights != null ||
       nationality != null ||
       placeOfSupply != null;
     const occupancyPricing = hasOcc
@@ -978,6 +1006,7 @@ export function SupplierHotelRatesPanel({
           ...(childNoBed != null ? { childWithoutBedPerNight: childNoBed } : {}),
           ...(adultBands.length ? { adultBands } : {}),
           ...(minStayNights != null ? { minStayNights } : {}),
+          ...(maxStayNights != null ? { maxStayNights } : {}),
           ...(nationality ? { nationality } : {}),
           ...(placeOfSupply ? { placeOfSupply } : {}),
           ...(dateSupplements.length ? { dateSupplements } : {}),
@@ -1665,6 +1694,19 @@ export function SupplierHotelRatesPanel({
                         setForm({ ...form, minStayNights: e.target.value })
                       }
                       placeholder="2"
+                    />
+                  </FormField>
+                  <FormField
+                    label="Max stay (nights)"
+                    description="Blocks send when stay is longer unless a manager acknowledges."
+                  >
+                    <Input
+                      inputMode="numeric"
+                      value={form.maxStayNights}
+                      onChange={(e) =>
+                        setForm({ ...form, maxStayNights: e.target.value })
+                      }
+                      placeholder="7"
                     />
                   </FormField>
                 </FormGrid>

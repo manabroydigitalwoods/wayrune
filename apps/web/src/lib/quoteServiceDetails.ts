@@ -16,6 +16,10 @@ import {
   formatHotelMinStayNote,
   withMinStayProvenance,
 } from './hotelMinStayNote';
+import {
+  formatHotelMaxStayNote,
+  withMaxStayProvenance,
+} from './hotelMaxStayNote';
 
 export type QuoteServiceDetails = QuotationItemDetails;
 export type { QuoteRateProvenance };
@@ -1367,6 +1371,13 @@ function parseProvenanceCalculation(
       typeof c.minStayNote === 'string' && c.minStayNote.trim()
         ? c.minStayNote.trim()
         : undefined,
+    maxStayNights: num(c.maxStayNights),
+    maxStayLong:
+      typeof c.maxStayLong === 'boolean' ? c.maxStayLong : undefined,
+    maxStayNote:
+      typeof c.maxStayNote === 'string' && c.maxStayNote.trim()
+        ? c.maxStayNote.trim()
+        : undefined,
     nationality:
       typeof c.nationality === 'string'
         ? c.nationality
@@ -1536,6 +1547,14 @@ export function buildQuoteRateProvenance(opts: {
         }
       : strMeta('minStayNote')
         ? { minStayNote: strMeta('minStayNote') }
+        : {}),
+    ...(meta.maxStayWarn === true
+      ? {
+          maxStayWarn: true as const,
+          maxStayNote: strMeta('maxStayNote'),
+        }
+      : strMeta('maxStayNote')
+        ? { maxStayNote: strMeta('maxStayNote') }
         : {}),
     calculation: (() => {
       const base = parseProvenanceCalculation(meta.calculation) || {};
@@ -1946,6 +1965,14 @@ export function applyRateResolveHit(opts: {
     rateProvenance = withMinStayProvenance(
       rateProvenance,
       minStayNote,
+    ) as typeof rateProvenance;
+    const maxStayNote =
+      (typeof meta.maxStayNote === 'string' && meta.maxStayNote.trim()
+        ? meta.maxStayNote.trim()
+        : null) || formatHotelMaxStayNote(rateProvenance.calculation);
+    rateProvenance = withMaxStayProvenance(
+      rateProvenance,
+      maxStayNote,
     ) as typeof rateProvenance;
   }
 

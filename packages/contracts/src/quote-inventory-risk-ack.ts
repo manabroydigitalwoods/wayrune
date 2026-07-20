@@ -17,6 +17,10 @@ function noteLooksLikeMinStayRisk(note: string): boolean {
   return note.startsWith('Min stay') && note.includes('this stay is');
 }
 
+function noteLooksLikeMaxStayRisk(note: string): boolean {
+  return note.startsWith('Max stay') && note.includes('this stay is');
+}
+
 /** True when allotment is short and the editor has not acknowledged this note + reason. */
 export function lineNeedsAllotmentRiskAck(opts: {
   allotmentWarn?: boolean | null;
@@ -68,6 +72,27 @@ export function lineNeedsMinStayRiskAck(opts: {
   if (!warn) return false;
   const ack = opts.minStayRiskAckForNote?.trim() || '';
   const reason = opts.minStayRiskAckReason?.trim() || '';
+  if (!note) return !(ack && reason);
+  return ack !== note || !reason;
+}
+
+/** True when stay exceeds contracted max and unacked. */
+export function lineNeedsMaxStayRiskAck(opts: {
+  maxStayWarn?: boolean | null;
+  maxStayNote?: string | null;
+  maxStayRiskAckForNote?: string | null;
+  maxStayRiskAckReason?: string | null;
+  /** Fallback from Match calculation when top-level stamp missing. */
+  maxStayLong?: boolean | null;
+}): boolean {
+  const note = opts.maxStayNote?.trim() || '';
+  const warn =
+    opts.maxStayWarn === true ||
+    opts.maxStayLong === true ||
+    (note ? noteLooksLikeMaxStayRisk(note) : false);
+  if (!warn) return false;
+  const ack = opts.maxStayRiskAckForNote?.trim() || '';
+  const reason = opts.maxStayRiskAckReason?.trim() || '';
   if (!note) return !(ack && reason);
   return ack !== note || !reason;
 }

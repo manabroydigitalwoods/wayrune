@@ -2981,6 +2981,14 @@ export const QuoteRateProvenanceSchema = z.object({
   minStayRiskAckForNote: z.string().optional(),
   /** Editor reason recorded with min-stay shortfall acknowledge. */
   minStayRiskAckReason: z.string().optional(),
+  /** Max-stay overage cue from last Match (hotel). */
+  maxStayNote: z.string().optional(),
+  /** True when stay nights &gt; rate max stay — blocks send unless acked. */
+  maxStayWarn: z.boolean().optional(),
+  /** `maxStayNote` fingerprint acknowledged to allow send despite overage. */
+  maxStayRiskAckForNote: z.string().optional(),
+  /** Editor reason recorded with max-stay overage acknowledge. */
+  maxStayRiskAckReason: z.string().optional(),
   /** Seats per vehicle from last Match — used to restamp capacity when Vehicles change without rematch. */
   vehicleSeats: z.number().optional(),
   currency: z.string().optional(),
@@ -3012,6 +3020,9 @@ export const QuoteRateProvenanceSchema = z.object({
       stayNights: z.number().optional(),
       minStayShort: z.boolean().optional(),
       minStayNote: z.string().optional(),
+      maxStayNights: z.number().optional(),
+      maxStayLong: z.boolean().optional(),
+      maxStayNote: z.string().optional(),
       nationality: z.string().nullable().optional(),
       guestNationality: z.string().nullable().optional(),
       /** Distinct guest codes before collapse (when mixed). */
@@ -3133,6 +3144,7 @@ export const HotelOccupancyPricingSchema = z
       .max(3)
       .optional(),
     minStayNights: z.number().int().min(1).max(30).optional(),
+    maxStayNights: z.number().int().min(1).max(30).optional(),
     /** IN | INTL — blank/omit = any nationality. */
     nationality: z.string().max(8).optional(),
     /**
@@ -4200,6 +4212,7 @@ export {
   lineNeedsAllotmentRiskAck,
   lineNeedsCapacityRiskAck,
   lineNeedsMinStayRiskAck,
+  lineNeedsMaxStayRiskAck,
 } from './quote-inventory-risk-ack';
 export { lineHasStopSaleBlock } from './quote-rate-block';
 

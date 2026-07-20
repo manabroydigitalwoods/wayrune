@@ -242,6 +242,28 @@ describe('quoteAttentionLines', () => {
     ).not.toContain('min_stay');
   });
 
+  it('clears max-stay attention when overage is acknowledged with reason', () => {
+    const note = 'Max stay 3 nights — this stay is 5';
+    expect(
+      quoteAttentionReasons(
+        {
+          id: '1',
+          description: 'Hotel',
+          unitCost: 100,
+          unitSell: 150,
+          rateProvenance: {
+            maxStayWarn: true,
+            maxStayNote: note,
+            maxStayRiskAckForNote: note,
+            maxStayRiskAckReason: 'Extended booking agreed',
+            calculation: { maxStayLong: true, maxStayNote: note },
+          },
+        },
+        { canViewCost: true, minMarginPercent: 0 },
+      ),
+    ).not.toContain('max_stay');
+  });
+
   it('flags occupancy / gala / weekend / cancel / ages match cues', () => {
     expect(
       quoteAttentionReasons(

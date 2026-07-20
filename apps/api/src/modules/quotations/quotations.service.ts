@@ -36,6 +36,7 @@ import {
   lineNeedsAllotmentRiskAck,
   lineNeedsCapacityRiskAck,
   lineNeedsMinStayRiskAck,
+  lineNeedsMaxStayRiskAck,
   lineNeedsRateDriftAck,
   parseMinMarginPercent,
   resolvePartyMarkupStamp,
@@ -267,9 +268,15 @@ export class QuotationsService {
             minStayNote?: string;
             minStayRiskAckForNote?: string;
             minStayRiskAckReason?: string;
+            maxStayWarn?: boolean;
+            maxStayNote?: string;
+            maxStayRiskAckForNote?: string;
+            maxStayRiskAckReason?: string;
             calculation?: {
               minStayShort?: boolean;
               minStayNote?: string;
+              maxStayLong?: boolean;
+              maxStayNote?: string;
             } | null;
           } | null;
           marginOverride?: { reason?: string };
@@ -334,6 +341,7 @@ export class QuotationsService {
     this.assertNoBlockingAllotment(items);
     this.assertNoBlockingCapacity(items);
     this.assertNoBlockingMinStay(items);
+    this.assertNoBlockingMaxStay(items);
     this.assertFxReadyForSend(version, org?.currency || 'INR');
     const travellers = await this.prisma.tripTraveller.count({
       where: { tripId: version.quotation.tripId },
@@ -491,6 +499,37 @@ export class QuotationsService {
       `${blocked.length} hotel service${blocked.length === 1 ? '' : 's'} ${
         blocked.length === 1 ? 'is' : 'are'
       } below minimum stay — extend nights, pick another rate, or acknowledge the shortfall with a reason before sending`,
+    );
+  }
+
+  /** Block send/approve when hotel stay exceeds rate max stay (unless acked). */
+  private assertNoBlockingMaxStay(
+    items: Array<{
+      rateProvenance?: {
+        maxStayWarn?: boolean;
+        maxStayNote?: string;
+        maxStayRiskAckForNote?: string;
+        maxStayRiskAckReason?: string;
+        calculation?: { maxStayLong?: boolean; maxStayNote?: string } | null;
+      } | null;
+    }>,
+  ) {
+    const blocked = items.filter((i) =>
+      lineNeedsMaxStayRiskAck({
+        maxStayWarn: i.rateProvenance?.maxStayWarn,
+        maxStayNote:
+          i.rateProvenance?.maxStayNote ||
+          i.rateProvenance?.calculation?.maxStayNote,
+        maxStayRiskAckForNote: i.rateProvenance?.maxStayRiskAckForNote,
+        maxStayRiskAckReason: i.rateProvenance?.maxStayRiskAckReason,
+        maxStayLong: i.rateProvenance?.calculation?.maxStayLong,
+      }),
+    );
+    if (!blocked.length) return;
+    throw new BadRequestException(
+      `${blocked.length} hotel service${blocked.length === 1 ? '' : 's'} ${
+        blocked.length === 1 ? 'is' : 'are'
+      } above maximum stay — shorten nights, pick another rate, or acknowledge the overage with a reason before sending`,
     );
   }
 
@@ -2027,7 +2066,7 @@ export class QuotationsService {
   }
 
   /**
-   * Autosave must not invent allotment/capacity/min-stay risk acks — only
+   * Autosave must not invent allotment/capacity/min-stay/max-stay risk acks — only
    * {@link recordInventoryRiskAcks} may. Clearing an ack is allowed.
    */
   private preserveExistingInventoryRiskAcks(
@@ -2058,6 +2097,11 @@ export class QuotationsService {
       const nextMinStayReason = nextProv?.minStayRiskAckReason?.trim() || '';
       const prevMinStayAck = prevProv?.minStayRiskAckForNote?.trim() || '';
       const prevMinStayReason = prevProv?.minStayRiskAckReason?.trim() || '';
+
+      const nextMaxStayAck = nextProv?.maxStayRiskAckForNote?.trim() || '';
+      const nextMaxStayReason = nextProv?.maxStayRiskAckReason?.trim() || '';
+      const prevMaxStayAck = prevProv?.maxStayRiskAckForNote?.trim() || '';
+      const prevMaxStayReason = prevProv?.maxStayRiskAckReason?.trim() || '';
 
       let rateProvenance = nextProv ? { ...nextProv } : undefined;
 
@@ -2118,11 +2162,30 @@ export class QuotationsService {
         }
       }
 
+      const maxStayCleared = !nextMaxStayAck || !nextMaxStayReason;
+      const maxStaySame =
+        nextMaxStayAck === prevMaxStayAck &&
+        nextMaxStayReason === prevMaxStayReason;
+      if (rateProvenance) {
+        if (maxStayCleared) {
+          delete rateProvenance.maxStayRiskAckForNote;
+          delete rateProvenance.maxStayRiskAckReason;
+        } else if (!maxStaySame) {
+          if (prevMaxStayAck && prevMaxStayReason) {
+            rateProvenance.maxStayRiskAckForNote = prevProv!.maxStayRiskAckForNote;
+            rateProvenance.maxStayRiskAckReason = prevProv!.maxStayRiskAckReason;
+          } else {
+            delete rateProvenance.maxStayRiskAckForNote;
+            delete rateProvenance.maxStayRiskAckReason;
+          }
+        }
+      }
+
       return { ...item, rateProvenance };
     });
   }
 
-  /** Permission-gated, audited allotment / capacity / min-stay send-anyway on selected lines. */
+  /** Permission-gated, audited allotment / capacity / min-stay / max-stay send-anyway on selected lines. */
   async recordInventoryRiskAcks(
     user: AuthUser,
     versionId: string,
@@ -2151,7 +2214,7 @@ export class QuotationsService {
     const applied: Array<{
       id: string;
       description: string;
-      kind: 'allotment' | 'capacity' | 'min_stay';
+      kind: 'allotment' | 'capacity' | 'min_stay' | 'max_stay';
       note: string;
     }> = [];
 
@@ -2246,6 +2309,36 @@ export class QuotationsService {
         });
         touched = true;
       }
+      if (
+        lineNeedsMaxStayRiskAck({
+          maxStayWarn: prov.maxStayWarn,
+          maxStayNote: prov.maxStayNote || prov.calculation?.maxStayNote,
+          maxStayRiskAckForNote: prov.maxStayRiskAckForNote,
+          maxStayRiskAckReason: prov.maxStayRiskAckReason,
+          maxStayLong: prov.calculation?.maxStayLong,
+        })
+      ) {
+        const note =
+          prov.maxStayNote?.trim() ||
+          prov.calculation?.maxStayNote?.trim() ||
+          '';
+        if (!note) {
+          throw new BadRequestException(
+            `Line “${item.description}” is missing a max-stay overage note`,
+          );
+        }
+        prov.maxStayNote = note;
+        prov.maxStayWarn = true;
+        prov.maxStayRiskAckForNote = note;
+        prov.maxStayRiskAckReason = reason;
+        applied.push({
+          id: item.id,
+          description: item.description,
+          kind: 'max_stay',
+          note,
+        });
+        touched = true;
+      }
       if (!touched) {
         throw new BadRequestException(
           `Line “${item.description}” does not need an inventory risk acknowledgement`,
@@ -2256,7 +2349,7 @@ export class QuotationsService {
 
     if (!applied.length) {
       throw new BadRequestException(
-        'Select at least one service with an allotment, capacity, or min-stay shortfall',
+        'Select at least one service with an allotment, capacity, min-stay, or max-stay shortfall',
       );
     }
     const missing = input.lineIds.filter((id) => !items.some((i) => i.id === id));

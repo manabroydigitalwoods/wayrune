@@ -183,6 +183,7 @@ import {
   partyUsesAgentMarkup,
   resolveOrgMarkupPercent,
 } from '../lib/orgMarkup';
+import { normalizeTravellerType } from '../lib/travellerType';
 import {
   type MarkupPreset,
   markupPresetSummary,
@@ -561,6 +562,7 @@ function quoteSendBlockedReason(input: {
   allotmentBlockCount?: number;
   capacityBlockCount?: number;
   minStayBlockCount?: number;
+  maxStayBlockCount?: number;
   stopSaleBlockCount?: number;
   fxMissing?: boolean;
   quoteCurrency?: string;
@@ -616,6 +618,11 @@ function quoteSendBlockedReason(input: {
   if ((input.minStayBlockCount ?? 0) > 0) {
     parts.push(
       `${input.minStayBlockCount} min-stay shortfall${input.minStayBlockCount === 1 ? '' : 's'} (extend nights or acknowledge)`,
+    );
+  }
+  if ((input.maxStayBlockCount ?? 0) > 0) {
+    parts.push(
+      `${input.maxStayBlockCount} max-stay overage${input.maxStayBlockCount === 1 ? '' : 's'} (shorten nights or acknowledge)`,
     );
   }
   if ((input.stopSaleBlockCount ?? 0) > 0) {
@@ -764,6 +771,7 @@ export function TripWorkspacePage() {
   const [editTravellerSaving, setEditTravellerSaving] = useState(false);
   const [editTravellerId, setEditTravellerId] = useState<string | null>(null);
   const [editTravellerName, setEditTravellerName] = useState('');
+  const [editTravellerType, setEditTravellerType] = useState('adult');
   const [editTravellerNationality, setEditTravellerNationality] = useState('');
   const [editTravellerIsLead, setEditTravellerIsLead] = useState(false);
   const [travelDatesOpen, setTravelDatesOpen] = useState(false);
@@ -1815,6 +1823,10 @@ export function TripWorkspacePage() {
     () => attentionLines.filter((r) => r.reasons.includes('min_stay')).length,
     [attentionLines],
   );
+  const maxStayWarnCount = useMemo(
+    () => attentionLines.filter((r) => r.reasons.includes('max_stay')).length,
+    [attentionLines],
+  );
   const stopSaleBlockCount = useMemo(
     () => attentionLines.filter((r) => r.reasons.includes('stop_sell')).length,
     [attentionLines],
@@ -1964,6 +1976,7 @@ export function TripWorkspacePage() {
     allotmentBlockCount: allotmentWarnCount,
     capacityBlockCount: capacityWarnCount,
     minStayBlockCount: minStayWarnCount,
+    maxStayBlockCount: maxStayWarnCount,
     stopSaleBlockCount,
     fxMissing,
     quoteCurrency,
@@ -1985,6 +1998,7 @@ export function TripWorkspacePage() {
     allotmentBlockCount: allotmentWarnCount,
     capacityBlockCount: capacityWarnCount,
     minStayBlockCount: minStayWarnCount,
+    maxStayBlockCount: maxStayWarnCount,
     stopSaleBlockCount,
     fxMissing,
     quoteCurrency,
@@ -2121,6 +2135,7 @@ export function TripWorkspacePage() {
     traveller?: {
       id?: string;
       fullName?: string;
+      type?: string | null;
       nationality?: string | null;
     };
   }) {
@@ -2128,6 +2143,7 @@ export function TripWorkspacePage() {
     if (!tid) return;
     setEditTravellerId(tid);
     setEditTravellerName(row.traveller?.fullName || '');
+    setEditTravellerType(normalizeTravellerType(row.traveller?.type));
     setEditTravellerNationality(
       normalizeHotelNationalityUi(row.traveller?.nationality),
     );
@@ -2144,6 +2160,7 @@ export function TripWorkspacePage() {
         method: 'PATCH',
         body: JSON.stringify({
           fullName: editTravellerName.trim() || undefined,
+          type: editTravellerType,
           nationality: nationality || null,
           isLead: editTravellerIsLead,
         }),
@@ -3428,6 +3445,7 @@ export function TripWorkspacePage() {
         allotmentBlockCount: allotmentWarnCount,
         capacityBlockCount: capacityWarnCount,
         minStayBlockCount: minStayWarnCount,
+        maxStayBlockCount: maxStayWarnCount,
         stopSaleBlockCount,
         minMarginPercent: quoteMinMarginPercent,
         canViewCost: Boolean(canViewCost),
@@ -3474,6 +3492,7 @@ export function TripWorkspacePage() {
       allotmentBlockCount: allotmentWarnCount,
       capacityBlockCount: capacityWarnCount,
       minStayBlockCount: minStayWarnCount,
+      maxStayBlockCount: maxStayWarnCount,
       stopSaleBlockCount,
       minMarginPercent: quoteMinMarginPercent,
       canViewCost: Boolean(canViewCost),
@@ -5881,6 +5900,7 @@ export function TripWorkspacePage() {
           if (!open) {
             setEditTravellerId(null);
             setEditTravellerName('');
+            setEditTravellerType('adult');
             setEditTravellerNationality('');
             setEditTravellerIsLead(false);
           }
@@ -5896,6 +5916,19 @@ export function TripWorkspacePage() {
             onChange={(e) => setEditTravellerName(e.target.value)}
             placeholder="Full name"
             required
+          />
+        </FormField>
+        <FormField label="Type">
+          <SuggestionChips
+            aria-label="Traveller type"
+            allowDeselect={false}
+            options={[
+              { value: 'adult', label: 'Adult' },
+              { value: 'child', label: 'Child' },
+              { value: 'infant', label: 'Infant' },
+            ]}
+            value={editTravellerType}
+            onChange={setEditTravellerType}
           />
         </FormField>
         <FormField

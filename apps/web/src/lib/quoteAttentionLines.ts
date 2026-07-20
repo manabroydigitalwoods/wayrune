@@ -7,6 +7,7 @@ import { formatHotelDateSupplementNote } from './hotelDateSupplementNote';
 import { formatHotelWeekendNightNote } from './hotelWeekendNightNote';
 import { formatHotelCancellationNote } from './hotelCancellationNote';
 import { hotelMinStayBlocksSend } from './hotelMinStayNote';
+import { hotelMaxStayBlocksSend } from './hotelMaxStayNote';
 import { formatHotelNationalityNote } from './hotelNationalityNote';
 import {
   activityChildAgeCalcFromProvenance,
@@ -42,6 +43,10 @@ export type QuoteAttentionLineInput = {
     minStayWarn?: boolean | null;
     minStayRiskAckForNote?: string | null;
     minStayRiskAckReason?: string | null;
+    maxStayNote?: string | null;
+    maxStayWarn?: boolean | null;
+    maxStayRiskAckForNote?: string | null;
+    maxStayRiskAckReason?: string | null;
     calculation?: {
       occupancyExtraTotal?: number | null;
       extraAdultCount?: number | null;
@@ -62,6 +67,9 @@ export type QuoteAttentionLineInput = {
       stayNights?: number | null;
       minStayShort?: boolean | null;
       minStayNote?: string | null;
+      maxStayNights?: number | null;
+      maxStayLong?: boolean | null;
+      maxStayNote?: string | null;
       nationality?: string | null;
       guestNationality?: string | null;
       cancellationSummary?: string | null;
@@ -93,6 +101,7 @@ export type QuoteAttentionReason =
   | 'gala'
   | 'weekend'
   | 'min_stay'
+  | 'max_stay'
   | 'nationality'
   | 'cancel_policy'
   | 'ages_as_adult';
@@ -132,6 +141,8 @@ export function quoteAttentionReasonLabel(reason: QuoteAttentionReason): string 
       return 'Weekend';
     case 'min_stay':
       return 'Min stay';
+    case 'max_stay':
+      return 'Max stay';
     case 'nationality':
       return 'Nationality';
     case 'cancel_policy':
@@ -171,6 +182,9 @@ export function quoteAttentionReasons(
   }
   if (hotelMinStayBlocksSend(line.rateProvenance)) {
     reasons.push('min_stay');
+  }
+  if (hotelMaxStayBlocksSend(line.rateProvenance)) {
+    reasons.push('max_stay');
   }
 
   const calc = line.rateProvenance?.calculation;
