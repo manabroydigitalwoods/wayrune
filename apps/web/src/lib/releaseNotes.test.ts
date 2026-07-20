@@ -43,12 +43,14 @@ describe('releaseNotes', () => {
       allBuyer.some((n) => n.id === '2026-07-20-tax-identity-proposals'),
     ).toBe(true);
     // Newest array entries surface first on the About strip.
-    const top = visibleReleaseNotes(RELEASE_NOTES, { limit: 5 });
-    expect(top[0]?.id).toBe('2026-07-20-match-alt-compare');
-    expect(top[1]?.id).toBe('2026-07-20-revision-customer-story');
-    expect(top[2]?.id).toBe('2026-07-20-use-previous-trip');
-    expect(top[3]?.id).toBe('2026-07-20-operate-ready-onboarding');
-    expect(top[4]?.id).toBe('2026-07-20-demo-operate-pack');
+    // Order: Sprint B → Sprint A → Match alt (C after A block) → …
+    const top = visibleReleaseNotes(RELEASE_NOTES, { limit: 6 });
+    expect(top[0]?.id).toBe('2026-07-20-revision-customer-story');
+    expect(top[1]?.id).toBe('2026-07-20-use-previous-trip');
+    expect(top[2]?.id).toBe('2026-07-20-operate-ready-onboarding');
+    expect(top[3]?.id).toBe('2026-07-20-demo-operate-pack');
+    expect(top[4]?.id).toBe('2026-07-20-supplier-csv-import');
+    expect(top[5]?.id).toBe('2026-07-20-match-alt-compare');
     expect(
       allBuyer.some((n) => n.id === '2026-07-20-operate-ready-onboarding'),
     ).toBe(true);

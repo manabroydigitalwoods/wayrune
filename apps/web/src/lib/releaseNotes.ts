@@ -27,14 +27,6 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
-    id: '2026-07-20-match-alt-compare',
-    date: '2026-07-20',
-    title: 'Match alts — sort + keep markup',
-    summary:
-      'Other eligible rates: Best / Lowest buy / Preferred chips, side-by-side card columns (room · meal · est. stay · stop-sale/cancel cue; vehicle/route · est. buy), and Use (keep markup) vs Use. Friction audit match_alt_use. Not multi-select PDF packages.',
-    claimStatus: 'proven',
-  },
-  {
     id: '2026-07-20-revision-customer-story',
     date: '2026-07-20',
     title: 'Revised quote banner + change summary',
@@ -72,6 +64,14 @@ export const RELEASE_NOTES: ReleaseNote[] = [
     title: 'Supplier CSV import',
     summary:
       'Suppliers page Import CSV (name, type, email, phone). Email or phone required — contact completeness gates Operate-ready. Fail-closed when nothing imports.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-match-alt-compare',
+    date: '2026-07-20',
+    title: 'Match alts — sort + keep markup',
+    summary:
+      'Other eligible rates: Best / Lowest buy / Preferred chips, side-by-side card columns (room · meal · est. stay · stop-sale/cancel cue; vehicle/route · est. buy), and Use (keep markup) vs Use. Friction audit match_alt_use. Not multi-select PDF packages.',
     claimStatus: 'proven',
   },
   {

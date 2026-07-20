@@ -12,6 +12,8 @@ This memo revises the Sembark competitive analysis against the current codebase.
 
 **Wayrune has reached near parity with Sembark in end-to-end agency workflow coverage for INR FIT operations. Sembark still leads in guided quotation polish, complex contracting depth, accounting and reporting breadth, implementation support, and established market proof. Wayrune should now close adoption-critical gaps and improve experience — not copy Sembark screen by screen.**
 
+**Formal next phase:** [Agency Competitive Validation](#agency-competitive-validation-formal-next-phase--2026-07) — win and operate one real agency; build competitive depth only from evidence. Do **not** stop competing with Sembark; stop building speculative parity without evidence.
+
 Sembark concentrates on a commercially valuable agency journey:
 
 > Lead → quotation → booking → supplier coordination → payment → tour operations
@@ -142,6 +144,91 @@ Scores: **Y** = acceptable · **~** = partial / thin · **N** = not yet · **—
 | Multi-org / Presence / partner network | Y | ~ | — | ~ | N | N | Structural; **not** the agency-parity wedge |
 
 **Next move:** close rows where **E / A / P** are N on adoption-critical capabilities (FIT quote/revise, operate-through, launch) before spending cycles on screen-copy depth or full GL unless a named segment blocks.
+
+---
+
+## Agency Competitive Validation (formal next phase — 2026-07)
+
+**Operating rule (wording lock):** Do **not** stop competing with Sembark. Stop building **speculative parity without evidence**.
+
+Demo-win sprints (Operate-ready dual checklist · demo operate pack · supplier CSV · Use previous trip · revision customer story · Match alt compare) closed the thin demo blockers. The next milestone is **not** another module:
+
+> A real agency completes setup, quotation, booking, supplier confirmation, collection, and operation without developer intervention or returning to Excel.
+
+Until that happens, additional features may improve the product on paper without improving adoption.
+
+### Success definition
+
+Success is **not** “P5–P8 completed.” Success is:
+
+> One real agency can adopt Wayrune, replace its spreadsheets for the core journey, run live FIT work without developers, and provide the first credible proof that another agency should switch.
+
+### Two pilots — do not combine into one metric
+
+| Track | Flow | Proves |
+|-------|------|--------|
+| **Fast operate-through** | Install demo pack → create/accept quote → supplier enquiry → confirm → voucher | Walkthrough usability (target &lt;30 min for onboarded user) |
+| **Real agency** | Import real suppliers/rates → real enquiry → build/revise quote → customer accept → book → collect → operate | Product adoption |
+
+### Escape definition (strict)
+
+An **escape** is when the user must leave Wayrune to complete a **core** task using Excel/Sheets, a calculator, manually prepared Word/PDF, personal WhatsApp **outside** the connected inbox, notebooks, developer/DB intervention, or a separate tool because Wayrune cannot represent the scenario.
+
+Not every external action is a failure (e.g. speaking to a supplier on WhatsApp). It becomes an escape when booking status, rate, or confirmation must then be **manually reconstructed** inside Wayrune.
+
+**P5–P8 gate:** open competitive **depth** only after friction log shows **≥3 real escapes** of the same pattern. Do **not** wait for three escapes to fix basic correctness (wrong totals, data-loss risk, broken nav, unclear critical status, tenant isolation, accidental send/charge, impossible recovery).
+
+### Structured friction log (required fields)
+
+| Field | Purpose |
+|-------|---------|
+| User and role | Sales, operations, accounts, owner |
+| Journey stage | Quote, booking, collection, operation |
+| Expected action | What they tried to accomplish |
+| What happened | Observable problem |
+| Workaround | Excel, WhatsApp, calculator, manual entry |
+| Frequency | One-off or repeated |
+| Business impact | Delay, error, margin risk, blocked work |
+| Severity | Confusing, inefficient, blocking |
+| Root cause | UX, missing default, data model, feature gap |
+| Evidence | Screen recording, timestamp, sample trip |
+| Resolution | Fix, training, documentation, defer |
+
+### Evidence-gated depth (P5–P8) — thin entries only
+
+| Priority | Open when | Thin entry |
+|----------|-----------|------------|
+| **P5 Rate workbook** | Failed supplier sheets / quoting scenarios | Preserve source sheet, row/column layout, expected result, why model fails, suppliers affected, quote frequency — fix the **repeated pattern** |
+| **P6 Departures-7d** | Ops asks “which upcoming trips are unsafe?” | Action queue (unconfirmed supplier, unpaid, AP due, voucher/driver/traveller missing, cancel open, note overdue) — each item deep-links to resolve |
+| **P7 Owner action strip** | Owner needs click-through, not 50 charts | Follow-ups, delayed quotes, accepted-not-booked, overdue AR/AP, low margin, risky departures, pending approvals |
+| **P8 Party/supplier ledger views** | Accounts needs operational truth before GL | Opening balance → invoice/debit → receipt/payment → CN/refund/write-off → allocation → running balance · trip · due · aging · export — **no** journals/CoA/TB unless pilot proves accountant workflow must live in-product |
+
+### Real FIT ≤3m measurement protocol
+
+- **Start:** Qualified enquiry exists with travel dates, destinations, travellers, and rooming  
+- **End:** Customer-ready quote with services, pricing, markup, tax display, itinerary, and shareable proposal  
+- **Exclude:** Demo-seeded completed quotes; preselected rates for the test; external calculation; developer-operated runs; incomplete requirements; paused time waiting on customer info  
+- **Track:** median, **P75**, revision time, pricing errors, external-tool escape, manual override count, user experience level  
+- Do not optimize only for median — low median + poor P75 = easy cases only  
+
+Public claim stays **Testing** until n≥20 **real** samples clear the gate. Demo seed never counts.
+
+### Replace-demo proof (mandatory on real-agency track)
+
+1. Demo suppliers removed/replaced safely  
+2. Real supplier CSV imports correctly  
+3. Real rate sheets map correctly  
+4. Import failures understandable  
+5. Failed rows correctable and replayable  
+6. Real suppliers available in Match  
+7. Quote proceeds to confirmation + voucher  
+8. Demo data never appears in live documents  
+
+### Refined bottom line
+
+> **Stop speculative parity development. Use Wayrune’s completed agency journey to win and operate one real agency. Record every repeated escape, failure, and delay. Build competitive depth only where evidence shows Wayrune is materially weaker than Sembark or forces users outside the system.**
+
+That preserves both goals: compete aggressively with Sembark, and avoid months copying features that do not determine adoption.
 
 ## 2. Ninety-day Priority 0 sequence
 
