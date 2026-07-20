@@ -314,6 +314,26 @@ export class OperationsController {
     return this.operations.createPayment(user, tripId, CreateTripPaymentSchema.parse(body));
   }
 
+  @Get('trips/:tripId/payments/schedule-preview')
+  @RequireAgencyOrg()
+  @RequirePermissions('trip.read', 'trip.write')
+  instalmentSchedulePreview(
+    @CurrentUser() user: AuthUser,
+    @Param('tripId') tripId: string,
+  ) {
+    return this.operations.customerInstalmentSchedulePreview(user, tripId);
+  }
+
+  @Post('trips/:tripId/payments/schedule-from-terms')
+  @RequireAgencyOrg()
+  @RequirePermissions('trip.write')
+  scheduleInstalmentsFromTerms(
+    @CurrentUser() user: AuthUser,
+    @Param('tripId') tripId: string,
+  ) {
+    return this.operations.scheduleCustomerInstalmentsFromTerms(user, tripId);
+  }
+
   @Patch('trips/:tripId/payments/:paymentId')
   @RequireAgencyOrg()
   @RequirePermissions('trip.write')

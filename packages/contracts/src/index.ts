@@ -4088,6 +4088,7 @@ export * from './org-markup';
 export * from './markup-presets';
 export * from './payment-terms';
 export * from './party-credit-limit';
+export * from './instalment-schedule';
 export * from './iso3166-alpha2';
 
 export {

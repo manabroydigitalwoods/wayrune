@@ -282,7 +282,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Customer hub payment terms + credit limit edit; Finance receivables cue + due prefill |
 | **3 Proof** | **Done** | `payment-terms.spec` + `payment-terms-due.spec`; this ladder in memo |
 
-**Defer:** *(closed — see Credit limit enforcement gates below)*
+**Defer:** *(closed — see Credit limit enforcement gates + Instalment schedules from terms below)*
 
 #### Prod-ready ladder — Credit limit enforcement gates (**done**)
 
@@ -292,7 +292,17 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Finance + customer hub credit cues; trip control **over credit limit** flag; `GET /parties/:id/credit-status` |
 | **3 Proof** | **Done** | `party-credit-limit.spec` + `party-credit-limit` (API) + trip-control flag spec; this ladder in memo |
 
-**Defer:** instalment schedules from terms; non-Net custom terms parsing; *(per-party markup — see Per-party markup override above)*.
+**Defer:** *(closed — see Instalment schedules from terms below)* · non-Net custom terms parsing; *(per-party markup — see Per-party markup override above)*.
+
+#### Prod-ready ladder — Instalment schedules from terms (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `buildCustomerInstalmentPlan` (story % → quote terms % → 50/50); `GET …/payments/schedule-preview` + `POST …/payments/schedule-from-terms`; credit-limit check on full sell; blocks when no accepted quote or existing customer instalments |
+| **2 Channels / UI** | **Done** | Finance **Schedule from terms** preview → confirm; source label + due rows |
+| **3 Proof** | **Done** | `instalment-schedule.spec` (contracts + API smoke); this ladder in memo |
+
+**Defer:** non-Net custom terms parsing; auto-schedule on quote accept (explicitly out — staff action only).
 
 #### Prod-ready ladder — Claim readiness ops panel (**done**)
 

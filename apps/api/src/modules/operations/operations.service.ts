@@ -33,12 +33,16 @@ import type {
   SendTripVouchersWhatsappInput,
   UpdateFinanceReportPackInput,
 } from '@wayrune/contracts';
-import { dueDateFromPaymentTerms } from '@wayrune/contracts';
+import {
+  buildCustomerInstalmentPlan,
+  dueDateFromPaymentTerms,
+  instalmentScheduleSourceLabel,
+  normalizeInstalmentPercentSteps,
+  partyCreditLimitBlockMessage,
+  percentStepsFromTermsText,
+} from '@wayrune/contracts';
 import { loadEnv } from '@wayrune/config';
 import { hasPermission } from '@wayrune/auth';
-import {
-  partyCreditLimitBlockMessage,
-} from '@wayrune/contracts';
 import { evaluatePartyCreditStatus } from '../parties/party-credit-limit';
 import {
   hotelBookingTitle,
@@ -2814,6 +2818,179 @@ export class OperationsService {
       await this.ensureCustomerReceivableCommercialDocument(user, tripId, payment);
     }
     return payment;
+  }
+
+  /**
+   * Preview or create Advance/Balance (or story/%) customer instalments from
+   * accepted-quote sell + party Net terms. Explicit staff action — not on accept.
+   */
+  async customerInstalmentSchedulePreview(user: AuthUser, tripId: string) {
+    return this.buildCustomerInstalmentScheduleContext(user, tripId);
+  }
+
+  async scheduleCustomerInstalmentsFromTerms(user: AuthUser, tripId: string) {
+    const preview = await this.buildCustomerInstalmentScheduleContext(user, tripId);
+    if (!preview.canSchedule) {
+      throw new BadRequestException(
+        preview.blockReason || 'Cannot schedule instalments for this trip',
+      );
+    }
+    if (preview.partyId) {
+      await this.assertCustomerPaymentCreditLimit(
+        user,
+        preview.partyId,
+        preview.currency,
+        preview.sellTotal,
+      );
+    }
+
+    const created = [];
+    for (const row of preview.rows) {
+      const payment = await this.createPayment(user, tripId, {
+        direction: 'customer',
+        label: row.label,
+        amount: row.amount,
+        currency: preview.currency,
+        dueAt: row.dueAt,
+        notes: `Scheduled from terms · ${preview.sourceLabel}`,
+      });
+      created.push(payment);
+    }
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorUserId: user.sub,
+      action: 'payment.schedule_from_terms',
+      entityType: 'trip',
+      entityId: tripId,
+      metadata: {
+        count: created.length,
+        sellTotal: preview.sellTotal,
+        sourceLabel: preview.sourceLabel,
+      },
+    });
+
+    return {
+      ...preview,
+      payments: created,
+    };
+  }
+
+  private async buildCustomerInstalmentScheduleContext(
+    user: AuthUser,
+    tripId: string,
+  ) {
+    const trip = await this.prisma.trip.findFirst({
+      where: { id: tripId, organizationId: user.organizationId, deletedAt: null },
+      select: {
+        id: true,
+        startDate: true,
+        partyId: true,
+        party: { select: { paymentTerms: true } },
+        organization: { select: { currency: true } },
+        quotations: {
+          include: {
+            versions: { orderBy: { versionNumber: 'desc' } },
+          },
+        },
+        itineraries: {
+          include: {
+            versions: { orderBy: { versionNumber: 'desc' }, take: 1 },
+          },
+          take: 1,
+        },
+      },
+    });
+    if (!trip) throw new NotFoundException('Trip not found');
+
+    const accepted = trip.quotations
+      .flatMap((q) => q.versions)
+      .find((v) => v.status === 'accepted');
+    const currency = (
+      accepted?.currency ||
+      trip.organization.currency ||
+      'INR'
+    ).toUpperCase();
+    const sellTotal = accepted ? Number(accepted.sellTotal) : 0;
+
+    const existingCustomer = await this.prisma.tripPayment.count({
+      where: {
+        organizationId: user.organizationId,
+        tripId,
+        direction: 'customer',
+        status: { not: 'cancelled' },
+      },
+    });
+
+    let blockReason: string | null = null;
+    if (!accepted) {
+      blockReason = 'Accept a quote before scheduling customer instalments';
+    } else if (!(sellTotal > 0)) {
+      blockReason = 'Accepted quote has no sell total';
+    } else if (existingCustomer > 0) {
+      blockReason =
+        'Customer instalments already exist — cancel or edit them before re-scheduling';
+    }
+
+    const storyContent = trip.itineraries[0]?.versions[0]?.contentJson;
+    const story =
+      storyContent &&
+      typeof storyContent === 'object' &&
+      !Array.isArray(storyContent) &&
+      (storyContent as { story?: unknown }).story &&
+      typeof (storyContent as { story: unknown }).story === 'object'
+        ? ((storyContent as { story: Record<string, unknown> }).story as {
+            paymentSchedule?: Array<{ label?: string; percent?: number }>;
+          })
+        : null;
+
+    const storySteps = normalizeInstalmentPercentSteps(
+      (story?.paymentSchedule || [])
+        .map((s) => ({
+          label: String(s.label || '').trim() || 'Instalment',
+          percent: Number(s.percent),
+        }))
+        .filter((s) => Number.isFinite(s.percent)),
+    );
+    const termsSteps = percentStepsFromTermsText(accepted?.terms ?? null);
+    const usedStorySteps = Boolean(storySteps);
+    const usedTermsPercents = !usedStorySteps && Boolean(termsSteps);
+    const steps = storySteps || termsSteps || null;
+
+    const partyPaymentTerms = trip.party?.paymentTerms ?? null;
+    const rows =
+      sellTotal > 0
+        ? buildCustomerInstalmentPlan({
+            sellTotal,
+            steps,
+            partyPaymentTerms,
+            tripStartDate: trip.startDate,
+          })
+        : [];
+
+    const sourceLabel = instalmentScheduleSourceLabel({
+      usedStorySteps,
+      usedTermsPercents,
+      partyPaymentTerms,
+    });
+
+    return {
+      tripId,
+      partyId: trip.partyId,
+      currency,
+      sellTotal,
+      partyPaymentTerms,
+      tripStartDate: trip.startDate
+        ? trip.startDate.toISOString().slice(0, 10)
+        : null,
+      quoteVersionId: accepted?.id ?? null,
+      quoteTerms: accepted?.terms ?? null,
+      sourceLabel,
+      rows,
+      existingCustomerInstalments: existingCustomer,
+      canSchedule: !blockReason && rows.length > 0,
+      blockReason,
+    };
   }
 
   async updatePayment(

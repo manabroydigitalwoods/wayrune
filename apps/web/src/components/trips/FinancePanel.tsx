@@ -6,6 +6,7 @@ import {
   CardContent,
   Checkbox,
   Combobox,
+  ConfirmDialog,
   DatePicker,
   FormGrid,
   Input,
@@ -253,6 +254,23 @@ export function FinancePanel({
   const [feedbackNote, setFeedbackNote] = useState('');
   const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
 
+  const [schedulePreviewOpen, setSchedulePreviewOpen] = useState(false);
+  const [schedulePreviewLoading, setSchedulePreviewLoading] = useState(false);
+  const [scheduleSubmitting, setScheduleSubmitting] = useState(false);
+  const [schedulePreview, setSchedulePreview] = useState<{
+    currency: string;
+    sellTotal: number;
+    sourceLabel: string;
+    rows: Array<{
+      label: string;
+      percent: number;
+      amount: number;
+      dueAt: string | null;
+    }>;
+    canSchedule: boolean;
+    blockReason: string | null;
+  } | null>(null);
+
   const orgCurrency = data?.orgCurrency || orgCurrencyProp || 'INR';
   const showFeedbackProminent =
     tripStatus === 'completed' || tripStatus === 'in_progress';
@@ -368,6 +386,53 @@ export function FinancePanel({
       toastError(e instanceof Error ? e.message : 'Could not save payment');
     } finally {
       setPaymentSubmitting(false);
+    }
+  }
+
+  async function openScheduleFromTerms() {
+    setSchedulePreviewLoading(true);
+    setSchedulePreview(null);
+    setSchedulePreviewOpen(true);
+    try {
+      const preview = await api<{
+        currency: string;
+        sellTotal: number;
+        sourceLabel: string;
+        rows: Array<{
+          label: string;
+          percent: number;
+          amount: number;
+          dueAt: string | null;
+        }>;
+        canSchedule: boolean;
+        blockReason: string | null;
+      }>(`/trips/${tripId}/payments/schedule-preview`);
+      setSchedulePreview(preview);
+    } catch (e) {
+      setSchedulePreviewOpen(false);
+      toastError(e instanceof Error ? e.message : 'Could not preview schedule');
+    } finally {
+      setSchedulePreviewLoading(false);
+    }
+  }
+
+  async function confirmScheduleFromTerms() {
+    if (!schedulePreview?.canSchedule) return;
+    setScheduleSubmitting(true);
+    try {
+      await api(`/trips/${tripId}/payments/schedule-from-terms`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      toastSuccess('Customer instalments scheduled');
+      setSchedulePreviewOpen(false);
+      setSchedulePreview(null);
+      await load();
+      await onChanged();
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not schedule instalments');
+    } finally {
+      setScheduleSubmitting(false);
     }
   }
 
@@ -771,9 +836,19 @@ export function FinancePanel({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <strong className="text-sm">Customer receivables</strong>
             <Can anyOf={CAP.tripWrite}>
-              <Button size="sm" onClick={() => openNewPayment('customer')}>
-                Add receivable
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => void openScheduleFromTerms()}
+                  disabled={schedulePreviewLoading}
+                >
+                  {schedulePreviewLoading ? 'Loading…' : 'Schedule from terms'}
+                </Button>
+                <Button size="sm" onClick={() => openNewPayment('customer')}>
+                  Add receivable
+                </Button>
+              </div>
             </Can>
           </div>
           {(partyTermsCue || partyCreditCue) ? (
@@ -1172,6 +1247,65 @@ export function FinancePanel({
           </label>
         </div>
       </RecordSheet>
+
+      <ConfirmDialog
+        open={schedulePreviewOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSchedulePreviewOpen(false);
+            setSchedulePreview(null);
+          }
+        }}
+        title="Schedule customer instalments?"
+        description={
+          schedulePreviewLoading
+            ? 'Building preview from accepted quote and party terms…'
+            : schedulePreview?.blockReason
+              ? schedulePreview.blockReason
+              : schedulePreview
+                ? `${schedulePreview.sourceLabel}. Creates ${schedulePreview.rows.length} receivable${
+                    schedulePreview.rows.length === 1 ? '' : 's'
+                  } totaling ${formatCurrency(
+                    schedulePreview.sellTotal,
+                    schedulePreview.currency,
+                  )}.`
+                : 'Could not load schedule preview.'
+        }
+        confirmLabel={
+          schedulePreview?.canSchedule ? 'Create schedule' : 'Close'
+        }
+        loading={scheduleSubmitting || schedulePreviewLoading}
+        onConfirm={() => {
+          if (schedulePreview?.canSchedule) {
+            void confirmScheduleFromTerms();
+            return;
+          }
+          setSchedulePreviewOpen(false);
+          setSchedulePreview(null);
+        }}
+      >
+        {schedulePreview?.rows.length ? (
+          <ul className="space-y-2 text-sm">
+            {schedulePreview.rows.map((row) => (
+              <li
+                key={`${row.label}-${row.dueAt ?? 'none'}-${row.amount}`}
+                className="flex flex-wrap items-baseline justify-between gap-2"
+              >
+                <span>
+                  {row.label}{' '}
+                  <span className="text-muted-foreground">
+                    ({formatPercent(row.percent, 0)})
+                  </span>
+                </span>
+                <span className="tabular-nums">
+                  {formatCurrency(row.amount, schedulePreview.currency)}
+                  {row.dueAt ? ` · due ${formatDate(row.dueAt)}` : ''}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </ConfirmDialog>
     </div>
   );
 }

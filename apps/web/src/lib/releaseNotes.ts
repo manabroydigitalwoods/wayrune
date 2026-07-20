@@ -27,6 +27,14 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-instalment-schedule-from-terms',
+    date: '2026-07-20',
+    title: 'Schedule customer instalments from terms',
+    summary:
+      'Finance Schedule from terms builds Advance/Balance (or story/quote %) receivables from accepted-quote sell and party Net terms. Preview then create — never auto on accept. Blocks when instalments already exist or credit limit would be exceeded.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-party-markup-override',
     date: '2026-07-20',
     title: 'Per-party markup override',
