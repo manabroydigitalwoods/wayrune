@@ -480,7 +480,17 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Hotel import template demos MAP+CP expand row; parser accepts meal-prefixed headers |
 | **3 Proof** | **Done** | hotel-csv-matrix specs; claim registry; About note; this ladder in memo |
 
-**Defer:** field-level restore; package folder tree CRUD.
+**Defer:** *(closed — see Hotel tip field-level restore below)* · package folder tree CRUD.
+
+#### Prod-ready ladder — Hotel tip field-level restore (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `POST …/restore-field` merges one commercial field from prior tip onto new tip from active; pending/`rates.approve` unchanged; fields: unitCost / weekend / meal / dates |
+| **2 Channels / UI** | **Done** | History Diff row **Restore** CTA |
+| **3 Proof** | **Done** | hotel-rate-field-restore + Diff row specs; About note; this ladder in memo |
+
+**Defer:** transfer/activity field restore; occupancy JSON field restore; package folder tree CRUD.
 
 #### Prod-ready ladder — Hotel min stay on rate card (**done**)
 
@@ -580,7 +590,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Supplier transfer + activity History Activate / Pending cues (mirror hotel) |
 | **3 Proof** | **Done** | hotel-rate-pending aliases; claim registry; About note; this ladder in memo |
 
-**Defer:** *(closed — see Transfer/activity activation Task enqueue below)* · multi-step quorum; ApprovalRequest schema; field-level restore.
+**Defer:** *(closed — see Transfer/activity activation Task enqueue below)* · multi-step quorum; ApprovalRequest schema; *(field restore — see Hotel tip field-level restore)*.
 
 #### Prod-ready ladder — Transfer + activity activation Task enqueue (**done**)
 
@@ -590,7 +600,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Tasks Open → supplier Rates tab for `transfer_fare` / `supplier_activity_rate` (same as hotel) |
 | **3 Proof** | **Done** | rate-tip-activation-task + task href specs; About note; this ladder in memo |
 
-**Defer:** multi-step quorum; ApprovalRequest schema; field-level restore.
+**Defer:** multi-step quorum; ApprovalRequest schema; *(hotel field restore closed — see Hotel tip field-level restore)*; transfer/activity field restore.
 
 #### Prod-ready ladder — Hotel nationality markets (IN / INTL) (**done**)
 

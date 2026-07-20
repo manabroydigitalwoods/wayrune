@@ -22,6 +22,7 @@ import {
   UpdateSupplierHotelRateSchema,
   UpdateTransferFareSchema,
   RestoreHotelRateVersionSchema,
+  RestoreHotelRateFieldSchema,
   RestoreTransferFareVersionSchema,
   RestoreActivityRateVersionSchema,
 } from '@wayrune/contracts';
@@ -109,6 +110,23 @@ export class RatesController {
       user,
       id,
       parsed.sourceVersionId,
+    );
+  }
+
+  @Post('hotel-rates/:id/restore-field')
+  @RequirePermissions('quote.write')
+  restoreHotelField(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    const parsed = RestoreHotelRateFieldSchema.parse(body);
+    return this.rates.restoreHotelRateField(
+      user.organizationId,
+      user,
+      id,
+      parsed.sourceVersionId,
+      parsed.field,
     );
   }
 

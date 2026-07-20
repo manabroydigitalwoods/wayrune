@@ -25,7 +25,36 @@ export type HotelRateTipDiffRow = {
   field: string;
   thisTip: string;
   current: string;
+  /** API field key for Restore this field (null when not restorable). */
+  restoreField?: HotelRateRestorableFieldUi | null;
 };
+
+export type HotelRateRestorableFieldUi =
+  | 'unitCost'
+  | 'weekendUnitCost'
+  | 'mealPlan'
+  | 'startDate'
+  | 'endDate'
+  | 'dates';
+
+/** Diff change label → restorable field (mirrors API). */
+export function hotelRateDiffChangeToRestorableField(
+  changeLabel: string,
+): HotelRateRestorableFieldUi | null {
+  const key = changeLabel.trim().toLowerCase();
+  switch (key) {
+    case 'weekday cost':
+      return 'unitCost';
+    case 'weekend cost':
+      return 'weekendUnitCost';
+    case 'meal plan':
+      return 'mealPlan';
+    case 'dates':
+      return 'dates';
+    default:
+      return null;
+  }
+}
 
 const TIP_DIFF_CHANGE_ORDER = [
   'weekday cost',
@@ -143,6 +172,7 @@ export function buildHotelRateTipDiffRows(
           field: 'Weekday cost',
           thisTip: tipMoneyDisplay(prior.unitCost, opts?.formatAmount),
           current: tipMoneyDisplay(active.unitCost, opts?.formatAmount),
+          restoreField: 'unitCost',
         });
         break;
       case 'weekend cost':
@@ -150,6 +180,7 @@ export function buildHotelRateTipDiffRows(
           field: 'Weekend cost',
           thisTip: tipMoneyDisplay(prior.weekendUnitCost, opts?.formatAmount),
           current: tipMoneyDisplay(active.weekendUnitCost, opts?.formatAmount),
+          restoreField: 'weekendUnitCost',
         });
         break;
       case 'meal plan':
@@ -157,6 +188,7 @@ export function buildHotelRateTipDiffRows(
           field: 'Meal plan',
           thisTip: tipTextDisplay(prior.mealPlan, 'Any meal'),
           current: tipTextDisplay(active.mealPlan, 'Any meal'),
+          restoreField: 'mealPlan',
         });
         break;
       case 'room type':
@@ -164,6 +196,7 @@ export function buildHotelRateTipDiffRows(
           field: 'Room type',
           thisTip: tipTextDisplay(prior.roomType),
           current: tipTextDisplay(active.roomType),
+          restoreField: null,
         });
         break;
       case 'dates':
@@ -171,6 +204,7 @@ export function buildHotelRateTipDiffRows(
           field: 'Dates',
           thisTip: tipDatesDisplay(prior.startDate, prior.endDate),
           current: tipDatesDisplay(active.startDate, active.endDate),
+          restoreField: 'dates',
         });
         break;
       case 'occupancy':
@@ -178,6 +212,7 @@ export function buildHotelRateTipDiffRows(
           field: 'Occupancy',
           thisTip: formatHotelOccupancyDiffValue(prior.occupancyPricingJson),
           current: formatHotelOccupancyDiffValue(active.occupancyPricingJson),
+          restoreField: null,
         });
         break;
       default:

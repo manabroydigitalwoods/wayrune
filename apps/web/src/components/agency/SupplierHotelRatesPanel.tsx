@@ -52,8 +52,9 @@ import {
   hotelRateLooksPendingActivation,
   hotelRateVersionLabel,
   showHotelRateTipDiffExpand,
+  type HotelRateTipDiffRow,
+  type HotelRateVersionListItem,
 } from '../../lib/hotelRateVersion';
-import type { HotelRateVersionListItem } from '../../lib/hotelRateVersion';
 import { usePermissions } from '../../lib/permissions';
 import {
   MEAL_MATRIX_PLANS,
@@ -520,6 +521,35 @@ export function SupplierHotelRatesPanel({
       startEdit(created);
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Could not restore version');
+    } finally {
+      setHistorySaving(false);
+    }
+  }
+
+  async function restoreRateField(
+    sourceVersionId: string,
+    field: NonNullable<HotelRateTipDiffRow['restoreField']>,
+  ) {
+    if (!historyAnchorId || !field) return;
+    setHistorySaving(true);
+    try {
+      const created = await api<HotelRate & { pendingActivation?: boolean }>(
+        `/hotel-rates/${historyAnchorId}/restore-field`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ sourceVersionId, field }),
+        },
+      );
+      toastSuccess(
+        created.pendingActivation
+          ? `Field restored as ${hotelRateVersionLabel(created.versionNumber)} — pending activation`
+          : `Field restored as ${hotelRateVersionLabel(created.versionNumber)}`,
+      );
+      setHistoryOpen(false);
+      await load();
+      startEdit(created);
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not restore field');
     } finally {
       setHistorySaving(false);
     }
@@ -1943,6 +1973,7 @@ export function SupplierHotelRatesPanel({
                               <th className="px-2 py-1.5 font-medium">Field</th>
                               <th className="px-2 py-1.5 font-medium">This tip</th>
                               <th className="px-2 py-1.5 font-medium">Current</th>
+                              <th className="px-2 py-1.5 font-medium" />
                             </tr>
                           </thead>
                           <tbody>
@@ -1959,6 +1990,32 @@ export function SupplierHotelRatesPanel({
                                 </td>
                                 <td className="px-2 py-1.5 text-foreground">
                                   {row.current}
+                                </td>
+                                <td className="px-2 py-1.5 text-right">
+                                  {row.restoreField ? (
+                                    <Can anyOf={CAP.ratesWrite}>
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="ghost"
+                                        className="h-7 px-2 text-[11px]"
+                                        disabled={historySaving || hasPending}
+                                        title={
+                                          hasPending
+                                            ? 'Activate the pending tip before restore'
+                                            : 'Create a new tip with this field from the prior version'
+                                        }
+                                        onClick={() =>
+                                          void restoreRateField(
+                                            v.id,
+                                            row.restoreField!,
+                                          )
+                                        }
+                                      >
+                                        Restore
+                                      </Button>
+                                    </Can>
+                                  ) : null}
                                 </td>
                               </tr>
                             ))}

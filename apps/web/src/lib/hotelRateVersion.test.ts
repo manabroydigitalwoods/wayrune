@@ -42,14 +42,18 @@ describe('hotelRateVersion tip Diff', () => {
     ]);
     expect(rows[0]?.thisTip).toMatch(/8,?000/);
     expect(rows[0]?.current).toMatch(/8,?500/);
+    expect(rows[0]?.restoreField).toBe('unitCost');
     expect(rows[1]?.thisTip).toMatch(/9,?000/);
     expect(rows[1]?.current).toBe('—');
-    expect(rows[2]).toMatchObject({ thisTip: 'MAP', current: 'CP' });
+    expect(rows[1]?.restoreField).toBe('weekendUnitCost');
+    expect(rows[2]).toMatchObject({ thisTip: 'MAP', current: 'CP', restoreField: 'mealPlan' });
     expect(rows[3]?.thisTip).toBe('2026-04-01 → 2026-06-30');
     expect(rows[3]?.current).toBe('2026-04-01 → 2026-09-30');
+    expect(rows[3]?.restoreField).toBe('dates');
     expect(rows[4]?.thisTip).toMatch(/IN/);
     expect(rows[4]?.current).toMatch(/INTL/);
     expect(rows[4]?.current).toMatch(/2 bands/);
+    expect(rows[4]?.restoreField).toBeNull();
   });
 
   it('returns empty when no changes or no active tip', () => {

@@ -110,6 +110,10 @@ import {
 } from './hotel-rate-version';
 import { diffHotelRateTips } from './hotel-rate-diff';
 import {
+  mergeHotelRateFieldFromPrior,
+  type HotelRateRestorableField,
+} from './hotel-rate-field-restore';
+import {
   diffActivityRateTips,
   diffTransferFareTips,
 } from './transfer-activity-rate-diff';
@@ -1231,6 +1235,149 @@ export class RatesService {
     }
 
     return { ...created, pendingActivation: pending };
+  }
+
+  /**
+   * Restore one commercial field from a historical tip onto a new tip branched
+   * from the active tip (other fields stay current).
+   */
+  async restoreHotelRateField(
+    organizationId: string,
+    user: AuthUser,
+    rateId: string,
+    sourceVersionId: string,
+    field: HotelRateRestorableField,
+  ) {
+    const source = await this.prisma.supplierHotelRate.findFirst({
+      where: {
+        id: sourceVersionId,
+        organizationId,
+        isSystem: false,
+        deletedAt: null,
+      },
+    });
+    if (!source) throw new NotFoundException('Source rate version not found');
+
+    const chain = await this.listHotelRateVersions(organizationId, rateId);
+    if (!chain.versions.some((v) => v.id === sourceVersionId)) {
+      throw new BadRequestException('Source is not in this rate version family');
+    }
+
+    const active = await this.prisma.supplierHotelRate.findFirst({
+      where: {
+        id: chain.activeRateId,
+        organizationId,
+        deletedAt: null,
+      },
+    });
+    if (!active) throw new NotFoundException('Active rate tip not found');
+
+    const pendingTip = chain.versions.find((v) => v.pendingActivation);
+    if (pendingTip) {
+      throw new BadRequestException(
+        `Tip v${pendingTip.versionNumber} is pending activation — Activate it before restore`,
+      );
+    }
+
+    const merged = mergeHotelRateFieldFromPrior(
+      {
+        unitCost: active.unitCost,
+        weekendUnitCost: active.weekendUnitCost,
+        mealPlan: active.mealPlan,
+        startDate: active.startDate,
+        endDate: active.endDate,
+      },
+      {
+        unitCost: source.unitCost,
+        weekendUnitCost: source.weekendUnitCost,
+        mealPlan: source.mealPlan,
+        startDate: source.startDate,
+        endDate: source.endDate,
+      },
+      field,
+    );
+
+    const plan = planHotelRateNewVersion({
+      id: active.id,
+      versionNumber: active.versionNumber,
+    });
+    const canActivate = hasPermission(user.permissions, 'rates.approve');
+    const pending = hotelRateVersionRequiresPendingActivation(canActivate);
+
+    const created = await this.prisma.$transaction(async (tx) => {
+      if (!pending && active.isActive) {
+        await tx.supplierHotelRate.update({
+          where: { id: active.id },
+          data: { isActive: false },
+        });
+      }
+      return tx.supplierHotelRate.create({
+        data: {
+          organizationId: active.organizationId,
+          supplierId: active.supplierId,
+          placeId: active.placeId,
+          isSystem: false,
+          roomType: active.roomType,
+          roomProductId: active.roomProductId,
+          contractId: active.contractId,
+          mealPlan: merged.mealPlan,
+          unitCost: merged.unitCost as typeof active.unitCost,
+          weekendUnitCost: merged.weekendUnitCost as typeof active.weekendUnitCost,
+          occupancyPricingJson:
+            active.occupancyPricingJson === null
+              ? Prisma.JsonNull
+              : (active.occupancyPricingJson as Prisma.InputJsonValue),
+          currency: active.currency,
+          startDate: merged.startDate as Date | null,
+          endDate: merged.endDate as Date | null,
+          isActive: !pending,
+          versionNumber: plan.versionNumber,
+          supersedesId: plan.supersedesId,
+          createdBy: user.sub,
+        },
+        include: this.hotelInclude,
+      });
+    });
+
+    if (pending) {
+      await this.enqueueHotelRateActivationTask({
+        organizationId,
+        actorUserId: user.sub,
+        tipId: created.id,
+        supplierId: created.supplierId,
+        versionNumber: created.versionNumber,
+        roomType: created.roomType,
+      });
+      await this.audit.record({
+        organizationId,
+        actorUserId: user.sub,
+        action: 'rate.pending_activation',
+        entityType: 'supplier_hotel_rate',
+        entityId: created.id,
+        metadata: {
+          previousRateId: active.id,
+          restoredFieldFromId: source.id,
+          field,
+          versionNumber: plan.versionNumber,
+        },
+      });
+    } else {
+      await this.audit.record({
+        organizationId,
+        actorUserId: user.sub,
+        action: 'rate.field_restored',
+        entityType: 'supplier_hotel_rate',
+        entityId: created.id,
+        metadata: {
+          previousRateId: active.id,
+          restoredFieldFromId: source.id,
+          field,
+          versionNumber: plan.versionNumber,
+        },
+      });
+    }
+
+    return { ...created, pendingActivation: pending, restoredField: field };
   }
 
   // ── Transfer fare versions ─────────────────────────────────────────

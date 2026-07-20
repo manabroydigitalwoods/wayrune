@@ -27,6 +27,14 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-hotel-tip-field-restore',
+    date: '2026-07-20',
+    title: 'Restore one hotel rate field from History',
+    summary:
+      'On a tip Diff, Restore creates a new tip that keeps today’s buy except the chosen field (weekday/weekend cost, meal plan, or dates) copied from the prior version — same dual-control Activate path as a full restore.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-uneven-6a4r-board',
     date: '2026-07-20',
     title: 'Uneven hotel rooming for 6 adults / 4 rooms',

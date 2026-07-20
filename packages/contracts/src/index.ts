@@ -3118,6 +3118,19 @@ export const RestoreHotelRateVersionSchema = z.object({
   sourceVersionId: z.string().min(1),
 });
 
+/** Restore one commercial field from a historical tip onto a new tip. */
+export const RestoreHotelRateFieldSchema = z.object({
+  sourceVersionId: z.string().min(1),
+  field: z.enum([
+    'unitCost',
+    'weekendUnitCost',
+    'mealPlan',
+    'startDate',
+    'endDate',
+    'dates',
+  ]),
+});
+
 /** Restore a historical transfer fare tip as a new active version. */
 export const RestoreTransferFareVersionSchema = z.object({
   sourceVersionId: z.string().min(1),
@@ -3882,6 +3895,7 @@ export type HotelOccupancyPricing = NonNullable<z.infer<typeof HotelOccupancyPri
 export type CreateSupplierHotelRateInput = z.infer<typeof CreateSupplierHotelRateSchema>;
 export type UpdateSupplierHotelRateInput = z.infer<typeof UpdateSupplierHotelRateSchema>;
 export type RestoreHotelRateVersionInput = z.infer<typeof RestoreHotelRateVersionSchema>;
+export type RestoreHotelRateFieldInput = z.infer<typeof RestoreHotelRateFieldSchema>;
 export type RestoreTransferFareVersionInput = z.infer<
   typeof RestoreTransferFareVersionSchema
 >;
