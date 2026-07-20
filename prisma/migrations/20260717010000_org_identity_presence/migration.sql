@@ -6,10 +6,10 @@ ALTER TABLE `organizations`
 
 -- Backfill public_code starting at 10001 (stable order by created_at)
 CREATE TEMPORARY TABLE `_org_code_assign` (
-  `id` VARCHAR(191) NOT NULL,
+  `id` VARCHAR(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `code` INT NOT NULL,
   PRIMARY KEY (`id`)
-);
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 SET @code := 10000;
 INSERT INTO `_org_code_assign` (`id`, `code`)
 SELECT `id`, (@code := @code + 1)

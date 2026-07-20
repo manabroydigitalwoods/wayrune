@@ -32,10 +32,13 @@ Use **pnpm from the repo root** for day-to-day work.
 | `pnpm test:integration`          | API integration tests                                                  |
 | `pnpm lint` / `pnpm typecheck`   | Lint / TypeScript                                                      |
 | `pnpm db:generate`               | Prisma client                                                          |
-| `pnpm db:migrate`                | Create/apply migrations in development                                 |
-| `pnpm db:migrate:deploy`         | Apply pending migrations                                               |
+| `pnpm db:migrate`                | Apply pending migrations (repair checksums + `migrate deploy`)         |
+| `pnpm db:migrate:deploy`         | Same as `db:migrate`                                                   |
+| `pnpm db:migrate:create <name>`  | Author a new migration from live DB → schema (no shadow replay)        |
+| `pnpm db:migrate:repair`         | Sync checksums after edited historical migrations                      |
+| `pnpm db:migrate:dev`            | Prisma `migrate dev` (optional; may reset if history/schema drift)     |
 | `pnpm db:check-migrations`       | Reject Postgres-dialect SQL (this repo is MySQL)                       |
-| `pnpm db:seeddo`                 | Seed demo data                                                         |
+| `pnpm db:seed`                   | Seed demo data                                                         |
 | `pnpm db:studio`                 | Prisma Studio                                                          |
 
 
@@ -57,9 +60,12 @@ Day-to-day:
 ```bash
 pnpm dev
 pnpm test
-pnpm db:migrate:deploy        # after pulling new migrations
+pnpm db:migrate               # apply pending migrations after pull
+pnpm db:migrate:create foo    # after editing prisma/schema.prisma
 pnpm db:seed                  # re-seed when needed
 ```
+
+Prefer `pnpm db:migrate` / `db:migrate:create` over `prisma migrate dev`. Early migrations were partly authored against a db-pushed schema; shadow replay used to fail on `finance_full` (now fixed) and can still ask to reset when hand-named indexes diverge from Prisma’s defaults.
 
 Demo password for all seeded users: `Password123!`
 
