@@ -27,6 +27,14 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-public-pay-tax-display',
+    date: '2026-07-20',
+    title: 'Tax breakdown on payment links',
+    summary:
+      'Guest pay pages show a display-only tax share (CGST/SGST or IGST) pro-rated from the accepted quote — not a GST invoice.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-rooming-multiplicity-3axn',
     date: '2026-07-20',
     title: 'Rooming, traveller counts, and triple×N',

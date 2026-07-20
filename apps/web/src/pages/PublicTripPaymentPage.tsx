@@ -29,6 +29,16 @@ type PublicPayment = {
     supportEmail: string | null;
     supportPhone: string | null;
   };
+  tax?: {
+    taxLabel: string;
+    gstin: string | null;
+    placeOfSupply: string | null;
+    destinationPlaceOfSupply: string | null;
+    instalmentTaxShare: number;
+    instalmentSellExTax: number;
+    splitLines: string[];
+    splitCue: string | null;
+  } | null;
 };
 
 type PayIntent = {
@@ -213,6 +223,41 @@ export function PublicTripPaymentPage() {
                 {data.dueAt ? (
                   <div className="mt-1 text-xs text-slate-500">
                     Due {formatDate(data.dueAt)}
+                  </div>
+                ) : null}
+                {data.tax ? (
+                  <div className="mt-4 space-y-0.5 border-t border-slate-100 pt-3 text-left text-[11px] text-slate-500">
+                    <div className="flex justify-between gap-2 tabular-nums">
+                      <span>Before tax</span>
+                      <span>
+                        {formatCurrency(data.tax.instalmentSellExTax, data.currency)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-2 tabular-nums">
+                      <span>{data.tax.taxLabel || 'Tax'}</span>
+                      <span>
+                        {formatCurrency(data.tax.instalmentTaxShare, data.currency)}
+                      </span>
+                    </div>
+                    {data.tax.splitLines.map((line) => (
+                      <div
+                        key={line}
+                        className="flex justify-between gap-2 tabular-nums"
+                      >
+                        <span>{line.split(' ')[0]}</span>
+                        <span>{line.replace(/^\S+\s+/, '')}</span>
+                      </div>
+                    ))}
+                    {data.tax.gstin ? <p>GSTIN: {data.tax.gstin}</p> : null}
+                    {data.tax.placeOfSupply ? (
+                      <p>Place of supply: {data.tax.placeOfSupply}</p>
+                    ) : null}
+                    {data.tax.destinationPlaceOfSupply ? (
+                      <p>Destination POS: {data.tax.destinationPlaceOfSupply}</p>
+                    ) : null}
+                    {data.tax.splitCue ? <p>{data.tax.splitCue}</p> : (
+                      <p>Tax share from accepted quote — display only, not a GST invoice</p>
+                    )}
                   </div>
                 ) : null}
               </div>

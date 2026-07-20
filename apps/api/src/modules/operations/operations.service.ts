@@ -72,6 +72,7 @@ import {
   assertRazorpayOrderBound,
   outstandingToPaise,
 } from './payment-link-checkout';
+import { composePublicPaymentTaxDisplay } from './payment-link-tax-display';
 import {
   composeHotelVouchersEmailBody,
   composeHotelVouchersWhatsappText,
@@ -3453,6 +3454,14 @@ export class OperationsService {
     );
     const contact = parseBusinessContact(payment.trip.organization.settingsJson);
 
+    const taxDisplayAmount =
+      outstanding > 0 ? outstanding : Number(payment.amount);
+    const tax = await this.resolvePublicPaymentTaxDisplay(
+      payment.tripId,
+      payment.trip.organization.id,
+      taxDisplayAmount,
+    );
+
     return {
       token,
       label: payment.label,
@@ -3481,7 +3490,78 @@ export class OperationsService {
         supportEmail: contact.supportEmail || null,
         supportPhone: contact.phone || null,
       },
+      tax: tax
+        ? {
+            taxLabel: tax.taxIdentity.taxLabel,
+            gstin: tax.taxIdentity.gstin,
+            placeOfSupply: tax.taxIdentity.placeOfSupply,
+            destinationPlaceOfSupply:
+              tax.taxIdentity.destinationPlaceOfSupply,
+            instalmentTaxShare: tax.instalmentTaxShare,
+            instalmentSellExTax: tax.instalmentSellExTax,
+            splitLines: tax.splitLines,
+            splitCue: tax.splitCue,
+          }
+        : null,
     };
+  }
+
+  /**
+   * Display-only CGST/SGST/IGST share for a public instalment (not a tax invoice).
+   */
+  private async resolvePublicPaymentTaxDisplay(
+    tripId: string,
+    organizationId: string,
+    instalmentAmount: number,
+  ) {
+    const trip = await this.prisma.trip.findFirst({
+      where: { id: tripId, organizationId, deletedAt: null },
+      select: {
+        destinationsJson: true,
+        destinationPlaceOfSupply: true,
+        organization: {
+          select: { taxLabel: true, settingsJson: true },
+        },
+        quotations: {
+          select: {
+            versions: {
+              where: { status: 'accepted' },
+              orderBy: { versionNumber: 'desc' },
+              take: 1,
+              select: {
+                sellTotal: true,
+                taxTotal: true,
+                taxIdentityJson: true,
+              },
+            },
+          },
+        },
+      },
+    });
+    if (!trip) return null;
+    const accepted = trip.quotations.flatMap((q) => q.versions)[0];
+    if (!accepted) return null;
+
+    const labels = await placeAncestorLabelsForRefs(
+      this.prisma,
+      organizationId,
+      trip.destinationsJson,
+    );
+    const inferred = inferDestinationPlaceOfSupplyFromLabels(labels);
+    const taxIdentity = resolveQuoteTaxIdentityForDisplay({
+      taxIdentityJson: accepted.taxIdentityJson,
+      taxLabel: trip.organization.taxLabel,
+      settingsJson: trip.organization.settingsJson,
+      destinationPlaceOfSupply: trip.destinationPlaceOfSupply,
+      inferredDestinationPlaceOfSupply: inferred,
+    });
+
+    return composePublicPaymentTaxDisplay({
+      instalmentAmount,
+      quoteSellTotal: Number(accepted.sellTotal),
+      quoteTaxTotal: Number(accepted.taxTotal),
+      taxIdentity,
+    });
   }
 
   async createPublicPaymentIntent(token: string) {
