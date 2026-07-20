@@ -4,7 +4,9 @@ import {
   HOTEL_NATIONALITY_OPTIONS,
   effectiveGuestNationalityUi,
   guestNationalitiesFromTripTravellersUi,
+  tripTravellerDisplayName,
   withAloneGuestNationality,
+  withAloneTripTraveller,
   withGuestNationalities,
   normalizeHotelNationalityUi,
 } from './hotelNationalityNote';
@@ -69,6 +71,29 @@ describe('hotelNationalityNote', () => {
       nationality: 'INTL',
       nationalities: ['US', 'US', 'IN'],
     });
+  });
+
+  it('pins named traveller as alone SGL', () => {
+    const travellers = [
+      {
+        id: 'tt1',
+        nationality: 'IN',
+        traveller: { fullName: 'Asha', nationality: 'IN' },
+      },
+      {
+        id: 'tt2',
+        nationality: 'US',
+        traveller: { fullName: 'Sam', nationality: 'US' },
+      },
+    ];
+    expect(
+      withAloneTripTraveller(['IN', 'US'], travellers, 'tt1'),
+    ).toEqual({
+      nationality: 'INTL',
+      nationalities: ['US', 'IN'],
+      aloneTravellerId: 'tt1',
+    });
+    expect(tripTravellerDisplayName(travellers[0])).toBe('Asha');
   });
 
   it('formats exact and INTL fallback cues', () => {

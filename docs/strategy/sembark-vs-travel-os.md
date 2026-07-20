@@ -69,7 +69,7 @@ Maturity labels: **early** | **partial** | **mature** | **structural** (architec
 2. **Quote speed productisation** — measured sub-3-minute FIT median + public claim gated by `fitClaimProtocol` (demo-travel seed can clear n≥20 locally; production waits on real samples)  
 3. **Market credibility** — *(About + public `/changelog` thin-complete)* · docs / scale proof still open
 4. **Partner fleet OS** — *(booking-linked holds + allocate UI thin-complete)* · full unit board / utilization still deal-gated
-5. **Rate-grid leftovers** — *(per-pax depth through rooming / multiplicity / 3A×N / uneven 6A/4R thin-complete)* · named pax slots deferred
+5. **Rate-grid leftovers** — *(per-pax depth through rooming / multiplicity / 3A×N / uneven 6A/4R / named alone slots thin-complete)* · per-child nationality tips deferred
 
 ---
 
@@ -760,7 +760,17 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Quote drawer Alone / Singles-last when uneven; Occupancy cue uses board label |
 | **3 Proof** | **Done** | hotel-pax-buy-split + cue specs; About note; this ladder in memo |
 
-**Defer:** named travellers on slots; per-child nationality tips; full Sembark matrix.
+**Defer:** *(closed — see Named travellers on slots below)* · per-child nationality tips; full Sembark matrix.
+
+#### Prod-ready ladder — Named travellers on uneven slots (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | Quote line `aloneTravellerId`; Alone picker reorders nationality bag from that traveller’s market |
+| **2 Channels / UI** | **Done** | Uneven DBL+SGL Alone / Singles control lists trip travellers by name; Occupancy cue **Alone Name** |
+| **3 Proof** | **Done** | hotelNationalityNote + cue specs; About note; this ladder in memo |
+
+**Defer:** per-child nationality tips; full rooming matrix / voucher room lists; TripTraveller.roomAllocation stamp.
 
 #### Prod-ready ladder — Tax identity on proposals (**done**)
 

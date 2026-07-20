@@ -27,6 +27,14 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-named-alone-traveller',
+    date: '2026-07-20',
+    title: 'Name who sleeps alone on uneven rooming',
+    summary:
+      'When a hotel line is 3A/2R or another uneven DBL+SGL board, Alone picks a trip traveller by name (not just nationality). Occupancy shows Alone · Name on the split cue.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-package-folder-rename',
     date: '2026-07-20',
     title: 'Rename or move package folders',

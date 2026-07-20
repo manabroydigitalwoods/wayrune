@@ -17,6 +17,8 @@ export type HotelOccupancyExtraCalc = {
   paxBuySplits?: HotelPaxBuySplitShareUi[] | null;
   rooms?: number | null;
   composition?: string | null;
+  /** Display name for who takes the SGL on uneven boards. */
+  aloneTravellerName?: string | null;
 };
 
 export function formatHotelAdultBandNote(
@@ -67,7 +69,11 @@ export function formatHotelPaxBuySplitNote(
   }
   const suffix =
     calc.composition === 'dbl_sgl'
-      ? ` · ${dblSglLabel}`
+      ? ` · ${dblSglLabel}${
+          calc.aloneTravellerName?.trim()
+            ? ` · Alone ${calc.aloneTravellerName.trim()}`
+            : ''
+        }`
       : rooms > 1
         ? ` · × ${rooms} rooms`
         : '';

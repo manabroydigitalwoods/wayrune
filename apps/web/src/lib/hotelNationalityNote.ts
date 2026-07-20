@@ -185,15 +185,69 @@ export function withAloneGuestNationality(
   return withGuestNationalities(orderBagWithAloneLastUi(codes, alone));
 }
 
-export type TripTravellerNationalityRowUi = {
+export type TripTravellerSlotRowUi = {
+  id?: string | null;
   isLead?: boolean | null;
   nationality?: string | null;
-  traveller?: { nationality?: string | null } | null;
+  traveller?: {
+    id?: string | null;
+    fullName?: string | null;
+    nationality?: string | null;
+  } | null;
 };
+
+export function tripTravellerSlotId(
+  row: TripTravellerSlotRowUi | null | undefined,
+): string | null {
+  const id = String(row?.id || row?.traveller?.id || '').trim();
+  return id || null;
+}
+
+export function tripTravellerDisplayName(
+  row: TripTravellerSlotRowUi | null | undefined,
+): string {
+  const name = String(row?.traveller?.fullName || '').trim();
+  if (name) return name;
+  const id = tripTravellerSlotId(row);
+  return id ? `Traveller ${id.slice(-4)}` : 'Traveller';
+}
+
+export function tripTravellerNationalityCode(
+  row: TripTravellerSlotRowUi | null | undefined,
+): string | null {
+  return normalizeHotelNationalityUi(
+    row?.nationality ?? row?.traveller?.nationality ?? null,
+  );
+}
+
+/**
+ * Pin a named trip traveller as alone (SGL): reorder nationality bag + store id.
+ */
+export function withAloneTripTraveller(
+  codes: Array<string | null | undefined>,
+  travellers: TripTravellerSlotRowUi[] | null | undefined,
+  aloneTravellerId: string | null | undefined,
+): {
+  nationality?: string;
+  nationalities?: string[];
+  aloneTravellerId?: string;
+} {
+  const id = String(aloneTravellerId || '').trim();
+  if (!id || !Array.isArray(travellers) || !travellers.length) {
+    return {
+      ...withGuestNationalities(codes),
+      aloneTravellerId: undefined,
+    };
+  }
+  const row = travellers.find((t) => tripTravellerSlotId(t) === id);
+  const code = tripTravellerNationalityCode(row);
+  const bag = withAloneGuestNationality(codes, code);
+  return { ...bag, aloneTravellerId: id };
+}
 
 /** Derive Match guest codes from trip travellers (lead-first; mixed → bag). */
 export function guestNationalitiesFromTripTravellersUi(
-  rows: TripTravellerNationalityRowUi[] | null | undefined,
+  rows: TripTravellerSlotRowUi[] | null | undefined,
 ): { nationality?: string; nationalities?: string[] } {
   if (!Array.isArray(rows) || !rows.length) {
     return {};

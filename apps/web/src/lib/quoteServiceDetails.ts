@@ -125,6 +125,7 @@ export function parseQuoteServiceDetails(raw: unknown): QuoteServiceDetails | un
         .filter(Boolean);
       return rows.length ? rows : undefined;
     })(),
+    aloneTravellerId: str(d.aloneTravellerId),
     nights: num(d.nights),
     rooms: num(d.rooms),
     checkIn: str(d.checkIn)?.slice(0, 10),

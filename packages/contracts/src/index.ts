@@ -2822,6 +2822,11 @@ export const QuotationItemDetailsSchema = z
      * Match collapses to one effective code (IN+foreign / multi-ISO → INTL).
      */
     nationalities: z.array(z.string()).max(12).optional(),
+    /**
+     * Trip traveller id who sleeps alone on uneven DBL+SGL boards
+     * (last nationality bag slot → SGL).
+     */
+    aloneTravellerId: z.string().optional(),
     nights: z.number().optional(),
     rooms: z.number().optional(),
     checkIn: z.string().optional(),

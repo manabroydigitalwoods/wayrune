@@ -51,7 +51,10 @@ import {
   guestNationalitiesFromTripTravellersUi,
   hotelNationalityLabelUi,
   normalizeHotelNationalityUi,
+  tripTravellerDisplayName,
+  tripTravellerSlotId,
   withAloneGuestNationality,
+  withAloneTripTraveller,
   withGuestNationalities,
 } from '../../lib/hotelNationalityNote';
 import { formatHotelCancellationNote } from '../../lib/hotelCancellationNote';
@@ -450,9 +453,14 @@ export function QuoteServiceDetailSheet({
   partyId?: string | null;
   /** Trip travellers — soft-default hotel Match nationality when line is blank. */
   tripTravellers?: Array<{
+    id?: string | null;
     isLead?: boolean | null;
     nationality?: string | null;
-    traveller?: { nationality?: string | null } | null;
+    traveller?: {
+      id?: string | null;
+      fullName?: string | null;
+      nationality?: string | null;
+    } | null;
   }> | null;
   defaultMarkupPercent?: number;
   seedDetails?: QuoteServiceDetails | null;
@@ -2376,29 +2384,75 @@ export function QuoteServiceDetailSheet({
                                   : `Singles (last ${singlesN})`
                               }
                               description={
-                                singlesN === 1
-                                  ? 'Who sleeps alone — last market on DBL+SGL.'
-                                  : `Last ${singlesN} bag markets take SGL. Pin one market to the end with this control.`
+                                Array.isArray(tripTravellers) &&
+                                tripTravellers.some((t) => tripTravellerSlotId(t))
+                                  ? singlesN === 1
+                                    ? 'Who sleeps alone — pins that traveller’s market last on DBL+SGL.'
+                                    : `Last ${singlesN} bag markets take SGL. Pin one traveller to the end.`
+                                  : singlesN === 1
+                                    ? 'Who sleeps alone — last market on DBL+SGL.'
+                                    : `Last ${singlesN} bag markets take SGL. Pin one market to the end with this control.`
                               }
                             >
-                              <Combobox
-                                value={aloneCode}
-                                disabled={readOnly}
-                                onChange={(v) => {
-                                  if (readOnly) return;
-                                  patchDetails(
-                                    withAloneGuestNationality(
-                                      bag.length ? bag : selected,
-                                      v,
-                                    ),
-                                  );
-                                }}
-                                options={selected.map((code) => ({
-                                  value: code,
-                                  label: hotelNationalityLabelUi(code),
-                                }))}
-                                placeholder="Select…"
-                              />
+                              {Array.isArray(tripTravellers) &&
+                              tripTravellers.some((t) => tripTravellerSlotId(t)) ? (
+                                <Combobox
+                                  value={details.aloneTravellerId || ''}
+                                  disabled={readOnly}
+                                  onChange={(v) => {
+                                    if (readOnly) return;
+                                    patchDetails(
+                                      withAloneTripTraveller(
+                                        bag.length ? bag : selected,
+                                        tripTravellers,
+                                        v,
+                                      ),
+                                    );
+                                  }}
+                                  options={tripTravellers
+                                    .map((row) => {
+                                      const id = tripTravellerSlotId(row);
+                                      if (!id) return null;
+                                      const nat =
+                                        hotelNationalityLabelUi(
+                                          normalizeHotelNationalityUi(
+                                            row.nationality ??
+                                              row.traveller?.nationality ??
+                                              null,
+                                          ) || '',
+                                        ) || '—';
+                                      return {
+                                        value: id,
+                                        label: `${tripTravellerDisplayName(row)} · ${nat}`,
+                                      };
+                                    })
+                                    .filter(
+                                      (o): o is { value: string; label: string } =>
+                                        Boolean(o),
+                                    )}
+                                  placeholder="Select traveller…"
+                                />
+                              ) : (
+                                <Combobox
+                                  value={aloneCode}
+                                  disabled={readOnly}
+                                  onChange={(v) => {
+                                    if (readOnly) return;
+                                    patchDetails({
+                                      ...withAloneGuestNationality(
+                                        bag.length ? bag : selected,
+                                        v,
+                                      ),
+                                      aloneTravellerId: undefined,
+                                    });
+                                  }}
+                                  options={selected.map((code) => ({
+                                    value: code,
+                                    label: hotelNationalityLabelUi(code),
+                                  }))}
+                                  placeholder="Select…"
+                                />
+                              )}
                             </FormField>
                           ) : null}
                           {selected.length > 1 && effective ? (
@@ -2539,8 +2593,20 @@ export function QuoteServiceDetailSheet({
                 </FormField>
               </FormGrid>
               {(() => {
+                const aloneRow = Array.isArray(tripTravellers)
+                  ? tripTravellers.find(
+                      (t) =>
+                        tripTravellerSlotId(t) ===
+                        String(details.aloneTravellerId || '').trim(),
+                    )
+                  : null;
                 const note = formatHotelOccupancyExtraNote(
-                  rateProvenance?.calculation,
+                  {
+                    ...(rateProvenance?.calculation || {}),
+                    aloneTravellerName: aloneRow
+                      ? tripTravellerDisplayName(aloneRow)
+                      : undefined,
+                  },
                   {
                     formatAmount: (n) =>
                       formatCurrency(n, {
