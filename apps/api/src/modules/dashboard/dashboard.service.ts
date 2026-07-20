@@ -7,6 +7,11 @@ import {
   salesSlaTargetsFromSettings,
 } from './sales-sla-metrics';
 import {
+  buildPublicScaleProtocol,
+  PUBLIC_SCALE_WINDOW_DAYS,
+  snapshotFromProtocol,
+} from './public-scale-metrics';
+import {
   computeInboxSlaMetrics,
   inboxAgingHoursFromSettings,
 } from './inbox-sla-metrics';
@@ -15,6 +20,77 @@ import { fireUnreadSlaAutomations } from '../connectors/unread-sla-fire';
 @Injectable()
 export class DashboardService {
   constructor(private prisma: PrismaService) {}
+
+  /** Cross-tenant measured scale for platform admins — never invent vanity numbers. */
+  async platformPublicScale() {
+    const now = new Date();
+    const windowStart = new Date(
+      now.getTime() - PUBLIC_SCALE_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+    );
+
+    const [sentQuotes, acceptedQuotes] = await Promise.all([
+      this.prisma.quotationVersion.findMany({
+        where: {
+          status: { in: ['sent', 'accepted'] },
+          updatedAt: { gte: windowStart },
+        },
+        select: {
+          id: true,
+          quotation: { select: { organizationId: true, tripId: true } },
+        },
+      }),
+      this.prisma.quotationVersion.findMany({
+        where: {
+          status: 'accepted',
+          OR: [
+            { acceptedAt: { gte: windowStart } },
+            {
+              AND: [{ acceptedAt: null }, { updatedAt: { gte: windowStart } }],
+            },
+          ],
+        },
+        select: {
+          quotation: { select: { tripId: true, organizationId: true } },
+        },
+      }),
+    ]);
+
+    const agencyOrgIds = new Set<string>();
+    for (const q of sentQuotes) {
+      if (q.quotation.organizationId) agencyOrgIds.add(q.quotation.organizationId);
+    }
+    const agencyOrgs =
+      agencyOrgIds.size === 0
+        ? []
+        : await this.prisma.organization.findMany({
+            where: {
+              id: { in: [...agencyOrgIds] },
+              kind: 'travel_agency',
+            },
+            select: { id: true },
+          });
+
+    const trips = new Set<string>();
+    for (const q of acceptedQuotes) {
+      if (q.quotation.tripId) trips.add(q.quotation.tripId);
+    }
+
+    const protocol = buildPublicScaleProtocol(
+      {
+        activeAgencyOrgs: agencyOrgs.length,
+        tripsWithAcceptedQuote: trips.size,
+        quotesSent90d: sentQuotes.length,
+      },
+      { asOf: now },
+    );
+
+    return {
+      protocol,
+      snapshot: snapshotFromProtocol(protocol),
+      publishHint:
+        'When publicScaleAllowed, copy snapshot into apps/web/src/lib/public-scale-snapshot.json for login-free /docs.',
+    };
+  }
 
   async sales(user: AuthUser) {
     const organizationId = user.organizationId;

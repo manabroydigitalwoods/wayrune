@@ -32,9 +32,10 @@ export const PUBLIC_DOCS_SECTIONS: PublicDocsSection[] = [
       'Buyer-safe positioning. Testing and prohibited claims stay out of About and the public changelog.',
     bullets: [
       'We claim a measured FIT path with a claim protocol (n≥20, median ≤3 minutes) — status Testing until production samples clear it. Demo seed does not count as public proof.',
+      'FIT claim flip (ops): on a non-demo org, record ~20 INR FIT sends (workspace open → first send). When sales dashboard publicClaimAllowed is true, registry moves to Proven and this page can say “under three minutes.” Until then, no website speed claim.',
       'Tax on proposals and pay pages is display identity and CGST/SGST/IGST split only — not e-invoice, GSTR filing, or a GST-compliant ledger.',
       'Multi-organization architecture is real; we do not claim a finished partner marketplace or network.',
-      'No unverified scale numbers (agencies, trips, GMV) on public pages.',
+      'No unverified scale numbers (agencies, trips, GMV) on public pages — measured strip appears only when the scale protocol clears.',
       'Changelog and About only list Proven or Architecture notes — not Testing or Do-not-claim marketing promises.',
     ],
   },

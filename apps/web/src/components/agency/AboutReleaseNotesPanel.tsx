@@ -20,7 +20,12 @@ export function AboutReleaseNotesPanel({
         <p className="text-sm font-medium">{APP_RELEASE_LABEL}</p>
         <p className="text-xs text-muted-foreground">
           Claim-safe highlights for demos and onboarding. Testing or prohibited claims are kept out
-          of this list (see strategy claim registry).
+          of this list (see strategy claim registry). FIT public “under 3 minutes” stays Testing
+          until a non-demo org clears the sales claim gate — see{' '}
+          <Link to="/docs#what-we-claim" className="text-primary hover:underline">
+            Docs · what we claim
+          </Link>
+          .
           {showPublicLink ? (
             <>
               {' '}

@@ -75,6 +75,15 @@ export type CustomerReceivableCommercialDocumentCreate = {
   currency: string;
   dueAt: string | null;
   notes: string | null;
+  taxBreakdown?: {
+    regime: 'intra' | 'inter' | 'unknown';
+    cgst: number;
+    sgst: number;
+    igst: number;
+    taxTotal: number;
+    hsn?: string | null;
+    source: 'display_split' | 'manual' | 'import';
+  } | null;
   lines: Array<{
     description: string;
     quantity: number;
@@ -97,6 +106,7 @@ export function composeCustomerReceivableCommercialDocument(input: {
   dueAt?: string | null;
   taxAmount?: number;
   taxNotes?: string | null;
+  taxBreakdown?: CustomerReceivableCommercialDocumentCreate['taxBreakdown'];
 }): CustomerReceivableCommercialDocumentCreate {
   const gross = Math.round(Number(input.amount) * 100) / 100;
   const rawTax = Math.round(Number(input.taxAmount || 0) * 100) / 100;
@@ -127,6 +137,7 @@ export function composeCustomerReceivableCommercialDocument(input: {
     currency: (input.currency || 'INR').toUpperCase().slice(0, 3),
     dueAt: input.dueAt?.trim() || null,
     notes: taxNotes ? `${baseNotes} · ${taxNotes}` : baseNotes,
+    taxBreakdown: input.taxBreakdown ?? null,
     lines: [
       {
         description: label,

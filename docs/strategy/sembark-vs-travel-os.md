@@ -65,24 +65,31 @@ Maturity labels: **early** | **partial** | **mature** | **structural** (architec
 
 ### Honest remaining Sembark leads (do not paper over)
 
-1. **Tax / ledger depth** — **Parked** full accounting ledger / e-invoice / GSTR (CGST/SGST/IGST **display** thin-complete including Finance + public pay-page + receivable CD; compliance **do not claim**)
+1. **Tax / ledger depth** — **Compliance kickoff** (NIC adapter + structured CD tax + GSTR-ready export thin); full accounting ledger / in-app GSTR / live IRN claim still **do not claim** (display path thin-complete)
 2. **Quote speed productisation** — measured sub-3-minute FIT median + public claim gated by `fitClaimProtocol` on **real** samples only (demo seed excluded from `publicClaimAllowed`; production still Testing until real n≥20)  
-3. **Market credibility** — *(About + public `/changelog` + `/docs` thin-complete)* · scale proof still open
-4. **Partner fleet OS** — *(booking-linked holds + allocate UI thin-complete)* · full unit board / utilization **deal-gated** (checklist below)
+3. **Market credibility** — *(About + public `/changelog` + `/docs` thin-complete)* · **scale protocol shipped**; public strip gated on measured snapshot (still hidden until minima)
+4. **Partner fleet OS** — *(booking-linked holds + allocate UI thin-complete)* · **partner unit board read-only unlocked (dogfood)**; utilization / org-wide still deferred
 5. **Rate-grid leftovers** — *(per-pax depth through rooming / named alone / per-child nationality extras thin-complete)* · full Sembark matrix / chart child columns deferred
 
-#### Deal-gate — Partner fleet unit board / utilization (**parked**)
+#### Deal-gate — Partner fleet unit board / utilization (**unlocked for dogfood wedge**)
 
-Do **not** start without all of:
+**Unlocked 2026-07-20 — Wayrune dogfood:**
 
-1. Named customer + paid scope for unit board / utilization
-2. Clear data owner (agency vs partner asset org)
-3. Acceptance criteria written before code
-4. Otherwise: sell movement board + assign + DriverJob sync thin path only
+1. Named customer + scope: Wayrune platform dogfood / demo `car_rental` partner assets — partner-scoped **read-only unit board** (not utilization %)
+2. Data owner: **partner asset org** (lanes compose that org’s calendar, allocations, DriverJobs, rentals)
+3. Acceptance: `GET /inventory/assets/:id/unit-board` returns per-plate busy intervals; Partner Inventory shows 7-day lanes; click-through to existing Holds / Availability for changes
+4. Still deferred without expanded paid scope: utilization %, org-wide shared fleet, multi-depot, maintenance OS
 
-#### Park lock — Tax / ledger / e-invoice (**do not claim**)
+#### Park lock — Tax / ledger / e-invoice (**compliance kickoff**)
 
-Display path thin-complete (identity, POS split, pay-page, receivable CD). **Parked:** e-invoice, GSTR, full GL / automated GST-compliant ledger. Claim registry stays **Do not claim**. No filing endpoints in backlog without a compliance project.
+Display path thin-complete. **Kickoff 2026-07-20:** owner = product; surface = guest-check IRN first; GSP = HTTP NIC adapter behind `EINVOICE_PROVIDER=nic` + `EINVOICE_GSP_*` (fail-closed without credentials).
+
+| Phase | Status | Notes |
+|-------|--------|-------|
+| 1 Real IRN | **Adapter shipped** | `NicGspEInvoiceProvider`; demo/noop remain; claim stays do-not-claim until live IRN proven in prod |
+| 2 Structured CD tax | **Done** | `taxBreakdownJson` on commercial documents; stamped from display split on receivable create |
+| 3 GSTR-ready export | **Done** | `GET /commerce/gstr-export` CSV — accountant/GSP feed, **not** in-app filing |
+| Full GL / GSTR filing UI | **Parked** | Claim registry **Do not claim** |
 
 ## 2. Ninety-day Priority 0 sequence
 
@@ -961,7 +968,39 @@ Protocol for claim flip (ops, not engineering):
 | **2 Channels / UI** | **Done** | Login-free `/docs`; About + `/changelog` links |
 | **3 Proof** | **Done** | publicDocs specs; About note; this ladder in memo |
 
-**Defer:** full help centre; case studies; public scale claim.
+**Defer:** full help centre; case studies; public scale claim until snapshot allowed.
+
+#### Prod-ready ladder — Measured public scale protocol (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `buildPublicScaleProtocol` minima (10 agencies / 50 trips / 100 quotes in 90d); `snapshotFromProtocol` blanks numbers when testing |
+| **2 Channels / UI** | **Done** | `GET /platform/scale`; stamped `public-scale-snapshot.json`; `/docs` strip only when `publicScaleAllowed` |
+| **3 Proof** | **Done** | Specs; scorecard; About note |
+
+**Defer:** invent vanity counts; GMV; public strip until production snapshot published.
+
+#### Prod-ready ladder — Partner fleet unit board read-only (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **0 Unlock** | **Done** | Dogfood deal-gate filled (partner data owner; read-only acceptance) |
+| **1 Integrity** | **Done** | `buildFleetUnitBoard` composes calendar + alloc + job + rental |
+| **2 Channels / UI** | **Done** | `GET …/unit-board`; Partner Inventory 7-day lanes |
+| **3 Proof** | **Done** | Specs; About note; memo unlock |
+
+**Defer:** utilization %, org-wide board, multi-depot.
+
+#### Prod-ready ladder — Tax compliance phases 1–3 thin (**done adapter/export**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **0 Kickoff** | **Done** | Memo owner + guest-check first + NIC HTTP adapter |
+| **1 IRN** | **Done** | `NicGspEInvoiceProvider` fail-closed; demo/noop remain |
+| **2 Structured tax** | **Done** | `taxBreakdownJson` + receivable stamp |
+| **3 Export** | **Done** | `GET /commerce/gstr-export` CSV |
+
+**Defer / do not claim:** live NIC IRN in production without credentials proof; in-app GSTR filing; full GL.
 
 #### Prod-ready ladder — Public changelog (**done**)
 
@@ -1661,8 +1700,8 @@ Then introduce differentiators: connected WhatsApp and email → agency website 
 |-----|-----------|--------|
 | Hotel occupancy depth | Contracting enters SGL/DBL/TPL without sales spreadsheet override on seeded FIT | **Adult bands → nationality + per-pax through rooming / multiplicity / 3A×N done**; uneven 6A/4R board open |
 | FIT speed claim | Protocol stamped; n≥20 **real**; median ≤3m; `publicClaimAllowed` | **Gate shipped**; demo seed **excluded** from public claim; **production still Testing** (await real samples) |
-| Market credibility | Claim registry live; release notes + polished demo org | **Registry + About + `/changelog` + `/docs` + named demo trip done**; public scale claim still open |
-| Deal-gated FX/fleet | Open only with signed need; keep locks/meta pluggable | **Discipline** — fleet unit board checklist in honest leads |
+| Market credibility | Claim registry live; release notes + polished demo org | **Registry + About + `/changelog` + `/docs` + scale protocol + named demo trip**; public scale strip waits on measured snapshot |
+| Deal-gated FX/fleet | Open only with signed need; keep locks/meta pluggable | **Discipline** — fleet unit board dogfood unlocked; utilization still gated |
 
 ### What we should not copy from Sembark
 

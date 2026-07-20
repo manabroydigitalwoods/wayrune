@@ -15,6 +15,7 @@ import {
 } from '@wayrune/ui';
 import { api } from '../../api';
 import { reportError } from '../../lib/errors';
+import { downloadCsv } from '../../lib/downloadCsv';
 
 type Doc = {
   id: string;
@@ -50,6 +51,22 @@ export function CommercialDocumentsPanel() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  async function exportGstr() {
+    try {
+      const data = await api<{ csv: string; rowCount: number; disclaimer: string }>(
+        '/commerce/gstr-export',
+      );
+      downloadCsv(`gstr-ready-${new Date().toISOString().slice(0, 10)}.csv`, data.csv);
+      toastSuccess(
+        data.rowCount
+          ? `Exported ${data.rowCount} rows (accountant feed — not filing)`
+          : 'Export empty — no documents in range',
+      );
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not export');
+    }
+  }
 
   async function create() {
     if (!label.trim() || !amount) return;
@@ -96,11 +113,21 @@ export function CommercialDocumentsPanel() {
   return (
     <Card>
       <CardContent className="space-y-3 p-5">
-        <div>
-          <h3 className="text-sm font-semibold">Invoices & payments</h3>
-          <p className="text-xs text-muted-foreground">
-            Reusable money documents linked to trips or other entities.
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-semibold">Invoices & payments</h3>
+            <p className="text-xs text-muted-foreground">
+              Reusable money documents linked to trips or other entities.
+            </p>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => void exportGstr()}
+          >
+            GSTR-ready CSV
+          </Button>
         </div>
         <FormGrid>
           <FormField label="Type">

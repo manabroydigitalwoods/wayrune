@@ -64,6 +64,11 @@ import {
 } from './booking-cancellation-preview';
 import { cancellationApplyCreditNotePlan } from './cancellation-credit-note';
 import {
+  buildCommercialTaxBreakdown,
+  commercialDocsToGstrExportRows,
+  gstrExportRowsToCsv,
+} from './gstr-export';
+import {
   evaluateCancellationPolicy,
   mealFulfilmentPayload,
   stayFulfilmentPayload,
@@ -622,6 +627,19 @@ export class CommerceService {
     userId: string,
     input: z.infer<typeof CreateCommercialDocumentSchema>,
   ) {
+    const taxAmount = input.taxAmount ?? 0;
+    const taxBreakdown =
+      input.taxBreakdown != null
+        ? buildCommercialTaxBreakdown({
+            taxTotal: input.taxBreakdown.taxTotal ?? taxAmount,
+            regime: input.taxBreakdown.regime,
+            cgst: input.taxBreakdown.cgst,
+            sgst: input.taxBreakdown.sgst,
+            igst: input.taxBreakdown.igst,
+            hsn: input.taxBreakdown.hsn,
+            source: input.taxBreakdown.source,
+          })
+        : buildCommercialTaxBreakdown({ taxTotal: taxAmount, regime: 'unknown' });
     const doc = await this.prisma.commercialDocument.create({
       data: {
         organizationId,
@@ -637,7 +655,10 @@ export class CommerceService {
         documentNumber: input.documentNumber ?? null,
         label: input.label,
         amount: input.amount,
-        taxAmount: input.taxAmount ?? 0,
+        taxAmount,
+        taxBreakdownJson: taxBreakdown
+          ? (taxBreakdown as unknown as Prisma.InputJsonValue)
+          : undefined,
         currency: input.currency || 'INR',
         dueAt: input.dueAt ? new Date(input.dueAt) : null,
         notes: input.notes ?? null,
@@ -665,6 +686,56 @@ export class CommerceService {
       take: 100,
       include: { lines: true, payments: true, allocations: true },
     });
+  }
+
+  /** Accountant/GSP-ready CSV of commercial docs + payments (not in-app GSTR filing). */
+  async exportGstrReadyCsv(
+    organizationId: string,
+    opts?: { from?: string; to?: string },
+  ) {
+    const from = opts?.from ? new Date(opts.from) : null;
+    const to = opts?.to ? new Date(opts.to) : null;
+    const docs = await this.prisma.commercialDocument.findMany({
+      where: {
+        organizationId,
+        ...(from || to
+          ? {
+              createdAt: {
+                ...(from ? { gte: from } : {}),
+                ...(to ? { lt: to } : {}),
+              },
+            }
+          : {}),
+      },
+      orderBy: { createdAt: 'asc' },
+      take: 2000,
+      include: { payments: true },
+    });
+    const rows = commercialDocsToGstrExportRows(
+      docs.map((d) => ({
+        id: d.id,
+        documentNumber: d.documentNumber,
+        docType: d.docType,
+        direction: d.direction,
+        label: d.label,
+        status: d.status,
+        currency: d.currency,
+        amount: Number(d.amount),
+        taxAmount: Number(d.taxAmount),
+        taxBreakdownJson: d.taxBreakdownJson,
+        createdAt: d.createdAt,
+        payments: d.payments.map((p) => ({
+          amount: Number(p.amount),
+          paidAt: p.paidAt,
+        })),
+      })),
+    );
+    return {
+      csv: gstrExportRowsToCsv(rows),
+      rowCount: rows.length,
+      disclaimer:
+        'GSTR-ready export for accountant/GSP — not in-app filing or a GST-compliant ledger.',
+    };
   }
 
   async createPaymentRecord(

@@ -171,6 +171,16 @@ export class CommerceController {
     return this.commerce.listCommercialDocuments(user.organizationId);
   }
 
+  @Get('gstr-export')
+  @RequirePermissions('finance.cost.read')
+  gstrExport(
+    @CurrentUser() user: AuthUser,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.commerce.exportGstrReadyCsv(user.organizationId, { from, to });
+  }
+
   @Post('commercial-documents')
   @RequirePermissions('finance.payment.manage')
   createDoc(@CurrentUser() user: AuthUser, @Body() body: unknown) {

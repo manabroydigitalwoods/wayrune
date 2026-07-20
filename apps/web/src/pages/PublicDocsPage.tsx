@@ -2,10 +2,15 @@ import { Link } from 'react-router-dom';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { APP_RELEASE_LABEL } from '../lib/releaseNotes';
 import { PUBLIC_DOCS_SECTIONS } from '../lib/publicDocs';
+import {
+  PUBLIC_SCALE_SNAPSHOT,
+  publicScaleStripVisible,
+} from '../lib/publicScaleSnapshot';
 
 /** Login-free buyer docs — claim-safe journey + don’t-claim discipline. */
 export function PublicDocsPage() {
   useDocumentTitle('Docs');
+  const showScale = publicScaleStripVisible();
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -20,6 +25,22 @@ export function PublicDocsPage() {
             not claim without proof.
           </p>
         </header>
+
+        {showScale ? (
+          <div className="rounded-lg border border-border/60 px-3 py-3 text-sm">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Measured scale
+            </p>
+            <p className="mt-1 tabular-nums">
+              {PUBLIC_SCALE_SNAPSHOT.activeAgencyOrgs} agencies ·{' '}
+              {PUBLIC_SCALE_SNAPSHOT.tripsWithAcceptedQuote} trips with accepted
+              quote · {PUBLIC_SCALE_SNAPSHOT.quotesSent90d} quotes sent (90d)
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              as of {PUBLIC_SCALE_SNAPSHOT.asOf} · measured (not invented)
+            </p>
+          </div>
+        ) : null}
 
         <nav className="flex flex-wrap gap-3 text-sm">
           {PUBLIC_DOCS_SECTIONS.map((s) => (

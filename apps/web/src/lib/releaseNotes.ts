@@ -27,6 +27,30 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-scale-protocol',
+    date: '2026-07-20',
+    title: 'Measured public scale protocol',
+    summary:
+      'Platform GET /platform/scale computes agency/trip/quote minima. Public /docs shows numbers only from a stamped snapshot when publicScaleAllowed — never invented vanity counts.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-fleet-unit-board',
+    date: '2026-07-20',
+    title: 'Partner fleet unit board (read-only)',
+    summary:
+      'Partner inventory shows per-plate busy lanes (calendar, holds, driver jobs, rentals) for the next week. Utilization OS and org-wide boards stay deferred.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-gstr-export-thin',
+    date: '2026-07-20',
+    title: 'GSTR-ready commercial export + live IRN adapter',
+    summary:
+      'Commerce CSV export and structured taxBreakdownJson on documents for accountants. NIC GSP provider fails closed without credentials. Still not in-app GSTR filing or automated tax books.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-public-buyer-docs',
     date: '2026-07-20',
     title: 'Public docs for how quoting works',

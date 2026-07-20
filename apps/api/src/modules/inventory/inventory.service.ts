@@ -22,6 +22,7 @@ import type {
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import type { AuthUser } from '../../common/helpers';
+import { buildFleetUnitBoard } from './fleet-unit-board';
 import {
   allocationAssetNeedsRebind,
   allocationDatesNeedResync,
@@ -1594,6 +1595,121 @@ export class InventoryService {
       },
       include: { fleetUnit: { select: { id: true, name: true, plateNumber: true } } },
       orderBy: { startAt: 'asc' },
+    });
+  }
+
+  /** Read-only unit board: lanes per plate with calendar + alloc + job + rental busy. */
+  async getFleetUnitBoard(
+    user: AuthUser,
+    assetId: string,
+    from?: string,
+    to?: string,
+  ) {
+    await this.resolveAssetAccess(user, assetId, false);
+    const rangeTo = to ? dayStart(to) : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const rangeFrom = from
+      ? dayStart(from)
+      : new Date(rangeTo.getTime() - 7 * 24 * 60 * 60 * 1000);
+    if (!(rangeTo > rangeFrom)) {
+      throw new BadRequestException('to must be after from');
+    }
+
+    const [units, calendarBlocks, allocations, driverJobs, rentals] =
+      await Promise.all([
+        this.prisma.assetFleetUnit.findMany({
+          where: { assetId, deletedAt: null, isActive: true },
+          orderBy: { name: 'asc' },
+          select: { id: true, name: true, plateNumber: true },
+        }),
+        this.prisma.assetCalendarBlock.findMany({
+          where: {
+            assetId,
+            startAt: { lt: rangeTo },
+            endAt: { gt: rangeFrom },
+          },
+          select: {
+            id: true,
+            fleetUnitId: true,
+            startAt: true,
+            endAt: true,
+            kind: true,
+          },
+        }),
+        this.prisma.inventoryAllocation.findMany({
+          where: {
+            assetId,
+            fleetUnitId: { not: null },
+            status: { not: 'released' },
+            OR: [
+              { startAt: { lt: rangeTo }, endAt: { gt: rangeFrom } },
+              {
+                startAt: null,
+                checkIn: { lt: rangeTo },
+                checkOut: { gt: rangeFrom },
+              },
+            ],
+          },
+          select: {
+            id: true,
+            fleetUnitId: true,
+            startAt: true,
+            endAt: true,
+            checkIn: true,
+            checkOut: true,
+            status: true,
+            notes: true,
+          },
+        }),
+        this.prisma.driverJob.findMany({
+          where: {
+            assetId,
+            fleetUnitId: { not: null },
+            status: { notIn: ['cancelled', 'no_show'] },
+            startAt: { lt: rangeTo },
+            endAt: { gt: rangeFrom },
+          },
+          select: {
+            id: true,
+            fleetUnitId: true,
+            startAt: true,
+            endAt: true,
+            status: true,
+            guestName: true,
+          },
+        }),
+        this.prisma.rentalReservation.findMany({
+          where: {
+            assetId,
+            status: { notIn: ['cancelled', 'no_show'] },
+            startAt: { lt: rangeTo },
+            endAt: { gt: rangeFrom },
+          },
+          select: {
+            id: true,
+            fleetUnitId: true,
+            startAt: true,
+            endAt: true,
+            status: true,
+            guestName: true,
+          },
+        }),
+      ]);
+
+    return buildFleetUnitBoard({
+      from: rangeFrom,
+      to: rangeTo,
+      units,
+      calendarBlocks,
+      allocations: allocations.map((a) => ({
+        id: a.id,
+        fleetUnitId: a.fleetUnitId,
+        startAt: a.startAt ?? a.checkIn,
+        endAt: a.endAt ?? a.checkOut,
+        status: a.status,
+        notes: a.notes,
+      })),
+      driverJobs,
+      rentals,
     });
   }
 

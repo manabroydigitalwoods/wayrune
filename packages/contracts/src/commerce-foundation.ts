@@ -394,6 +394,17 @@ export const CreateCommercialDocumentSchema = z.object({
   amount: z.number().positive(),
   currency: z.string().length(3).optional(),
   taxAmount: z.number().nonnegative().optional(),
+  taxBreakdown: z
+    .object({
+      regime: z.enum(['intra', 'inter', 'unknown']).optional(),
+      cgst: z.number().nonnegative().optional(),
+      sgst: z.number().nonnegative().optional(),
+      igst: z.number().nonnegative().optional(),
+      taxTotal: z.number().nonnegative().optional(),
+      hsn: z.preprocess(blankToNull, z.string().nullable()).optional(),
+      source: z.enum(['display_split', 'manual', 'import']).optional(),
+    })
+    .optional(),
   dueAt: z.preprocess(blankToNull, z.string().nullable()).optional(),
   notes: z.preprocess(blankToNull, z.string().nullable()).optional(),
   lines: z

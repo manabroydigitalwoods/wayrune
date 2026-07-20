@@ -4108,6 +4108,16 @@ export class OperationsService {
       dueAt: payment.dueAt?.toISOString() ?? null,
       taxAmount: tax?.instalmentTaxShare,
       taxNotes: tax ? formatReceivableTaxNotes(tax) : null,
+      taxBreakdown: tax
+        ? {
+            regime: tax.split.regime,
+            cgst: tax.split.cgst,
+            sgst: tax.split.sgst,
+            igst: tax.split.igst,
+            taxTotal: tax.split.taxTotal,
+            source: 'display_split' as const,
+          }
+        : null,
     });
 
     const doc = await this.prisma.commercialDocument.create({
@@ -4123,6 +4133,9 @@ export class OperationsService {
         label: payload.label,
         amount: new Prisma.Decimal(payload.amount),
         taxAmount: new Prisma.Decimal(payload.taxAmount),
+        taxBreakdownJson: payload.taxBreakdown
+          ? (payload.taxBreakdown as unknown as Prisma.InputJsonValue)
+          : undefined,
         currency: payload.currency,
         dueAt: payload.dueAt ? new Date(payload.dueAt) : null,
         notes: payload.notes,
@@ -4201,6 +4214,16 @@ export class OperationsService {
       dueAt: payment.dueAt?.toISOString() ?? null,
       taxAmount: tax?.instalmentTaxShare,
       taxNotes: tax ? formatReceivableTaxNotes(tax) : null,
+      taxBreakdown: tax
+        ? {
+            regime: tax.split.regime,
+            cgst: tax.split.cgst,
+            sgst: tax.split.sgst,
+            igst: tax.split.igst,
+            taxTotal: tax.split.taxTotal,
+            source: 'display_split' as const,
+          }
+        : null,
     });
 
     await this.prisma.commercialDocument.update({
@@ -4209,6 +4232,9 @@ export class OperationsService {
         label: payload.label,
         amount: new Prisma.Decimal(payload.amount),
         taxAmount: new Prisma.Decimal(payload.taxAmount),
+        taxBreakdownJson: payload.taxBreakdown
+          ? (payload.taxBreakdown as unknown as Prisma.InputJsonValue)
+          : undefined,
         currency: payload.currency,
         dueAt: payment.dueAt,
         notes: payload.notes,
@@ -4279,6 +4305,16 @@ export class OperationsService {
         dueAt: payment.dueAt?.toISOString() ?? null,
         taxAmount: tax?.instalmentTaxShare,
         taxNotes: tax ? formatReceivableTaxNotes(tax) : null,
+        taxBreakdown: tax
+          ? {
+              regime: tax.split.regime,
+              cgst: tax.split.cgst,
+              sgst: tax.split.sgst,
+              igst: tax.split.igst,
+              taxTotal: tax.split.taxTotal,
+              source: 'display_split' as const,
+            }
+          : null,
       });
       doc = await this.prisma.commercialDocument.create({
         data: {
@@ -4293,6 +4329,9 @@ export class OperationsService {
           label: payload.label,
           amount: new Prisma.Decimal(payload.amount),
           taxAmount: new Prisma.Decimal(payload.taxAmount),
+          taxBreakdownJson: payload.taxBreakdown
+            ? (payload.taxBreakdown as unknown as Prisma.InputJsonValue)
+            : undefined,
           currency: payload.currency,
           dueAt: payload.dueAt ? new Date(payload.dueAt) : null,
           notes: payload.notes,

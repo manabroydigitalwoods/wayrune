@@ -2424,6 +2424,8 @@ model CommercialDocument {
   notes               String?   @db.Text
   /** GST e-invoice / IRN ack payload when provider configured */
   eInvoiceJson        Json?     @map("e_invoice_json")
+  /** Structured CGST/SGST/IGST (+ optional HSN) for export — not filing/books */
+  taxBreakdownJson    Json?     @map("tax_breakdown_json")
   createdBy           String?   @map("created_by")
   createdAt           DateTime  @default(now()) @map("created_at")
   updatedAt           DateTime  @updatedAt @map("updated_at")

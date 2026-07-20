@@ -165,6 +165,17 @@ export class InventoryController {
     return this.inventory.listCalendar(user, assetId, from, to);
   }
 
+  @Get('assets/:assetId/unit-board')
+  @RequirePermissions('ops.read', 'network.read')
+  unitBoard(
+    @CurrentUser() user: AuthUser,
+    @Param('assetId') assetId: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.inventory.getFleetUnitBoard(user, assetId, from, to);
+  }
+
   @Post('calendar')
   @RequirePermissions('ops.write', 'network.write')
   createCalendar(@CurrentUser() user: AuthUser, @Body() body: unknown) {

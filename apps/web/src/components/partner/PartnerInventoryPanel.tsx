@@ -71,6 +71,28 @@ type Allocation = {
   } | null;
 };
 
+type UnitBoardInterval = {
+  source: string;
+  id: string;
+  startAt: string;
+  endAt: string;
+  label: string;
+  status?: string | null;
+};
+
+type UnitBoardUnit = {
+  id: string;
+  name: string;
+  plateNumber: string | null;
+  intervals: UnitBoardInterval[];
+};
+
+type UnitBoard = {
+  from: string;
+  to: string;
+  units: UnitBoardUnit[];
+};
+
 type ServiceOffer = {
   id: string;
   name: string;
@@ -156,6 +178,7 @@ export function PartnerInventoryPanel({
 
   const [rooms, setRooms] = useState<RoomProduct[]>([]);
   const [units, setUnits] = useState<FleetUnit[]>([]);
+  const [unitBoard, setUnitBoard] = useState<UnitBoard | null>(null);
   const [blocks, setBlocks] = useState<CalendarBlock[]>([]);
   const [allocations, setAllocations] = useState<Allocation[]>([]);
   const [offers, setOffers] = useState<ServiceOffer[]>([]);
@@ -209,8 +232,16 @@ export function PartnerInventoryPanel({
         }));
       }
       if (fleet) {
-        const u = await api<FleetUnit[]>(`/inventory/assets/${assetId}/fleet`);
+        const from = isoDate(new Date());
+        const to = isoDate(new Date(Date.now() + 7 * 86400000));
+        const [u, board] = await Promise.all([
+          api<FleetUnit[]>(`/inventory/assets/${assetId}/fleet`),
+          api<UnitBoard>(
+            `/inventory/assets/${assetId}/unit-board?from=${from}&to=${to}`,
+          ).catch(() => null),
+        ]);
         setUnits(u);
+        setUnitBoard(board);
       }
       if (fleet || driver) {
         const [c, a] = await Promise.all([
@@ -973,6 +1004,40 @@ export function PartnerInventoryPanel({
                 </li>
               ))}
             </ul>
+            {unitBoard ? (
+              <div className="space-y-2 border-t border-border/50 pt-3">
+                <div>
+                  <p className="text-xs font-medium">Unit board (7 days)</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Read-only busy lanes from calendar, holds, driver jobs, and
+                    rentals. Use Holds or Availability below to change assignments.
+                  </p>
+                </div>
+                <ul className="space-y-2 text-xs">
+                  {unitBoard.units.map((u) => (
+                    <li key={u.id} className="rounded-lg border px-3 py-2">
+                      <p className="font-medium">
+                        {u.name}
+                        {u.plateNumber ? ` · ${u.plateNumber}` : ''}
+                      </p>
+                      {u.intervals.length === 0 ? (
+                        <p className="mt-1 text-muted-foreground">No busy windows</p>
+                      ) : (
+                        <ul className="mt-1 space-y-0.5 text-muted-foreground">
+                          {u.intervals.map((iv) => (
+                            <li key={`${iv.source}-${iv.id}`}>
+                              {iv.source}: {iv.label} ·{' '}
+                              {new Date(iv.startAt).toLocaleString()} →{' '}
+                              {new Date(iv.endAt).toLocaleString()}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       ) : null}
