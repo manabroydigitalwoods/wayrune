@@ -24,6 +24,10 @@ export function AboutReleaseNotesPanel({
           {showPublicLink ? (
             <>
               {' '}
+              <Link to="/docs" className="text-primary hover:underline">
+                Public docs
+              </Link>
+              {' · '}
               <Link to="/changelog" className="text-primary hover:underline">
                 Public changelog
               </Link>

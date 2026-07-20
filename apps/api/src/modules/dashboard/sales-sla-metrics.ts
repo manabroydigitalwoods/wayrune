@@ -8,7 +8,16 @@ export type LeadSlaRow = {
 
 export type FitBuildTimingRow = {
   minutes: number;
+  /** Audit metadata.source — `demo_seed` is excluded from public claim. */
+  source?: string | null;
 };
+
+/** Audit metadata.source for demo-travel FIT timing seed (not production proof). */
+export const FIT_BUILD_DEMO_SEED_SOURCE = 'demo_seed';
+
+export function isDemoFitBuildSource(source: string | null | undefined): boolean {
+  return source === FIT_BUILD_DEMO_SEED_SOURCE;
+}
 
 export type SalesSlaMetrics = {
   medianFirstTouchHours: number | null;
@@ -145,16 +154,26 @@ export type FitClaimProtocol = {
   definition: string;
   targetMinutes: number;
   minSampleSize: number;
+  /** Real (non-demo) sample count used for publicClaimAllowed. */
   sampleSize: number;
   medianMinutes: number | null;
   claimStatus: FitClaimStatus;
-  /** True only when sample ≥ min and median ≤ target. */
+  /** True only when real sample ≥ min and median ≤ target. */
   publicClaimAllowed: boolean;
+  /** Demo-seed audits excluded from the public gate. */
+  demoSampleSize: number;
+  /**
+   * True when demo-seed alone would clear the gate (local demos only).
+   * Never treat as marketing / registry proof.
+   */
+  demoClaimReady: boolean;
 };
 
 export function buildFitClaimProtocol(opts: {
   sampleSize: number;
   medianMinutes: number | null | undefined;
+  demoSampleSize?: number;
+  demoClaimReady?: boolean;
 }): FitClaimProtocol {
   const sampleSize = Math.max(0, Math.floor(Number(opts.sampleSize)) || 0);
   const median =
@@ -165,6 +184,7 @@ export function buildFitClaimProtocol(opts: {
     sampleSize >= FIT_CLAIM_MIN_SAMPLE_SIZE &&
     median != null &&
     median <= FIT_CLAIM_TARGET_MINUTES;
+  const demoSampleSize = Math.max(0, Math.floor(Number(opts.demoSampleSize)) || 0);
   return {
     definition: FIT_CLAIM_PROTOCOL_DEFINITION,
     targetMinutes: FIT_CLAIM_TARGET_MINUTES,
@@ -173,5 +193,34 @@ export function buildFitClaimProtocol(opts: {
     medianMinutes: median,
     claimStatus: publicClaimAllowed ? 'ready' : 'testing',
     publicClaimAllowed,
+    demoSampleSize,
+    demoClaimReady: opts.demoClaimReady === true,
   };
+}
+
+/**
+ * Build claim protocol from FIT timing rows — demo_seed never counts toward publicClaimAllowed.
+ */
+export function buildFitClaimProtocolFromRows(
+  rows: FitBuildTimingRow[],
+): FitClaimProtocol {
+  const valid = rows.filter(
+    (r) => Number.isFinite(r.minutes) && r.minutes >= 0 && r.minutes <= 24 * 60,
+  );
+  const real = valid.filter((r) => !isDemoFitBuildSource(r.source));
+  const demo = valid.filter((r) => isDemoFitBuildSource(r.source));
+  const realMinutes = real.map((r) => r.minutes);
+  const demoMinutes = demo.map((r) => r.minutes);
+  const realMedian = medianSorted(realMinutes);
+  const demoMedian = medianSorted(demoMinutes);
+  const demoWouldClear =
+    demo.length >= FIT_CLAIM_MIN_SAMPLE_SIZE &&
+    demoMedian != null &&
+    demoMedian <= FIT_CLAIM_TARGET_MINUTES;
+  return buildFitClaimProtocol({
+    sampleSize: real.length,
+    medianMinutes: realMedian,
+    demoSampleSize: demo.length,
+    demoClaimReady: demoWouldClear && real.length === 0,
+  });
 }

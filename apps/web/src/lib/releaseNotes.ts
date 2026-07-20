@@ -27,6 +27,22 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-public-buyer-docs',
+    date: '2026-07-20',
+    title: 'Public docs for how quoting works',
+    summary:
+      'Login-free /docs explains the agency quote path and what we will not claim (FIT Testing until real samples, tax display ≠ filing, no invented scale). Linked from About and the public changelog.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-fit-claim-excludes-demo',
+    date: '2026-07-20',
+    title: 'FIT claim gate ignores demo seed timings',
+    summary:
+      'Public “under 3 minutes” only counts real quote.fit_build samples. Demo-travel seed can show as local-only ready on the sales strip; it never flips the marketing claim.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-pos-hotel-buy-match',
     date: '2026-07-20',
     title: 'Hotel buy tips can follow destination place of supply',

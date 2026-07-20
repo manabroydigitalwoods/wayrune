@@ -62,4 +62,28 @@ describe('formatFitClaimProtocolCue', () => {
       }),
     ).toBe('claim ready · under 3m (n=24)');
   });
+
+  it('flags demo seed as local-only, not public claim ready', () => {
+    expect(
+      formatFitClaimProtocolCue({
+        claimStatus: 'testing',
+        publicClaimAllowed: false,
+        sampleSize: 0,
+        demoSampleSize: 20,
+        demoClaimReady: true,
+        targetMinutes: 3,
+      }),
+    ).toBe('demo seed ready (local only) · public claim testing');
+    expect(
+      formatFitClaimProtocolCue({
+        claimStatus: 'testing',
+        publicClaimAllowed: false,
+        sampleSize: 3,
+        minSampleSize: 20,
+        medianMinutes: 2,
+        demoSampleSize: 20,
+        targetMinutes: 3,
+      }),
+    ).toBe('testing · 3/20 samples · median 2m · 20 demo excluded');
+  });
 });

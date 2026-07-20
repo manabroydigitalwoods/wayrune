@@ -22,6 +22,10 @@ export function PublicChangelogPage() {
         </header>
         <AboutReleaseNotesPanel />
         <p className="text-xs text-muted-foreground">
+          <Link to="/docs" className="text-primary hover:underline">
+            Docs
+          </Link>
+          {' · '}
           <Link to="/login" className="text-primary hover:underline">
             Sign in
           </Link>

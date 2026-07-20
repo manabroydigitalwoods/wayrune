@@ -73,8 +73,8 @@ export function SalesSlaHomeStats({ data }: { data: SalesSlaStats }) {
           <p className="text-xs text-muted-foreground">
             Lead follow-ups and turnaround (last 30 days). Creating a lead follow-up task stamps the
             lead due date. FIT build is workspace open → first successful send. Public “under 3
-            minutes” stays testing until sample size and median clear the claim gate. Optional
-            internal targets live in Settings → General.
+            minutes” stays testing until real sample size and median clear the claim gate (demo
+            seed does not count). Optional internal targets live in Settings → General.
           </p>
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">

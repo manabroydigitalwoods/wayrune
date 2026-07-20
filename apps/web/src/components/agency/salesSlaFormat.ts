@@ -51,6 +51,8 @@ export type FitClaimProtocolCue = {
   minSampleSize?: number | null;
   medianMinutes?: number | null;
   targetMinutes?: number | null;
+  demoSampleSize?: number | null;
+  demoClaimReady?: boolean | null;
 };
 
 /** Compact FIT &lt;3m claim gate cue for the sales strip. */
@@ -61,11 +63,21 @@ export function formatFitClaimProtocolCue(
   const n = Math.max(0, Math.floor(Number(protocol.sampleSize) || 0));
   const min = Math.max(1, Math.floor(Number(protocol.minSampleSize) || 20));
   const target = Math.max(1, Math.round(Number(protocol.targetMinutes) || 3));
+  const demoN = Math.max(0, Math.floor(Number(protocol.demoSampleSize) || 0));
   if (protocol.publicClaimAllowed || protocol.claimStatus === 'ready') {
     return `claim ready · under ${target}m (n=${n})`;
   }
+  if (protocol.demoClaimReady) {
+    return `demo seed ready (local only) · public claim testing`;
+  }
   if (n < min) {
-    return `testing · ${n}/${min} samples`;
+    const median =
+      protocol.medianMinutes != null && Number.isFinite(protocol.medianMinutes)
+        ? ` · median ${Math.round(Number(protocol.medianMinutes))}m`
+        : '';
+    const demo =
+      demoN > 0 ? ` · ${demoN} demo excluded` : '';
+    return `testing · ${n}/${min} samples${median}${demo}`;
   }
   const median = protocol.medianMinutes;
   if (median != null && Number.isFinite(median) && median > target) {

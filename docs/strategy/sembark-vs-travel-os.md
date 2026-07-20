@@ -45,7 +45,7 @@ Maturity labels: **early** | **partial** | **mature** | **structural** (architec
 | Integrations | Lead APIs, email parsing, flights, calling, WhatsApp | Broader connector contract; channel depth uneven | **Foundation ours; depth mixed** |
 | Onboarding | Mandatory consultant-led setup + extensive guides | Register, org seed, claim invite; **checklist + first-quote walkthrough + sample FIT pack** (quote/trips empty CTAs) | **Sembark** on consultant depth; **we closed self-serve thin wedge** |
 | Reporting | Extensive ops reports + saved presets | Role dashboards; finance CSV + personal presets + **org-shared packs + weekly email**; sales/ops strips | **Sembark** on breadth of ops reports; finance packs thin-complete |
-| Market credibility | Public release notes, docs, claimed scale | Early-stage; **claim registry + in-app About + public `/changelog` + named demo trip**; no public scale claim | **Near parity** on buyer-safe notes; **Sembark** on docs/scale |
+| Market credibility | Public release notes, docs, claimed scale | Early-stage; **claim registry + in-app About + public `/changelog` + `/docs` + named demo trip**; no public scale claim | **Near parity** on buyer-safe notes; **Sembark** on docs/scale |
 
 ### Where we are already better (qualified)
 
@@ -66,12 +66,23 @@ Maturity labels: **early** | **partial** | **mature** | **structural** (architec
 ### Honest remaining Sembark leads (do not paper over)
 
 1. **Tax / ledger depth** — **Parked** full accounting ledger / e-invoice / GSTR (CGST/SGST/IGST **display** thin-complete including Finance + public pay-page + receivable CD; compliance **do not claim**)
-2. **Quote speed productisation** — measured sub-3-minute FIT median + public claim gated by `fitClaimProtocol` (demo-travel seed can clear n≥20 locally; production waits on real samples)  
-3. **Market credibility** — *(About + public `/changelog` thin-complete)* · docs / scale proof still open
-4. **Partner fleet OS** — *(booking-linked holds + allocate UI thin-complete)* · full unit board / utilization still deal-gated
+2. **Quote speed productisation** — measured sub-3-minute FIT median + public claim gated by `fitClaimProtocol` on **real** samples only (demo seed excluded from `publicClaimAllowed`; production still Testing until real n≥20)  
+3. **Market credibility** — *(About + public `/changelog` + `/docs` thin-complete)* · scale proof still open
+4. **Partner fleet OS** — *(booking-linked holds + allocate UI thin-complete)* · full unit board / utilization **deal-gated** (checklist below)
 5. **Rate-grid leftovers** — *(per-pax depth through rooming / named alone / per-child nationality extras thin-complete)* · full Sembark matrix / chart child columns deferred
 
----
+#### Deal-gate — Partner fleet unit board / utilization (**parked**)
+
+Do **not** start without all of:
+
+1. Named customer + paid scope for unit board / utilization
+2. Clear data owner (agency vs partner asset org)
+3. Acceptance criteria written before code
+4. Otherwise: sell movement board + assign + DriverJob sync thin path only
+
+#### Park lock — Tax / ledger / e-invoice (**do not claim**)
+
+Display path thin-complete (identity, POS split, pay-page, receivable CD). **Parked:** e-invoice, GSTR, full GL / automated GST-compliant ledger. Claim registry stays **Do not claim**. No filing endpoints in backlog without a compliance project.
 
 ## 2. Ninety-day Priority 0 sequence
 
@@ -910,7 +921,27 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Existing sales strip shows claim-ready after `pnpm db:seed` on demo org (no new UI) |
 | **3 Proof** | **Done** | Demo sample + claim-gate specs; this ladder in memo |
 
-**Defer:** production sample growth; public marketing page; 60s claim; FIT-pack telemetry.
+**Defer:** production sample growth (real n≥20; demo_seed excluded from public gate — see below); public marketing page; 60s claim; FIT-pack telemetry.
+
+#### Prod-ready ladder — FIT claim excludes demo seed (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `buildFitClaimProtocolFromRows` — `metadata.source === demo_seed` excluded from `publicClaimAllowed`; `demoClaimReady` for local demos only |
+| **2 Channels / UI** | **Done** | Sales strip cue: progress `n/20`, demo excluded, or “demo seed ready (local only)” |
+| **3 Proof** | **Done** | sales-sla-metrics + cue specs; About note; this ladder in memo |
+
+**Defer:** production real-sample growth (ops); flip claim registry to Proven only when production `publicClaimAllowed`; 60s claim.
+
+#### Ops note — Production FIT samples (**Testing — not flipped**)
+
+Protocol for claim flip (ops, not engineering):
+
+1. On a **non-demo** org, record ~20 INR FIT quotes via workspace open → first send (`POST /quotations/fit-timing` → `quote.fit_build`).
+2. Confirm sales dashboard `fitClaimProtocol.publicClaimAllowed === true` (real n≥20, median ≤3m; demo seed ignored).
+3. Only then: claim registry → **Proven**, About note, website “under three minutes”.
+
+**Current status:** registry stays **Testing**; no marketing speed claim. Demo seed ready ≠ public proof.
 
 #### Prod-ready ladder — In-app release notes (About) (**done**)
 
@@ -920,7 +951,17 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Settings → **About** release notes list + Proven/Architecture badges |
 | **3 Proof** | **Done** | Filter specs; scorecard credibility row; this ladder in memo |
 
-**Defer:** *(closed — see Public changelog below)* · help centre; case studies.
+**Defer:** *(closed — see Public buyer docs below)* · help centre; case studies; invent scale.
+
+#### Prod-ready ladder — Public buyer docs (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | Static claim-safe `/docs` sections (how quoting works + what we don’t claim); no scale invent |
+| **2 Channels / UI** | **Done** | Login-free `/docs`; About + `/changelog` links |
+| **3 Proof** | **Done** | publicDocs specs; About note; this ladder in memo |
+
+**Defer:** full help centre; case studies; public scale claim.
 
 #### Prod-ready ladder — Public changelog (**done**)
 
@@ -1566,7 +1607,7 @@ Then introduce differentiators: connected WhatsApp and email → agency website 
 
 | Claim | Status |
 |-------|--------|
-| Build a standard FIT quotation in under three minutes | **Testing** — gated by dashboard `fitClaimProtocol`; demo-travel seed can clear n≥20 locally |
+| Build a standard FIT quotation in under three minutes | **Testing** — gated by dashboard `fitClaimProtocol` on **real** samples only; demo seed excluded from `publicClaimAllowed` |
 | Integrated lead → quote → book → collect → ops workflow | **Proven** (thin-complete) |
 | Multi-organization travel operating platform | **Architecture proven** — do not claim finished partner network |
 | Automated GST-compliant / full accounting ledger | **Do not claim** |
@@ -1619,9 +1660,9 @@ Then introduce differentiators: connected WhatsApp and email → agency website 
 | Bet | Done when | Status |
 |-----|-----------|--------|
 | Hotel occupancy depth | Contracting enters SGL/DBL/TPL without sales spreadsheet override on seeded FIT | **Adult bands → nationality + per-pax through rooming / multiplicity / 3A×N done**; uneven 6A/4R board open |
-| FIT speed claim | Protocol stamped; n≥20; median ≤3m; `publicClaimAllowed` | **Gate shipped**; **demo-travel seed stamps n=20 under 3m** (local demos only — production still waiting on real samples) |
-| Market credibility | Claim registry live; release notes + polished demo org | **Registry + About + public `/changelog` + named demo trip done**; public scale claim still open |
-| Deal-gated FX/fleet | Open only with signed need; keep locks/meta pluggable | **Discipline** |
+| FIT speed claim | Protocol stamped; n≥20 **real**; median ≤3m; `publicClaimAllowed` | **Gate shipped**; demo seed **excluded** from public claim; **production still Testing** (await real samples) |
+| Market credibility | Claim registry live; release notes + polished demo org | **Registry + About + `/changelog` + `/docs` + named demo trip done**; public scale claim still open |
+| Deal-gated FX/fleet | Open only with signed need; keep locks/meta pluggable | **Discipline** — fleet unit board checklist in honest leads |
 
 ### What we should not copy from Sembark
 

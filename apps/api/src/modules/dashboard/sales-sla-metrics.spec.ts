@@ -5,6 +5,8 @@ import {
   hoursBetween,
   medianSorted,
   buildFitClaimProtocol,
+  buildFitClaimProtocolFromRows,
+  FIT_BUILD_DEMO_SEED_SOURCE,
   FIT_CLAIM_MIN_SAMPLE_SIZE,
   FIT_CLAIM_TARGET_MINUTES,
   salesSlaMedianTone,
@@ -136,6 +138,8 @@ describe('buildFitClaimProtocol', () => {
       minSampleSize: FIT_CLAIM_MIN_SAMPLE_SIZE,
       sampleSize: 5,
       medianMinutes: 2,
+      demoSampleSize: 0,
+      demoClaimReady: false,
     });
     expect(
       buildFitClaimProtocol({
@@ -152,5 +156,35 @@ describe('buildFitClaimProtocol', () => {
       claimStatus: 'ready',
       publicClaimAllowed: true,
     });
+  });
+});
+
+describe('buildFitClaimProtocolFromRows', () => {
+  it('excludes demo_seed from publicClaimAllowed', () => {
+    const demoRows = Array.from({ length: 20 }, (_, i) => ({
+      minutes: 2,
+      source: FIT_BUILD_DEMO_SEED_SOURCE,
+    }));
+    const protocol = buildFitClaimProtocolFromRows(demoRows);
+    expect(protocol.publicClaimAllowed).toBe(false);
+    expect(protocol.sampleSize).toBe(0);
+    expect(protocol.demoSampleSize).toBe(20);
+    expect(protocol.demoClaimReady).toBe(true);
+  });
+
+  it('clears the gate on real samples only', () => {
+    const real = Array.from({ length: 20 }, () => ({
+      minutes: 2.5,
+      source: null as string | null,
+    }));
+    const mixed = [
+      ...real,
+      { minutes: 1, source: FIT_BUILD_DEMO_SEED_SOURCE },
+    ];
+    const protocol = buildFitClaimProtocolFromRows(mixed);
+    expect(protocol.publicClaimAllowed).toBe(true);
+    expect(protocol.sampleSize).toBe(20);
+    expect(protocol.demoSampleSize).toBe(1);
+    expect(protocol.demoClaimReady).toBe(false);
   });
 });

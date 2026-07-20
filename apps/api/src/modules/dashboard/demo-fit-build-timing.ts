@@ -7,10 +7,11 @@ import {
   buildFitClaimProtocol,
   FIT_CLAIM_MIN_SAMPLE_SIZE,
   FIT_CLAIM_TARGET_MINUTES,
+  FIT_BUILD_DEMO_SEED_SOURCE,
   medianSorted,
 } from './sales-sla-metrics';
 
-export const DEMO_FIT_BUILD_SEED_SOURCE = 'demo_seed';
+export const DEMO_FIT_BUILD_SEED_SOURCE = FIT_BUILD_DEMO_SEED_SOURCE;
 export const DEMO_FIT_BUILD_ENTITY_PREFIX = 'seed-fit-build-';
 
 /** Fixed under-3m minutes so median clears the public-claim gate when n≥20. */

@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthUser } from '../../common/helpers';
 import {
-  buildFitClaimProtocol,
+  buildFitClaimProtocolFromRows,
   computeSalesSlaMetrics,
   salesSlaTargetsFromSettings,
 } from './sales-sla-metrics';
@@ -265,6 +265,20 @@ export class DashboardService {
       }
     }
 
+    const fitBuildRows = fitBuildAudits.map((row) => {
+      const meta =
+        row.metadataJson && typeof row.metadataJson === 'object'
+          ? (row.metadataJson as Record<string, unknown>)
+          : {};
+      const minutes =
+        typeof meta.minutes === 'number' ? meta.minutes : Number(meta.minutes);
+      const source = typeof meta.source === 'string' ? meta.source : null;
+      return {
+        minutes: Number.isFinite(minutes) ? minutes : NaN,
+        source,
+      };
+    });
+
     const sla = computeSalesSlaMetrics(
       slaLeadRows.map((lead) => {
         let firstQuoteAt: Date | null = null;
@@ -282,15 +296,10 @@ export class DashboardService {
           firstQuoteAt,
         };
       }),
-      fitBuildAudits.map((row) => {
-        const meta =
-          row.metadataJson && typeof row.metadataJson === 'object'
-            ? (row.metadataJson as Record<string, unknown>)
-            : {};
-        const minutes = typeof meta.minutes === 'number' ? meta.minutes : Number(meta.minutes);
-        return { minutes: Number.isFinite(minutes) ? minutes : NaN };
-      }),
+      fitBuildRows,
     );
+
+    const fitClaimProtocol = buildFitClaimProtocolFromRows(fitBuildRows);
 
     const inboxSla = computeInboxSlaMetrics(
       inboxUnreadRows,
@@ -332,10 +341,7 @@ export class DashboardService {
       leadToQuoteSampleSize30d: sla.leadToQuoteSampleSize,
       medianFitBuildMinutes30d: sla.medianFitBuildMinutes,
       fitBuildSampleSize30d: sla.fitBuildSampleSize,
-      fitClaimProtocol: buildFitClaimProtocol({
-        sampleSize: sla.fitBuildSampleSize,
-        medianMinutes: sla.medianFitBuildMinutes,
-      }),
+      fitClaimProtocol,
       firstTouchTargetHours: salesSlaTargets.firstTouchTargetHours,
       leadToQuoteTargetHours: salesSlaTargets.leadToQuoteTargetHours,
       fitBuildTargetMinutes: salesSlaTargets.fitBuildTargetMinutes,

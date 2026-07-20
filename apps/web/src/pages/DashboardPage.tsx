@@ -79,6 +79,8 @@ type SalesDash = {
     medianMinutes?: number | null;
     claimStatus?: 'testing' | 'ready';
     publicClaimAllowed?: boolean;
+    demoSampleSize?: number;
+    demoClaimReady?: boolean;
   } | null;
   firstTouchTargetHours?: number | null;
   leadToQuoteTargetHours?: number | null;
