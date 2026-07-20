@@ -10,7 +10,7 @@ This memo revises the Sembark competitive analysis against the current codebase.
 
 ## Executive verdict
 
-**Sembark remains deeper on market proof and full commercial polish; Travel OS is now competitive on the agency wedge and still broader as a platform.**
+**Wayrune has reached near parity with Sembark in end-to-end agency workflow coverage for INR FIT operations. Sembark still leads in guided quotation polish, complex contracting depth, accounting and reporting breadth, implementation support, and established market proof. Wayrune should now close adoption-critical gaps and improve experience — not copy Sembark screen by screen.**
 
 Sembark concentrates on a commercially valuable agency journey:
 
@@ -22,7 +22,21 @@ Our long-term advantage:
 
 **Strategic rule:** First become indispensable to one travel agency’s daily workflow. Then connect the travel ecosystem.
 
-**2026-07 re-score (after P0 ladders + honesty wedges incl. supplier import + directory):** agency P0 stages that have Integrity+Channels+Proof memo ladders marked **done** are **Prod-ready** on the Agency OS feature map (Match drawers, FX lock/cross-pair, templates, hotel/transfer/activity rate depth, hotel + T/A enquiry→voucher, movement + fleet assign, trip control + cancellation cases, trip shell + role-composed home, sales CRM response surfaces, supplier CSV import + directory profiles, collect/chase finance + report packs, onboarding starter pack). Residual **Thin** = unfinished I+C+P ladders or **claim gates** (FIT Testing, scale strip gated, unit board dogfood). Remaining Sembark leads are still **depth** (full occupancy×meal grids, ledger/tax filing, consultant onboarding, public scale publish) — not missing journey stages. Customers still buy relief from today’s problems; do not lead with multi-org or Presence until wedge depth and measured FIT speed are undeniable.
+### Parity types (do not conflate)
+
+Agencies do not judge parity by counting completed modules. They judge: Can staff quote quickly? Can complex rates land without Excel? Are revisions easy? Can ops and accounts trust the data? Can a new hire learn it? Can the agency migrate safely? Does it work reliably every day?
+
+Use these labels **internally** — never upgrade “journey parity” into “we match Sembark” in sales:
+
+| Parity type | Current Wayrune position |
+|-------------|--------------------------|
+| **Journey parity** | **Near parity** — lead → inquiry → quote → book → collect → ops → cancel/refund is connected |
+| **Capability-depth parity** | **Partial → near**, module by module (rates, FX, packages deep; full ledger / dense workbooks not) |
+| **Usability and market parity** | **Not proven yet** — guided ~60s feel, FIT claim, consultant onboarding, public scale, real agency adoption |
+
+**Prod-ready** on the Agency OS feature map means Integrity+Channels+Proof ladders shipped for that outcome — **not** that Coverage+Depth+Ease+Reliability+Adoption+Proof are all acceptable (see Competitive Readiness Matrix below).
+
+**2026-07 re-score (after P0 ladders + Guided FIT UX + honesty wedges):** journey stages with I+C+P ladders **done** are **Prod-ready** as engineering outcomes (Match, FX, templates, rate depth, enquiry→voucher, movement, trip control, cancel/refund, CRM SLA, supplier directory/import, collect/chase, onboarding pack, Guided FIT rail/revise/margin/dogfood cues). Residual **Thin** = claim gates and unfinished adoption proof (FIT Testing, scale strip gated, unit board utilization, real-agency operate-through). Remaining Sembark leads are **usability depth, accounting breadth, onboarding, reporting, and market confidence** — not missing journey stages. Do not lead with multi-org or Presence until agency-experienced parity is undeniable.
 
 ---
 
@@ -30,27 +44,29 @@ Our long-term advantage:
 
 Maturity labels: **early** | **partial** | **mature** | **structural** (architecture ahead of productized UX).
 
+**Reading the “Current advantage” column:** “Near parity” below means **journey / thin-path coverage** unless stated otherwise — not usability or market parity.
+
 | Area | Sembark | Our Travel OS (today) | Current advantage |
 |------|---------|----------------------|-------------------|
-| Lead and enquiry intake | Lead APIs, round-robin, follow-ups | Parties, leads, inquiries, pipelines, custom fields, travel-request intake; **sales response strip**; **org sales SLA targets**; **task↔followUpAt**; **inbox unread + aging**; **unread_sla automation**; **round-robin polish** | **Near parity** (objects + SLA cues) |
-| Communication | WhatsApp notifications, calling add-on, email parsing | Unified inbox (WhatsApp / email / Instagram / website / Google Business), AI rewrite/summarize; Microsoft = SSO only; quote WA share = Cloud template/session + `wa.me` Mark-as-sent; **Quote proposal template picker** | **Stronger foundation; uneven channel depth** — no Microsoft messaging claim; **HubSpot out of scope** |
-| Itinerary creation | Productised ~60s workflow with costing | Flexible itinerary builder + public proposal; **package apply + rematch + Story seed**; FIT build minutes instrumented (do not claim 60s publicly) | **Sembark for polished speed**; we are closing via packages + telemetry |
-| Quotation pricing | Multi-currency, tax, component markup, reusable supplier data | Versioned quotes; hotel/transfer/activity resolve; cost/sell/tax/margin; **fixed + % + agent markup**; **org default tax**; branded PDF/email/WA; public accept; **Quote FX lock** + **Settings live FX refresh (Frankfurter)** + **cross-pair convert (org rates → lock)** | **Near parity on INR FIT path**; **Sembark** on tax regimes / auto FX |
-| Supplier contracts | Mature rates, seasons, stop/blackout, bulk upload, occupancy grids | **Supplier Directory + Profile V1**; hotel/transfer/activity charts; seasons/weekend/gala/occupancy extras; **SGL/DBL/TPL adultBands** + **copy-as-meal** + **meal×occupancy matrix (Wk/We)** + **weekend-per-band** + **min stay + max stay (hard gates)** + **IN/INTL + per-ISO + full ISO-3166 + multi-guest mixed nationality** + **hotel/transfer/activity rate version chains** + **hotel/transfer/activity tip diffs**; **hotel/transfer/activity tip dual-control Activate (`rates.approve`)** + **activation Tasks for hotel/transfer/activity** + **hotel/transfer/activity tip field restore**; blackout vs stop-sale; CSV/XLSX + import audit; hard allotment + capacity gates; cancel policy stamp | **Near parity** on daily contracting thin path; **multi-step quorum parked** (Activate inbox sufficient) |
-| Booking operations | Reservations, assignment, vouchers, movement charts | Booking components + readiness; hotel/transfer/activity enquiry→confirm→payable→voucher; **movement board + calendar**; driver/fleet assign + DriverJob sync; **allotment release+reallocate**; type-aware partner Confirm | **Near parity on agency ops thin slice**; partner fleet OS depth still open |
-| Payments and accounting | Receivables, payables, instalments, payment links, ledgers | Per-trip AR/AP + margin; payment links + Razorpay; org aging/portfolio; **chase + AP Mark paid/Unmark**; report packs + scheduled CSV email; **FX honesty cues** | **Sembark** on full ledger; **near parity** on collect/chase thin path |
+| Lead and enquiry intake | Lead APIs, round-robin, follow-ups | Parties, leads, inquiries, pipelines, custom fields, travel-request intake; **sales response strip**; **org sales SLA targets**; **task↔followUpAt**; **inbox unread + aging**; **unread_sla automation**; **round-robin polish** | **Journey near parity** (objects + SLA cues) |
+| Communication | WhatsApp notifications, calling add-on, email parsing | Unified inbox (WhatsApp / email / Instagram / website / Google Business), AI rewrite/summarize; quote WA share = Cloud template/session + `wa.me` Mark-as-sent; **Quote proposal template picker** | **Stronger foundation; uneven channel depth** |
+| Itinerary creation | Productised ~60s workflow with costing | Flexible itinerary builder + public proposal; **package apply + rematch + Story seed**; Guided FIT rail + revise moves + margin delta; FIT build minutes instrumented (do not claim 60s publicly) | **Sembark for polished speed**; we closed guided UX thin path — **usability parity unproven** |
+| Quotation pricing | Multi-currency, tax, component markup, reusable supplier data | Versioned quotes; hotel/transfer/activity resolve; cost/sell/tax/margin; **fixed + % + agent markup**; **org default tax**; branded PDF/email/WA; public accept; **Quote FX lock** + **Settings live FX refresh (Frankfurter)** + **cross-pair convert (org rates → lock)** | **Journey near parity on INR FIT**; **Sembark** on tax regimes / auto FX |
+| Supplier contracts | Mature rates, seasons, stop/blackout, bulk upload, occupancy grids | **Supplier Directory + Profile V1**; hotel/transfer/activity charts; seasons/weekend/gala/occupancy extras; **SGL/DBL/TPL adultBands** + **copy-as-meal** + **meal×occupancy matrix (Wk/We)** + **weekend-per-band** + **min stay + max stay (hard gates)** + **IN/INTL + per-ISO + full ISO-3166 + multi-guest mixed nationality** + **hotel/transfer/activity rate version chains** + **hotel/transfer/activity tip diffs**; **hotel/transfer/activity tip dual-control Activate (`rates.approve`)** + **activation Tasks for hotel/transfer/activity** + **hotel/transfer/activity tip field restore**; blackout vs stop-sale; CSV/XLSX + import audit; hard allotment + capacity gates; cancel policy stamp | **Journey near parity** on daily contracting thin path; **Sembark** on dense workbook comfort |
+| Booking operations | Reservations, assignment, vouchers, movement charts | Booking components + readiness; hotel/transfer/activity enquiry→confirm→payable→voucher; **movement board + calendar**; driver/fleet assign + DriverJob sync; **allotment release+reallocate**; type-aware partner Confirm | **Journey near parity** on agency ops thin slice; partner fleet OS depth still open |
+| Payments and accounting | Receivables, payables, instalments, payment links, ledgers | Per-trip AR/AP + margin; payment links + Razorpay; org aging/portfolio; **chase + AP Mark paid/Unmark**; report packs + scheduled CSV email; **FX honesty cues** | **Sembark** on full ledger; **journey near parity** on collect/chase thin path |
 | Multi-brand / multi-org | Multiple brands under one login | Org kinds (agency, hotel, DMC, driver, …), multi-membership, org switcher; partner OS / Travel Exchange unfinished | **Structural advantage; productized partner network still early** |
 | Digital presence | No equivalent found | Hosted sites, themes, modules, platform hosts, forms→CRM; custom-domain TLS/verify deferred | **Ours** if framed as embedded travel site + CRM — not finished hosting ops |
 | Partner ecosystem | Primarily one company’s internal ops | Planned connected partner OSes and network; inbound confirm + docs thin | **Long-term ours** — not a current sales wedge |
 | Integrations | Lead APIs, email parsing, flights, calling, WhatsApp | Broader connector contract; channel depth uneven | **Foundation ours; depth mixed** |
 | Onboarding | Mandatory consultant-led setup + extensive guides | Register, org seed, claim invite; **checklist + first-quote walkthrough + sample FIT pack** (quote/trips empty CTAs) | **Sembark** on consultant depth; **we closed self-serve thin wedge** |
 | Reporting | Extensive ops reports + saved presets | Role dashboards; finance CSV + personal presets + **org-shared packs + weekly email**; sales/ops strips | **Sembark** on breadth of ops reports; finance packs thin-complete |
-| Market credibility | Public release notes, docs, claimed scale | Early-stage; **claim registry + in-app About + public `/changelog` + `/docs` + named demo trip**; no public scale claim | **Near parity** on buyer-safe notes; **Sembark** on docs/scale |
+| Market credibility | Public release notes, docs, claimed scale | Early-stage; **claim registry + in-app About + public `/changelog` + `/docs` (incl. Bring your data) + named demo trip**; no public scale claim | **Buyer-safe notes + migration story thin-complete**; **Sembark** on docs/scale / testimonials |
 
 ### Where we are already better (qualified)
 
 - **True multi-organization platform** — architecture differentiates; do not sell as a finished partner network.
-- **Omnichannel CRM foundation** — fair for agency inbox; qualify Microsoft messaging depth. **HubSpot discarded** (not on roadmap).
+- **Omnichannel CRM foundation** — fair for agency inbox (WA / email / Meta / web / GBP).
 - **Digital Presence** — strongest current differentiator among the four; secondary in sales narrative after quote/ops outcomes.
 
 ### Where the gap flipped or narrowed (Jul 2026)
@@ -62,14 +78,18 @@ Maturity labels: **early** | **partial** | **mature** | **structural** (architec
 | Onboarding “no product” | **Checklist + FIT pack + empty-state Install** — still no consultant implementation centre |
 | Movement / vouchers “missing” | **Board + vouchers + DriverJob sync thin-complete** |
 | Collect & chase | **Payment links + aging chase + AP settle thin-complete** |
+| Guided quote / revise “blank spreadsheet” | **FIT progress rail + revise moves + revision margin delta + dogfood timing cues + Match alternatives** — real FIT ≤3m claim still open |
 
-### Honest remaining Sembark leads (do not paper over)
+### Honest remaining gaps (adoption-critical first)
 
-1. **Tax / ledger depth** — **Compliance kickoff** (NIC adapter + structured CD tax + GSTR-ready export thin); full accounting ledger / in-app GSTR / live IRN claim still **do not claim** (display path thin-complete)
-2. **Quote speed productisation** — measured sub-3-minute FIT median + public claim gated by `fitClaimProtocol` on **real** samples only (demo seed excluded from `publicClaimAllowed`; production still Testing until real n≥20)  
-3. **Market credibility** — *(About + public `/changelog` + `/docs` thin-complete)* · **scale protocol shipped**; public strip gated on measured snapshot (still hidden until minima)
-4. **Partner fleet OS** — *(booking-linked holds + allocate UI thin-complete)* · **partner unit board read-only unlocked (dogfood)**; utilization / org-wide still deferred
-5. **Rate-grid leftovers** — *(per-pax depth through rooming / named alone / per-child nationality extras thin-complete)* · full Sembark matrix / chart child columns deferred
+Do **not** treat every gap as equal priority. Full ledger may be large; ask whether target agencies reject Wayrune without in-product accounting. Prefer accountant-ready exports/integrations or enterprise-only GL unless the answer is “yes.” Quotation speed, rate accuracy, revision ease, and onboarding affect almost every agency and stay higher priority.
+
+1. **Quote speed & revision usability** — Guided FIT UX + Match alternatives shipped; public ≤3m claim **Testing** until real n≥20 / median ≤3m  
+2. **Rate & margin confidence in daily use** — thin path deep + Why this rate + priced Match alts; denser Sembark workbook comfort still open  
+3. **Real agency adoption proof** — Next Action + operate-through dogfood kit shipped; still need evidence real agencies finish the path **without developer intervention**  
+4. **Market credibility** — About + `/docs` + `/changelog` + **Bring your data** story; scale strip gated; testimonials still thin  
+5. **Tax / ledger depth** — compliance kickoff (NIC adapter + CD tax + GSTR export); full GL / in-app filing / live IRN **do not claim** — prioritize by segment, not by gap size  
+6. **Partner fleet OS** — unit board dogfood unlocked; utilization / org-wide deferred  
 
 #### Deal-gate — Partner fleet unit board / utilization (**unlocked for dogfood wedge**)
 
@@ -89,15 +109,39 @@ Display path thin-complete. **Kickoff 2026-07-20:** owner = product; surface = g
 | 1 Real IRN | **Adapter shipped** | `NicGspEInvoiceProvider`; demo/noop remain; claim stays do-not-claim until live IRN proven in prod |
 | 2 Structured CD tax | **Done** | `taxBreakdownJson` on commercial documents; stamped from display split on receivable create |
 | 3 GSTR-ready export | **Done** | `GET /commerce/gstr-export` CSV — accountant/GSP feed, **not** in-app filing |
-| Full GL / GSTR filing UI | **Parked** | Claim registry **Do not claim** |
+| Full GL / GSTR filing UI | **Parked** | Claim registry **Do not claim** — reopen only if target segment rejects Wayrune without in-product ledger |
 
 #### Canvas maturity reconcile (2026-07-20) — labels only
 
 Promoted Agency OS feature-map rows **Thin → Prod-ready** where memo I+C+P ladders were already (**done**): … **Unified engagement inbox** (connector readiness + aging parity); **Blackout / stop-sale / cancellation** (contract resolve + send gate + cancel tiers); **Customers & B2B parties** (server B2B filter + active trips + import guard + agent markup hub cue).
 
-**Still Thin (honest):** claim-gated marketing rows (FIT speed, public scale strip, unit board utilization) — ops panel shipped; registry stays Testing until measured proof + sign-off; partner Stay/Mobility/Restaurant/Guest verticals.
+**Still Thin (honest):** claim-gated marketing rows (FIT speed, public scale strip, unit board utilization) — ops panel shipped; registry stays Testing until measured proof + sign-off; partner Stay/Mobility/Restaurant/Guest verticals; **agency-experienced parity unproven**.
 
 **Counts after claim readiness ops panel ladder:** ~39 Prod-ready · ~5 Thin (claim-gated + platform) · Partial/Structural/Deferred unchanged. Claim registry unchanged (FIT Testing; GST ledger do-not-claim).
+
+### Sembark Competitive Readiness Matrix
+
+Rate each capability on six dimensions. Mark **Parity** only when **all six** are acceptable — not merely because backend + UI exist.
+
+Dimension keys: **C**overage · **D**epth · **E**ase · **R**eliability · **A**doption · **P**roof  
+Scores: **Y** = acceptable · **~** = partial / thin · **N** = not yet · **—** = not competing here
+
+| Capability | C | D | E | R | A | P | Overall vs Sembark |
+|------------|---|---|---|---|---|---|--------------------|
+| Lead / enquiry intake + SLA cues | Y | ~ | ~ | Y | ~ | ~ | Journey near; usability unproven |
+| Omnichannel inbox | Y | ~ | ~ | ~ | ~ | ~ | Foundation ours; depth mixed |
+| Guided FIT quote (package → Match → send) | Y | ~ | ~ | Y | N | N | Eng thin-complete; claim Testing; adoption N |
+| Quote revise (dates / pax / hotel / margin delta) | Y | ~ | Y | Y | N | N | Moves + alts + priced previews + Why; adoption N |
+| Supplier rate contracting (hotel/T/A) | Y | ~ | Y | Y | ~ | ~ | Daily thin strong; Why this rate; dense workbook ~ |
+| Accept → enquiry → voucher / movement | Y | ~ | Y | Y | ~ | ~ | Next Action + operate-through kit; real-agency proof still ~ |
+| Collect / chase / instalments / refunds | Y | ~ | Y | Y | N | ~ | Missing-instalments cue; ledger breadth N |
+| Full accounting / GST filing / IRN | ~ | N | N | ~ | N | N | Do not claim; segment-gated |
+| Self-serve + human-assisted launch | Y | ~ | Y | ~ | ~ | ~ | Checklist + Bring your data cues; consultant centre N |
+| Reporting / owner visibility | Y | ~ | ~ | Y | N | ~ | Packs thin; Sembark breadth lead |
+| Market docs / scale / testimonials | Y | ~ | — | Y | ~ | ~ | Migration story Y; scale/testimonials N |
+| Multi-org / Presence / partner network | Y | ~ | — | ~ | N | N | Structural; **not** the agency-parity wedge |
+
+**Next move:** close rows where **E / A / P** are N on adoption-critical capabilities (FIT quote/revise, operate-through, launch) before spending cycles on screen-copy depth or full GL unless a named segment blocks.
 
 ## 2. Ninety-day Priority 0 sequence
 
@@ -105,7 +149,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 
 ### Release 1 — Quote speed path (days 1–30)
 
-**Target:** Trained sales exec creates a normal INR FIT quotation in **under three minutes**. Public “60 seconds” only after median FIT build minutes is measured (now instrumented — do not claim publicly until sample is healthy).
+**Target:** Trained sales exec creates a normal INR FIT quotation in **under three minutes**. Public “60 seconds” only after median FIT build minutes is measured (now instrumented — do not claim publicly until sample is healthy). Agency-experienced parity also requires **operate-through dogfood** (import → contract → quote → book → collect → depart → cancel), not timings alone.
 
 #### Prod-ready ladder — Quote FIT → send → accept (current program)
 
@@ -210,7 +254,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Gap table + appendix quote-template rows updated (DnD + sibling sort shipped; Packages page still parked) |
 | **3 Proof** | **Done** | This ladder in memo |
 
-**Defer:** *(none — hygiene only)* · intentional parks remain (Packages page, paid FX/AED, Sembark seat matrices, HubSpot/GL).
+**Defer:** *(none — hygiene only)* · intentional parks remain (Packages page, paid FX/AED, denser Sembark workbook polish, GL).
 
 #### Prod-ready ladder — Hotel occupancy JSON field restore (**done**)
 
@@ -238,7 +282,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | `SalesCrmSlaStrip` on Leads + Inbox (overdue follow-ups, unread, aging click-through); Leads quick filters **Overdue follow-ups** / **My leads** |
 | **3 Proof** | **Done** | `inboxAgingLabel.test`; existing lead-follow-up + unread-sla specs; this ladder in memo |
 
-**Defer:** Microsoft messaging inbox; HubSpot depth.
+**Defer:** *(none — HubSpot and Microsoft messaging removed from product)*.
 
 #### Prod-ready ladder — Supplier CSV/XLSX bulk + audit (**done**)
 
@@ -282,7 +326,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Inbox multi-channel setup banners; reply composer + row actions gated on readiness; aging filter on All messages + Conversations |
 | **3 Proof** | **Done** | `inbox-connector-readiness.spec` + `inboxChannelReply.test`; this ladder in memo |
 
-**Defer:** Microsoft messaging inbox; HubSpot depth; *(Meta template sync closed — see Meta WhatsApp template library sync)*.
+**Defer:** *(Meta template sync closed — see Meta WhatsApp template library sync)*. HubSpot and Microsoft messaging removed from product.
 
 #### Prod-ready ladder — Blackout / stop-sale / cancellation (**done**)
 
@@ -466,7 +510,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 
 **Defer:** *(closed — see Package template history + restore below)*
 
-**Next after Package template versioning:** Guided FIT quote speed (travel-start gate — done below), onboarding Install-pack CTA (done below), live FX refresh (done below), or cross-pair convert.
+**Next after Package template versioning:** Guided FIT progress rail + revise moves + margin delta + dogfood timing UX (done below). Claim registry Proven flip waits on real n≥20.
 
 #### Prod-ready ladder — Package template history + restore (**done**)
 
@@ -658,6 +702,116 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 
 **Defer:** *(validity extend opt-in closed — Meta sync + transfer multi-band + CSV party bands closed)*.
 
+#### Prod-ready ladder — Guided FIT: quote progress rail (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `buildFitQuoteProgress` — Package → Lines matched → Margin OK → Ready to send from attention / margin / canSend; unit specs |
+| **2 Channels / UI** | **Done** | `FitQuoteProgressStrip` on quotations tab (above attention banner); click current step → template / line sheet / margin / scroll Send readiness; hides when ready or locked |
+| **3 Proof** | **Done** | Release note; this ladder in memo; progress cues ≠ public FIT ≤3m claim protocol |
+
+**Defer:** *(closed — see dogfood timing UX below)*.
+
+#### Prod-ready ladder — Guided FIT: one-click revise moves (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `buildFitReviseMoves` + `stampInquiryPaxOntoQuoteLines` (client mirror of apply-pax); unit specs |
+| **2 Channels / UI** | **Done** | `FitReviseMovesStrip` on locked quotes (Revise / Edit dates) and after revise·clone·date-rewrite (dates · rematch · unmatched · swap hotel · apply inquiry pax); dismissible |
+| **3 Proof** | **Done** | Release note; this ladder in memo |
+
+**Defer:** dogfood timing toward claim gate.
+
+#### Prod-ready ladder — Guided FIT: revision margin delta (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `resolveRevisionBaseline` (prior same-QT version → trip accepted) + `commercialTotalsFromLines` / `buildRevisionMarginDelta`; unit specs |
+| **2 Channels / UI** | **Done** | `FitRevisionMarginDeltaStrip` on editable drafts with cost view — Cost / Sell (ex-tax) / Margin before→after with signed Δ; partial cue when pricing incomplete |
+| **3 Proof** | **Done** | Release note; this ladder in memo |
+
+**Defer:** *(closed — dogfood timing UX done below)* · *(closed — Match alternatives pick-list)* · parentVersionId schema.
+
+#### Prod-ready ladder — Guided FIT: dogfood + real FIT timing UX (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `computeSalesSlaMetrics` FIT median/n exclude `demo_seed`; `fitClaimRemainingSamples`; sales payload `fitBuildDemoSampleSize30d`; unit specs |
+| **2 Channels / UI** | **Done** | Quotations tab dogfood cue (`FitDogfoodTimingCue` + claim-gates fetch); About remaining + demo-excluded badge; dashboard “Median FIT build (real)” |
+| **3 Proof** | **Done** | Release note; this ladder; **public ≤3m stays Testing** — no invented samples, no registry flip |
+
+**Defer:** claim registry Proven flip until ops `publicClaimAllowed` on a non-demo org + product sign-off.
+
+#### Prod-ready ladder — Match alternatives pick-list (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `alternativesLimit` + `preferredRateId` on resolve; rank hotel/transfer/activity eligible pools; `rateMeta.alternatives` (label · score · chartUnitCost); unit specs |
+| **2 Channels / UI** | **Done** | Match drawer **Other eligible rates** + **Use** → re-resolve with preferredRateId + applyRateResolveHit; batch rematch stays limit 0 |
+| **3 Proof** | **Done** | Release note; this ladder; Competitive Readiness Matrix row improves Ease on quote revise |
+
+**Defer:** Pick from rejected diagnostics (apply) — rejected stay read-only in Why this rate · *(priced previews — see Priced Match alternatives below)*.
+
+#### Prod-ready ladder — Why this rate polish (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | Persist `matchAccepted` + `matchRejectedCompact` on provenance (keep `matchSummary`); shared parse helpers; rematch thin provenance stamps Why reasons |
+| **2 Channels / UI** | **Done** | Always-visible **Why this rate** strip on hotel/transfer/activity Pricing; reopen restores bullets + rejected disclosure; alt list shows score |
+| **3 Proof** | **Done** | Contracts + rematch + reprice specs; release note; this ladder; gap #2 / readiness Ease nudge |
+
+**Defer:** *(noise filter closed below)* · apply-from-rejected.
+
+#### Prod-ready ladder — Why this rate noise filter (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `isMatchAcceptedNoise` + `partitionMatchAcceptedForDisplay` (signal ranks above hygiene; ≤3 primary); full accepted list still persisted |
+| **2 Channels / UI** | **Done** | Why this rate / Match notes show ≤3 primary bullets; hygiene + overflow under **more match notes** disclosure |
+| **3 Proof** | **Done** | Contracts specs; release note; this ladder |
+
+**Defer:** apply-from-rejected · inventing Why copy · rewriting matchExplain engine.
+
+#### Prod-ready ladder — Priced Match alternatives (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `previewBuyTotal` on alternatives — hotel est. stay (band + occ extras + gala); transfer/activity est. line buy; single-tip only (no pax-split) |
+| **2 Channels / UI** | **Done** | Other eligible rates show **est. stay/line buy** + chart unit; helper copy that Use re-matches |
+| **3 Proof** | **Done** | Preview + alternatives specs; release note; this ladder |
+
+**Defer:** multi-cab / pax-split preview parity · apply-from-rejected.
+
+#### Prod-ready ladder — Trip Next Action strip (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `pickPrimaryTripNextAction` — severity then code priority over existing `/control` flags; CTA labels; status-tab fallback |
+| **2 Channels / UI** | **Done** | Compact control strip → **Next action** (info can be primary); `?booking=` deep-link; Ops scroll/highlight |
+| **3 Proof** | **Done** | Unit specs; release note; this ladder; Accept→ops Ease/Adoption nudge |
+
+**Defer:** movement-board depth · multi-step ops wizard · new readiness engine.
+
+#### Prod-ready ladder — Safe migration story / Bring your data (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | Public docs `bring-your-data` section (rates/clients/leads CSV + FIT pack alt; explicit non-claims); onboarding rate detail mentions CSV/XLSX |
+| **2 Channels / UI** | **Done** | `/docs#bring-your-data`; cue links on Rates import + Parties/Leads CSV dialogs |
+| **3 Proof** | **Done** | publicDocs specs (no vanity/cutover invent); release note; this ladder; market/self-serve matrix nudge |
+
+**Defer:** testimonials · public scale publish · consultant centre · full-tenant migration tooling.
+
+#### Prod-ready ladder — Operate-through self-serve dogfood (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `missing_customer_instalments` control flag when accepted sell & no customer AR; Next Action CTA; `operateThroughSteps` on parity dogfood kit |
+| **2 Channels / UI** | **Done** | Schedule instalments → Finance `?schedule=1` scroll/highlight; About **Operate-through dogfood** checklist |
+| **3 Proof** | **Done** | trip-control + kit + Next Action specs; release note; this ladder; Accept→ops / Collect Ease nudge |
+
+**Defer:** auto-schedule on accept · inventing agency adoption proof · multi-step ops wizard.
+
 #### Prod-ready ladder — Guided FIT speed: template travel-start gate (**done**)
 
 | Wave | Status | What shipped |
@@ -686,7 +840,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Trips list empty (planning) shows **Install sample FIT pack** when no templates; navigates to demo trip quotations after install |
 | **3 Proof** | **Done** | Helper specs; this ladder in memo |
 
-**Defer:** market credibility content; occupancy grid.
+**Defer:** *(closed — Bring your data / safe migration story)* · occupancy grid.
 
 #### Prod-ready ladder — New trip travel dates (**done**)
 
@@ -696,7 +850,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | New trip sheet Travel start / end DatePickers → POST; Use-template can prefill from trip start |
 | **3 Proof** | **Done** | `tripTravelDates` + CreateTripSchema specs; this ladder in memo |
 
-**Defer:** market credibility content.
+**Defer:** *(closed — Bring your data / safe migration story)*.
 
 #### Prod-ready ladder — Edit trip travel dates (**done**)
 
@@ -706,7 +860,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Workspace header + Overview **Travel dates** → Edit sheet (same DatePickers); soft toast when quote lines exist |
 | **3 Proof** | **Done** | `UpdateTripDatesSchema` specs; this ladder in memo |
 
-**Defer:** market credibility content.
+**Defer:** *(closed — Bring your data / safe migration story)*.
 
 #### Prod-ready ladder — Date-shift on edit travel start (**done**)
 
@@ -1166,7 +1320,7 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Uneven DBL+SGL Alone / Singles control lists trip travellers by name; Occupancy cue **Alone Name** |
 | **3 Proof** | **Done** | hotelNationalityNote + cue specs; About note; this ladder in memo |
 
-**Defer:** *(closed — see Per-child nationality tips below)* · full rooming matrix / voucher room lists; TripTraveller.roomAllocation stamp.
+**Defer:** *(closed — see Per-child nationality tips / Rooming allocation + voucher lists below)* · full rooming matrix; TripTraveller.roomAllocation stamp.
 
 #### Prod-ready ladder — Per-child nationality tips (**done**)
 
@@ -1176,7 +1330,47 @@ Do **not** ship the full costing/contracting wishlists as one epic. Three releas
 | **2 Channels / UI** | **Done** | Quote drawer child nationality chips; Occupancy cue **child mkts IN+US** when mixed |
 | **3 Proof** | **Done** | child-nationality-extras + cue specs; About note; this ladder in memo |
 
-**Defer:** age-band × nationality chart columns; full Sembark child matrix; rooming matrix / voucher room lists.
+**Defer:** *(closed — see Hotel age×nationality child columns / QUAD+ bands / child matrix UI / Rooming allocation below)*.
+
+#### Prod-ready ladder — Hotel age×nationality child columns (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `childAgeNationalityRates` on occupancy JSON; Match `sumChildExtrasByAgeNationality` (age band × market; flat fallback); CSV `childAgeBand1/2*` columns; provenance shares |
+| **2 Channels / UI** | **Done** | Occupancy cue **child ages …**; Rate chart matrix editor (see child matrix UI ladder) |
+| **3 Proof** | **Done** | child-age-nationality-rates specs; About note; this ladder in memo |
+
+**Defer:** *(closed — see Hotel adult bands QUAD+ / child matrix UI)*.
+
+#### Prod-ready ladder — Hotel adult bands QUAD+ (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `parseAdultBands` 1–6; CSV `qadUnitCost`; Match picks highest band ≤ adults/room |
+| **2 Channels / UI** | **Done** | Rate chart 1A–6A band rows; meal matrix includes QAD |
+| **3 Proof** | **Done** | occupancy-pricing + matrix updates; About note; this ladder in memo |
+
+**Defer:** *(none for band cap)*.
+
+#### Prod-ready ladder — Hotel child matrix contracting UI (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | Save/load `childAgeNationalityRates` via occupancy tip (Diff/restore covers occupancy JSON) |
+| **2 Channels / UI** | **Done** | Editable age×market matrix on Rate chart (Add child column) |
+| **3 Proof** | **Done** | About note; this ladder in memo |
+
+**Defer:** denser Sembark workbook single-surface polish.
+
+#### Prod-ready ladder — Rooming allocation + voucher lists (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | `normalizeRoomAllocation` / `groupGuestsByRoomAllocation`; PATCH traveller `roomAllocation`; materialize stamps `roomAllocations` snapshot; hotel voucher groups by stamp |
+| **2 Channels / UI** | **Done** | Travellers tab Room 1/2… select (+ edit sheet); hotel voucher PDF lists rooms with named guests (flat fallback) |
+| **3 Proof** | **Done** | room-allocation + hotel-voucher-pdf + web roomAllocation specs; About note; this ladder in memo |
+
+**Defer:** denser rooming workbook UX.
 
 #### Prod-ready ladder — Tax identity on proposals (**done**)
 
@@ -1297,6 +1491,8 @@ Protocol for claim flip (ops, not engineering):
 3. Only then: claim registry → **Proven**, About note, website “under three minutes”.
 
 **Current status:** registry stays **Testing**; no marketing speed claim. Demo seed ready ≠ public proof.
+
+**Parity Phase 0 kits (shipped):** Settings → About **FIT dogfood kit** + **Pilot smoke** checklist (`parityDogfoodKit` on `GET /dashboard/claim-gates`); public `/docs#what-we-claim` mirrors capture + smoke steps. Scale strip remains gated.
 
 #### Prod-ready ladder — In-app release notes (About) (**done**)
 
@@ -1758,7 +1954,7 @@ Protocol for claim flip (ops, not engineering):
 | **2 Channels / UI** | **Done** | Rate chart optional party-size / cost rows |
 | **3 Proof** | **Done** | `transfer-party-bands.spec`; this ladder in memo |
 
-**Defer:** *(closed — see Transfer CSV party-band columns below)* · *(per-vehicle child + dense bands — see Transfer dense party bands below)* · full Sembark seat matrices.
+**Defer:** *(closed — see Transfer CSV party-band columns below)* · *(per-vehicle child + dense bands — see Transfer dense party bands below)* · *(seat matrices — see Transfer seat matrices)*.
 
 #### Prod-ready ladder — Transfer CSV party-band columns (**done**)
 
@@ -1778,7 +1974,27 @@ Protocol for claim flip (ops, not engineering):
 | **2 Channels / UI** | **Done** | Rate chart 6 band rows; Child/Infant cues; CSV template dense cols + demo child add-on |
 | **3 Proof** | **Done** | band/extras helper specs; About note; this ladder in memo |
 
-**Defer:** full Sembark seat matrices; multi-vehicle party split.
+**Defer:** *(closed — see Transfer seat matrices + Multi-vehicle party split below)*.
+
+#### Prod-ready ladder — Transfer seat matrices (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | Optional `pricingJson.seatMatrix` (≤8: seats, unitCost, child/infant add-on); per_vehicle Match prefers closest seats ≥ party (else vehicle seats); falls back to partyBands; CSV `seatMatrix4/6/7/12UnitCost` |
+| **2 Channels / UI** | **Done** | Rate chart editable seat-matrix rows; CSV template matrix cols |
+| **3 Proof** | **Done** | `transfer-seat-matrix.spec`; About note; this ladder in memo |
+
+**Defer:** *(closed — see Multi-vehicle party split below)*.
+
+#### Prod-ready ladder — Multi-vehicle party split (**done**)
+
+| Wave | Status | What shipped |
+|------|--------|----------------|
+| **1 Integrity** | **Done** | When party > seats and vehicles > 1, buy = sum of per-vehicle party allocations (even split, remainder on last); stamps `calculation.multiVehicleSplit`; Match explain cue |
+| **2 Channels / UI** | **Done** | Match explain shows multi-vehicle split line |
+| **3 Proof** | **Done** | split helper specs; About note; this ladder in memo |
+
+**Defer:** uneven custom vehicle mixes; different vehicle types on one line.
 
 #### Prod-ready ladder — Org sales SLA targets (**done**)
 
@@ -1788,7 +2004,7 @@ Protocol for claim flip (ops, not engineering):
 | **2 Channels / UI** | **Done** | Settings → General target fields beside Inbox aging; Sales response strip tones + target cues |
 | **3 Proof** | **Done** | Tone/parse specs (API + web); this ladder in memo |
 
-**Defer:** *(closed — Meta template sync)* · Microsoft messaging.
+**Defer:** *(closed — Meta template sync)*.
 
 #### Prod-ready ladder — Org FX rates Settings UI (**done**)
 
@@ -1858,7 +2074,7 @@ Protocol for claim flip (ops, not engineering):
 | **2 Channels / UI** | **Done** | Integrations → WhatsApp **Quote proposal template** Combobox; Send dialog readiness cue + link; seed designates Quote proposal template |
 | **3 Proof** | **Done** | `quote-whatsapp-template` + web cue specs; this ladder in memo |
 
-**Defer:** *(closed — see Meta WhatsApp template library sync below)* · Microsoft messaging.
+**Defer:** *(closed — see Meta WhatsApp template library sync below)*.
 
 #### Prod-ready ladder — Meta WhatsApp template library sync (**done**)
 
@@ -1868,7 +2084,7 @@ Protocol for claim flip (ops, not engineering):
 | **2 Channels / UI** | **Done** | Integrations → WhatsApp WABA field + **Sync from Meta**; existing quote Combobox reuses list |
 | **3 Proof** | **Done** | `whatsapp-template-sync.spec`; this ladder in memo |
 
-**Defer:** Microsoft messaging inbox; HubSpot depth; creating/submitting templates to Meta; auto-cron sync.
+**Defer:** creating/submitting templates to Meta; auto-cron sync. HubSpot and Microsoft messaging removed from product.
 
 #### Prod-ready ladder — Inbox WA: 24h session clock + template reply (**done**)
 
@@ -1878,7 +2094,7 @@ Protocol for claim flip (ops, not engineering):
 | **2 Channels / UI** | **Done** | Inbox composer session cue (countdown); outside window → Meta template Combobox → `reply-template` |
 | **3 Proof** | **Done** | Session eval + cue specs; this ladder in memo |
 
-**Defer:** *(closed — Meta template sync)* · Microsoft messaging.
+**Defer:** *(closed — Meta template sync)*.
 
 #### Prod-ready ladder — Inbox Cloud/Connect banner (**done**)
 
@@ -1888,7 +2104,7 @@ Protocol for claim flip (ops, not engineering):
 | **2 Channels / UI** | **Done** | Inbox header banner + **Open Integrations** when Cloud off/incomplete |
 | **3 Proof** | **Done** | Banner helper specs; this ladder in memo |
 
-**Defer:** *(closed — Meta template sync)* · Microsoft messaging.
+**Defer:** *(closed — Meta template sync)*.
 
 #### Prod-ready ladder — Collect/ops: Voucher WA Mark as sent (**done**)
 
@@ -2068,14 +2284,15 @@ Then introduce differentiators: connected WhatsApp and email → agency website 
 - Public quote-speed target: **under three minutes** only when `fitClaimProtocol.publicClaimAllowed` is true (median ≤3m and n≥20 over 30d). Until then status is **testing** — do not put on the website.
 - Do not copy unverified “10X / 95% faster” marketing without methodology.
 - Prefer telemetry: median quote time, lead response time, follow-up completion, conversion, collection time, confirmation time.
-- Do not imply finished custom-domain hosting or Microsoft inbox until shipped. HubSpot is out of scope.
+- Do not imply finished custom-domain hosting until shipped. HubSpot and Microsoft messaging are not product features.
 
 #### Claim registry (sales / marketing / product)
 
 | Claim | Status |
 |-------|--------|
+| Integrated lead → quote → book → collect → ops workflow | **Proven** (journey / thin-complete — **not** usability or market parity) |
+| Agency-experienced parity vs Sembark (daily usability + adoption) | **Not proven** — see Competitive Readiness Matrix |
 | Build a standard FIT quotation in under three minutes | **Testing** — gated by dashboard `fitClaimProtocol` on **real** samples only; demo seed excluded from `publicClaimAllowed` |
-| Integrated lead → quote → book → collect → ops workflow | **Proven** (thin-complete) |
 | Multi-organization travel operating platform | **Architecture proven** — do not claim finished partner network |
 | Automated GST-compliant / full accounting ledger | **Do not claim** |
 | Full supplier / partner network | **Do not claim yet** |
@@ -2123,6 +2340,13 @@ Then introduce differentiators: connected WhatsApp and email → agency website 
 | Uneven 3A/2R DBL+SGL per-pax buy | **Proven** (thin) |
 | Weighted 2-code 3A per-pax buy | **Proven** (thin · lead-weighted) |
 | Rooming alone + traveller multiplicity + 3A×N | **Proven** (thin) |
+| Rooming allocation + voucher lists | **Proven** (thin) |
+| Hotel child age × nationality columns | **Proven** (thin) |
+| Hotel adult bands QUAD+ (1–6A) | **Proven** (thin) |
+| Hotel child matrix contracting UI | **Proven** (thin) |
+| Transfer seat matrices | **Proven** (thin) |
+| Transfer multi-vehicle party split | **Proven** (thin) |
+| FIT dogfood + pilot smoke kit | **Proven** (thin · ops checklist) |
 | Transfer + activity tip diff | **Proven** (thin) |
 | Transfer + activity tip Diff side-by-side | **Proven** (thin) |
 | Package template History Diff side-by-side | **Proven** (thin) |
@@ -2133,7 +2357,7 @@ Then introduce differentiators: connected WhatsApp and email → agency website 
 
 | Bet | Done when | Status |
 |-----|-----------|--------|
-| Hotel occupancy depth | Contracting enters SGL/DBL/TPL without sales spreadsheet override on seeded FIT | **Adult bands → nationality + per-pax through rooming / multiplicity / 3A×N done**; uneven 6A/4R board open |
+| Hotel occupancy depth | Contracting enters SGL/DBL/TPL without sales spreadsheet override on seeded FIT | **Done** through uneven 6A/4R / named alone / per-child tips / age×nationality columns / QUAD+ bands / child matrix UI / rooming allocation + voucher lists |
 | FIT speed claim | Protocol stamped; n≥20 **real**; median ≤3m; `publicClaimAllowed` | **Gate shipped**; demo seed **excluded** from public claim; **production still Testing** (await real samples) |
 | Market credibility | Claim registry live; release notes + polished demo org | **Registry + About + `/changelog` + `/docs` + scale protocol + named demo trip**; public scale strip waits on measured snapshot |
 | Deal-gated FX/fleet | Open only with signed need; keep locks/meta pluggable | **Discipline** — fleet unit board dogfood unlocked; utilization still gated |

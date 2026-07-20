@@ -11,6 +11,11 @@ export type HotelVoucherPdfInput = {
   tripTitle: string;
   partyName?: string | null;
   guestNames: string[];
+  /**
+   * When set (and non-empty), voucher lists guests under Room 1 / Room 2 …
+   * instead of a flat Travellers row. Unassigned names may be appended.
+   */
+  guestRooms?: Array<{ roomLabel: string; guestNames: string[] }>;
   hotelName: string;
   roomType?: string | null;
   mealPlan?: string | null;
@@ -139,7 +144,14 @@ export async function buildHotelVoucherPdf(
 
     row('Trip', `${input.tripNumber} · ${input.tripTitle}`);
     if (input.partyName?.trim()) row('Guest party', input.partyName.trim());
-    if (input.guestNames.length) {
+    const roomGroups = (input.guestRooms || []).filter(
+      (r) => r.guestNames?.length,
+    );
+    if (roomGroups.length) {
+      for (const g of roomGroups) {
+        row(g.roomLabel || 'Room', g.guestNames.join(', '));
+      }
+    } else if (input.guestNames.length) {
       row('Travellers', input.guestNames.join(', '));
     }
     row('Hotel', input.hotelName);

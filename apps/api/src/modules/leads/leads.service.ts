@@ -210,7 +210,6 @@ export class LeadsService {
         entityType: 'lead',
         entityId: lead.id,
       });
-      await this.syncLeadToHubspot(user.organizationId, lead.id);
     }
 
     return { lead, duplicates, idempotent: false };
@@ -1025,33 +1024,6 @@ export class LeadsService {
     return {
       sharedSecret: typeof website.sharedSecret === 'string' ? website.sharedSecret : '',
     };
-  }
-
-  private async hubspotConfig(organizationId: string) {
-    const org = await this.prisma.organization.findUnique({
-      where: { id: organizationId },
-      select: { settingsJson: true },
-    });
-    if (!org) return { enabled: false };
-    const settings = (org.settingsJson ?? {}) as Record<string, unknown>;
-    const integrations = (settings.integrations ?? {}) as Record<string, unknown>;
-    const hubspot = (integrations.hubspot ?? {}) as Record<string, unknown>;
-    return { enabled: Boolean(hubspot.enabled) && Boolean(hubspot.accessToken) };
-  }
-
-  /** Fire-and-forget: keep the org's HubSpot CRM in sync with new leads. */
-  async syncLeadToHubspot(organizationId: string, leadId: string) {
-    try {
-      const cfg = await this.hubspotConfig(organizationId);
-      if (!cfg.enabled) return;
-      await this.outbox.enqueue({
-        organizationId,
-        eventType: 'hubspot.contact.upsert',
-        payload: { leadId },
-      });
-    } catch {
-      // Never fail lead creation because HubSpot sync enqueue failed
-    }
   }
 
   private async whatsappConfig(organizationId: string) {
@@ -2979,92 +2951,6 @@ export class LeadsService {
         pageUrl: input.pageUrl ?? null,
         referrer: input.referrer ?? null,
         source: input.source || (input.siteId ? 'presence' : 'embed'),
-      },
-    });
-  }
-
-  /**
-   * HubSpot → Inbox. Ads / CRM syncs must never create Lead directly.
-   */
-  async ingestHubspotInbound(
-    organizationId: string,
-    body: unknown,
-    opts?: { sharedSecretHeader?: string },
-  ) {
-    const org = await this.prisma.organization.findUnique({
-      where: { id: organizationId },
-      select: { settingsJson: true },
-    });
-    if (!org) throw new NotFoundException('Organization not found');
-    const settings = (org.settingsJson ?? {}) as Record<string, unknown>;
-    const integrations = (settings.integrations ?? {}) as Record<string, unknown>;
-    const hubspot = (integrations.hubspot ?? {}) as Record<string, unknown>;
-    if (hubspot.enabled !== true) {
-      throw new ForbiddenException('HubSpot is not enabled');
-    }
-    const expected =
-      typeof hubspot.accessToken === 'string' ? hubspot.accessToken.slice(0, 24) : '';
-    // Lightweight shared check: require Authorization-like header matching token prefix when set.
-    if (expected && opts?.sharedSecretHeader && !opts.sharedSecretHeader.includes(expected.slice(0, 12))) {
-      // Soft: allow if no header when token empty; when header present must overlap
-    }
-    const payload = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
-    const properties =
-      payload.properties && typeof payload.properties === 'object'
-        ? (payload.properties as Record<string, unknown>)
-        : payload;
-    const email =
-      typeof properties.email === 'string'
-        ? properties.email
-        : typeof properties.email === 'object' &&
-            properties.email &&
-            typeof (properties.email as { value?: string }).value === 'string'
-          ? (properties.email as { value: string }).value
-          : null;
-    const phone =
-      typeof properties.phone === 'string'
-        ? properties.phone
-        : typeof properties.phone === 'object' &&
-            properties.phone &&
-            typeof (properties.phone as { value?: string }).value === 'string'
-          ? (properties.phone as { value: string }).value
-          : null;
-    const first =
-      typeof properties.firstname === 'string'
-        ? properties.firstname
-        : typeof properties.firstname === 'object' &&
-            properties.firstname &&
-            typeof (properties.firstname as { value?: string }).value === 'string'
-          ? (properties.firstname as { value: string }).value
-          : '';
-    const last =
-      typeof properties.lastname === 'string'
-        ? properties.lastname
-        : typeof properties.lastname === 'object' &&
-            properties.lastname &&
-            typeof (properties.lastname as { value?: string }).value === 'string'
-          ? (properties.lastname as { value: string }).value
-          : '';
-    const contactName = [first, last].filter(Boolean).join(' ').trim() || null;
-    const externalId =
-      typeof payload.objectId === 'string' || typeof payload.objectId === 'number'
-        ? String(payload.objectId)
-        : typeof payload.vid === 'string' || typeof payload.vid === 'number'
-          ? String(payload.vid)
-          : JSON.stringify(payload).slice(0, 80);
-
-    return this.ingestInboundTouch(organizationId, {
-      channel: 'api',
-      summary: `HubSpot sync — ${contactName || email || phone || 'contact'}`,
-      contactName,
-      phone,
-      email,
-      acquisitionKey: 'hubspot',
-      idempotencyKey: `hubspot:${organizationId}:${externalId}`,
-      rawPayload: {
-        direction: 'inbound',
-        source: 'hubspot',
-        ...payload,
       },
     });
   }

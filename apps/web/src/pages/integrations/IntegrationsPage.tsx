@@ -33,7 +33,6 @@ import { EmailIngestPanel } from './panels/EmailIngestPanel';
 import { EngagementAutomationPanel } from './panels/EngagementAutomationPanel';
 import { FacebookPanel } from './panels/FacebookPanel';
 import { GoogleWorkspacePanel } from './panels/GoogleWorkspacePanel';
-import { HubSpotPanel } from './panels/HubSpotPanel';
 import { WebhookPanel } from './panels/WebhookPanel';
 import { WhatsAppPanel } from './panels/WhatsAppPanel';
 import {
@@ -276,12 +275,6 @@ export function IntegrationsPage() {
             }
           />
         ) : null}
-        {activeId === 'hubspot' ? (
-          <HubSpotPanel
-            value={draft.hubspot}
-            onChange={(hubspot) => setDraft((prev) => ({ ...prev, hubspot }))}
-          />
-        ) : null}
         {activeId === 'facebook_leads' ? (
           <FacebookPanel
             organizationId={orgId}
@@ -324,15 +317,6 @@ function buildConnectorPatch(
       webhookUrl: draft.webhookUrl,
       websiteIngest: {
         sharedSecret: draft.websiteIngest.sharedSecret.trim(),
-      },
-    };
-  }
-  if (id === 'hubspot') {
-    return {
-      hubspot: {
-        enabled: draft.hubspot.enabled,
-        portalId: draft.hubspot.portalId.trim(),
-        accessToken: draft.hubspot.accessToken.trim(),
       },
     };
   }

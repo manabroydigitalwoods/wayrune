@@ -20,8 +20,7 @@ type GuideId =
   | 'instagram_leads'
   | 'conversation_widget'
   | 'webhook'
-  | 'email_ingest'
-  | 'hubspot';
+  | 'email_ingest';
 
 const GUIDES: { id: GuideId; label: string }[] = [
   { id: 'overview', label: 'Start here' },
@@ -32,7 +31,6 @@ const GUIDES: { id: GuideId; label: string }[] = [
   { id: 'conversation_widget', label: 'Chatflows' },
   { id: 'webhook', label: 'Website form webhook' },
   { id: 'email_ingest', label: 'Email ingest' },
-  { id: 'hubspot', label: 'HubSpot' },
 ];
 
 function Step({ n, children }: { n: number; children: ReactNode }) {
@@ -224,21 +222,6 @@ function GuideBody({ id }: { id: GuideId }) {
             <Step n={1}>Integrations → Email ingest → Enable → set shared secret → Save.</Step>
             <Step n={2}>Configure your forwarder to hit the URL on the panel with that secret.</Step>
             <Step n={3}>Send a test email → Inbox → Email filter → reply by email from Inbox when SMTP is configured.</Step>
-          </ol>
-        </div>
-      );
-
-    case 'hubspot':
-      return (
-        <div className="space-y-4 text-sm leading-6 text-muted-foreground">
-          <p>
-            Optional CRM sync: when you create Leads in this app, they can be pushed to HubSpot as
-            contacts. This does not replace Inbox.
-          </p>
-          <ol className="space-y-3">
-            <Step n={1}>Create a HubSpot private app token with contact write access.</Step>
-            <Step n={2}>Integrations → HubSpot → Enable → paste token (and portal id if shown) → Save.</Step>
-            <Step n={3}>Create or promote a Lead in the app → check HubSpot for the new contact.</Step>
           </ol>
         </div>
       );

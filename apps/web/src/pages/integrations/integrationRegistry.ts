@@ -17,7 +17,6 @@ export type IntegrationId =
   | 'whatsapp'
   | 'webhook'
   | 'google_workspace'
-  | 'hubspot'
   | 'facebook_leads'
   | 'instagram_leads'
   | 'email_ingest';
@@ -73,15 +72,6 @@ export const INTEGRATION_CATALOG: IntegrationDefinition[] = [
     softTone: 'primary',
     getStatus: (s) =>
       s.websiteIngest.sharedSecretConfigured ? 'connected' : 'available',
-  },
-  {
-    id: 'hubspot',
-    name: 'HubSpot sync',
-    description: 'New leads are pushed to HubSpot as contacts.',
-    category: 'crm',
-    icon: Globe,
-    softTone: 'warning',
-    getStatus: (s) => (s.hubspot.enabled ? 'connected' : 'available'),
   },
   {
     id: 'facebook_leads',

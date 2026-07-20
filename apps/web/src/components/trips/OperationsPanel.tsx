@@ -16,6 +16,7 @@ import {
   SimpleFormField as FormField,
   StatusBadge,
   SuggestionChips,
+  cn,
   formatCurrency,
   toastError,
   toastSuccess,
@@ -274,11 +275,14 @@ export function OperationsPanel({
   status,
   onChanged,
   onOpenFinance,
+  focusBookingId,
 }: {
   tripId: string;
   status: string;
   onChanged: () => Promise<void> | void;
   onOpenFinance?: () => void;
+  /** Scroll/highlight this booking (from Next action deep-link). */
+  focusBookingId?: string | null;
 }) {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [readiness, setReadiness] = useState<Readiness | null>(null);
@@ -334,6 +338,14 @@ export function OperationsPanel({
   >(null);
   const { hasAny } = usePermissions();
   const canWrite = hasAny(CAP.tripWrite);
+
+  useEffect(() => {
+    const id = focusBookingId?.trim();
+    if (!id || !bookings.some((b) => b.id === id)) return;
+    const el = document.getElementById(`ops-booking-${id}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [focusBookingId, bookings]);
 
   async function loadPartnerConfirmIndex(bookingIds: string[]) {
     if (!bookingIds.length) {
@@ -1458,7 +1470,12 @@ export function OperationsPanel({
                 return (
                 <li
                   key={b.id}
-                  className="space-y-2 rounded-xl border px-3 py-2.5 text-sm glass-row"
+                  id={`ops-booking-${b.id}`}
+                  className={cn(
+                    'space-y-2 rounded-xl border px-3 py-2.5 text-sm glass-row',
+                    focusBookingId === b.id &&
+                      'border-primary/50 ring-2 ring-primary/20',
+                  )}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
@@ -2170,7 +2187,7 @@ export function OperationsPanel({
             <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5 text-sm">
               <div className="flex flex-wrap items-center gap-2">
                 <StatusBadge
-                  status={
+                  value={
                     cancelPreview.policySource === 'none'
                       ? 'draft'
                       : cancelPreview.policySource === 'quote_line'
@@ -2229,9 +2246,9 @@ export function OperationsPanel({
             {cancelCase ? (
               <div className="flex flex-wrap items-center gap-2 text-sm">
                 <span className="text-muted-foreground">Case</span>
-                <StatusBadge status={cancelCase.approvalStatus} />
+                <StatusBadge value={cancelCase.approvalStatus} />
                 <StatusBadge
-                  status={cancelCase.executionStatus}
+                  value={cancelCase.executionStatus}
                   label={`exec: ${cancelCase.executionStatus}`}
                 />
               </div>

@@ -32,7 +32,7 @@ const ITEM_META: Record<
   },
   rate: {
     label: 'Add a negotiated rate',
-    detail: 'Hotel chart or transfer fare so quotes can match buy rates.',
+    detail: 'Hotel chart, transfer fare, or CSV/XLSX import so quotes can Match buy rates.',
     href: '/rates',
   },
   quote_template: {

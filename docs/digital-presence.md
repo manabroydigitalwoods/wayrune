@@ -56,7 +56,7 @@ Lead or inquiry
 CRM and sales workflow
 ```
 
-HubSpot, Webflow, and generic CMS products approximate this with integrations. Travel OS owns the entire flow natively.
+Generic CMS products approximate this with integrations. Travel OS owns the entire flow natively.
 
 ---
 

@@ -254,7 +254,6 @@ quoteValidityGraceHours: z.number().int().min(0).max(72).optional(),
       .optional(),
     integrations: z
       .object({
-        hubspotEnabled: z.boolean().optional(),
         webhookUrl: z.string().optional(),
         whatsapp: z
           .object({
@@ -306,16 +305,6 @@ quoteValidityGraceHours: z.number().int().min(0).max(72).optional(),
             primaryColor: z.string().optional(),
             whatsappNumber: z.string().optional(),
             defaultGreeting: z.string().optional(),
-          })
-          .partial()
-          .optional(),
-        hubspot: z
-          .object({
-            enabled: z.boolean().optional(),
-            accessToken: z.string().optional(),
-            portalId: z.string().optional(),
-            stageMapJson: z.record(z.string(), z.string()).optional(),
-            lastSyncAt: z.string().optional(),
           })
           .partial()
           .optional(),
@@ -2683,6 +2672,8 @@ export const UpdateTravellerSchema = z.object({
   fullName: z.preprocess(blankToNull, z.string().min(1).nullable()).optional(),
   type: z.enum(['adult', 'child', 'infant']).optional(),
   isLead: z.boolean().optional(),
+  /** Hotel room stamp on TripTraveller: "R1" / "1" / "Room 2" (normalized server-side). */
+  roomAllocation: z.preprocess(blankToNull, z.string().max(16).nullable()).optional(),
 });
 
 export const ItineraryDayItemSchema = z.object({
@@ -3042,7 +3033,7 @@ export const QuoteRateProvenanceSchema = z.object({
       guestNationalityMixed: z.boolean().optional(),
       /** Mixed-nationality per-adult / composed-room buy (hotel Match). */
       buyMode: z.enum(['per_pax_split']).optional(),
-      /** equal = DBL/2 or TPL/3; dbl_sgl = 3A/2R composed double+single. */
+      /** equal = DBL/2 or TPL/3; dbl_sgl = uneven DBL+SGL board (3A/2R, 6A/4R, …). */
       composition: z.enum(['equal', 'dbl_sgl']).optional(),
       paxBuySplitTotalPerNight: z.number().optional(),
       paxBuySplits: z
@@ -3090,6 +3081,19 @@ export const QuoteRateProvenanceSchema = z.object({
     .passthrough()
     .optional(),
   matchSummary: z.string().optional(),
+  /** Bullet reasons from last Match (Why this rate). Prefer over splitting matchSummary. */
+  matchAccepted: z.array(z.string().min(1)).max(24).optional(),
+  /** Compact rejected diagnostics from last Match (read-only; not apply targets). */
+  matchRejectedCompact: z
+    .array(
+      z.object({
+        rateId: z.string().optional(),
+        label: z.string().min(1),
+        reason: z.string().min(1),
+      }),
+    )
+    .max(8)
+    .optional(),
 });
 
 export const QuotationItemSchema = z.object({
@@ -3295,9 +3299,18 @@ export const TransferPartyBandSchema = z.object({
   unitCost: z.number().nonnegative(),
 });
 
+export const TransferSeatMatrixRowSchema = z.object({
+  seats: z.number().int().min(1).max(20),
+  unitCost: z.number().nonnegative(),
+  childAddOn: z.number().nonnegative().optional(),
+  infantAddOn: z.number().nonnegative().optional(),
+});
+
 export const TransferFarePricingJsonSchema = z
   .object({
     partyBands: z.array(TransferPartyBandSchema).max(6).optional(),
+    /** Optional seat-capacity tiers (≤8); Match prefers over partyBands. */
+    seatMatrix: z.array(TransferSeatMatrixRowSchema).max(8).optional(),
   })
   .optional()
   .nullable();
@@ -3357,6 +3370,21 @@ export const ImportHotelRateCsvRowSchema = z
     dblWeekendUnitCost: z.number().nonnegative().nullable().optional(),
     tplUnitCost: z.number().nonnegative().nullable().optional(),
     tplWeekendUnitCost: z.number().nonnegative().nullable().optional(),
+    qadUnitCost: z.number().nonnegative().nullable().optional(),
+    qadWeekendUnitCost: z.number().nonnegative().nullable().optional(),
+    /** Child age×nationality columns (up to 2 age bands × IN/INTL). */
+    childAgeBand1Min: z.number().int().min(0).max(17).nullable().optional(),
+    childAgeBand1Max: z.number().int().min(0).max(17).nullable().optional(),
+    childAgeBand1InWithBed: z.number().nonnegative().nullable().optional(),
+    childAgeBand1InWithoutBed: z.number().nonnegative().nullable().optional(),
+    childAgeBand1IntlWithBed: z.number().nonnegative().nullable().optional(),
+    childAgeBand1IntlWithoutBed: z.number().nonnegative().nullable().optional(),
+    childAgeBand2Min: z.number().int().min(0).max(17).nullable().optional(),
+    childAgeBand2Max: z.number().int().min(0).max(17).nullable().optional(),
+    childAgeBand2InWithBed: z.number().nonnegative().nullable().optional(),
+    childAgeBand2InWithoutBed: z.number().nonnegative().nullable().optional(),
+    childAgeBand2IntlWithBed: z.number().nonnegative().nullable().optional(),
+    childAgeBand2IntlWithoutBed: z.number().nonnegative().nullable().optional(),
     /** Meal×occupancy expand: EP/CP/MAP/AP prefixed chart + band cols. */
     epUnitCost: z.number().nonnegative().nullable().optional(),
     epWeekendUnitCost: z.number().nonnegative().nullable().optional(),
@@ -3485,6 +3513,14 @@ export const ImportTransferFareCsvRowSchema = z.object({
   partyBand8UnitCost: z.number().nonnegative().nullable().optional(),
   partyBand10UnitCost: z.number().nonnegative().nullable().optional(),
   partyBand12UnitCost: z.number().nonnegative().nullable().optional(),
+  /**
+   * Optional seat-matrix tier costs (common cab capacities).
+   * Prefer over party bands when present on the fare.
+   */
+  seatMatrix4UnitCost: z.number().nonnegative().nullable().optional(),
+  seatMatrix6UnitCost: z.number().nonnegative().nullable().optional(),
+  seatMatrix7UnitCost: z.number().nonnegative().nullable().optional(),
+  seatMatrix12UnitCost: z.number().nonnegative().nullable().optional(),
   pricingMode: TransferFarePricingModeSchema.optional(),
   currency: z.string().length(3).optional(),
   startDate: z.preprocess(blankToNull, z.string().nullable()).optional(),
@@ -3519,6 +3555,11 @@ export const ResolveRatesItemSchema = z.object({
   type: z.string().min(1),
   /** ISO date for season matching (day date or trip start). */
   date: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  /**
+   * Force this chart row when it is already eligible under Match filters
+   * (used when picking a Match alternative).
+   */
+  preferredRateId: z.preprocess(blankToNull, z.string().nullable()).optional(),
   details: z
     .object({
       supplierId: z.string().optional(),
@@ -3546,6 +3587,8 @@ export const ResolveRatesItemSchema = z.object({
       vehicleTypeId: z.string().optional(),
       fromPlaceId: z.string().optional(),
       toPlaceId: z.string().optional(),
+      /** Transfer vehicle count (Match may raise for capacity). */
+      vehicles: z.number().optional(),
       /** Activity / sightseeing match keys. */
       propertyName: z.string().optional(),
       activityName: z.string().optional(),
@@ -3574,6 +3617,11 @@ export const ResolveRatesSchema = z.object({
   ).optional(),
   /** When set, resolve may use agentMarkupPercent for trade/B2B parties. */
   partyId: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  /**
+   * Return up to N other eligible rates after the winner (Match drawer pick-list).
+   * 0 = off (batch rematch). Max 5.
+   */
+  alternativesLimit: z.number().int().min(0).max(5).optional(),
   items: z.array(ResolveRatesItemSchema).min(1).max(200),
 });
 
@@ -4294,6 +4342,19 @@ export {
   rateChartChangedSinceMatch,
   lineNeedsRateDriftAck,
 } from './quote-rate-drift';
+
+export {
+  matchAcceptedFromMeta,
+  matchRejectedCompactFromMeta,
+  matchSummaryFromAccepted,
+  matchAcceptedFromProvenance,
+  matchRejectedFromProvenance,
+  partitionMatchAcceptedForDisplay,
+  isMatchAcceptedNoise,
+  MATCH_ACCEPTED_PRIMARY_LIMIT,
+  type MatchRejectedCompact,
+  type MatchAcceptedDisplay,
+} from './quote-match-explain';
 export {
   lineNeedsAllotmentRiskAck,
   lineNeedsCapacityRiskAck,

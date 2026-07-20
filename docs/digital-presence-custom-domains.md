@@ -4,7 +4,7 @@ Product boundaries and architectural invariants: see [Digital Presence](./digita
 
 Organization identity stores an optional org-level `customDomain`. Each **website** gets a default **platform host** on create; you can optionally connect your own hostname via `PresenceSite.primaryDomain` (unique globally).
 
-## Platform hosts (HubSpot-style)
+## Platform hosts
 
 Every website gets a default URL on the platform edge:
 

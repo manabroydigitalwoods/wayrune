@@ -7,7 +7,7 @@ import { isPlatformKind } from '../lib/orgKind';
 
 /**
  * Layout for `/:orgRef/*` portal routes (agency + partner).
- * Keeps JWT org aligned with the portal id in the URL (HubSpot-style).
+ * Keeps JWT org aligned with the portal id in the URL.
  * Expects an outer shell (auth + AppShell) already wrapping this route.
  */
 export function OrgScopedLayout() {

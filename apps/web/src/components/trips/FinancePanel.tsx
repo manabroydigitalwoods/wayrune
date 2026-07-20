@@ -237,7 +237,9 @@ export function FinancePanel({
   const canOverrideCreditLimit = hasAny(CAP.creditLimitOverride);
   const [searchParams] = useSearchParams();
   const highlightPaymentId = searchParams.get('paymentId');
+  const focusSchedule = searchParams.get('schedule') === '1';
   const highlightRef = useRef<HTMLLIElement | null>(null);
+  const scheduleRef = useRef<HTMLDivElement | null>(null);
   const [data, setData] = useState<FinanceSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [customerFilter, setCustomerFilter] = useState('all');
@@ -326,6 +328,13 @@ export function FinancePanel({
     if (!el) return;
     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }, [highlightPaymentId, loading, data, customerFilter]);
+
+  useEffect(() => {
+    if (!focusSchedule || loading) return;
+    const el = scheduleRef.current;
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [focusSchedule, loading, data]);
 
   useEffect(() => {
     void api<{ items?: Supplier[] } | Supplier[]>(`/suppliers`)
@@ -983,7 +992,14 @@ export function FinancePanel({
       ) : null}
 
       <Card>
-        <CardContent className="space-y-3 p-5">
+        <CardContent
+          ref={scheduleRef}
+          id="finance-schedule-from-terms"
+          className={cn(
+            'space-y-3 p-5',
+            focusSchedule && 'ring-2 ring-primary/20',
+          )}
+        >
           <div className="flex flex-wrap items-center justify-between gap-2">
             <strong className="text-sm">Customer receivables</strong>
             <Can anyOf={CAP.tripWrite}>

@@ -7,6 +7,7 @@ import {
   salesSlaTargetsFromSettings,
 } from './sales-sla-metrics';
 import { fitClaimOpsChecklist, publicScaleOpsChecklist } from './claim-gates';
+import { buildParityDogfoodKit } from './parity-dogfood-kit';
 import {
   buildPublicScaleProtocol,
   PUBLIC_SCALE_WINDOW_DAYS,
@@ -127,6 +128,7 @@ export class DashboardService {
       fitOpsChecklist: fitClaimOpsChecklist(fitClaimProtocol),
       /** Claim registry remains Testing until explicit product sign-off. */
       registryStatus: 'testing' as const,
+      parityDogfoodKit: buildParityDogfoodKit(),
     };
   }
 
@@ -455,6 +457,7 @@ export class DashboardService {
       leadToQuoteSampleSize30d: sla.leadToQuoteSampleSize,
       medianFitBuildMinutes30d: sla.medianFitBuildMinutes,
       fitBuildSampleSize30d: sla.fitBuildSampleSize,
+      fitBuildDemoSampleSize30d: sla.fitBuildDemoSampleSize,
       fitClaimProtocol,
       firstTouchTargetHours: salesSlaTargets.firstTouchTargetHours,
       leadToQuoteTargetHours: salesSlaTargets.leadToQuoteTargetHours,

@@ -40,7 +40,7 @@ describe('formatFitClaimProtocolCue', () => {
         minSampleSize: 20,
         targetMinutes: 3,
       }),
-    ).toBe('testing · 5/20 samples');
+    ).toBe('testing · 5/20 samples · 15 more');
     expect(
       formatFitClaimProtocolCue({
         claimStatus: 'testing',
@@ -84,6 +84,6 @@ describe('formatFitClaimProtocolCue', () => {
         demoSampleSize: 20,
         targetMinutes: 3,
       }),
-    ).toBe('testing · 3/20 samples · median 2m · 20 demo excluded');
+    ).toBe('testing · 3/20 samples · 17 more · median 2m · 20 demo excluded');
   });
 });

@@ -71,13 +71,14 @@ export function formatFitClaimProtocolCue(
     return `demo seed ready (local only) · public claim testing`;
   }
   if (n < min) {
+    const remaining = min - n;
     const median =
       protocol.medianMinutes != null && Number.isFinite(protocol.medianMinutes)
         ? ` · median ${Math.round(Number(protocol.medianMinutes))}m`
         : '';
     const demo =
       demoN > 0 ? ` · ${demoN} demo excluded` : '';
-    return `testing · ${n}/${min} samples${median}${demo}`;
+    return `testing · ${n}/${min} samples · ${remaining} more${median}${demo}`;
   }
   const median = protocol.medianMinutes;
   if (median != null && Number.isFinite(median) && median > target) {

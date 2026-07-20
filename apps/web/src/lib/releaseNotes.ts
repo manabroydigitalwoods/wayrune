@@ -27,6 +27,150 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-why-rate-noise-filter',
+    date: '2026-07-20',
+    title: 'Why this rate — quieter bullets',
+    summary:
+      'Match drawer keeps at most three primary Why bullets (room/meal/contract signal first). Hygiene lines (no blackout, dates covered, agency preferred, etc.) and overflow sit under more match notes. Full reasons still persist on the line.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-operate-through-dogfood',
+    date: '2026-07-20',
+    title: 'Operate-through dogfood kit',
+    summary:
+      'Accepted quotes with no customer receivables surface Next action → Schedule instalments (Finance Schedule from terms). Settings → About adds an Operate-through checklist (import → quote → accept → collect → ops → cancel). Process kit only — not agency adoption proof.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-bring-your-data',
+    date: '2026-07-20',
+    title: 'Bring your data (safe migration story)',
+    summary:
+      'Public /docs#bring-your-data walks suppliers → rate CSV/XLSX → clients/leads CSV → Match, or Install FIT pack for greenfield. Import dialogs link the guide. Explicitly not a full-tenant cutover or Sembark one-day switch.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-trip-next-action',
+    date: '2026-07-20',
+    title: 'Trip Next action strip',
+    summary:
+      'Above trip tabs, one Next action ranks control flags (overdue / credit / unconfirmed / voucher / collect…). Primary CTA opens the right tab and focuses the booking when known. Calm fallback when the trip is clear.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-priced-match-alts',
+    date: '2026-07-20',
+    title: 'Priced Match alternatives',
+    summary:
+      'Other eligible rates show estimated stay buy (hotel) or line buy (transfer/activity) for the current stay/pax — single-tip preview with chart unit. Use still re-matches; mixed-nationality pax-split and multi-cab paths may differ after apply.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-why-this-rate',
+    date: '2026-07-20',
+    title: 'Why this rate on Match',
+    summary:
+      'Match drawer shows Why this rate for hotel, transfer, and activity. Accepted reasons and compact rejected diagnostics persist on the line so reopen does not require a fresh Match. Other eligible rates still use Use — rejected rows stay read-only.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-match-alternatives',
+    date: '2026-07-20',
+    title: 'Match alternatives pick-list',
+    summary:
+      'After Match rate, eligible runner-up hotel/transfer/activity charts appear as Other eligible rates. Use re-resolves that chart onto the same line (preferredRateId). Rejected diagnostics stay read-only — not a pick-list.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-fit-dogfood-timing-ux',
+    date: '2026-07-20',
+    title: 'FIT dogfood timing cues (real-only)',
+    summary:
+      'Dashboard Median FIT build uses real samples only (demo seed excluded). Quotations tab shows gate progress (n/20 · remaining · About). Settings → About highlights remaining sends and demo-excluded count. Public “under 3 minutes” stays Testing — no invented samples.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-fit-revision-margin-delta',
+    date: '2026-07-20',
+    title: 'Revision margin delta',
+    summary:
+      'Editable drafts with cost view compare Cost / Sell / Margin to the prior same-quotation version (or trip accepted). Signed deltas update live as you rematch or edit lines. Incomplete pricing is flagged; no parent-version FK.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-fit-revise-moves',
+    date: '2026-07-20',
+    title: 'One-click FIT revise moves',
+    summary:
+      'Locked quotes show Revise / Edit travel dates. After revise, clone, or date rewrite, a dismissible strip offers date shift, rematch all/drifted, fix unmatched, swap hotel (open Match), and apply inquiry party then rematch. Match drawer also lists eligible runner-up charts (Use).',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-fit-quote-progress-rail',
+    date: '2026-07-20',
+    title: 'Guided FIT quote progress rail',
+    summary:
+      'Quotations tab shows Package → Lines matched → Margin OK → Ready to send. Click the current step to open template, Match, margin override, or Send readiness. Quiet when fully ready. Progress cues are not the public FIT ≤3m claim.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-hotel-child-age-nationality',
+    date: '2026-07-20',
+    title: 'Hotel child age × nationality columns',
+    summary:
+      'Rate chart contracts child with/without-bed by age band and market (IN/INTL). Match picks the column from traveller ages; CSV childAgeBand1/2 columns import. Flat child rates remain fallback.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-hotel-quad-plus-bands',
+    date: '2026-07-20',
+    title: 'Hotel adult bands through 6A (QUAD+)',
+    summary:
+      'Adult bands accept 1–6 adults/room (CSV qadUnitCost). Meal matrix includes QAD. Match picks the highest band ≤ adults/room; extras only beyond that band.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-hotel-child-matrix-ui',
+    date: '2026-07-20',
+    title: 'Hotel child matrix contracting UI',
+    summary:
+      'Supplier Rate chart shows an editable child age × nationality matrix (add columns). Tip Diff/restore already covers occupancy JSON including the matrix.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-parity-dogfood-kit',
+    date: '2026-07-20',
+    title: 'FIT dogfood + pilot smoke kit',
+    summary:
+      'Settings → About claim gates lists FIT capture steps and pilot smoke (write-off, transfer bands, sibling sort, movement). Public /docs mirrors the ops kit. Demo seed still never counts toward public FIT proof.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-transfer-seat-matrix',
+    date: '2026-07-20',
+    title: 'Transfer seat matrices',
+    summary:
+      'Per-vehicle fares can carry a seat matrix (CSV seatMatrix4/6/7/12). Match prefers the closest seats ≥ party over party bands, with optional child/infant add-ons per tier.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-transfer-multi-vehicle-split',
+    date: '2026-07-20',
+    title: 'Transfer multi-vehicle party split',
+    summary:
+      'When party exceeds seats and Match raises vehicles, buy is the sum of per-vehicle party allocations (remainder on the last cab). Match explain stamps the split.',
+    claimStatus: 'proven',
+  },
+  {
+    id: '2026-07-20-rooming-allocation-voucher',
+    date: '2026-07-20',
+    title: 'Rooming allocation on travellers + hotel voucher lists',
+    summary:
+      'Assign Room 1/2… on the trip Travellers tab (TripTraveller.roomAllocation). Hotel vouchers list named guests under each room when set; otherwise the flat traveller list. Materialize stamps the allocation snapshot onto the booking.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-package-sibling-sort',
     date: '2026-07-20',
     title: 'Package sibling sort',

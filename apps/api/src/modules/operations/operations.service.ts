@@ -108,6 +108,10 @@ import {
   TRIP_PAYMENT_LINKED_ENTITY,
 } from './hotel-payable-settle';
 import { buildHotelVoucherPdf } from './hotel-voucher-pdf';
+import {
+  groupGuestsByRoomAllocation,
+  roomAllocationSnapshot,
+} from './room-allocation';
 import { buildTransferVoucherPdf } from './transfer-voucher-pdf';
 import { buildActivityVoucherPdf } from './activity-voucher-pdf';
 import { buildTripControlSummary } from './trip-control';
@@ -698,6 +702,19 @@ export class OperationsService {
     const bookingIds: string[] = [];
     const inventoryUser = await this.inventoryActorUser(organizationId, actorUserId);
 
+    const tripTravellers = await this.prisma.tripTraveller.findMany({
+      where: { tripId },
+      include: { traveller: { select: { id: true, fullName: true } } },
+      orderBy: [{ isLead: 'desc' }],
+    });
+    const roomAllocations = roomAllocationSnapshot(
+      tripTravellers.map((tt) => ({
+        travellerId: tt.travellerId,
+        fullName: tt.traveller.fullName || '',
+        roomAllocation: tt.roomAllocation,
+      })),
+    );
+
     for (const line of lines) {
       const lineId = line.id!.trim();
       const existing = await this.prisma.bookingComponent.findFirst({
@@ -770,6 +787,9 @@ export class OperationsService {
             rooms,
             checkIn: line.details?.checkIn ?? null,
             checkOut: line.details?.checkOut ?? null,
+            ...(roomAllocations.length
+              ? { roomAllocations }
+              : {}),
           } as Prisma.InputJsonValue,
           createdBy: actorUserId,
           updatedBy: actorUserId,
@@ -1616,7 +1636,9 @@ export class OperationsService {
       include: {
         party: { select: { displayName: true } },
         travellers: {
-          include: { traveller: { select: { fullName: true } } },
+          include: {
+            traveller: { select: { fullName: true } },
+          },
           orderBy: [{ isLead: 'desc' }],
         },
         organization: {
@@ -1665,9 +1687,25 @@ export class OperationsService {
       trip.organization.name,
     );
     const contact = parseBusinessContact(trip.organization.settingsJson);
-    const guestNames = trip.travellers
-      .map((t) => t.traveller.fullName?.trim())
+    const guestRows = trip.travellers.map((t) => ({
+      fullName: t.traveller.fullName?.trim() || '',
+      roomAllocation: t.roomAllocation,
+    }));
+    const guestNames = guestRows
+      .map((t) => t.fullName)
       .filter((n): n is string => Boolean(n));
+    const grouped = groupGuestsByRoomAllocation(guestRows);
+    const guestRooms = grouped.hasAllocation
+      ? [
+          ...grouped.rooms.map((r) => ({
+            roomLabel: r.roomLabel,
+            guestNames: r.guestNames,
+          })),
+          ...(grouped.unallocated.length
+            ? [{ roomLabel: 'Unassigned', guestNames: grouped.unallocated }]
+            : []),
+        ]
+      : undefined;
 
     let pdfBuffer: Buffer;
     if (booking.type === 'transfer') {
@@ -1747,6 +1785,7 @@ export class OperationsService {
         tripTitle: trip.title,
         partyName: trip.party?.displayName || null,
         guestNames,
+        guestRooms,
         hotelName,
         roomType: str(req.roomType),
         mealPlan: str(req.mealPlan),

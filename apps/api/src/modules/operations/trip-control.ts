@@ -230,6 +230,23 @@ export function buildTripControlSummary(input: {
     });
   }
 
+  const acceptedSell = input.finance.quote?.sellTotal ?? 0;
+  if (
+    input.finance.quote &&
+    acceptedSell > 0 &&
+    input.finance.summary.customerDue <= 0 &&
+    input.finance.summary.customerPaid <= 0
+  ) {
+    flags.push({
+      id: 'missing_customer_instalments',
+      severity: nearDeparture ? 'warn' : 'info',
+      code: 'missing_customer_instalments',
+      label: 'No customer instalments scheduled',
+      detail: 'Schedule from party payment terms on Finance',
+      tab: 'finance',
+    });
+  }
+
   if (input.finance.summary.customerDue > 0) {
     flags.push({
       id: 'customer_balance',

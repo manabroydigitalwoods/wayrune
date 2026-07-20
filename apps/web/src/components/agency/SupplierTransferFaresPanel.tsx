@@ -101,6 +101,13 @@ function emptyForm(defaultFrom?: PlaceRef | null) {
       { partySize: '10', unitCost: '' },
       { partySize: '12', unitCost: '' },
     ],
+    /** Optional seat matrix (seats + cost + add-ons) — up to 8. */
+    seatMatrixRows: [
+      { seats: '4', unitCost: '', childAddOn: '', infantAddOn: '' },
+      { seats: '6', unitCost: '', childAddOn: '', infantAddOn: '' },
+      { seats: '7', unitCost: '', childAddOn: '', infantAddOn: '' },
+      { seats: '12', unitCost: '', childAddOn: '', infantAddOn: '' },
+    ],
     startDate: '',
     endDate: '',
   };
@@ -371,6 +378,67 @@ export function SupplierTransferFaresPanel({
           };
         });
       })(),
+      seatMatrixRows: (() => {
+        const blanks = [
+          { seats: '4', unitCost: '', childAddOn: '', infantAddOn: '' },
+          { seats: '6', unitCost: '', childAddOn: '', infantAddOn: '' },
+          { seats: '7', unitCost: '', childAddOn: '', infantAddOn: '' },
+          { seats: '12', unitCost: '', childAddOn: '', infantAddOn: '' },
+        ];
+        const raw = fare.pricingJson;
+        const matrix =
+          raw &&
+          typeof raw === 'object' &&
+          Array.isArray((raw as { seatMatrix?: unknown }).seatMatrix)
+            ? (
+                (raw as {
+                  seatMatrix: Array<{
+                    seats?: unknown;
+                    unitCost?: unknown;
+                    childAddOn?: unknown;
+                    infantAddOn?: unknown;
+                  }>;
+                }).seatMatrix
+              )
+            : [];
+        if (matrix.length === 0) return blanks;
+        const fromChart = matrix
+          .map((row) => {
+            const seats = Number(row.seats);
+            const unitCost = Number(row.unitCost);
+            if (
+              !Number.isFinite(seats) ||
+              seats < 1 ||
+              !Number.isFinite(unitCost) ||
+              unitCost < 0
+            ) {
+              return null;
+            }
+            return {
+              seats: String(Math.floor(seats)),
+              unitCost: String(unitCost),
+              childAddOn:
+                row.childAddOn != null && Number(row.childAddOn) >= 0
+                  ? String(row.childAddOn)
+                  : '',
+              infantAddOn:
+                row.infantAddOn != null && Number(row.infantAddOn) >= 0
+                  ? String(row.infantAddOn)
+                  : '',
+            };
+          })
+          .filter((r): r is NonNullable<typeof r> => r != null)
+          .slice(0, 8);
+        while (fromChart.length < 4) {
+          fromChart.push({
+            seats: '',
+            unitCost: '',
+            childAddOn: '',
+            infantAddOn: '',
+          });
+        }
+        return fromChart;
+      })(),
       startDate: isoDate(fare.startDate),
       endDate: isoDate(fare.endDate),
     });
@@ -441,7 +509,66 @@ export function SupplierTransferFaresPanel({
               unitCost,
             });
           }
-          return partyBands.length ? { partyBands } : null;
+          const seatMatrix: Array<{
+            seats: number;
+            unitCost: number;
+            childAddOn?: number;
+            infantAddOn?: number;
+          }> = [];
+          for (const row of form.seatMatrixRows) {
+            if (!row.unitCost.trim() && !row.seats.trim()) continue;
+            if (!row.unitCost.trim() || !row.seats.trim()) {
+              toastError('Seat matrix rows need both seats and cost');
+              return undefined;
+            }
+            const seats = Number(row.seats);
+            const unitCost = Number(row.unitCost);
+            if (
+              !Number.isFinite(seats) ||
+              seats < 1 ||
+              seats > 20 ||
+              !Number.isFinite(unitCost) ||
+              unitCost < 0
+            ) {
+              toastError('Seat matrix must be 1–20 seats with a valid cost');
+              return undefined;
+            }
+            const entry: {
+              seats: number;
+              unitCost: number;
+              childAddOn?: number;
+              infantAddOn?: number;
+            } = {
+              seats: Math.floor(seats),
+              unitCost,
+            };
+            if (row.childAddOn.trim()) {
+              const childAddOn = Number(row.childAddOn);
+              if (!Number.isFinite(childAddOn) || childAddOn < 0) {
+                toastError('Seat matrix child add-on must be a valid cost');
+                return undefined;
+              }
+              entry.childAddOn = childAddOn;
+            }
+            if (row.infantAddOn.trim()) {
+              const infantAddOn = Number(row.infantAddOn);
+              if (!Number.isFinite(infantAddOn) || infantAddOn < 0) {
+                toastError('Seat matrix infant add-on must be a valid cost');
+                return undefined;
+              }
+              entry.infantAddOn = infantAddOn;
+            }
+            seatMatrix.push(entry);
+          }
+          if (seatMatrix.length > 8) {
+            toastError('Seat matrix allows at most 8 rows');
+            return undefined;
+          }
+          if (!partyBands.length && !seatMatrix.length) return null;
+          return {
+            ...(partyBands.length ? { partyBands } : {}),
+            ...(seatMatrix.length ? { seatMatrix } : {}),
+          };
         })(),
         startDate: form.startDate || null,
         endDate: form.endDate || null,
@@ -695,8 +822,87 @@ export function SupplierTransferFaresPanel({
           </FormField>
           {form.pricingMode === 'per_vehicle' ? (
             <FormField
+              label="Seat matrix (optional)"
+              description="Up to 8 capacity tiers — Match prefers these over party bands (closest seats ≥ party)."
+            >
+              <div className="space-y-2">
+                <div className="grid grid-cols-4 gap-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  <span>Seats</span>
+                  <span>Unit cost</span>
+                  <span>Child add-on</span>
+                  <span>Infant add-on</span>
+                </div>
+                {form.seatMatrixRows.map((row, idx) => (
+                  <div key={idx} className="grid grid-cols-4 gap-2">
+                    <Input
+                      inputMode="numeric"
+                      value={row.seats}
+                      onChange={(e) => {
+                        const next = [...form.seatMatrixRows];
+                        next[idx] = { ...row, seats: e.target.value };
+                        setForm((f) => ({ ...f, seatMatrixRows: next }));
+                      }}
+                      placeholder="Seats"
+                    />
+                    <PriceField
+                      value={row.unitCost}
+                      onChange={(unitCost) => {
+                        const next = [...form.seatMatrixRows];
+                        next[idx] = { ...row, unitCost };
+                        setForm((f) => ({ ...f, seatMatrixRows: next }));
+                      }}
+                      placeholder="Cost"
+                    />
+                    <PriceField
+                      value={row.childAddOn}
+                      onChange={(childAddOn) => {
+                        const next = [...form.seatMatrixRows];
+                        next[idx] = { ...row, childAddOn };
+                        setForm((f) => ({ ...f, seatMatrixRows: next }));
+                      }}
+                      placeholder="Optional"
+                    />
+                    <PriceField
+                      value={row.infantAddOn}
+                      onChange={(infantAddOn) => {
+                        const next = [...form.seatMatrixRows];
+                        next[idx] = { ...row, infantAddOn };
+                        setForm((f) => ({ ...f, seatMatrixRows: next }));
+                      }}
+                      placeholder="Optional"
+                    />
+                  </div>
+                ))}
+                {form.seatMatrixRows.length < 8 ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      setForm((f) => ({
+                        ...f,
+                        seatMatrixRows: [
+                          ...f.seatMatrixRows,
+                          {
+                            seats: '',
+                            unitCost: '',
+                            childAddOn: '',
+                            infantAddOn: '',
+                          },
+                        ],
+                      }))
+                    }
+                  >
+                    Add seat row
+                  </Button>
+                ) : null}
+              </div>
+            </FormField>
+          ) : null}
+          {form.pricingMode === 'per_vehicle' ? (
+            <FormField
               label="Party bands (optional)"
-              description="Up to 6 sizes — Match picks the highest band ≤ party (adults+children)."
+              description="Up to 6 sizes — used when seat matrix is empty. Match picks the highest band ≤ party (adults+children)."
             >
               <div className="space-y-2">
                 {form.partyBandRows.map((row, idx) => (

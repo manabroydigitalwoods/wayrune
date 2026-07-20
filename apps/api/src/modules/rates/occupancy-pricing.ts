@@ -4,9 +4,13 @@ import { parseMinStayNights } from './hotel-min-stay';
 import { parseMaxStayNights } from './hotel-max-stay';
 import { normalizeHotelNationality } from './hotel-nationality';
 import { normalizePlaceOfSupply } from './hotel-place-of-supply';
+import {
+  parseChildAgeNationalityRates,
+  type ChildAgeNationalityRate,
+} from './child-age-nationality-rates';
 
 export type AdultBand = {
-  /** Adults covered by this per-room base (1=SGL, 2=DBL, 3=TPL). */
+  /** Adults covered by this per-room base (1=SGL, 2=DBL, 3=TPL, 4+=QUAD…). */
   adults: number;
   /** Weekday unit cost per room-night for this band. */
   unitCostPerNight: number;
@@ -27,8 +31,10 @@ export type OccupancyPricing = {
   childWithBedPerNight?: number;
   /** Child without bed per night. */
   childWithoutBedPerNight?: number;
-  /** Optional SGL/DBL/TPL bases (≤3). Meal stays on the season row. */
+  /** Optional SGL/DBL/TPL/QUAD+ bases. Meal stays on the season row. */
   adultBands?: AdultBand[];
+  /** Child rates by age band × nationality (chart columns). */
+  childAgeNationalityRates?: ChildAgeNationalityRate[];
   /** Minimum stay nights for this rate card (soft Match cue). */
   minStayNights?: number;
   /** Maximum stay nights for this rate card (soft Match cue). */
@@ -80,7 +86,7 @@ function numField(v: unknown): number | undefined {
   return undefined;
 }
 
-/** Parse ≤3 unique adult bands (1–3), sorted ascending. */
+/** Parse ≤6 unique adult bands (1–6), sorted ascending. */
 export function parseAdultBands(raw: unknown): AdultBand[] {
   if (!Array.isArray(raw)) return [];
   const byAdults = new Map<number, AdultBand>();
@@ -91,7 +97,7 @@ export function parseAdultBands(raw: unknown): AdultBand[] {
     const unitCostPerNight = numField(o.unitCostPerNight ?? o.unitCost);
     if (adults == null || unitCostPerNight == null) continue;
     const a = Math.floor(adults);
-    if (a < 1 || a > 3) continue;
+    if (a < 1 || a > 6) continue;
     const weekendUnitCostPerNight = numField(
       o.weekendUnitCostPerNight ?? o.weekendUnitCost,
     );
@@ -102,7 +108,7 @@ export function parseAdultBands(raw: unknown): AdultBand[] {
         ? { weekendUnitCostPerNight }
         : {}),
     });
-    if (byAdults.size >= 3) break;
+    if (byAdults.size >= 6) break;
   }
   return [...byAdults.values()].sort((x, y) => x.adults - y.adults);
 }
@@ -122,16 +128,19 @@ export function buildAdultBandsFromHotelCsvRow(row: {
   dblWeekendUnitCost?: number | null;
   tplUnitCost?: number | null;
   tplWeekendUnitCost?: number | null;
+  qadUnitCost?: number | null;
+  qadWeekendUnitCost?: number | null;
 }): AdultBand[] | null {
   const hasBandWeekday =
     row.sglUnitCost != null ||
     row.dblUnitCost != null ||
-    row.tplUnitCost != null;
+    row.tplUnitCost != null ||
+    row.qadUnitCost != null;
   if (!hasBandWeekday) return null;
 
   const bands: AdultBand[] = [];
   const push = (
-    adults: 1 | 2 | 3,
+    adults: number,
     unit: number | null | undefined,
     weekend: number | null | undefined,
   ) => {
@@ -156,6 +165,7 @@ export function buildAdultBandsFromHotelCsvRow(row: {
   push(2, dblUnit, dblWeekend);
 
   push(3, row.tplUnitCost, row.tplWeekendUnitCost);
+  push(4, row.qadUnitCost, row.qadWeekendUnitCost);
 
   return bands.length ? bands : null;
 }
@@ -226,6 +236,9 @@ export function parseOccupancyPricing(raw: unknown): OccupancyPricing | null {
   const childWithBedPerNight = numField(o.childWithBedPerNight);
   const childWithoutBedPerNight = numField(o.childWithoutBedPerNight);
   const adultBands = parseAdultBands(o.adultBands);
+  const childAgeNationalityRates = parseChildAgeNationalityRates(
+    o.childAgeNationalityRates,
+  );
   const minStayNights = parseMinStayNights(o.minStayNights);
   const maxStayNights = parseMaxStayNights(o.maxStayNights);
   const nationality = normalizeHotelNationality(
@@ -242,6 +255,7 @@ export function parseOccupancyPricing(raw: unknown): OccupancyPricing | null {
     baseChildren === 0 &&
     childAgeMax == null &&
     adultBands.length === 0 &&
+    childAgeNationalityRates.length === 0 &&
     minStayNights == null &&
     maxStayNights == null &&
     nationality == null &&
@@ -254,6 +268,7 @@ export function parseOccupancyPricing(raw: unknown): OccupancyPricing | null {
       o.baseAdults == null &&
       o.baseChildren == null &&
       o.adultBands == null &&
+      o.childAgeNationalityRates == null &&
       o.minStayNights == null &&
       o.maxStayNights == null &&
       o.nationality == null &&
@@ -270,6 +285,9 @@ export function parseOccupancyPricing(raw: unknown): OccupancyPricing | null {
     ...(childWithBedPerNight != null ? { childWithBedPerNight } : {}),
     ...(childWithoutBedPerNight != null ? { childWithoutBedPerNight } : {}),
     ...(adultBands.length ? { adultBands } : {}),
+    ...(childAgeNationalityRates.length
+      ? { childAgeNationalityRates }
+      : {}),
     ...(minStayNights != null ? { minStayNights } : {}),
     ...(maxStayNights != null ? { maxStayNights } : {}),
     ...(nationality != null ? { nationality } : {}),

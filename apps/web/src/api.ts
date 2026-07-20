@@ -369,6 +369,12 @@ export type SupplierTransferFareRow = {
   pricingMode?: string | null;
   pricingJson?: {
     partyBands?: Array<{ partySize: number; unitCost: number }>;
+    seatMatrix?: Array<{
+      seats: number;
+      unitCost: number;
+      childAddOn?: number;
+      infantAddOn?: number;
+    }>;
   } | null;
   currency: string;
   startDate?: string | null;

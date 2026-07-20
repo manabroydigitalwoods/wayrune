@@ -50,7 +50,7 @@ export const AGENCY_ROUTES = {
 export type AgencyRoutePath = (typeof AGENCY_ROUTES)[keyof typeof AGENCY_ROUTES];
 
 /**
- * HubSpot-style portal id for URLs.
+ * Org-scoped portal id for URLs.
  * Prefer numeric `publicCode`; cuid accepted as fallback.
  */
 export function orgPortalRef(org: {

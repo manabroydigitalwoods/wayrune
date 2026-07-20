@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Button,
   RecordDialog,
@@ -10,6 +11,7 @@ import {
 } from '@wayrune/ui';
 import { api } from '../../api';
 import { loadRatesImportFile } from '../../lib/ratesSheetImport';
+import { PUBLIC_DOCS_BRING_YOUR_DATA_HREF } from '../../lib/publicDocs';
 
 type ImportKind = 'hotel' | 'transfer' | 'activity';
 
@@ -56,8 +58,8 @@ const HOTEL_TEMPLATE =
   'INR,2026-04-01,2026-10-31\n';
 
 const TRANSFER_TEMPLATE =
-  'supplierName,fromPlace,toPlace,vehicleType,unitCost,partyBand2UnitCost,partyBand4UnitCost,partyBand6UnitCost,partyBand8UnitCost,partyBand10UnitCost,partyBand12UnitCost,childUnitCost,infantUnitCost,childAgeMin,childAgeMax,pricingMode,currency,startDate,endDate\n' +
-  'North Bengal Fleet Rentals,Bagdogra (IXB),Darjeeling,Sedan,4500,4500,5200,6500,,,,900,,0,11,per_vehicle,INR,2026-04-01,2026-10-31\n';
+  'supplierName,fromPlace,toPlace,vehicleType,unitCost,partyBand2UnitCost,partyBand4UnitCost,partyBand6UnitCost,partyBand8UnitCost,partyBand10UnitCost,partyBand12UnitCost,seatMatrix4UnitCost,seatMatrix6UnitCost,seatMatrix7UnitCost,seatMatrix12UnitCost,childUnitCost,infantUnitCost,childAgeMin,childAgeMax,pricingMode,currency,startDate,endDate\n' +
+  'North Bengal Fleet Rentals,Bagdogra (IXB),Darjeeling,Sedan,4500,4500,5200,6500,,,,,,,5500,,900,,0,11,per_vehicle,INR,2026-04-01,2026-10-31\n';
 
 const ACTIVITY_TEMPLATE =
   'supplierName,placeName,activityName,privateOrSic,adultUnitCost,childUnitCost,childAgeMin,childAgeMax,currency,startDate,endDate\n' +
@@ -121,8 +123,8 @@ function transferTemplateForSupplier(supplierName?: string) {
   if (!supplierName?.trim()) return TRANSFER_TEMPLATE;
   const safe = supplierName.trim().replace(/,/g, ' ');
   return (
-    'supplierName,fromPlace,toPlace,vehicleType,unitCost,partyBand2UnitCost,partyBand4UnitCost,partyBand6UnitCost,partyBand8UnitCost,partyBand10UnitCost,partyBand12UnitCost,childUnitCost,infantUnitCost,childAgeMin,childAgeMax,pricingMode,currency,startDate,endDate\n' +
-    `${safe},Bagdogra (IXB),Darjeeling,Sedan,4500,4500,5200,6500,,,,900,,0,11,per_vehicle,INR,2026-04-01,2026-10-31\n`
+    'supplierName,fromPlace,toPlace,vehicleType,unitCost,partyBand2UnitCost,partyBand4UnitCost,partyBand6UnitCost,partyBand8UnitCost,partyBand10UnitCost,partyBand12UnitCost,seatMatrix4UnitCost,seatMatrix6UnitCost,seatMatrix7UnitCost,seatMatrix12UnitCost,childUnitCost,infantUnitCost,childAgeMin,childAgeMax,pricingMode,currency,startDate,endDate\n' +
+    `${safe},Bagdogra (IXB),Darjeeling,Sedan,4500,4500,5200,6500,,,,,,,5500,,900,,0,11,per_vehicle,INR,2026-04-01,2026-10-31\n`
   );
 }
 
@@ -246,6 +248,48 @@ export function RatesCsvImportDialog({
         'tplweekendunitcost',
         'tplweekend',
       );
+      const qadIdx = headerIndex(headers, 'qadunitcost', 'quadunitcost', 'qad');
+      const qadWeIdx = headerIndex(
+        headers,
+        'qadweekendunitcost',
+        'quadweekend',
+      );
+      const childAgeBand1MinIdx = headerIndex(headers, 'childageband1min');
+      const childAgeBand1MaxIdx = headerIndex(headers, 'childageband1max');
+      const childAgeBand1InWithIdx = headerIndex(
+        headers,
+        'childageband1inwithbed',
+      );
+      const childAgeBand1InWithoutIdx = headerIndex(
+        headers,
+        'childageband1inwithoutbed',
+      );
+      const childAgeBand1IntlWithIdx = headerIndex(
+        headers,
+        'childageband1intlwithbed',
+      );
+      const childAgeBand1IntlWithoutIdx = headerIndex(
+        headers,
+        'childageband1intlwithoutbed',
+      );
+      const childAgeBand2MinIdx = headerIndex(headers, 'childageband2min');
+      const childAgeBand2MaxIdx = headerIndex(headers, 'childageband2max');
+      const childAgeBand2InWithIdx = headerIndex(
+        headers,
+        'childageband2inwithbed',
+      );
+      const childAgeBand2InWithoutIdx = headerIndex(
+        headers,
+        'childageband2inwithoutbed',
+      );
+      const childAgeBand2IntlWithIdx = headerIndex(
+        headers,
+        'childageband2intlwithbed',
+      );
+      const childAgeBand2IntlWithoutIdx = headerIndex(
+        headers,
+        'childageband2intlwithoutbed',
+      );
       const mealFieldIdx: Record<string, number> = {};
       for (const meal of HOTEL_MATRIX_MEALS) {
         for (const suffix of [
@@ -308,6 +352,36 @@ export function RatesCsvImportDialog({
           dblWeekendUnitCost: parseOptionalNumber(cell(cols, dblWeIdx)),
           tplUnitCost: parseOptionalNumber(cell(cols, tplIdx)),
           tplWeekendUnitCost: parseOptionalNumber(cell(cols, tplWeIdx)),
+          qadUnitCost: parseOptionalNumber(cell(cols, qadIdx)),
+          qadWeekendUnitCost: parseOptionalNumber(cell(cols, qadWeIdx)),
+          childAgeBand1Min: parseOptionalNumber(cell(cols, childAgeBand1MinIdx)),
+          childAgeBand1Max: parseOptionalNumber(cell(cols, childAgeBand1MaxIdx)),
+          childAgeBand1InWithBed: parseOptionalNumber(
+            cell(cols, childAgeBand1InWithIdx),
+          ),
+          childAgeBand1InWithoutBed: parseOptionalNumber(
+            cell(cols, childAgeBand1InWithoutIdx),
+          ),
+          childAgeBand1IntlWithBed: parseOptionalNumber(
+            cell(cols, childAgeBand1IntlWithIdx),
+          ),
+          childAgeBand1IntlWithoutBed: parseOptionalNumber(
+            cell(cols, childAgeBand1IntlWithoutIdx),
+          ),
+          childAgeBand2Min: parseOptionalNumber(cell(cols, childAgeBand2MinIdx)),
+          childAgeBand2Max: parseOptionalNumber(cell(cols, childAgeBand2MaxIdx)),
+          childAgeBand2InWithBed: parseOptionalNumber(
+            cell(cols, childAgeBand2InWithIdx),
+          ),
+          childAgeBand2InWithoutBed: parseOptionalNumber(
+            cell(cols, childAgeBand2InWithoutIdx),
+          ),
+          childAgeBand2IntlWithBed: parseOptionalNumber(
+            cell(cols, childAgeBand2IntlWithIdx),
+          ),
+          childAgeBand2IntlWithoutBed: parseOptionalNumber(
+            cell(cols, childAgeBand2IntlWithoutIdx),
+          ),
           ...mealPayload,
           currency: cell(cols, currencyIdx) || undefined,
           startDate: cell(cols, startIdx) || null,
@@ -424,6 +498,26 @@ export function RatesCsvImportDialog({
       'band12unitcost',
       'party12unitcost',
     );
+    const seat4Idx = headerIndex(
+      headers,
+      'seatmatrix4unitcost',
+      'seat4unitcost',
+    );
+    const seat6Idx = headerIndex(
+      headers,
+      'seatmatrix6unitcost',
+      'seat6unitcost',
+    );
+    const seat7Idx = headerIndex(
+      headers,
+      'seatmatrix7unitcost',
+      'seat7unitcost',
+    );
+    const seat12Idx = headerIndex(
+      headers,
+      'seatmatrix12unitcost',
+      'seat12unitcost',
+    );
     const modeIdx = headerIndex(headers, 'pricingmode', 'mode');
     const currencyIdx = headerIndex(headers, 'currency');
     const startIdx = headerIndex(headers, 'startdate', 'fromdate');
@@ -453,6 +547,10 @@ export function RatesCsvImportDialog({
         partyBand8UnitCost: parseOptionalNumber(cell(cols, band8Idx)),
         partyBand10UnitCost: parseOptionalNumber(cell(cols, band10Idx)),
         partyBand12UnitCost: parseOptionalNumber(cell(cols, band12Idx)),
+        seatMatrix4UnitCost: parseOptionalNumber(cell(cols, seat4Idx)),
+        seatMatrix6UnitCost: parseOptionalNumber(cell(cols, seat6Idx)),
+        seatMatrix7UnitCost: parseOptionalNumber(cell(cols, seat7Idx)),
+        seatMatrix12UnitCost: parseOptionalNumber(cell(cols, seat12Idx)),
         pricingMode,
         currency: cell(cols, currencyIdx) || undefined,
         startDate: cell(cols, startIdx) || null,
@@ -582,6 +680,18 @@ export function RatesCsvImportDialog({
       }
       hideFooter
     >
+      <p className="text-xs text-muted-foreground">
+        Sheet path for buy rates — see{' '}
+        <Link
+          to={PUBLIC_DOCS_BRING_YOUR_DATA_HREF}
+          className="text-primary hover:underline"
+          target="_blank"
+          rel="noreferrer"
+        >
+          Bring your data
+        </Link>
+        . Not a full system cutover.
+      </p>
       <FormField
         label="File"
         description={

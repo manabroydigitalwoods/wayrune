@@ -25,6 +25,15 @@ export type HotelOccupancyExtraCalc = {
     withBed?: boolean | null;
     total?: number | null;
   }> | null;
+  /** Age×nationality chart column shares from Match. */
+  childAgeNationalityExtras?: Array<{
+    age?: number | null;
+    nationality?: string | null;
+    ageMin?: number | null;
+    ageMax?: number | null;
+    withBed?: boolean | null;
+    total?: number | null;
+  }> | null;
 };
 
 export function formatHotelAdultBandNote(
@@ -126,6 +135,20 @@ function occupancyExtraBits(
     if (markets.length > 1) {
       bits.push(`child mkts ${[...new Set(markets)].join('+')}`);
     }
+  }
+
+  const childAgeNat = Array.isArray(calc?.childAgeNationalityExtras)
+    ? calc!.childAgeNationalityExtras!
+    : [];
+  if (childAgeNat.length > 0) {
+    const bands = [
+      ...new Set(
+        childAgeNat
+          .filter((s) => s.ageMin != null && s.ageMax != null)
+          .map((s) => `${s.ageMin}-${s.ageMax}`),
+      ),
+    ];
+    if (bands.length) bits.push(`child ages ${bands.join(',')}`);
   }
   return bits;
 }

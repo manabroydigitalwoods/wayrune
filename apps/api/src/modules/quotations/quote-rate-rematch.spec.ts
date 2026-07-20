@@ -234,4 +234,42 @@ describe('applyRateResolveHitToItem', () => {
     expect(out.unitSell).toBeNull();
     expect(out.details?.priceSource).toBe('none');
   });
+
+  it('stamps Why this rate provenance from matchExplain on rematch', () => {
+    const out = applyRateResolveHitToItem({
+      item: hotelItem(),
+      defaultMarkupPercent: 20,
+      hit: {
+        itemId: 'h1',
+        matched: true,
+        rateKind: 'hotel',
+        rateId: 'rate-1',
+        unitCost: 5000,
+        unitSell: 6000,
+        quantity: 2,
+        taxPercent: 5,
+        pricingUnit: 'per_room',
+        rateMeta: {
+          matchExplain: {
+            accepted: ['Room matched', 'Dates covered'],
+            rejected: [
+              { rateId: 'r2', label: 'Suite', reason: 'room type does not match' },
+            ],
+          },
+        },
+      },
+    });
+    expect(out.rateProvenance?.matchSummary).toBe('Room matched; Dates covered');
+    expect(out.rateProvenance?.matchAccepted).toEqual([
+      'Room matched',
+      'Dates covered',
+    ]);
+    expect(out.rateProvenance?.matchRejectedCompact).toEqual([
+      {
+        rateId: 'r2',
+        label: 'Suite',
+        reason: 'room type does not match',
+      },
+    ]);
+  });
 });

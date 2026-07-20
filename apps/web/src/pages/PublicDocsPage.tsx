@@ -21,8 +21,9 @@ export function PublicDocsPage() {
           </p>
           <h1 className="text-2xl font-semibold tracking-tight">Docs</h1>
           <p className="text-sm text-muted-foreground">
-            {APP_RELEASE_LABEL}. How the agency quote path works, and what we will
-            not claim without proof.
+            {APP_RELEASE_LABEL}. How the agency quote path works, how to bring
+            rates and clients from a sheet, and what we will not claim without
+            proof.
           </p>
         </header>
 

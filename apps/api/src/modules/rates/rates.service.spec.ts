@@ -1012,6 +1012,50 @@ describe('RatesService.importTransferFaresCsv', () => {
     );
   });
 
+  it('passes seatMatrix from CSV matrix columns on commit', async () => {
+    vi.mocked(prisma.place.findFirst)
+      .mockResolvedValueOnce({ id: 'p-from', name: 'Bagdogra' } as never)
+      .mockResolvedValueOnce({ id: 'p-to', name: 'Darjeeling' } as never);
+    vi.mocked(prisma.vehicleType.findFirst).mockResolvedValue({
+      id: 'veh-1',
+      name: 'Innova',
+    } as never);
+    const createSpy = vi
+      .spyOn(service, 'createTransferFare')
+      .mockResolvedValue({ id: 'fare-matrix' } as never);
+
+    const res = await service.importTransferFaresCsv('org-1', 'user-1', {
+      commit: true,
+      rows: [
+        {
+          fromPlace: 'Bagdogra',
+          toPlace: 'Darjeeling',
+          vehicleType: 'Innova',
+          unitCost: 5500,
+          seatMatrix4UnitCost: 3500,
+          seatMatrix7UnitCost: 5500,
+          pricingMode: 'per_vehicle',
+        },
+      ],
+    });
+
+    expect(res.okCount).toBe(1);
+    expect(createSpy).toHaveBeenCalledWith(
+      'org-1',
+      'user-1',
+      expect.objectContaining({
+        unitCost: 5500,
+        pricingMode: 'per_vehicle',
+        pricingJson: {
+          seatMatrix: [
+            { seats: 4, unitCost: 3500 },
+            { seats: 7, unitCost: 5500 },
+          ],
+        },
+      }),
+    );
+  });
+
   it('omits pricingJson when band columns are blank', async () => {
     vi.mocked(prisma.place.findFirst)
       .mockResolvedValueOnce({ id: 'p-from', name: 'Bagdogra' } as never)

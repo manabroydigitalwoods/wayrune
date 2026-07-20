@@ -1,5 +1,5 @@
 /**
- * Org-level Inbox → Chat channel defaults + chatflow target rules (HubSpot-like IA).
+ * Org-level Inbox → Chat channel defaults + chatflow target rules.
  */
 
 import { z } from 'zod';

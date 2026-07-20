@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import type { ColumnDef } from '@tanstack/react-table';
 import { ArrowUpRight, Building2, Copy, Import, MoreHorizontal, Pencil, Plus } from 'lucide-react';
 import { CreatePartySchema, parseWithFieldErrors } from '@wayrune/contracts';
@@ -28,6 +28,7 @@ import {
   toastSuccess,
 } from '@wayrune/ui';
 import { api } from '../api';
+import { PUBLIC_DOCS_BRING_YOUR_DATA_HREF } from '../lib/publicDocs';
 import { useAuth } from '../auth';
 import { Can } from '../components/Can';
 import { CAP, TRAVEL_REQUEST_PERMISSIONS } from '../lib/capabilities';
@@ -571,6 +572,18 @@ export function PartiesPage() {
         submitting={importing}
         onSubmit={() => void importCsv()}
       >
+        <p className="text-xs text-muted-foreground">
+          Part of{' '}
+          <Link
+            to={PUBLIC_DOCS_BRING_YOUR_DATA_HREF}
+            className="text-primary hover:underline"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Bring your data
+          </Link>
+          — sheet import, not a full migration.
+        </p>
         <FormField label="CSV">
           <textarea
             className="min-h-[12rem] w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs"

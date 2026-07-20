@@ -417,7 +417,7 @@ export function partnerOsSectionFromPath(
   pathname: string,
   kind?: string | null,
 ): string {
-  // Support HubSpot-style `/:orgRef/companion-settings` as well as flat paths.
+  // Support `/:orgRef/companion-settings` as well as flat paths.
   const relative = stripOrgPrefix(pathname);
   const nav = partnerOsNavForKind(kind);
   const hit = nav.find((n) => n.path === relative && !isExternalPartnerPath(n.path));

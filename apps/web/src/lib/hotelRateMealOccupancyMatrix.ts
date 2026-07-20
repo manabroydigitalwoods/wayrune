@@ -8,7 +8,7 @@ import { normalizeHotelNationalityUi } from './hotelNationalityNote';
 export const MEAL_MATRIX_PLANS = ['EP', 'CP', 'MAP', 'AP'] as const;
 export type MealMatrixPlan = (typeof MEAL_MATRIX_PLANS)[number];
 
-export const MATRIX_ADULT_BANDS = [1, 2, 3] as const;
+export const MATRIX_ADULT_BANDS = [1, 2, 3, 4] as const;
 export type MatrixAdultBand = (typeof MATRIX_ADULT_BANDS)[number];
 
 export type MealOccupancyMatrixCell = {
@@ -142,7 +142,7 @@ function adultBandsFromOccupancy(raw: unknown): Map<number, BandCosts> {
         .unitCostPerNight ?? (row as { unitCost?: unknown }).unitCost,
     );
     if (
-      !(adults === 1 || adults === 2 || adults === 3) ||
+      !(adults >= 1 && adults <= 6) ||
       !Number.isFinite(cost) ||
       cost < 0
     ) {

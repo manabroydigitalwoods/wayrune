@@ -5,6 +5,9 @@ import type {
 } from '@wayrune/contracts';
 import {
   lineNeedsRateDriftAck as sharedLineNeedsRateDriftAck,
+  matchAcceptedFromMeta,
+  matchRejectedCompactFromMeta,
+  matchSummaryFromAccepted,
   rateChartChangedSinceMatch as sharedRateChartChangedSinceMatch,
 } from '@wayrune/contracts';
 import {
@@ -1476,14 +1479,7 @@ function parseProvenanceCalculation(
 }
 
 function matchSummaryFromMeta(meta: Record<string, unknown>): string | undefined {
-  const explain = meta.matchExplain;
-  if (!explain || typeof explain !== 'object') return undefined;
-  const accepted = (explain as Record<string, unknown>).accepted;
-  if (!Array.isArray(accepted)) return undefined;
-  const parts = accepted
-    .filter((x): x is string => typeof x === 'string' && Boolean(x.trim()))
-    .map((x) => x.trim());
-  return parts.length ? parts.join('; ') : undefined;
+  return matchSummaryFromAccepted(matchAcceptedFromMeta(meta));
 }
 
 export function buildQuoteRateProvenance(opts: {
@@ -1592,6 +1588,14 @@ export function buildQuoteRateProvenance(opts: {
       return Object.values(merged).some((v) => v != null) ? merged : undefined;
     })(),
     matchSummary: matchSummaryFromMeta(meta),
+    ...((): Partial<QuoteRateProvenance> => {
+      const matchAccepted = matchAcceptedFromMeta(meta);
+      const matchRejectedCompact = matchRejectedCompactFromMeta(meta);
+      return {
+        ...(matchAccepted.length ? { matchAccepted } : {}),
+        ...(matchRejectedCompact.length ? { matchRejectedCompact } : {}),
+      };
+    })(),
   };
 }
 
@@ -1680,6 +1684,31 @@ export function parseQuoteRateProvenance(raw: unknown): QuoteRateProvenance | un
         : undefined,
     calculation: parseProvenanceCalculation(d.calculation),
     matchSummary: typeof d.matchSummary === 'string' ? d.matchSummary : undefined,
+    matchAccepted: Array.isArray(d.matchAccepted)
+      ? d.matchAccepted
+          .filter((x): x is string => typeof x === 'string' && Boolean(x.trim()))
+          .map((x) => x.trim())
+          .slice(0, 24)
+      : undefined,
+    matchRejectedCompact: Array.isArray(d.matchRejectedCompact)
+      ? d.matchRejectedCompact
+          .flatMap((row) => {
+            if (!row || typeof row !== 'object') return [];
+            const r = row as Record<string, unknown>;
+            const label = typeof r.label === 'string' ? r.label.trim() : '';
+            const reason = typeof r.reason === 'string' ? r.reason.trim() : '';
+            if (!label && !reason) return [];
+            return [
+              {
+                rateId:
+                  typeof r.rateId === 'string' ? r.rateId.trim() || undefined : undefined,
+                label: label || 'Rate',
+                reason: reason || 'Not selected',
+              },
+            ];
+          })
+          .slice(0, 8)
+      : undefined,
   };
 }
 

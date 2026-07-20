@@ -320,6 +320,13 @@ describe('applyRateResolveHit', () => {
       totalBuy: 10000,
     });
     expect(applied.rateProvenance?.matchSummary).toBe('Season window; MAP meal plan');
+    expect(applied.rateProvenance?.matchAccepted).toEqual([
+      'Season window',
+      'MAP meal plan',
+    ]);
+    expect(applied.rateProvenance?.matchRejectedCompact).toEqual([
+      { label: 'Suite MAP', reason: 'Higher cost' },
+    ]);
   });
 
   it('clears prices when unmatched', () => {

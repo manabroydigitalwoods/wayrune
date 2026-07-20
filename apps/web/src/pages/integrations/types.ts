@@ -1,5 +1,4 @@
 export type IntegrationsSettings = {
-  hubspotEnabled: boolean;
   webhookUrl: string;
   whatsapp: {
     enabled: boolean;
@@ -41,16 +40,9 @@ export type IntegrationsSettings = {
     whatsappNumber: string;
     defaultGreeting: string;
   };
-  hubspot: {
-    enabled: boolean;
-    accessToken: string;
-    accessTokenConfigured: boolean;
-    portalId: string;
-  };
 };
 
 export const EMPTY_INTEGRATIONS: IntegrationsSettings = {
-  hubspotEnabled: false,
   webhookUrl: '',
   whatsapp: {
     enabled: false,
@@ -89,12 +81,6 @@ export const EMPTY_INTEGRATIONS: IntegrationsSettings = {
     primaryColor: '#0f766e',
     whatsappNumber: '',
     defaultGreeting: 'Need help planning your trip?',
-  },
-  hubspot: {
-    enabled: false,
-    accessToken: '',
-    accessTokenConfigured: false,
-    portalId: '',
   },
 };
 
@@ -135,7 +121,6 @@ export function parseIntegrationsSettings(settingsJson: unknown): IntegrationsSe
   const email = asRecord(integrations.emailIngest);
   const website = asRecord(integrations.websiteIngest);
   const widget = asRecord(integrations.conversationWidget);
-  const hubspot = asRecord(integrations.hubspot);
   const waSecrets = parseSecretBlock(wa, [
     { key: 'accessToken', configuredKey: 'accessTokenConfigured' },
     { key: 'appSecret', configuredKey: 'appSecretConfigured' },
@@ -150,11 +135,7 @@ export function parseIntegrationsSettings(settingsJson: unknown): IntegrationsSe
   const websiteSecrets = parseSecretBlock(website, [
     { key: 'sharedSecret', configuredKey: 'sharedSecretConfigured' },
   ]);
-  const hubspotSecrets = parseSecretBlock(hubspot, [
-    { key: 'accessToken', configuredKey: 'accessTokenConfigured' },
-  ]);
   return {
-    hubspotEnabled: bool(integrations.hubspotEnabled, false),
     webhookUrl: str(integrations.webhookUrl),
     whatsapp: {
       enabled: bool(wa.enabled, false),
@@ -195,12 +176,6 @@ export function parseIntegrationsSettings(settingsJson: unknown): IntegrationsSe
       primaryColor: str(widget.primaryColor, '#0f766e'),
       whatsappNumber: str(widget.whatsappNumber),
       defaultGreeting: str(widget.defaultGreeting, 'Need help planning your trip?'),
-    },
-    hubspot: {
-      enabled: bool(hubspot.enabled, false),
-      accessToken: '',
-      accessTokenConfigured: Boolean(hubspotSecrets.accessTokenConfigured),
-      portalId: str(hubspot.portalId),
     },
   };
 }

@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { QuoteServiceType } from '@wayrune/contracts';
 import {
+  matchAcceptedFromProvenance,
+  matchRejectedFromProvenance,
+} from '@wayrune/contracts';
+import {
   Button,
   Combobox,
   ConfirmDialog,
@@ -69,6 +73,7 @@ import {
   withGuestNationalities,
 } from '../../lib/hotelNationalityNote';
 import { formatHotelCancellationNote } from '../../lib/hotelCancellationNote';
+import { WhyThisRatePanel } from './WhyThisRatePanel';
 import {
   activityChildAgeCalcFromProvenance,
   formatActivityChildAgeNote,
@@ -175,6 +180,56 @@ type RateMatchExplain = {
   accepted: string[];
   rejected: Array<{ rateId?: string; label: string; reason: string }>;
 };
+
+type MatchAlternativeRow = {
+  rateId: string;
+  label: string;
+  score: number;
+  chartUnitCost: number | null;
+  /** Est. stay/line buy from resolve (single-tip preview). */
+  previewBuyTotal: number | null;
+};
+
+function parseMatchAlternatives(
+  meta?: Record<string, unknown> | null,
+): MatchAlternativeRow[] {
+  const raw = meta?.alternatives;
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((row) => {
+    if (!row || typeof row !== 'object') return [];
+    const r = row as Record<string, unknown>;
+    const rateId = typeof r.rateId === 'string' ? r.rateId.trim() : '';
+    if (!rateId) return [];
+    const label =
+      typeof r.label === 'string' && r.label.trim()
+        ? r.label.trim()
+        : rateId.slice(0, 8);
+    const score = Number(r.score);
+    const chartRaw = r.chartUnitCost;
+    const chartUnitCost =
+      chartRaw == null || chartRaw === ''
+        ? null
+        : Number.isFinite(Number(chartRaw))
+          ? Number(chartRaw)
+          : null;
+    const previewRaw = r.previewBuyTotal;
+    const previewBuyTotal =
+      previewRaw == null || previewRaw === ''
+        ? null
+        : Number.isFinite(Number(previewRaw))
+          ? Number(previewRaw)
+          : null;
+    return [
+      {
+        rateId,
+        label,
+        score: Number.isFinite(score) ? score : 0,
+        chartUnitCost,
+        previewBuyTotal,
+      },
+    ];
+  });
+}
 
 function parseMatchExplain(meta?: Record<string, unknown> | null): RateMatchExplain | null {
   const raw = meta?.matchExplain;
@@ -531,6 +586,9 @@ export function QuoteServiceDetailSheet({
   const [keepManualConfirmOpen, setKeepManualConfirmOpen] = useState(false);
   const [lastMatchFailure, setLastMatchFailure] = useState<string | null>(null);
   const [lastMatchExplain, setLastMatchExplain] = useState<RateMatchExplain | null>(null);
+  const [matchAlternatives, setMatchAlternatives] = useState<MatchAlternativeRow[]>(
+    [],
+  );
   const [lastMatchBlockReason, setLastMatchBlockReason] = useState<
     'blackout' | 'stop_sell' | null
   >(null);
@@ -653,11 +711,18 @@ export function QuoteServiceDetailSheet({
     );
     setKeepManualConfirmed(false);
     setLastMatchFailure(null);
-    setLastMatchExplain(
-      line.rateProvenance?.matchSummary
-        ? { accepted: [line.rateProvenance.matchSummary], rejected: [] }
-        : null,
-    );
+    setLastMatchExplain(() => {
+      const accepted = matchAcceptedFromProvenance({
+        matchAccepted: line.rateProvenance?.matchAccepted,
+        matchSummary: line.rateProvenance?.matchSummary,
+      });
+      const rejected = matchRejectedFromProvenance(
+        line.rateProvenance?.matchRejectedCompact,
+      );
+      if (!accepted.length && !rejected.length) return null;
+      return { accepted, rejected };
+    });
+    setMatchAlternatives([]);
     setLastMatchBlockReason(line.rateBlockReason ?? null);
     setChartDriftUpdatedAt(null);
     setAllotmentNote(line.rateProvenance?.allotmentNote?.trim() || null);
@@ -1571,9 +1636,12 @@ export function QuoteServiceDetailSheet({
   async function matchRate(opts?: {
     auto?: boolean;
     detailsOverride?: QuoteServiceDetails;
+    /** Pick a Match alternative (eligible chart row). */
+    preferredRateId?: string | null;
   }) {
     if (!line || readOnly) return;
     const auto = Boolean(opts?.auto);
+    const preferredRateId = opts?.preferredRateId?.trim() || null;
     const baseDetails = opts?.detailsOverride ?? details;
     const withNights =
       serviceType === 'hotel'
@@ -1666,15 +1734,25 @@ export function QuoteServiceDetailSheet({
           nationalities: matchNat.nationalities || undefined,
           partyId: partyId || undefined,
           destinationPlaceOfSupply: destinationPlaceOfSupply || undefined,
-          items: [payload],
+          // Manual Match asks for alternatives; auto rematch stays quiet.
+          alternativesLimit: auto ? 0 : 3,
+          items: [
+            preferredRateId
+              ? { ...payload, preferredRateId }
+              : payload,
+          ],
         }),
       });
       const hit = res.items[0];
       if (!hit) {
+        setMatchAlternatives([]);
         toastError(defaultNoMatch);
         return;
       }
       setLastMatchExplain(parseMatchExplain(hit.rateMeta));
+      setMatchAlternatives(
+        hit.matched ? parseMatchAlternatives(hit.rateMeta) : [],
+      );
 
       const appliedForced = applyRateResolveHit({
         serviceType,
@@ -1835,6 +1913,7 @@ export function QuoteServiceDetailSheet({
           });
       }
     } catch (e) {
+      setMatchAlternatives([]);
       if (!auto) toastError(e instanceof Error ? e.message : 'Rate match failed');
     } finally {
       setMatching(false);
@@ -2106,6 +2185,58 @@ export function QuoteServiceDetailSheet({
             onChange={(e) => setDescription(e.target.value)}
           />
         </FormField>
+
+        {matchAlternatives.length > 0 && !readOnly ? (
+          <div className="rounded-md border border-border/50 bg-muted/20 px-2.5 py-2 text-xs">
+            <p className="font-medium text-foreground">Other eligible rates</p>
+            <p className="mt-0.5 text-muted-foreground">
+              Same Match filters — pick another chart without rebuilding this line.
+              Est. stay/line buy is a single-tip preview; Use re-matches to apply.
+            </p>
+            <ul className="mt-2 space-y-1">
+              {matchAlternatives.map((alt) => (
+                <li
+                  key={alt.rateId}
+                  className="flex flex-wrap items-center justify-between gap-2"
+                >
+                  <span className="min-w-0 flex-1 text-muted-foreground">
+                    <span className="font-medium text-foreground">{alt.label}</span>
+                    {alt.previewBuyTotal != null
+                      ? ` · est. ${
+                          serviceType === 'hotel' ? 'stay' : 'line'
+                        } buy ${formatCurrency(alt.previewBuyTotal, {
+                          currency,
+                          maximumFractionDigits: 0,
+                        })}`
+                      : alt.chartUnitCost != null
+                        ? ` · chart ${formatCurrency(alt.chartUnitCost, {
+                            currency,
+                            maximumFractionDigits: 0,
+                          })}`
+                        : ''}
+                    {alt.previewBuyTotal != null && alt.chartUnitCost != null
+                      ? ` · chart ${formatCurrency(alt.chartUnitCost, {
+                          currency,
+                          maximumFractionDigits: 0,
+                        })}`
+                      : ''}
+                    {alt.score > 0 ? ` · score ${alt.score}` : ''}
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    className="h-7 shrink-0"
+                    disabled={matching}
+                    onClick={() => void matchRate({ preferredRateId: alt.rateId })}
+                  >
+                    Use
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
 
         <FormField
           label="Service type"
@@ -2922,6 +3053,14 @@ export function QuoteServiceDetailSheet({
               <p className="text-xs text-muted-foreground">
                 Rate basis: <span className="font-medium text-foreground">Per room / night</span>
               </p>
+              {details.priceSource === 'matched' &&
+              !rateMatchStale &&
+              matchAccepted.length ? (
+                <WhyThisRatePanel
+                  accepted={matchAccepted}
+                  rejected={matchRejected}
+                />
+              ) : null}
               <FormField label="Buy unit rate">
                 <PriceField
                   currency={currency}
@@ -3302,36 +3441,6 @@ export function QuoteServiceDetailSheet({
                           : ''}
                       </p>
                     ) : null}
-                    {matchAccepted.length ? (
-                      <div className="rounded-md border border-border/50 bg-muted/20 px-2.5 py-2 text-xs">
-                        <p className="font-medium text-foreground">Why selected</p>
-                        <ul className="mt-1 space-y-0.5 text-muted-foreground">
-                          {matchAccepted.map((reason) => (
-                            <li key={reason}>✓ {reason}</li>
-                          ))}
-                        </ul>
-                        {matchRejected.length ? (
-                          <DisclosureSection
-                            title={`${matchRejected.length} other rate${matchRejected.length === 1 ? '' : 's'} considered`}
-                            level="none"
-                            defaultOpen={false}
-                            className="mt-2 border-0 bg-transparent"
-                          >
-                            <ul className="space-y-1 text-muted-foreground">
-                              {matchRejected.map((row, i) => (
-                                <li key={row.rateId || `${row.label}-${i}`}>
-                                  <span className="font-medium text-foreground">
-                                    {row.label}
-                                  </span>
-                                  {' — '}
-                                  {row.reason}
-                                </li>
-                              ))}
-                            </ul>
-                          </DisclosureSection>
-                        ) : null}
-                      </div>
-                    ) : null}
                     {(() => {
                       const href = rateChartPath({
                         rateKind: 'hotel',
@@ -3370,38 +3479,11 @@ export function QuoteServiceDetailSheet({
                       </p>
                     ) : null}
                     {matchRejected.length || matchAccepted.length ? (
-                      <div className="rounded-md border border-border/50 bg-muted/20 px-2.5 py-2 text-xs">
-                        {matchAccepted.length ? (
-                          <>
-                            <p className="font-medium text-foreground">Match notes</p>
-                            <ul className="mt-1 space-y-0.5 text-muted-foreground">
-                              {matchAccepted.map((reason) => (
-                                <li key={reason}>• {reason}</li>
-                              ))}
-                            </ul>
-                          </>
-                        ) : null}
-                        {matchRejected.length ? (
-                          <DisclosureSection
-                            title={`${matchRejected.length} rate${matchRejected.length === 1 ? '' : 's'} considered`}
-                            level="none"
-                            defaultOpen={false}
-                            className="mt-2 border-0 bg-transparent"
-                          >
-                            <ul className="space-y-1 text-muted-foreground">
-                              {matchRejected.map((row, i) => (
-                                <li key={row.rateId || `${row.label}-${i}`}>
-                                  <span className="font-medium text-foreground">
-                                    {row.label}
-                                  </span>
-                                  {' — '}
-                                  {row.reason}
-                                </li>
-                              ))}
-                            </ul>
-                          </DisclosureSection>
-                        ) : null}
-                      </div>
+                      <WhyThisRatePanel
+                        mode="notes"
+                        accepted={matchAccepted}
+                        rejected={matchRejected}
+                      />
                     ) : null}
                   </div>
                 ) : details.priceSource === 'none' ? (
@@ -3917,6 +3999,14 @@ export function QuoteServiceDetailSheet({
                 Rate basis:{' '}
                 <span className="font-medium text-foreground">Per vehicle / transfer</span>
               </p>
+              {details.priceSource === 'matched' &&
+              !rateMatchStale &&
+              matchAccepted.length ? (
+                <WhyThisRatePanel
+                  accepted={matchAccepted}
+                  rejected={matchRejected}
+                />
+              ) : null}
               <FormField label="Buy unit rate">
                 <PriceField
                   currency={currency}
@@ -4214,6 +4304,13 @@ export function QuoteServiceDetailSheet({
                       readOnly={readOnly}
                       onOpenContracts={navigate}
                     />
+                    {matchRejected.length || matchAccepted.length ? (
+                      <WhyThisRatePanel
+                        mode="notes"
+                        accepted={matchAccepted}
+                        rejected={matchRejected}
+                      />
+                    ) : null}
                   </div>
                 ) : details.priceSource === 'none' ? (
                   <p className="mt-1 text-muted-foreground">
@@ -4442,19 +4539,36 @@ export function QuoteServiceDetailSheet({
                   {details.rateSupplierLabel ? ` · ${details.rateSupplierLabel}` : ''}
                 </p>
               ) : null}
+              {details.priceSource === 'matched' &&
+              !rateMatchStale &&
+              matchAccepted.length ? (
+                <WhyThisRatePanel
+                  accepted={matchAccepted}
+                  rejected={matchRejected}
+                />
+              ) : null}
               {rateMatchStale && !keepManualConfirmed ? (
                 <p className="text-xs text-amber-800 dark:text-amber-200">
                   Rate match outdated — rematch or keep the previous buy as manual.
                 </p>
               ) : null}
               {lastMatchFailure && !rateMatchStale ? (
-                <MatchBlockReasonBanner
-                  blockReason={lastMatchBlockReason}
-                  message={lastMatchFailure}
-                  supplierId={details.supplierId}
-                  readOnly={readOnly}
-                  onOpenContracts={navigate}
-                />
+                <div className="space-y-2">
+                  <MatchBlockReasonBanner
+                    blockReason={lastMatchBlockReason}
+                    message={lastMatchFailure}
+                    supplierId={details.supplierId}
+                    readOnly={readOnly}
+                    onOpenContracts={navigate}
+                  />
+                  {matchRejected.length || matchAccepted.length ? (
+                    <WhyThisRatePanel
+                      mode="notes"
+                      accepted={matchAccepted}
+                      rejected={matchRejected}
+                    />
+                  ) : null}
+                </div>
               ) : null}
               <FormGrid>
                 <FormField label="Buy / person">

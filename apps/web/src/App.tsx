@@ -664,7 +664,7 @@ export function App() {
       <Route path="/presence/:orgId/*" element={<LegacyPresenceRedirect />} />
       <Route path="/presence/:orgId" element={<LegacyPresenceRedirect />} />
 
-      {/* HubSpot-style org-scoped portal (agency + partner) */}
+      {/* Org-scoped portal (agency + partner) */}
       <Route element={<OrgPortalShellLayout />}>
         <Route path="/:orgRef" element={<OrgScopedLayout />}>
           <Route index element={<HomeRoute />} />

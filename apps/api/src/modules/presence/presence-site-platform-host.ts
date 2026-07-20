@@ -38,7 +38,7 @@ export type ParsedSitePlatformHost =
   | { kind: 'site'; publicCode: number; platformSlug: string };
 
 /**
- * Parse HubSpot-style platform hosts:
+ * Parse platform hosts:
  * - `{publicCode}.{base}` → primary site
  * - `{slug}.{publicCode}.{base}` → additional site
  */

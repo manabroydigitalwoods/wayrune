@@ -9,6 +9,7 @@ import {
 } from '@wayrune/ui';
 import { api } from '../../api';
 import { reportError } from '../../lib/errors';
+import { pickPrimaryTripNextAction } from '../../lib/tripNextAction';
 
 type ControlFlag = {
   id: string;
@@ -58,19 +59,27 @@ function severityTone(severity: ControlFlag['severity']): 'danger' | 'warn' | 'i
   return 'info';
 }
 
+export type TripControlOpenTab = (
+  tab: 'operations' | 'finance' | 'quotations' | 'commerce' | 'overview' | 'itinerary',
+  opts?: { bookingId?: string | null; schedule?: boolean },
+) => void;
+
 export function TripControlCentre({
   tripId,
   onOpenTab,
   compact,
   activeTab,
+  tripStatus,
   refreshKey,
 }: {
   tripId: string;
-  onOpenTab: (tab: 'operations' | 'finance' | 'quotations' | 'commerce') => void;
-  /** Slim risk strip (e.g. above tabs). */
+  onOpenTab: TripControlOpenTab;
+  /** Slim next-action strip (e.g. above tabs). */
   compact?: boolean;
-  /** Current workspace tab — hides redundant strip on detail tabs. */
+  /** Current workspace tab — adjusts CTA when already on target. */
   activeTab?: string;
+  /** Trip lifecycle status — fallback Next when no flags. */
+  tripStatus?: string;
   /** Bump when trip ops/finance/commerce changes so flags refresh. */
   refreshKey?: number | string;
 }) {
@@ -94,44 +103,72 @@ export function TripControlCentre({
   if (!data) return null;
 
   const actionFlags = data.flags.filter((f) => f.severity !== 'info');
-  const showCompact = compact && actionFlags.length > 0;
-
-  if (compact && !showCompact) return null;
 
   if (compact) {
-    const elsewhere =
-      actionFlags.find((f) => f.tab !== activeTab) ?? actionFlags[0];
-    const ctaTab = elsewhere?.tab ?? 'operations';
-    const onThisTab = ctaTab === activeTab;
-    const ctaLabel =
-      ctaTab === 'finance'
-        ? 'Open finance'
-        : ctaTab === 'commerce'
-          ? 'Open changes'
-          : ctaTab === 'quotations'
-            ? 'Open quotations'
-            : 'Open operations';
+    const next = pickPrimaryTripNextAction({
+      flags: data.flags,
+      tripStatus: tripStatus || 'planning',
+      activeTab,
+    });
+    const tone = next.flag
+      ? severityTone(next.flag.severity)
+      : data.allClear
+        ? 'success'
+        : 'info';
+    const borderClass =
+      tone === 'danger'
+        ? 'border-destructive/30 bg-destructive/5'
+        : tone === 'warn'
+          ? 'border-warning/25 bg-warning-soft/30'
+          : tone === 'success'
+            ? 'border-emerald-500/25 bg-emerald-500/5'
+            : 'border-border/60 bg-muted/20';
+    const onThisTab = next.tab === activeTab;
+    const showCta = !(onThisTab && !next.bookingId && next.flag);
+
     return (
-      <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-warning/25 bg-warning-soft/30 px-3 py-2 text-sm">
+      <div
+        className={`mb-4 flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2 text-sm ${borderClass}`}
+      >
         <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-          Needs attention
+          Next action
         </span>
-        {actionFlags.slice(0, 4).map((f) => (
-          <button
-            key={f.id}
-            type="button"
-            className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border/50 bg-background/70 px-2 py-1 text-left text-xs hover:bg-background"
-            onClick={() => onOpenTab(f.tab)}
-          >
-            <StatusBadge value={f.code} label={f.label} tone={severityTone(f.severity)} showIcon />
-          </button>
-        ))}
-        {actionFlags.length > 4 ? (
-          <span className="text-xs text-muted-foreground">+{actionFlags.length - 4} more</span>
+        {next.flag ? (
+          <StatusBadge
+            value={next.flag.code}
+            label={next.title}
+            tone={severityTone(next.flag.severity)}
+            showIcon
+          />
+        ) : (
+          <StatusBadge
+            value="clear"
+            label={next.title}
+            tone={data.allClear ? 'success' : 'info'}
+            showIcon
+          />
+        )}
+        {next.detail ? (
+          <span className="min-w-0 max-w-[18rem] truncate text-xs text-muted-foreground">
+            {next.detail}
+          </span>
         ) : null}
-        {!onThisTab ? (
-          <Button size="sm" variant="ghost" className="ml-auto h-7" onClick={() => onOpenTab(ctaTab)}>
-            {ctaLabel}
+        {next.moreCount > 0 ? (
+          <span className="text-xs text-muted-foreground">+{next.moreCount} more</span>
+        ) : null}
+        {showCta ? (
+          <Button
+            size="sm"
+            variant={onThisTab ? 'secondary' : 'default'}
+            className="ml-auto h-7"
+            onClick={() =>
+              onOpenTab(next.tab, {
+                bookingId: next.bookingId,
+                schedule: next.flag?.code === 'missing_customer_instalments',
+              })
+            }
+          >
+            {next.ctaLabel}
           </Button>
         ) : (
           <span className="ml-auto text-[11px] text-muted-foreground">On this tab</span>
@@ -217,7 +254,12 @@ export function TripControlCentre({
                 <button
                   type="button"
                   className="flex w-full flex-wrap items-center gap-2 px-3 py-2.5 text-left text-sm hover:bg-muted/40"
-                  onClick={() => onOpenTab(f.tab)}
+                  onClick={() =>
+                    onOpenTab(f.tab, {
+                      bookingId: f.bookingId,
+                      schedule: f.code === 'missing_customer_instalments',
+                    })
+                  }
                 >
                   <StatusBadge
                     value={f.code}

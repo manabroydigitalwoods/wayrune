@@ -8,6 +8,11 @@ import type {
   ResolveRatesItemInput,
 } from '@wayrune/contracts';
 import { QuotationItemSchema } from '@wayrune/contracts';
+import {
+  matchAcceptedFromMeta,
+  matchRejectedCompactFromMeta,
+  matchSummaryFromAccepted,
+} from '@wayrune/contracts';
 import { isoDayDiff, parseIsoDay } from './quote-template-content';
 import type { RatesService } from '../rates/rates.service';
 
@@ -311,6 +316,9 @@ function buildThinProvenance(opts: {
   const capacityWarn = Boolean(
     opts.capacityNote?.startsWith('Insufficient capacity'),
   );
+  const matchAccepted = matchAcceptedFromMeta(meta);
+  const matchRejectedCompact = matchRejectedCompactFromMeta(meta);
+  const matchSummary = matchSummaryFromAccepted(matchAccepted);
   return {
     rateId: opts.rateId,
     rateKind: opts.rateKind,
@@ -333,6 +341,9 @@ function buildThinProvenance(opts: {
           ...(capacityWarn ? { capacityWarn: true as const } : {}),
         }
       : {}),
+    ...(matchSummary ? { matchSummary } : {}),
+    ...(matchAccepted.length ? { matchAccepted } : {}),
+    ...(matchRejectedCompact.length ? { matchRejectedCompact } : {}),
   };
 }
 

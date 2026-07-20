@@ -1989,8 +1989,8 @@ model TransferFare {
   /** per_vehicle | per_adult */
   pricingMode    String    @default("per_vehicle") @map("pricing_mode")
   /**
-   * Optional party-size bands for per_vehicle fares:
-   * `{ partyBands: [{ partySize: 2|4|6, unitCost }] }` (≤3).
+   * Optional party-size bands / seat matrix for per_vehicle fares:
+   * `{ partyBands: [{ partySize, unitCost }] (≤6), seatMatrix: [{ seats, unitCost, childAddOn?, infantAddOn? }] (≤8) }`.
    */
   pricingJson    Json?     @map("pricing_json")
   currency       String    @default("INR") @db.Char(3)

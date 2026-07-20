@@ -45,6 +45,7 @@ import {
   tripStartIso,
   type CommercialQuoteRewriteStatus,
 } from './trip-date-shift';
+import { normalizeRoomAllocation } from '../operations/room-allocation';
 
 type CreateTravellerInput = z.infer<typeof CreateTravellerSchema>;
 type UpdateTravellerInput = z.infer<typeof UpdateTravellerSchema>;
@@ -751,24 +752,43 @@ export class TripsService {
       data,
     });
 
-    if (input.isLead !== undefined) {
-      if (input.isLead) {
-        await this.prisma.$transaction([
-          this.prisma.tripTraveller.updateMany({
-            where: { tripId },
-            data: { isLead: false },
-          }),
-          this.prisma.tripTraveller.update({
-            where: { tripId_travellerId: { tripId, travellerId } },
-            data: { isLead: true },
-          }),
-        ]);
+    const linkPatch: { isLead?: boolean; roomAllocation?: string | null } = {};
+    if (input.isLead !== undefined) linkPatch.isLead = input.isLead;
+    if (input.roomAllocation !== undefined) {
+      if (input.roomAllocation == null || !String(input.roomAllocation).trim()) {
+        linkPatch.roomAllocation = null;
       } else {
-        await this.prisma.tripTraveller.update({
-          where: { tripId_travellerId: { tripId, travellerId } },
-          data: { isLead: false },
-        });
+        const normalized = normalizeRoomAllocation(input.roomAllocation);
+        if (!normalized) {
+          throw new BadRequestException(
+            'Invalid roomAllocation — use R1, R2, or a room number',
+          );
+        }
+        linkPatch.roomAllocation = normalized;
       }
+    }
+
+    if (linkPatch.isLead === true) {
+      await this.prisma.$transaction([
+        this.prisma.tripTraveller.updateMany({
+          where: { tripId },
+          data: { isLead: false },
+        }),
+        this.prisma.tripTraveller.update({
+          where: { tripId_travellerId: { tripId, travellerId } },
+          data: {
+            isLead: true,
+            ...(linkPatch.roomAllocation !== undefined
+              ? { roomAllocation: linkPatch.roomAllocation }
+              : {}),
+          },
+        }),
+      ]);
+    } else if (Object.keys(linkPatch).length > 0) {
+      await this.prisma.tripTraveller.update({
+        where: { tripId_travellerId: { tripId, travellerId } },
+        data: linkPatch,
+      });
     }
 
     return traveller;

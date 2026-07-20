@@ -18,8 +18,10 @@ export type SalesSlaStats = {
   medianLeadToQuoteHours30d?: number | null;
   firstTouchSampleSize30d?: number;
   leadToQuoteSampleSize30d?: number;
+  /** Real (non-demo) FIT median — aligned with claim gate. */
   medianFitBuildMinutes30d?: number | null;
   fitBuildSampleSize30d?: number;
+  fitBuildDemoSampleSize30d?: number;
   fitClaimProtocol?: FitClaimProtocolCue | null;
   firstTouchTargetHours?: number | null;
   leadToQuoteTargetHours?: number | null;
@@ -66,6 +68,12 @@ export function SalesSlaHomeStats({ data }: { data: SalesSlaStats }) {
   const fitBuildCue = formatMinutesTargetCue(data.fitBuildTargetMinutes);
   const fitClaimCue = formatFitClaimProtocolCue(data.fitClaimProtocol);
   const fitCardCue = [fitClaimCue, fitBuildCue].filter(Boolean).join(' · ') || null;
+  const fitMedian =
+    data.fitClaimProtocol?.medianMinutes ?? data.medianFitBuildMinutes30d;
+  const fitSample =
+    data.fitClaimProtocol?.sampleSize ?? data.fitBuildSampleSize30d ?? 0;
+  const fitDemoSample =
+    data.fitClaimProtocol?.demoSampleSize ?? data.fitBuildDemoSampleSize30d ?? 0;
 
   return (
     <div className="mb-4 space-y-4">
@@ -114,16 +122,13 @@ export function SalesSlaHomeStats({ data }: { data: SalesSlaStats }) {
             onClick={() => navigate(AGENCY_ROUTES.workQuotations)}
           />
           <StatCard
-            label="Median FIT build"
-            value={medianValue(
-              formatMinutesCompact(data.medianFitBuildMinutes30d),
-              fitCardCue,
-            )}
+            label="Median FIT build (real)"
+            value={medianValue(formatMinutesCompact(fitMedian), fitCardCue)}
             tone={
               data.fitClaimProtocol?.publicClaimAllowed
                 ? 'success'
                 : salesSlaMedianTone(
-                    data.medianFitBuildMinutes30d,
+                    fitMedian,
                     data.fitBuildTargetMinutes ??
                       data.fitClaimProtocol?.targetMinutes ??
                       3,
@@ -142,10 +147,12 @@ export function SalesSlaHomeStats({ data }: { data: SalesSlaStats }) {
         </div>
         {(data.firstTouchSampleSize30d != null ||
           data.leadToQuoteSampleSize30d != null ||
-          data.fitBuildSampleSize30d != null) && (
+          data.fitBuildSampleSize30d != null ||
+          data.fitClaimProtocol != null) && (
           <p className="text-[11px] text-muted-foreground">
             Samples · first touch {data.firstTouchSampleSize30d ?? 0} · quoted{' '}
-            {data.leadToQuoteSampleSize30d ?? 0} · FIT build {data.fitBuildSampleSize30d ?? 0}
+            {data.leadToQuoteSampleSize30d ?? 0} · FIT real {fitSample}
+            {fitDemoSample > 0 ? ` (${fitDemoSample} demo excluded)` : ''}
             {fitClaimCue ? ` · ${fitClaimCue}` : ''}
           </p>
         )}

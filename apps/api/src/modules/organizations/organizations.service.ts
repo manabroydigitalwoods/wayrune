@@ -812,13 +812,11 @@ function maskIntegrationSecretsInSettings(settingsJson: unknown) {
   const fb = asRecord(integrations.facebook);
   const email = asRecord(integrations.emailIngest);
   const website = asRecord(integrations.websiteIngest);
-  const hubspot = asRecord(integrations.hubspot);
   if (
     !Object.keys(wa).length &&
     !Object.keys(fb).length &&
     !Object.keys(email).length &&
-    !Object.keys(website).length &&
-    !Object.keys(hubspot).length
+    !Object.keys(website).length
   ) {
     return settingsJson;
   }
@@ -839,9 +837,6 @@ function maskIntegrationSecretsInSettings(settingsJson: unknown) {
       ...(Object.keys(website).length
         ? { websiteIngest: maskSecretBlock(website, ['sharedSecret']) }
         : {}),
-      ...(Object.keys(hubspot).length
-        ? { hubspot: maskSecretBlock(hubspot, ['accessToken']) }
-        : {}),
     },
   };
 }
@@ -855,12 +850,10 @@ function preserveIntegrationSecrets(
   const currentFb = asNestedConfig(currentSettings, 'facebook');
   const currentEmail = asNestedConfig(currentSettings, 'emailIngest');
   const currentWebsite = asNestedConfig(currentSettings, 'websiteIngest');
-  const currentHubspot = asNestedConfig(currentSettings, 'hubspot');
   const nextWa = asRecord(nextIntegrations.whatsapp);
   const nextFb = asRecord(nextIntegrations.facebook);
   const nextEmail = asRecord(nextIntegrations.emailIngest);
   const nextWebsite = asRecord(nextIntegrations.websiteIngest);
-  const nextHubspot = asRecord(nextIntegrations.hubspot);
 
   return {
     ...nextSettings,
@@ -881,9 +874,6 @@ function preserveIntegrationSecrets(
         ? {
             websiteIngest: preserveSecretBlock(currentWebsite, nextWebsite, ['sharedSecret']),
           }
-        : {}),
-      ...(Object.keys(nextHubspot).length
-        ? { hubspot: preserveSecretBlock(currentHubspot, nextHubspot, ['accessToken']) }
         : {}),
     },
   };

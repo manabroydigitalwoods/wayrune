@@ -78,30 +78,6 @@ async function sendEmail(input: {
   return { skipped: false as const };
 }
 
-async function hubspotFindContactIdByEmail(
-  accessToken: string,
-  email: string | null,
-): Promise<string | null> {
-  if (!email) return null;
-  const res = await fetch('https://api.hubapi.com/crm/v3/objects/contacts/search', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      filterGroups: [
-        { filters: [{ propertyName: 'email', operator: 'EQ', value: email }] },
-      ],
-      limit: 1,
-    }),
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!res.ok) return null;
-  const data = (await res.json().catch(() => ({}))) as { results?: Array<{ id?: string }> };
-  return data.results?.[0]?.id ?? null;
-}
-
 async function processEvent(
   eventType: string,
   payload: Record<string, unknown>,
@@ -374,87 +350,6 @@ async function processEvent(
         inReplyTo: typeof payload.inReplyTo === 'string' ? payload.inReplyTo : undefined,
       });
       jobLog.info(result.skipped ? 'Email reply skipped (no SMTP)' : 'Email reply sent', { to });
-      break;
-    }
-    case 'hubspot.contact.upsert': {
-      const leadId = String(payload.leadId || '');
-      if (!leadId) {
-        jobLog.warn('hubspot.contact.upsert missing leadId');
-        break;
-      }
-      const org = await prisma.organization.findUnique({
-        where: { id: organizationId },
-        select: { settingsJson: true },
-      });
-      const settings =
-        org?.settingsJson && typeof org.settingsJson === 'object'
-          ? (org.settingsJson as Record<string, unknown>)
-          : {};
-      const integrations =
-        settings.integrations && typeof settings.integrations === 'object'
-          ? (settings.integrations as Record<string, unknown>)
-          : {};
-      const hubspot =
-        integrations.hubspot && typeof integrations.hubspot === 'object'
-          ? (integrations.hubspot as Record<string, unknown>)
-          : {};
-      const accessToken = typeof hubspot.accessToken === 'string' ? hubspot.accessToken : '';
-      if (!hubspot.enabled || !accessToken) {
-        jobLog.info('hubspot.contact.upsert skipped — integration not configured');
-        break;
-      }
-      const lead = await prisma.lead.findFirst({
-        where: { id: leadId, organizationId },
-        select: { email: true, phone: true, contactName: true, title: true },
-      });
-      if (!lead) {
-        jobLog.warn('hubspot.contact.upsert lead not found', { leadId });
-        break;
-      }
-      if (!lead.email && !lead.phone) {
-        jobLog.info('hubspot.contact.upsert skipped — lead has no email/phone', { leadId });
-        break;
-      }
-      const [firstName, ...rest] = (lead.contactName || lead.title || '').trim().split(/\s+/);
-      const properties: Record<string, string> = {};
-      if (lead.email) properties.email = lead.email;
-      if (lead.phone) properties.phone = lead.phone;
-      if (firstName) properties.firstname = firstName;
-      if (rest.length) properties.lastname = rest.join(' ');
-
-      const res = await fetch('https://api.hubapi.com/crm/v3/objects/contacts', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ properties }),
-        signal: AbortSignal.timeout(15_000),
-      });
-      // HubSpot returns 409 when the contact already exists by email — fall back to a search+update.
-      if (res.status === 409) {
-        const existingId = await hubspotFindContactIdByEmail(accessToken, lead.email);
-        if (existingId) {
-          const patchRes = await fetch(
-            `https://api.hubapi.com/crm/v3/objects/contacts/${existingId}`,
-            {
-              method: 'PATCH',
-              headers: {
-                Authorization: `Bearer ${accessToken}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({ properties }),
-              signal: AbortSignal.timeout(15_000),
-            },
-          );
-          if (!patchRes.ok) {
-            throw new Error(`HubSpot contact PATCH failed: ${patchRes.status}`);
-          }
-        }
-      } else if (!res.ok) {
-        throw new Error(`HubSpot contact upsert failed: ${res.status}`);
-      }
-      jobLog.info('HubSpot contact synced', { leadId });
       break;
     }
     case 'HoldExpired':

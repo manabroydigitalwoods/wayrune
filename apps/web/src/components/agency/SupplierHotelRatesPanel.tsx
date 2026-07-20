@@ -129,6 +129,26 @@ function emptyAdultBandRows() {
     { adults: 1 as const, unitCost: '', weekendUnitCost: '' },
     { adults: 2 as const, unitCost: '', weekendUnitCost: '' },
     { adults: 3 as const, unitCost: '', weekendUnitCost: '' },
+    { adults: 4 as const, unitCost: '', weekendUnitCost: '' },
+    { adults: 5 as const, unitCost: '', weekendUnitCost: '' },
+    { adults: 6 as const, unitCost: '', weekendUnitCost: '' },
+  ];
+}
+
+type ChildAgeNatFormRow = {
+  ageMin: string;
+  ageMax: string;
+  nationality: string;
+  withBed: string;
+  withoutBed: string;
+};
+
+function emptyChildAgeNatRows(): ChildAgeNatFormRow[] {
+  return [
+    { ageMin: '0', ageMax: '5', nationality: 'IN', withBed: '', withoutBed: '' },
+    { ageMin: '0', ageMax: '5', nationality: 'INTL', withBed: '', withoutBed: '' },
+    { ageMin: '6', ageMax: '11', nationality: 'IN', withBed: '', withoutBed: '' },
+    { ageMin: '6', ageMax: '11', nationality: 'INTL', withBed: '', withoutBed: '' },
   ];
 }
 
@@ -146,6 +166,7 @@ function emptyForm(defaultContractId = '') {
     childWithBedPerNight: '',
     childWithoutBedPerNight: '',
     adultBandRows: emptyAdultBandRows(),
+    childAgeNatRows: emptyChildAgeNatRows(),
     /** Up to 3 gala / date supplements (single night + amount). */
     galaRows: emptyGalaRows(),
     minStayNights: '',
@@ -168,6 +189,7 @@ function occupancyFromRate(rate: HotelRate) {
       childWithBedPerNight: '',
       childWithoutBedPerNight: '',
       adultBandRows: emptyAdultBandRows(),
+      childAgeNatRows: emptyChildAgeNatRows(),
       galaRows: emptyGalaRows(),
       minStayNights: '',
       maxStayNights: '',
@@ -216,6 +238,27 @@ function occupancyFromRate(rate: HotelRate) {
         weekend != null && Number(weekend) >= 0 ? String(weekend) : '',
     };
   });
+  const rawChildAge = Array.isArray(o.childAgeNationalityRates)
+    ? o.childAgeNationalityRates
+    : [];
+  const childAgeNatRows =
+    rawChildAge.length > 0
+      ? rawChildAge.slice(0, 12).map((row) => {
+          const r = row as Record<string, unknown>;
+          return {
+            ageMin: r.ageMin != null ? String(r.ageMin) : '',
+            ageMax: r.ageMax != null ? String(r.ageMax) : '',
+            nationality:
+              typeof r.nationality === 'string' ? r.nationality : '',
+            withBed:
+              r.withBedPerNight != null ? String(r.withBedPerNight) : '',
+            withoutBed:
+              r.withoutBedPerNight != null
+                ? String(r.withoutBedPerNight)
+                : '',
+          };
+        })
+      : emptyChildAgeNatRows();
   return {
     baseAdults: o.baseAdults != null ? String(o.baseAdults) : '2',
     childAgeMax: o.childAgeMax != null ? String(o.childAgeMax) : '',
@@ -226,6 +269,7 @@ function occupancyFromRate(rate: HotelRate) {
     childWithoutBedPerNight:
       o.childWithoutBedPerNight != null ? String(o.childWithoutBedPerNight) : '',
     adultBandRows,
+    childAgeNatRows,
     galaRows,
     minStayNights:
       o.minStayNights != null && Number(o.minStayNights) >= 1
@@ -762,6 +806,7 @@ export function SupplierHotelRatesPanel({
       unitCost: clone.unitCost,
       weekendUnitCost: clone.weekendUnitCost,
       adultBandRows: clone.adultBandRows ?? occ.adultBandRows,
+      childAgeNatRows: clone.childAgeNatRows ?? occ.childAgeNatRows,
       extraAdultPerNight:
         clone.extraAdultPerNight !== undefined && clone.extraAdultPerNight !== ''
           ? clone.extraAdultPerNight
@@ -946,6 +991,52 @@ export function SupplierHotelRatesPanel({
           : {}),
       });
     }
+    const childAgeNationalityRates: Array<{
+      ageMin: number;
+      ageMax: number;
+      nationality?: string;
+      withBedPerNight: number;
+      withoutBedPerNight?: number;
+    }> = [];
+    for (const row of form.childAgeNatRows ?? []) {
+      const withRaw = row.withBed.trim();
+      if (!withRaw && !row.withoutBed.trim()) continue;
+      const ageMin = Number(row.ageMin);
+      const ageMax = Number(row.ageMax);
+      if (
+        !Number.isFinite(ageMin) ||
+        !Number.isFinite(ageMax) ||
+        ageMin < 0 ||
+        ageMax < ageMin ||
+        ageMax > 17
+      ) {
+        toastError('Child age band ages must be 0–17 with min ≤ max');
+        return;
+      }
+      const withBed = Number(withRaw);
+      if (!Number.isFinite(withBed) || withBed < 0) {
+        toastError('Child age×market with-bed cost must be a valid number');
+        return;
+      }
+      const withoutRaw = row.withoutBed.trim();
+      let withoutBedPerNight: number | undefined;
+      if (withoutRaw) {
+        const w = Number(withoutRaw);
+        if (!Number.isFinite(w) || w < 0) {
+          toastError('Child age×market without-bed cost must be a valid number');
+          return;
+        }
+        withoutBedPerNight = w;
+      }
+      const nat = row.nationality.trim().toUpperCase();
+      childAgeNationalityRates.push({
+        ageMin: Math.floor(ageMin),
+        ageMax: Math.floor(ageMax),
+        ...(nat ? { nationality: nat } : {}),
+        withBedPerNight: withBed,
+        ...(withoutBedPerNight != null ? { withoutBedPerNight } : {}),
+      });
+    }
     const minStayRaw = form.minStayNights.trim();
     let minStayNights: number | undefined;
     if (minStayRaw) {
@@ -993,6 +1084,7 @@ export function SupplierHotelRatesPanel({
       childAgeMax != null ||
       dateSupplements.length > 0 ||
       adultBands.length > 0 ||
+      childAgeNationalityRates.length > 0 ||
       minStayNights != null ||
       maxStayNights != null ||
       nationality != null ||
@@ -1005,6 +1097,9 @@ export function SupplierHotelRatesPanel({
           ...(childBed != null ? { childWithBedPerNight: childBed } : {}),
           ...(childNoBed != null ? { childWithoutBedPerNight: childNoBed } : {}),
           ...(adultBands.length ? { adultBands } : {}),
+          ...(childAgeNationalityRates.length
+            ? { childAgeNationalityRates }
+            : {}),
           ...(minStayNights != null ? { minStayNights } : {}),
           ...(maxStayNights != null ? { maxStayNights } : {}),
           ...(nationality ? { nationality } : {}),
@@ -1577,21 +1672,24 @@ export function SupplierHotelRatesPanel({
 
             <FormField
               label="Occupancy (optional)"
-              description="SGL/DBL/TPL weekday bases replace chart cost on Match by adults/room. Optional weekend per band overrides chart weekend ratio. Extra adult / child apply beyond the matched band."
+              description="SGL–HEX weekday bases (1A–6A) replace chart cost on Match by adults/room. Optional weekend per band. Child age×market columns override flat child rates when ages are on the quote."
             >
               <div className="space-y-3">
                 <div className="space-y-2">
-                  {form.adultBandRows.map((row, idx) => (
+                  {form.adultBandRows.map((row, idx) => {
+                    const bandLabel =
+                      row.adults === 1
+                        ? 'Single (1A)'
+                        : row.adults === 2
+                          ? 'Double (2A)'
+                          : row.adults === 3
+                            ? 'Triple (3A)'
+                            : row.adults === 4
+                              ? 'Quad (4A)'
+                              : `${row.adults}A`;
+                    return (
                     <FormGrid key={row.adults}>
-                      <FormField
-                        label={
-                          row.adults === 1
-                            ? 'Single (1A) weekday'
-                            : row.adults === 2
-                              ? 'Double (2A) weekday'
-                              : 'Triple (3A) weekday'
-                        }
-                      >
+                      <FormField label={`${bandLabel} weekday`}>
                         <PriceField
                           value={row.unitCost}
                           onChange={(unitCost) => {
@@ -1605,13 +1703,7 @@ export function SupplierHotelRatesPanel({
                         />
                       </FormField>
                       <FormField
-                        label={
-                          row.adults === 1
-                            ? 'Single weekend'
-                            : row.adults === 2
-                              ? 'Double weekend'
-                              : 'Triple weekend'
-                        }
+                        label={`${bandLabel} weekend`}
                         description={
                           idx === 0
                             ? 'Optional. Blank = scale from chart weekend.'
@@ -1633,7 +1725,117 @@ export function SupplierHotelRatesPanel({
                         />
                       </FormField>
                     </FormGrid>
-                  ))}
+                    );
+                  })}
+                </div>
+                <div className="space-y-2 rounded-lg border border-border/50 p-3">
+                  <div className="text-xs font-medium text-foreground">
+                    Child age × nationality matrix
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Contract child with/without bed by age band and market (IN /
+                    INTL). Match uses traveller ages + nationalities; blank rows
+                    are ignored. Flat child rates below remain fallback.
+                  </p>
+                  {(form.childAgeNatRows ?? emptyChildAgeNatRows()).map(
+                    (row, idx) => (
+                      <FormGrid key={idx}>
+                        <FormField label={idx === 0 ? 'Age min' : ' '}>
+                          <Input
+                            inputMode="numeric"
+                            value={row.ageMin}
+                            onChange={(e) => {
+                              const next = [
+                                ...(form.childAgeNatRows ??
+                                  emptyChildAgeNatRows()),
+                              ];
+                              next[idx] = { ...row, ageMin: e.target.value };
+                              setForm({ ...form, childAgeNatRows: next });
+                            }}
+                          />
+                        </FormField>
+                        <FormField label={idx === 0 ? 'Age max' : ' '}>
+                          <Input
+                            inputMode="numeric"
+                            value={row.ageMax}
+                            onChange={(e) => {
+                              const next = [
+                                ...(form.childAgeNatRows ??
+                                  emptyChildAgeNatRows()),
+                              ];
+                              next[idx] = { ...row, ageMax: e.target.value };
+                              setForm({ ...form, childAgeNatRows: next });
+                            }}
+                          />
+                        </FormField>
+                        <FormField label={idx === 0 ? 'Market' : ' '}>
+                          <Input
+                            value={row.nationality}
+                            onChange={(e) => {
+                              const next = [
+                                ...(form.childAgeNatRows ??
+                                  emptyChildAgeNatRows()),
+                              ];
+                              next[idx] = {
+                                ...row,
+                                nationality: e.target.value,
+                              };
+                              setForm({ ...form, childAgeNatRows: next });
+                            }}
+                            placeholder="IN"
+                          />
+                        </FormField>
+                        <FormField label={idx === 0 ? 'With bed' : ' '}>
+                          <PriceField
+                            value={row.withBed}
+                            onChange={(withBed) => {
+                              const next = [
+                                ...(form.childAgeNatRows ??
+                                  emptyChildAgeNatRows()),
+                              ];
+                              next[idx] = { ...row, withBed };
+                              setForm({ ...form, childAgeNatRows: next });
+                            }}
+                          />
+                        </FormField>
+                        <FormField label={idx === 0 ? 'No bed' : ' '}>
+                          <PriceField
+                            value={row.withoutBed}
+                            onChange={(withoutBed) => {
+                              const next = [
+                                ...(form.childAgeNatRows ??
+                                  emptyChildAgeNatRows()),
+                              ];
+                              next[idx] = { ...row, withoutBed };
+                              setForm({ ...form, childAgeNatRows: next });
+                            }}
+                          />
+                        </FormField>
+                      </FormGrid>
+                    ),
+                  )}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() =>
+                      setForm({
+                        ...form,
+                        childAgeNatRows: [
+                          ...(form.childAgeNatRows ?? emptyChildAgeNatRows()),
+                          {
+                            ageMin: '',
+                            ageMax: '',
+                            nationality: '',
+                            withBed: '',
+                            withoutBed: '',
+                          },
+                        ],
+                      })
+                    }
+                  >
+                    Add child column
+                  </Button>
                 </div>
                 <FormGrid>
                   <FormField label="Base adults / room">
@@ -1862,7 +2064,15 @@ export function SupplierHotelRatesPanel({
                   <th className="pb-2 pr-2 font-medium">Meal</th>
                   {MATRIX_ADULT_BANDS.map((adults) => (
                     <th key={adults} className="pb-2 px-1 font-medium">
-                      {adults === 1 ? 'SGL' : adults === 2 ? 'DBL' : 'TPL'}
+                      {adults === 1
+                        ? 'SGL'
+                        : adults === 2
+                          ? 'DBL'
+                          : adults === 3
+                            ? 'TPL'
+                            : adults === 4
+                              ? 'QAD'
+                              : `${adults}A`}
                       <span className="mt-0.5 block font-normal text-[10px]">
                         Wk / We
                       </span>

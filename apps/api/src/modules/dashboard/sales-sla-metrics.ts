@@ -24,8 +24,12 @@ export type SalesSlaMetrics = {
   medianLeadToQuoteHours: number | null;
   firstTouchSampleSize: number;
   leadToQuoteSampleSize: number;
+  /** Real (non-demo) FIT build median — aligned with claim gate. */
   medianFitBuildMinutes: number | null;
+  /** Real (non-demo) FIT sample count. */
   fitBuildSampleSize: number;
+  /** Demo-seed FIT samples excluded from median/count. */
+  fitBuildDemoSampleSize: number;
 };
 
 export function medianSorted(values: number[]): number | null {
@@ -56,9 +60,12 @@ export function computeSalesSlaMetrics(
       quoteHours.push(hoursBetween(row.createdAt, row.firstQuoteAt));
     }
   }
-  const fitMinutes = fitRows
-    .map((r) => r.minutes)
-    .filter((m) => Number.isFinite(m) && m >= 0 && m <= 24 * 60);
+  const validFit = fitRows.filter(
+    (r) => Number.isFinite(r.minutes) && r.minutes >= 0 && r.minutes <= 24 * 60,
+  );
+  const realFit = validFit.filter((r) => !isDemoFitBuildSource(r.source));
+  const demoFit = validFit.filter((r) => isDemoFitBuildSource(r.source));
+  const fitMinutes = realFit.map((r) => r.minutes);
   return {
     medianFirstTouchHours: medianSorted(touchHours),
     medianLeadToQuoteHours: medianSorted(quoteHours),
@@ -66,6 +73,7 @@ export function computeSalesSlaMetrics(
     leadToQuoteSampleSize: quoteHours.length,
     medianFitBuildMinutes: medianSorted(fitMinutes),
     fitBuildSampleSize: fitMinutes.length,
+    fitBuildDemoSampleSize: demoFit.length,
   };
 }
 
@@ -196,6 +204,13 @@ export function buildFitClaimProtocol(opts: {
     demoSampleSize,
     demoClaimReady: opts.demoClaimReady === true,
   };
+}
+
+/** Remaining real samples needed before the public FIT claim gate can clear. */
+export function fitClaimRemainingSamples(
+  protocol: Pick<FitClaimProtocol, 'sampleSize' | 'minSampleSize'>,
+): number {
+  return Math.max(0, protocol.minSampleSize - Math.max(0, protocol.sampleSize));
 }
 
 /**

@@ -112,17 +112,31 @@ export function pickBestActivityRate(
     wantedName: string;
   },
 ): ActivityRateCandidate | undefined {
-  let best: ActivityRateCandidate | undefined;
-  let bestScore = -1;
+  return rankActivityRates(pool, opts)[0]?.row;
+}
+
+/** Rank eligible activity rates (higher score first). */
+export function rankActivityRates(
+  pool: ActivityRateCandidate[],
+  opts: {
+    asOf: Date;
+    supplierId?: string | null;
+    placeId?: string | null;
+    privateOrSic?: string | null;
+    wantedName: string;
+  },
+): Array<{ row: ActivityRateCandidate; score: number }> {
+  const ranked: Array<{ row: ActivityRateCandidate; score: number }> = [];
   for (const rate of pool) {
     if (!dateInActivityWindow(opts.asOf, rate.startDate, rate.endDate)) continue;
     const score = scoreActivityRate(rate, opts);
-    if (score > bestScore) {
-      bestScore = score;
-      best = rate;
-    }
+    if (score < 0) continue;
+    ranked.push({ row: rate, score });
   }
-  return best;
+  return ranked.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return a.row.id.localeCompare(b.row.id);
+  });
 }
 
 /** Blended per-person buy so qty × unitCost equals adult+child total. */

@@ -203,7 +203,6 @@ export class TravelRequestsService {
       entityId: outcome.leadId,
       metadata: { via: 'travel_request' },
     });
-    await this.leads.syncLeadToHubspot(user.organizationId, outcome.leadId);
     await this.audit.record({
       organizationId: user.organizationId,
       actorUserId: user.sub,

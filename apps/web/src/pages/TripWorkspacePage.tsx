@@ -83,6 +83,27 @@ import {
   FirstQuoteWalkthrough,
   dismissFirstQuoteWalkthrough,
 } from '../components/agency/FirstQuoteWalkthrough';
+import { FitQuoteProgressStrip } from '../components/trips/FitQuoteProgressStrip';
+import { FitReviseMovesStrip } from '../components/trips/FitReviseMovesStrip';
+import { FitRevisionMarginDeltaStrip } from '../components/trips/FitRevisionMarginDeltaStrip';
+import { FitDogfoodTimingCue } from '../components/trips/FitDogfoodTimingCue';
+import { useFitClaimProtocol } from '../hooks/useFitClaimProtocol';
+import { buildFitQuoteProgress } from '../lib/fitQuoteProgress';
+import {
+  buildFitReviseMoves,
+  firstHotelLineId,
+  firstUnmatchedLineIdFromAttention,
+} from '../lib/fitReviseMoves';
+import {
+  buildRevisionMarginDelta,
+  commercialTotalsFromLines,
+  commercialTotalsFromVersion,
+  resolveRevisionBaseline,
+} from '../lib/revisionMarginDelta';
+import {
+  resolveInquiryPaxForStamp,
+  stampInquiryPaxOntoQuoteLines,
+} from '../lib/stampInquiryPaxOntoQuoteLines';
 import {
   formatAgencyFitPackToast,
   installAgencyFitPack,
@@ -185,6 +206,11 @@ import {
   resolveOrgMarkupPercent,
 } from '../lib/orgMarkup';
 import { normalizeTravellerType } from '../lib/travellerType';
+import {
+  formatRoomAllocationLabelUi,
+  normalizeRoomAllocationUi,
+  roomAllocationSelectOptions,
+} from '../lib/roomAllocation';
 import {
   type MarkupPreset,
   markupPresetSummary,
@@ -776,6 +802,8 @@ export function TripWorkspacePage() {
   const [editTravellerType, setEditTravellerType] = useState('adult');
   const [editTravellerNationality, setEditTravellerNationality] = useState('');
   const [editTravellerIsLead, setEditTravellerIsLead] = useState(false);
+  const [editTravellerRoomAllocation, setEditTravellerRoomAllocation] =
+    useState('');
   const [travelDatesOpen, setTravelDatesOpen] = useState(false);
   const [travelDatesSaving, setTravelDatesSaving] = useState(false);
   const [travelDatesShiftQuote, setTravelDatesShiftQuote] = useState(true);
@@ -877,6 +905,8 @@ export function TripWorkspacePage() {
   const [taxConfirmOpen, setTaxConfirmOpen] = useState(false);
   const [includedConfirmOpen, setIncludedConfirmOpen] = useState(false);
   const [attentionOpen, setAttentionOpen] = useState(false);
+  /** Show post-revise move chips after unlock / clone / date rewrite. */
+  const [reviseMovesCue, setReviseMovesCue] = useState(false);
   /** Live chart updatedAt by rateId from POST /rates/chart-freshness. */
   const [chartUpdatedAtByRateId, setChartUpdatedAtByRateId] = useState<
     Record<string, string>
@@ -913,15 +943,26 @@ export function TripWorkspacePage() {
   const canItinerary = has('itinerary.edit');
   const canQuoteWrite = has('quote.write');
   const canQuoteRead = has('quote.read');
+  const fitClaimProtocol = useFitClaimProtocol(
+    tab === 'quotations' && Boolean(canQuoteWrite),
+  );
   const dmcWorkspace = me?.organization.kind === 'dmc';
   useDocumentTitle(trip ? `${trip.tripNumber} · ${trip.title}` : dmcWorkspace ? 'Package' : 'Trip');
 
-  function changeTab(next: string) {
+  function changeTab(
+    next: string,
+    opts?: { bookingId?: string | null; schedule?: boolean },
+  ) {
     const safe = next in TAB_LABELS ? next : 'overview';
     setTab(safe);
     const params = new URLSearchParams(searchParams);
     if (safe === 'overview') params.delete('tab');
     else params.set('tab', safe);
+    const bookingId = opts?.bookingId?.trim();
+    if (bookingId && safe === 'operations') params.set('booking', bookingId);
+    else params.delete('booking');
+    if (opts?.schedule && safe === 'finance') params.set('schedule', '1');
+    else params.delete('schedule');
     setSearchParams(params, { replace: true });
   }
 
@@ -1262,6 +1303,9 @@ export function TripWorkspacePage() {
           updated.quoteRewriteQuotationId,
           updated.quoteRewriteVersionId ?? null,
         );
+        setReviseMovesCue(true);
+      } else if (shifted) {
+        setReviseMovesCue(true);
       }
       const bits = ['Travel dates updated'];
       const shiftDays = Number(updated.dateShiftDays) || 0;
@@ -1917,6 +1961,8 @@ export function TripWorkspacePage() {
     status: string;
     versionLock?: number;
     sellTotal?: number | string;
+    costTotal?: number | string;
+    marginAmount?: number | string;
     marginPercent?: number | string;
     costHidden?: boolean;
     itemsJson?: unknown;
@@ -2063,6 +2109,95 @@ export function TripWorkspacePage() {
       (REVISABLE_QUOTE_STATUSES.has(selectedQuoteVersion.status) ||
         quoteCan.has('revise')),
   );
+  const fitQuoteProgress = useMemo(
+    () =>
+      buildFitQuoteProgress({
+        itemCount: quoteItems.length,
+        attentionRows: attentionLines,
+        marginGateCount,
+        canViewCost: Boolean(canViewCost),
+        canSend: canSendQuote,
+        quoteLocked: quoteReadOnly,
+      }),
+    [
+      quoteItems.length,
+      attentionLines,
+      marginGateCount,
+      canViewCost,
+      canSendQuote,
+      quoteReadOnly,
+    ],
+  );
+  const inquiryPaxForStamp = useMemo(
+    () =>
+      resolveInquiryPaxForStamp({
+        adults: trip?.inquiry?.adults,
+        children: trip?.inquiry?.children,
+      }),
+    [trip?.inquiry?.adults, trip?.inquiry?.children],
+  );
+  const fitReviseMoves = useMemo(() => {
+    const mode =
+      quoteReadOnly && canReviseLockedVersion
+        ? 'locked'
+        : reviseMovesCue && !quoteReadOnly
+          ? 'post_revise'
+          : 'idle';
+    return buildFitReviseMoves({
+      mode,
+      itemCount: quoteItems.length,
+      rateDriftCount,
+      firstUnmatchedLineId: firstUnmatchedLineIdFromAttention(attentionLines),
+      firstHotelLineId: firstHotelLineId(quoteItems),
+      inquiryPax: inquiryPaxForStamp,
+      canTripWrite: Boolean(canTripWrite),
+      canQuoteWrite: Boolean(canQuoteWrite),
+      quoteAccepted: quoteStatus === 'accepted',
+    });
+  }, [
+    quoteReadOnly,
+    canReviseLockedVersion,
+    reviseMovesCue,
+    quoteItems,
+    rateDriftCount,
+    attentionLines,
+    inquiryPaxForStamp,
+    canTripWrite,
+    canQuoteWrite,
+    quoteStatus,
+  ]);
+  const revisionMarginDelta = useMemo(() => {
+    if (!canViewCost || quoteReadOnly || quoteItems.length === 0) return null;
+    const tripAcceptedVersions = (trip?.quotations || []).flatMap(
+      (q: { versions?: unknown[] }) =>
+        (Array.isArray(q.versions) ? q.versions : []).filter(
+          (v: { status?: string }) => v?.status === 'accepted',
+        ),
+    );
+    const resolved = resolveRevisionBaseline({
+      versions: quoteVersions,
+      selectedVersionId: selectedQuoteVersion?.id ?? selectedQuoteVersionId,
+      tripAcceptedVersions,
+    });
+    if (!resolved) return null;
+    const before = commercialTotalsFromVersion(resolved.baseline);
+    const after = commercialTotalsFromLines(quoteItems);
+    return buildRevisionMarginDelta({
+      before,
+      after,
+      source: resolved.source,
+      baselineLabel: quoteVersionOptionLabel(resolved.baseline),
+      canViewCost: true,
+    });
+  }, [
+    canViewCost,
+    quoteReadOnly,
+    quoteItems,
+    trip?.quotations,
+    quoteVersions,
+    selectedQuoteVersion?.id,
+    selectedQuoteVersionId,
+  ]);
   const hasAcceptedQuote = (trip?.quotations || []).some((q: any) =>
     (q.versions || []).some((v: any) => v.status === 'accepted'),
   );
@@ -2137,6 +2272,7 @@ export function TripWorkspacePage() {
 
   function openEditTraveller(row: {
     isLead?: boolean;
+    roomAllocation?: string | null;
     traveller?: {
       id?: string;
       fullName?: string;
@@ -2153,6 +2289,9 @@ export function TripWorkspacePage() {
       normalizeHotelNationalityUi(row.traveller?.nationality),
     );
     setEditTravellerIsLead(Boolean(row.isLead));
+    setEditTravellerRoomAllocation(
+      normalizeRoomAllocationUi(row.roomAllocation) || '',
+    );
     setEditTravellerOpen(true);
   }
 
@@ -2161,6 +2300,8 @@ export function TripWorkspacePage() {
     setEditTravellerSaving(true);
     try {
       const nationality = normalizeHotelNationalityUi(editTravellerNationality);
+      const roomAllocation =
+        normalizeRoomAllocationUi(editTravellerRoomAllocation);
       await api(`/trips/${id}/travellers/${editTravellerId}`, {
         method: 'PATCH',
         body: JSON.stringify({
@@ -2168,6 +2309,7 @@ export function TripWorkspacePage() {
           type: editTravellerType,
           nationality: nationality || null,
           isLead: editTravellerIsLead,
+          roomAllocation: roomAllocation,
         }),
       });
       setEditTravellerOpen(false);
@@ -2181,11 +2323,32 @@ export function TripWorkspacePage() {
     }
   }
 
+  async function assignTravellerRoom(
+    travellerId: string,
+    roomAllocation: string | null,
+  ) {
+    try {
+      await api(`/trips/${id}/travellers/${travellerId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          roomAllocation: roomAllocation
+            ? normalizeRoomAllocationUi(roomAllocation)
+            : null,
+        }),
+      });
+      toastSuccess('Room updated');
+      await load();
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not update room');
+    }
+  }
+
   async function createAndSaveQuote() {
     if (quoteItems.length === 0) {
       toastError('Add at least one quote line first');
       return;
     }
+    const wasLockedRevise = quoteReadOnly && canReviseLockedVersion;
     const items = quoteItems.map((item) => serializeQuoteLine(item));
     const latest = selectedQuoteVersion;
     const orgCurrency = (trip?.organization?.currency ||
@@ -2220,13 +2383,14 @@ export function TripWorkspacePage() {
         },
       );
       toastSuccess(
-        quoteReadOnly && canReviseLockedVersion
+        wasLockedRevise
           ? `New draft v${version.versionNumber} created from this quote`
           : `Quote saved as v${version.versionNumber}`,
       );
       selectedQuoteVersionIdRef.current = version.id;
       setSelectedQuoteVersionId(version.id);
       writeQuoteQuery(quotationId, version.id);
+      if (wasLockedRevise) setReviseMovesCue(true);
       await load();
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Could not save quote');
@@ -2252,6 +2416,7 @@ export function TripWorkspacePage() {
           ? 'Resumed existing revision draft'
           : 'New draft quotation created from accepted quote',
       );
+      setReviseMovesCue(true);
       await load();
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Could not revise quote');
@@ -2286,6 +2451,7 @@ export function TripWorkspacePage() {
           ? `Cloned as ${quotation.quoteNumber}`
           : 'Quotation cloned as new draft',
       );
+      setReviseMovesCue(true);
       await load();
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Could not clone quotation');
@@ -4024,6 +4190,11 @@ export function TripWorkspacePage() {
     setQuoteItems((prev) => prev.filter((item) => item.id !== id));
   }
 
+  const travellerRoomOptions = useMemo(
+    () => roomAllocationSelectOptions(trip?.travellers || []),
+    [trip?.travellers],
+  );
+
   const travellerColumns = useMemo<ColumnDef<any>[]>(
     () => [
       {
@@ -4051,6 +4222,36 @@ export function TripWorkspacePage() {
           ) : (
             <span className="text-muted-foreground">Companion</span>
           ),
+      },
+      {
+        id: 'room',
+        header: 'Room',
+        size: 140,
+        cell: ({ row }) => {
+          const tid = row.original.traveller?.id as string | undefined;
+          const current =
+            normalizeRoomAllocationUi(row.original.roomAllocation) || '';
+          if (!canTripWrite || !tid) {
+            return (
+              <span className="text-muted-foreground">
+                {formatRoomAllocationLabelUi(row.original.roomAllocation)}
+              </span>
+            );
+          }
+          return (
+            <Combobox
+              value={current}
+              onChange={(v) => {
+                const next = normalizeRoomAllocationUi(v);
+                if ((next || '') === current) return;
+                void assignTravellerRoom(tid, next);
+              }}
+              options={travellerRoomOptions}
+              placeholder="Room"
+              size="sm"
+            />
+          );
+        },
       },
       {
         id: 'nationality',
@@ -4098,7 +4299,7 @@ export function TripWorkspacePage() {
           ]
         : []),
     ],
-    [canTripWrite],
+    [canTripWrite, travellerRoomOptions],
   );
 
   const quoteColumns = useMemo<ColumnDef<(typeof quoteItems)[0]>[]>(
@@ -4598,8 +4799,9 @@ export function TripWorkspacePage() {
         tripId={trip.id}
         compact
         activeTab={tab}
+        tripStatus={trip.status}
         refreshKey={controlRefreshKey}
-        onOpenTab={(t) => changeTab(t)}
+        onOpenTab={(t, opts) => changeTab(t, opts)}
       />
 
       <Tabs value={tab} onValueChange={changeTab}>
@@ -4642,8 +4844,9 @@ export function TripWorkspacePage() {
             </div>
             <TripControlCentre
               tripId={trip.id}
+              tripStatus={trip.status}
               refreshKey={controlRefreshKey}
-              onOpenTab={(t) => changeTab(t)}
+              onOpenTab={(t, opts) => changeTab(t, opts)}
             />
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <Card>
@@ -4803,7 +5006,7 @@ export function TripWorkspacePage() {
           <div className="mb-3 flex items-center justify-between gap-2">
             <p className="text-sm text-muted-foreground">
               {travellerCount
-                ? `${travellerCount} traveller${travellerCount === 1 ? '' : 's'}`
+                ? `${travellerCount} traveller${travellerCount === 1 ? '' : 's'} · assign Room 1/2… for hotel voucher lists`
                 : 'Add the lead traveller to start.'}
             </p>
             {canTripWrite ? (
@@ -4970,6 +5173,126 @@ export function TripWorkspacePage() {
                   <p className="text-xs text-muted-foreground">{quoteSaveError}</p>
                 ) : null}
               </div>
+
+            {canQuoteWrite && fitQuoteProgress.visible ? (
+              <FitQuoteProgressStrip
+                steps={fitQuoteProgress.steps}
+                onStepAction={(action, fixTargetLineId) => {
+                  if (action === 'use_template') {
+                    void openUseTemplateDialog();
+                    return;
+                  }
+                  if (action === 'open_line') {
+                    if (fixTargetLineId) {
+                      setQuoteDetailLineId(fixTargetLineId);
+                      setAttentionOpen(true);
+                    } else {
+                      void refreshPricesFromRates();
+                      setAttentionOpen(true);
+                    }
+                    return;
+                  }
+                  if (action === 'margin') {
+                    if (fixTargetLineId) {
+                      setQuoteDetailLineId(fixTargetLineId);
+                      setAttentionOpen(true);
+                    }
+                    if (canOverrideBelowMargin) {
+                      openMarginOverrideDialog(null);
+                    }
+                    return;
+                  }
+                  if (action === 'send_readiness') {
+                    document
+                      .getElementById('quote-send-readiness')
+                      ?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                  }
+                }}
+              />
+            ) : null}
+
+            {canQuoteWrite ? (
+              <FitDogfoodTimingCue protocol={fitClaimProtocol} />
+            ) : null}
+
+            {canQuoteWrite && fitReviseMoves.visible ? (
+              <FitReviseMovesStrip
+                title={fitReviseMoves.title}
+                subtitle={fitReviseMoves.subtitle}
+                actions={fitReviseMoves.actions}
+                onDismiss={
+                  reviseMovesCue && !quoteReadOnly
+                    ? () => setReviseMovesCue(false)
+                    : undefined
+                }
+                onAction={(actionId) => {
+                  if (actionId === 'revise_draft') {
+                    if (quoteStatus === 'accepted') void reviseFromAccepted();
+                    else void createAndSaveQuote();
+                    return;
+                  }
+                  if (actionId === 'edit_dates') {
+                    openTravelDatesSheet();
+                    return;
+                  }
+                  if (actionId === 'rematch_all') {
+                    void refreshPricesFromRates();
+                    return;
+                  }
+                  if (actionId === 'rematch_drift') {
+                    void refreshPricesFromRates(rateDriftIds);
+                    return;
+                  }
+                  if (actionId === 'open_unmatched') {
+                    const lineId = firstUnmatchedLineIdFromAttention(attentionLines);
+                    if (lineId) {
+                      setQuoteDetailLineId(lineId);
+                      setAttentionOpen(true);
+                    } else {
+                      void refreshPricesFromRates();
+                    }
+                    return;
+                  }
+                  if (actionId === 'swap_hotel') {
+                    const hotelId = firstHotelLineId(quoteItems);
+                    if (hotelId) {
+                      setQuoteDetailLineId(hotelId);
+                      setAttentionOpen(true);
+                    }
+                    return;
+                  }
+                  if (actionId === 'apply_inquiry_pax') {
+                    const pax = inquiryPaxForStamp;
+                    if (!pax) {
+                      toastError('Inquiry has no adults/children to apply');
+                      return;
+                    }
+                    const { items, stampedCount } = stampInquiryPaxOntoQuoteLines(
+                      quoteItems,
+                      pax,
+                    );
+                    if (!stampedCount) {
+                      toastError('No hotel, transfer, or activity lines to update');
+                      return;
+                    }
+                    setQuoteItems(items as typeof quoteItems);
+                    toastSuccess(
+                      `Applied ${pax.adults}A+${pax.children}C to ${stampedCount} line${
+                        stampedCount === 1 ? '' : 's'
+                      } — rematching…`,
+                    );
+                    void refreshPricesFromRates(undefined, items as typeof quoteItems);
+                  }
+                }}
+              />
+            ) : null}
+
+            {revisionMarginDelta?.visible ? (
+              <FitRevisionMarginDeltaStrip
+                delta={revisionMarginDelta}
+                currency={quoteCurrency}
+              />
+            ) : null}
 
             {canQuoteWrite && !quoteReadOnly && needsAttentionCount > 0 ? (
               <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm">
@@ -5690,7 +6013,10 @@ export function TripWorkspacePage() {
                 </aside>
 
                 {canSendQuote || quoteHasServices || quoteReady.tone !== 'ok' ? (
-                  <aside className="rounded-xl border border-border/70 bg-card/40 p-4">
+                  <aside
+                    id="quote-send-readiness"
+                    className="rounded-xl border border-border/70 bg-card/40 p-4"
+                  >
                     <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                       Send readiness
                     </p>
@@ -5899,6 +6225,7 @@ export function TripWorkspacePage() {
           <OperationsPanel
             tripId={trip.id}
             status={trip.status}
+            focusBookingId={searchParams.get('booking')}
             onChanged={load}
             onOpenFinance={() => changeTab('finance')}
           />
@@ -5996,6 +6323,7 @@ export function TripWorkspacePage() {
             setEditTravellerType('adult');
             setEditTravellerNationality('');
             setEditTravellerIsLead(false);
+            setEditTravellerRoomAllocation('');
           }
         }}
         title="Edit traveller"
@@ -6022,6 +6350,19 @@ export function TripWorkspacePage() {
             ]}
             value={editTravellerType}
             onChange={setEditTravellerType}
+          />
+        </FormField>
+        <FormField
+          label="Hotel room"
+          description="Stamped on the trip traveller. Hotel vouchers list guests under Room 1 / Room 2 when set."
+        >
+          <Combobox
+            value={editTravellerRoomAllocation}
+            onChange={(v) =>
+              setEditTravellerRoomAllocation(normalizeRoomAllocationUi(v) || '')
+            }
+            options={travellerRoomOptions}
+            placeholder="Unassigned"
           />
         </FormField>
         <FormField

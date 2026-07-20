@@ -1677,7 +1677,7 @@ export function SettingsPage({
                     </dl>
                     <ComingSoonNote>
                       Custom domain DNS/SSL verification ships later. Open Website pages from the
-                      sidebar — URLs use your public org code like HubSpot HubID.
+                      sidebar — URLs use your public org code.
                     </ComingSoonNote>
                   </>
                 ) : null}

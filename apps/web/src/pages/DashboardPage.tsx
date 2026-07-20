@@ -70,6 +70,7 @@ type SalesDash = {
   leadToQuoteSampleSize30d?: number;
   medianFitBuildMinutes30d?: number | null;
   fitBuildSampleSize30d?: number;
+  fitBuildDemoSampleSize30d?: number;
   fitClaimProtocol?: {
     definition?: string;
     targetMinutes?: number;

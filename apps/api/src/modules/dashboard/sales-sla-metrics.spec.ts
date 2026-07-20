@@ -6,6 +6,7 @@ import {
   medianSorted,
   buildFitClaimProtocol,
   buildFitClaimProtocolFromRows,
+  fitClaimRemainingSamples,
   FIT_BUILD_DEMO_SEED_SOURCE,
   FIT_CLAIM_MIN_SAMPLE_SIZE,
   FIT_CLAIM_TARGET_MINUTES,
@@ -52,12 +53,29 @@ describe('computeSalesSlaMetrics', () => {
     expect(m.medianLeadToQuoteHours).toBe(36);
     expect(m.fitBuildSampleSize).toBe(0);
     expect(m.medianFitBuildMinutes).toBeNull();
+    expect(m.fitBuildDemoSampleSize).toBe(0);
   });
 
   it('computes median FIT build minutes', () => {
     const m = computeSalesSlaMetrics([], [{ minutes: 2 }, { minutes: 4 }, { minutes: 6 }]);
     expect(m.fitBuildSampleSize).toBe(3);
     expect(m.medianFitBuildMinutes).toBe(4);
+    expect(m.fitBuildDemoSampleSize).toBe(0);
+  });
+
+  it('excludes demo_seed from FIT median and sample size', () => {
+    const m = computeSalesSlaMetrics(
+      [],
+      [
+        { minutes: 2 },
+        { minutes: 4 },
+        { minutes: 1, source: FIT_BUILD_DEMO_SEED_SOURCE },
+        { minutes: 1, source: FIT_BUILD_DEMO_SEED_SOURCE },
+      ],
+    );
+    expect(m.fitBuildSampleSize).toBe(2);
+    expect(m.medianFitBuildMinutes).toBe(3);
+    expect(m.fitBuildDemoSampleSize).toBe(2);
   });
 
   it('ignores touch/quote before createdAt', () => {
@@ -124,6 +142,14 @@ describe('salesSlaMedianTone', () => {
     expect(salesSlaMedianTone(7, 4)).toBe('danger');
     expect(salesSlaMedianTone(5, null)).toBe('neutral');
     expect(salesSlaMedianTone(null, 4)).toBe('neutral');
+  });
+});
+
+describe('fitClaimRemainingSamples', () => {
+  it('counts remaining real samples to min', () => {
+    expect(fitClaimRemainingSamples({ sampleSize: 5, minSampleSize: 20 })).toBe(15);
+    expect(fitClaimRemainingSamples({ sampleSize: 20, minSampleSize: 20 })).toBe(0);
+    expect(fitClaimRemainingSamples({ sampleSize: 25, minSampleSize: 20 })).toBe(0);
   });
 });
 

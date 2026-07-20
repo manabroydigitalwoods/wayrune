@@ -361,17 +361,4 @@ export class LeadsController {
   widgetIngest(@Body() body: unknown) {
     return this.leads.ingestWidget(WidgetIngestSchema.parse(body));
   }
-
-  @Public()
-  @Post('ingest/hubspot/:organizationId')
-  async hubspotInbound(
-    @Param('organizationId') organizationId: string,
-    @Body() body: unknown,
-    @Headers('x-hubspot-ingest-token') sharedSecret: string | undefined,
-  ) {
-    const id = await this.orgId(organizationId);
-    return this.leads.ingestHubspotInbound(id, body, {
-      sharedSecretHeader: sharedSecret,
-    });
-  }
 }

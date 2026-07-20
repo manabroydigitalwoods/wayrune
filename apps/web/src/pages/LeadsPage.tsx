@@ -14,6 +14,7 @@ import {
   UserPlus,
   Users,
 } from 'lucide-react';
+import { PUBLIC_DOCS_BRING_YOUR_DATA_HREF } from '../lib/publicDocs';
 import { CreateLeadSchema, parseWithFieldErrors } from '@wayrune/contracts';
 import {
   Button,
@@ -1007,6 +1008,18 @@ export function LeadsPage() {
         onSubmit={() => void importCsv()}
         submitting={importing}
       >
+        <p className="text-xs text-muted-foreground">
+          Part of{' '}
+          <Link
+            to={PUBLIC_DOCS_BRING_YOUR_DATA_HREF}
+            className="text-primary hover:underline"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Bring your data
+          </Link>
+          — sheet import, not a full migration.
+        </p>
         <FormField label="CSV">
           <textarea
             className="min-h-[160px] w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs"

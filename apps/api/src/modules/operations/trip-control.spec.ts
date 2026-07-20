@@ -114,6 +114,39 @@ describe('trip-control', () => {
     expect(cancel?.tab).toBe('commerce');
   });
 
+  it('flags missing customer instalments when accepted quote has no receivables', () => {
+    const summary = buildTripControlSummary({
+      tripStartDate: '2027-06-01',
+      bookings: [],
+      finance: {
+        ...financeBase,
+        summary: {
+          customerDue: 0,
+          customerPaid: 0,
+          supplierDue: 0,
+          supplierPaid: 0,
+          overdueCount: 0,
+        },
+      },
+      readiness: readinessDone,
+    });
+    const flag = summary.flags.find((f) => f.code === 'missing_customer_instalments');
+    expect(flag?.tab).toBe('finance');
+    expect(flag?.severity).toBe('info');
+  });
+
+  it('does not flag missing instalments when customer paid exists', () => {
+    const summary = buildTripControlSummary({
+      tripStartDate: '2027-06-01',
+      bookings: [],
+      finance: financeBase,
+      readiness: readinessDone,
+    });
+    expect(
+      summary.flags.some((f) => f.code === 'missing_customer_instalments'),
+    ).toBe(false);
+  });
+
   it('flags customer over credit limit', () => {
     const summary = buildTripControlSummary({
       tripStartDate: '2027-06-01',

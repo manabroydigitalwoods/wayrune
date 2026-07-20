@@ -38,6 +38,18 @@ import {
   rateTipVersionRequiresPendingActivation,
 } from './hotel-rate-pending';
 import {
+  clampAlternativesLimit,
+  pickPreferredOrBest,
+  sortRankedRates,
+  toMatchAlternatives,
+  type RankedRate,
+} from './rate-resolve-alternatives';
+import {
+  previewActivityLineBuy,
+  previewHotelStayBuy,
+  previewTransferLineBuy,
+} from './match-alternative-preview';
+import {
   composeRatesImportAuditMetadata,
   mapAuditEventToImportBatch,
   RATES_IMPORT_AUDIT_ACTION,
@@ -65,7 +77,7 @@ import {
   classifyActivityPax,
   classifyTransferPax,
   normalizeActivityKey,
-  pickBestActivityRate,
+  rankActivityRates,
   type ActivityRateCandidate,
 } from './activity-rate-match';
 import {
@@ -99,11 +111,19 @@ import {
 import {
   applyPerVehicleChildExtras,
   parseTransferPartyBands,
-  pickTransferPartyBand,
   buildPartyBandsFromTransferCsvRow,
   transferPartyBandMatchAccepted,
   transferPerVehicleChildExtrasAccepted,
 } from './transfer-party-bands';
+import {
+  buildSeatMatrixFromTransferCsvRow,
+  composeMultiVehicleTransferSplit,
+  multiVehicleSplitTotalBuy,
+  parseTransferSeatMatrix,
+  resolveTransferVehicleUnitCost,
+  transferMultiVehicleSplitAccepted,
+  transferSeatMatrixMatchAccepted,
+} from './transfer-seat-matrix';
 import {
   filterHotelByNationality,
   hotelNationalityMatchAccepted,
@@ -124,6 +144,10 @@ import {
   tryHotelPaxBuySplit,
 } from './hotel-pax-buy-split';
 import { sumChildExtrasByNationality } from './child-nationality-extras';
+import {
+  buildChildAgeNationalityRatesFromCsvRow,
+  sumChildExtrasByAgeNationality,
+} from './child-age-nationality-rates';
 import {
   orderHotelRateVersionChain,
   planHotelRateNewVersion,
@@ -3309,9 +3333,34 @@ export class RatesService {
           dblWeekendUnitCost: row.dblWeekendUnitCost,
           tplUnitCost: row.tplUnitCost,
           tplWeekendUnitCost: row.tplWeekendUnitCost,
+          qadUnitCost: row.qadUnitCost,
+          qadWeekendUnitCost: row.qadWeekendUnitCost,
+        });
+        const childAgeNationalityRates = buildChildAgeNationalityRatesFromCsvRow({
+          childAgeBand1Min: row.childAgeBand1Min,
+          childAgeBand1Max: row.childAgeBand1Max,
+          childAgeBand1InWithBed: row.childAgeBand1InWithBed,
+          childAgeBand1InWithoutBed: row.childAgeBand1InWithoutBed,
+          childAgeBand1IntlWithBed: row.childAgeBand1IntlWithBed,
+          childAgeBand1IntlWithoutBed: row.childAgeBand1IntlWithoutBed,
+          childAgeBand2Min: row.childAgeBand2Min,
+          childAgeBand2Max: row.childAgeBand2Max,
+          childAgeBand2InWithBed: row.childAgeBand2InWithBed,
+          childAgeBand2InWithoutBed: row.childAgeBand2InWithoutBed,
+          childAgeBand2IntlWithBed: row.childAgeBand2IntlWithBed,
+          childAgeBand2IntlWithoutBed: row.childAgeBand2IntlWithoutBed,
         });
         const dblWeekend = adultBands?.find((b) => b.adults === 2)
           ?.weekendUnitCostPerNight;
+        const occupancyPricing =
+          adultBands?.length || childAgeNationalityRates?.length
+            ? {
+                ...(adultBands?.length ? { adultBands } : {}),
+                ...(childAgeNationalityRates?.length
+                  ? { childAgeNationalityRates }
+                  : {}),
+              }
+            : undefined;
         const created = await this.createHotelRate(organizationId, userId, {
           supplierId: supplierId ?? null,
           placeId: placeId ?? null,
@@ -3320,9 +3369,7 @@ export class RatesService {
           unitCost: row.unitCost,
           weekendUnitCost:
             row.weekendUnitCost ?? dblWeekend ?? null,
-          occupancyPricing: adultBands?.length
-            ? { adultBands }
-            : undefined,
+          occupancyPricing,
           currency: row.currency,
           startDate: row.startDate,
           endDate: row.endDate,
@@ -3593,7 +3640,12 @@ export class RatesService {
           endDate: row.endDate,
           pricingJson: (() => {
             const partyBands = buildPartyBandsFromTransferCsvRow(row);
-            return partyBands ? { partyBands } : undefined;
+            const seatMatrix = buildSeatMatrixFromTransferCsvRow(row);
+            if (!partyBands && !seatMatrix) return undefined;
+            return {
+              ...(partyBands ? { partyBands } : {}),
+              ...(seatMatrix ? { seatMatrix } : {}),
+            };
           })(),
         });
         okCount += 1;
@@ -4130,6 +4182,8 @@ export class RatesService {
       }
     }
 
+    const alternativesLimit = clampAlternativesLimit(input.alternativesLimit);
+
     const results = input.items.map((item) =>
       this.resolveOne(item, {
         hotelRates,
@@ -4153,6 +4207,7 @@ export class RatesService {
         activeContractIds,
         cancellationByContractId,
         cancellationBySupplierId,
+        alternativesLimit,
       }),
     );
 
@@ -4196,6 +4251,7 @@ export class RatesService {
       activeContractIds: Set<string>;
       cancellationByContractId: Map<string, unknown>;
       cancellationBySupplierId: Map<string, unknown>;
+      alternativesLimit: number;
     },
   ) {
     const asOf = parseDateOnly(item.date) || ctx.tripAsOf;
@@ -4292,27 +4348,24 @@ export class RatesService {
         }
       }
 
-      const pickBest = (pool: HotelRow[]) => {
-        let best: HotelRow | undefined;
-        let bestScore = -1;
+      const rankPool = (pool: HotelRow[]): RankedRate<HotelRow>[] => {
+        const ranked: RankedRate<HotelRow>[] = [];
         for (const r of pool) {
           let score = windowScore(r.startDate, r.endDate);
           if (!r.isSystem && r.organizationId) score += 10;
-          // Prefer rates owned by an active contract version.
           if (r.contractId && ctx.activeContractIds.has(r.contractId)) {
             score += 20;
           } else if (r.contractId == null) {
-            score += 5; // legacy / unversioned still usable
+            score += 5;
           } else {
-            continue; // superseded / draft / terminated contract rates
+            continue;
           }
-          if (score > bestScore) {
-            bestScore = score;
-            best = r;
-          }
+          ranked.push({ row: r, score });
         }
-        return best;
+        return sortRankedRates(ranked);
       };
+
+      const pickBest = (pool: HotelRow[]) => rankPool(pool)[0]?.row;
 
       const inWindow = (r: HotelRow) =>
         dateInWindow(asOf, r.startDate, r.endDate);
@@ -4320,8 +4373,8 @@ export class RatesService {
       const contractEligible = (r: HotelRow) =>
         !r.contractId || ctx.activeContractIds.has(r.contractId);
 
-      const matchDims = (pool: HotelRow[]) =>
-        pickBest(
+      const matchDimsRanked = (pool: HotelRow[]) =>
+        rankPool(
           filterHotelByPlaceOfSupply(
             filterHotelByNationality(
               filterHotelByRoomAndMeal(
@@ -4336,7 +4389,7 @@ export class RatesService {
           ),
         );
 
-      let best: HotelRow | undefined;
+      let ranked: RankedRate<HotelRow>[] = [];
 
       if (supplierId) {
         const agency = ctx.hotelRates.filter(
@@ -4346,10 +4399,10 @@ export class RatesService {
             inWindow(r) &&
             contractEligible(r),
         );
-        best = matchDims(agency);
+        ranked = matchDimsRanked(agency);
       }
 
-      if (!best && placeId) {
+      if (!ranked.length && placeId) {
         const agencyPlace = ctx.hotelRates.filter(
           (r) =>
             !r.isSystem &&
@@ -4360,8 +4413,16 @@ export class RatesService {
         const systemPlace = ctx.hotelRates.filter(
           (r) => r.isSystem && r.placeId === placeId && inWindow(r),
         );
-        best = matchDims(agencyPlace) || matchDims(systemPlace);
+        ranked = matchDimsRanked(agencyPlace);
+        if (!ranked.length) ranked = matchDimsRanked(systemPlace);
       }
+
+      const { best: bestRanked, rest: rankedRest } = pickPreferredOrBest(
+        ranked,
+        item.preferredRateId,
+      );
+      let best: HotelRow | undefined = bestRanked?.row;
+      let matchAlternatives: ReturnType<typeof toMatchAlternatives> = [];
 
       const explainPool = (
         supplierId
@@ -4443,6 +4504,28 @@ export class RatesService {
             (a): a is number => typeof a === 'number' && Number.isFinite(a),
           )
         : [];
+      matchAlternatives = toMatchAlternatives(
+        rankedRest,
+        ctx.alternativesLimit,
+        (r) =>
+          [r.roomType, r.mealPlan].filter(Boolean).join(' · ') ||
+          r.id.slice(0, 8),
+        (r) => Number(r.unitCost),
+        (r) =>
+          previewHotelStayBuy({
+            unitCost: Number(r.unitCost),
+            weekendUnitCost:
+              r.weekendUnitCost != null ? Number(r.weekendUnitCost) : null,
+            occupancyPricingJson: r.occupancyPricingJson,
+            stayNights: stayDatesForPricing,
+            stayNightIsos: stayDateIsos,
+            rooms,
+            adults,
+            children,
+            childrenWithoutBed,
+            childAges,
+          }),
+      );
       const childNationalities = collectGuestNationalityBag({
         nationalities: Array.isArray(item.details?.childNationalities)
           ? (item.details!.childNationalities as Array<
@@ -4571,7 +4654,44 @@ export class RatesService {
       let childNationalityExtras:
         | ReturnType<typeof sumChildExtrasByNationality>
         | undefined;
+      let childAgeNationalityExtras:
+        | ReturnType<typeof sumChildExtrasByAgeNationality>
+        | undefined;
+      const ageNatRates =
+        occupancyPricingEarly?.childAgeNationalityRates ?? [];
       if (
+        ageNatRates.length > 0 &&
+        pax.children > 0 &&
+        occ.childWithBedCount + occ.childWithoutBedCount > 0
+      ) {
+        const billableChildren =
+          occ.childWithBedCount + occ.childWithoutBedCount;
+        const agePart = sumChildExtrasByAgeNationality({
+          nights: nightsCount,
+          billableChildren,
+          childrenWithoutBed: occ.childWithoutBedCount,
+          childAges,
+          childNationalities,
+          rates: ageNatRates,
+          flatWithBed: occPricingForExtras?.childWithBedPerNight ?? null,
+          flatWithoutBed: occPricingForExtras?.childWithoutBedPerNight ?? null,
+        });
+        if (agePart) {
+          childAgeNationalityExtras = agePart;
+          const occupancyExtraTotal = round2(
+            occ.extraAdultTotal + agePart.occupancyExtraTotal,
+          );
+          occFinal = {
+            ...occ,
+            childWithBedCount: agePart.childWithBedCount,
+            childWithoutBedCount: agePart.childWithoutBedCount,
+            childWithBedTotal: agePart.childWithBedTotal,
+            childWithoutBedTotal: agePart.childWithoutBedTotal,
+            occupancyExtraTotal,
+            totalBuy: round2(occ.baseTotal + occupancyExtraTotal),
+          };
+        }
+      } else if (
         guestNationalitiesAreMixed(childNationalities) &&
         pax.children > 0 &&
         occ.childWithBedCount + occ.childWithoutBedCount > 0
@@ -4641,6 +4761,11 @@ export class RatesService {
         ...(childNationalityExtras
           ? {
               childNationalityExtras: childNationalityExtras.shares,
+            }
+          : {}),
+        ...(childAgeNationalityExtras
+          ? {
+              childAgeNationalityExtras: childAgeNationalityExtras.shares,
             }
           : {}),
         ...(paxSplit
@@ -4852,6 +4977,9 @@ export class RatesService {
               : {}),
           },
           matchExplain: { accepted, rejected },
+          ...(matchAlternatives.length
+            ? { alternatives: matchAlternatives }
+            : {}),
           ...(nightsExtended
             ? {
                 nightsBumped: {
@@ -4969,23 +5097,70 @@ export class RatesService {
         if (f.vehicleTypeId !== vehicleTypeId) return false;
         return dateInWindow(asOf, f.startDate, f.endDate);
       });
-      let best: FareRow | undefined;
-      let bestScore = -1;
+      const rankedTransfers: RankedRate<FareRow>[] = [];
       for (const f of candidates) {
         let score = windowScore(f.startDate, f.endDate);
         if (supplierId) {
           if (f.supplierId === supplierId) score += 40;
-          else if (f.supplierId) continue; // other supplier's chart
-          else score += 5; // org/system catalog still eligible
+          else if (f.supplierId) continue;
+          else score += 5;
         } else if (f.supplierId) {
-          score += 2; // mild preference when quote has no supplier
+          score += 2;
         }
         if (!f.isSystem && f.organizationId) score += 10;
-        if (score > bestScore) {
-          bestScore = score;
-          best = f;
-        }
+        rankedTransfers.push({ row: f, score });
       }
+      const { best: bestTransferRanked, rest: transferRest } =
+        pickPreferredOrBest(sortRankedRates(rankedTransfers), item.preferredRateId);
+      let best: FareRow | undefined = bestTransferRanked?.row;
+      const transferAdults =
+        Number(item.details?.adults) >= 0 &&
+        Number.isFinite(Number(item.details?.adults))
+          ? Math.round(Number(item.details?.adults))
+          : ctx.adults;
+      const transferChildren =
+        Number(item.details?.children) >= 0 &&
+        Number.isFinite(Number(item.details?.children))
+          ? Math.round(Number(item.details?.children))
+          : ctx.children;
+      const transferInfants =
+        Number(item.details?.infants) >= 0 &&
+        Number.isFinite(Number(item.details?.infants))
+          ? Math.round(Number(item.details?.infants))
+          : ctx.infants;
+      const transferVehicles = Math.max(
+        1,
+        Math.round(Number(item.details?.vehicles) || 1),
+      );
+      const matchAlternatives = toMatchAlternatives(
+        transferRest,
+        ctx.alternativesLimit,
+        (f) =>
+          [
+            f.supplierId ? 'Supplier chart' : f.isSystem ? 'System' : 'Org catalog',
+            f.vehicleType?.name || f.vehicleTypeId,
+          ]
+            .filter(Boolean)
+            .join(' · ') || f.id.slice(0, 8),
+        (f) => Number(f.unitCost),
+        (f) =>
+          previewTransferLineBuy({
+            unitCost: Number(f.unitCost),
+            childUnitCost:
+              f.childUnitCost != null ? Number(f.childUnitCost) : null,
+            infantUnitCost:
+              f.infantUnitCost != null ? Number(f.infantUnitCost) : null,
+            pricingMode: f.pricingMode,
+            pricingJson: f.pricingJson,
+            vehicleSeats: f.vehicleType?.seats ?? null,
+            adults: transferAdults,
+            children: transferChildren,
+            infants: transferInfants,
+            vehicles: transferVehicles,
+            childFareFactor: ctx.pricing.childFareFactor,
+            infantFareFactor: ctx.pricing.infantFareFactor,
+          }),
+      );
       if (!best) {
         const rejected = explainTransferRejects(routePool, undefined, {
           fromPlaceId,
@@ -5018,6 +5193,7 @@ export class RatesService {
 
       const chartAdultCost = Number(best.unitCost);
       const partyBands = parseTransferPartyBands(best.pricingJson);
+      const seatMatrix = parseTransferSeatMatrix(best.pricingJson);
       let partyForBand =
         Number(item.details?.adults) >= 0 &&
         Number.isFinite(Number(item.details?.adults))
@@ -5029,16 +5205,30 @@ export class RatesService {
           ? Math.round(Number(item.details?.children))
           : ctx.children;
       partyForBand += Math.max(0, childrenForBand);
-      const pickedBand =
-        partyBands.length > 0
-          ? pickTransferPartyBand({ bands: partyBands, party: partyForBand })
-          : null;
-
+      const vehicleSeatsForPick = best.vehicleType?.seats ?? null;
+      const seatsNeededForPick =
+        partyForBand > 0
+          ? partyForBand
+          : vehicleSeatsForPick != null && vehicleSeatsForPick > 0
+            ? vehicleSeatsForPick
+            : partyForBand;
       const pricingMode = best.pricingMode || 'per_vehicle';
-      const adultCost =
-        pricingMode === 'per_vehicle' && pickedBand
-          ? pickedBand.unitCost
-          : chartAdultCost;
+      const singleCab =
+        pricingMode === 'per_vehicle'
+          ? resolveTransferVehicleUnitCost({
+              seatsNeeded: seatsNeededForPick,
+              seatMatrix,
+              partyBands,
+              chartUnitCost: chartAdultCost,
+            })
+          : {
+              unitCost: chartAdultCost,
+              matrixRow: null,
+              partyBand: null,
+            };
+      const pickedBand = singleCab.partyBand;
+      const pickedMatrixRow = singleCab.matrixRow;
+      let adultCost = singleCab.unitCost;
       const childCost =
         best.childUnitCost != null
           ? Number(best.childUnitCost)
@@ -5177,11 +5367,15 @@ export class RatesService {
               usedChildAges: pax.usedChildAges,
             },
             matchExplain: { accepted, rejected },
+            ...(matchAlternatives.length
+              ? { alternatives: matchAlternatives }
+              : {}),
           },
         });
       }
 
-      // Per-vehicle: optional explicit chart child/infant add-ons (not factor-derived).
+      // Per-vehicle: seat matrix / party bands, optional multi-vehicle split,
+      // then explicit chart (or matrix-row) child/infant add-ons.
       let partyInfants = ctx.infants;
       const lineInfantsPv = Number(item.details?.infants);
       if (Number.isFinite(lineInfantsPv) && lineInfantsPv >= 0) {
@@ -5191,18 +5385,78 @@ export class RatesService {
       if (Number.isFinite(lineChildrenPv) && lineChildrenPv >= 0) {
         partyChildren = Math.round(lineChildrenPv);
       }
+
+      const vehicleSeats = best.vehicleType?.seats ?? null;
+      const requestedVehiclesRaw = Number(item.details?.vehicles);
+      const requestedVehicles =
+        Number.isFinite(requestedVehiclesRaw) && requestedVehiclesRaw >= 1
+          ? Math.round(requestedVehiclesRaw)
+          : 1;
+      const minVehicles =
+        vehicleSeats != null &&
+        vehicleSeats > 0 &&
+        partyForBand > 0
+          ? Math.max(1, Math.ceil(partyForBand / vehicleSeats))
+          : 1;
+      const vehiclesForSplit = Math.max(requestedVehicles, minVehicles);
+
+      const multiSplit =
+        pricingMode === 'per_vehicle' &&
+        vehicleSeats != null &&
+        vehicleSeats > 0
+          ? composeMultiVehicleTransferSplit({
+              party: partyForBand,
+              seatsPerVehicle: vehicleSeats,
+              vehicles: vehiclesForSplit,
+              resolveUnitCost: (partySlice) =>
+                resolveTransferVehicleUnitCost({
+                  seatsNeeded: partySlice,
+                  seatMatrix,
+                  partyBands,
+                  chartUnitCost: chartAdultCost,
+                }).unitCost,
+            })
+          : null;
+
+      if (multiSplit) {
+        adultCost = round2(
+          multiVehicleSplitTotalBuy(multiSplit) / multiSplit.vehicles,
+        );
+      }
+
+      const childUnitForExtras =
+        pickedMatrixRow?.childAddOn != null
+          ? pickedMatrixRow.childAddOn
+          : best.childUnitCost != null
+            ? Number(best.childUnitCost)
+            : null;
+      const infantUnitForExtras =
+        pickedMatrixRow?.infantAddOn != null
+          ? pickedMatrixRow.infantAddOn
+          : best.infantUnitCost != null
+            ? Number(best.infantUnitCost)
+            : null;
+
       const pvExtras = applyPerVehicleChildExtras({
         vehicleUnitCost: adultCost,
-        childUnitCost:
-          best.childUnitCost != null ? Number(best.childUnitCost) : null,
-        infantUnitCost:
-          best.infantUnitCost != null ? Number(best.infantUnitCost) : null,
+        childUnitCost: childUnitForExtras,
+        infantUnitCost: infantUnitForExtras,
         childHeads: partyChildren,
         infantHeads: partyInfants,
       });
-      unitCost = pvExtras.unitCost;
 
-      const vehicleSeats = best.vehicleType?.seats ?? null;
+      if (multiSplit) {
+        // Keep child/infant extras once across the fleet: bake into average
+        // so client unitCost × vehicles ≈ cab sum + extras.
+        const cabTotal = multiVehicleSplitTotalBuy(multiSplit);
+        const extrasTotal = pvExtras.childExtras + pvExtras.infantExtras;
+        unitCost = round2(
+          (cabTotal + extrasTotal) / multiSplit.vehicles,
+        );
+      } else {
+        unitCost = pvExtras.unitCost;
+      }
+
       const accepted = transferMatchAccepted({
         isSystem: best.isSystem,
         supplierId: best.supplierId,
@@ -5211,7 +5465,11 @@ export class RatesService {
         endDate: best.endDate,
         vehicleSeats,
       });
-      if (pickedBand && pricingMode === 'per_vehicle') {
+      if (multiSplit) {
+        accepted.push(transferMultiVehicleSplitAccepted(multiSplit));
+      } else if (pickedMatrixRow && pricingMode === 'per_vehicle') {
+        accepted.push(transferSeatMatrixMatchAccepted(pickedMatrixRow));
+      } else if (pickedBand && pricingMode === 'per_vehicle') {
         accepted.push(transferPartyBandMatchAccepted(pickedBand));
       }
       const childExtrasCue = transferPerVehicleChildExtrasAccepted(pvExtras);
@@ -5224,11 +5482,30 @@ export class RatesService {
       });
 
       const pvCalculation =
+        multiSplit ||
+        pickedMatrixRow ||
         pickedBand ||
         pvExtras.childExtras > 0 ||
         pvExtras.infantExtras > 0
           ? {
-              ...(pickedBand
+              ...(multiSplit
+                ? {
+                    multiVehicleSplit: multiSplit,
+                    totalBuy: round2(
+                      multiVehicleSplitTotalBuy(multiSplit) +
+                        pvExtras.childExtras +
+                        pvExtras.infantExtras,
+                    ),
+                  }
+                : {}),
+              ...(pickedMatrixRow && !multiSplit
+                ? {
+                    seatMatrixSeats: pickedMatrixRow.seats,
+                    seatMatrixUnitCost: pickedMatrixRow.unitCost,
+                    partyForBand,
+                  }
+                : {}),
+              ...(pickedBand && !multiSplit && !pickedMatrixRow
                 ? {
                     partyBandSize: pickedBand.partySize,
                     partyBandUnitCost: pickedBand.unitCost,
@@ -5279,6 +5556,9 @@ export class RatesService {
           rateVersionNumber: best.versionNumber ?? 1,
           ...(pvCalculation ? { calculation: pvCalculation } : {}),
           matchExplain: { accepted, rejected },
+          ...(matchAlternatives.length
+            ? { alternatives: matchAlternatives }
+            : {}),
         },
       });
     }
@@ -5415,13 +5695,37 @@ export class RatesService {
         supersedesId: r.supersedesId ?? null,
       }));
 
-      const best = pickBestActivityRate(pool, {
+      const rankedActivities = rankActivityRates(pool, {
         asOf,
         supplierId,
         placeId,
         privateOrSic,
         wantedName,
       });
+      const { best: bestActivityRanked, rest: activityRest } =
+        pickPreferredOrBest(rankedActivities, item.preferredRateId);
+      const best = bestActivityRanked?.row;
+      const matchAlternatives = toMatchAlternatives(
+        activityRest,
+        ctx.alternativesLimit,
+        (r) =>
+          [r.activityName, r.privateOrSic?.toUpperCase()]
+            .filter(Boolean)
+            .join(' · ') || r.id.slice(0, 8),
+        (r) => r.adultUnitCost,
+        (r) => {
+          const full = ctx.activityRates.find((row) => row.id === r.id);
+          return previewActivityLineBuy({
+            adultUnitCost: r.adultUnitCost,
+            childUnitCost: r.childUnitCost,
+            childAgeMin: full?.childAgeMin,
+            childAgeMax: full?.childAgeMax,
+            adults,
+            children,
+            childAges,
+          });
+        },
+      );
 
       if (!best) {
         return unmatched(
@@ -5512,6 +5816,9 @@ export class RatesService {
             children: pax.childHeads,
           },
           matchExplain: { accepted, rejected: [] },
+          ...(matchAlternatives.length
+            ? { alternatives: matchAlternatives }
+            : {}),
         },
       });
     }
