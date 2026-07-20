@@ -23,9 +23,11 @@ type Doc = {
   status: string;
   label: string;
   amount?: number | string | null;
+  taxAmount?: number | string | null;
   currency: string;
   linkedEntityType?: string | null;
   documentNumber?: string | null;
+  notes?: string | null;
 };
 
 export function CommercialDocumentsPanel() {
@@ -151,7 +153,13 @@ export function CommercialDocumentsPanel() {
                   {d.documentNumber ? ` · ${d.documentNumber}` : ''}
                   {d.direction ? ` · ${d.direction}` : ` · ${d.docType}`}
                   {d.amount != null
-                    ? ` · ${formatCurrency(d.amount, { maximumFractionDigits: 0 })}`
+                    ? ` · ${formatCurrency(
+                        Number(d.amount) + Number(d.taxAmount || 0),
+                        { maximumFractionDigits: 0 },
+                      )}`
+                    : ''}
+                  {Number(d.taxAmount || 0) > 0
+                    ? ` · tax ${formatCurrency(d.taxAmount, { maximumFractionDigits: 0 })}`
                     : ''}
                 </span>
                 <StatusBadge value={d.status} />

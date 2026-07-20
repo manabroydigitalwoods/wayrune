@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { composePublicPaymentTaxDisplay } from './payment-link-tax-display';
+import {
+  composePublicPaymentTaxDisplay,
+  formatReceivableTaxNotes,
+} from './payment-link-tax-display';
 
 const identity = {
   taxLabel: 'GST',
@@ -68,5 +71,18 @@ describe('composePublicPaymentTaxDisplay', () => {
         taxIdentity: identity,
       }),
     ).toBeNull();
+  });
+
+  it('formats receivable tax notes', () => {
+    const d = composePublicPaymentTaxDisplay({
+      instalmentAmount: 55000,
+      quoteSellTotal: 110000,
+      quoteTaxTotal: 10000,
+      taxIdentity: identity,
+    })!;
+    const note = formatReceivableTaxNotes(d);
+    expect(note).toMatch(/CGST/);
+    expect(note).toMatch(/GSTIN/);
+    expect(note).toMatch(/not a GST invoice claim/);
   });
 });

@@ -69,7 +69,9 @@ export type CustomerReceivableCommercialDocumentCreate = {
   tripId: string;
   documentNumber: string;
   label: string;
+  /** Net (ex-tax) when taxAmount > 0; otherwise full instalment. */
   amount: number;
+  taxAmount: number;
   currency: string;
   dueAt: string | null;
   notes: string | null;
@@ -77,9 +79,14 @@ export type CustomerReceivableCommercialDocumentCreate = {
     description: string;
     quantity: number;
     unitAmount: number;
+    taxAmount: number;
   }>;
 };
 
+/**
+ * `amount` is the tax-inclusive instalment. Optional `taxAmount` splits it into
+ * net + tax on the CommercialDocument (total due stays the gross instalment).
+ */
 export function composeCustomerReceivableCommercialDocument(input: {
   tripPaymentId: string;
   tripId: string;
@@ -88,10 +95,24 @@ export function composeCustomerReceivableCommercialDocument(input: {
   amount: number;
   currency: string;
   dueAt?: string | null;
+  taxAmount?: number;
+  taxNotes?: string | null;
 }): CustomerReceivableCommercialDocumentCreate {
-  const amount = Math.round(Number(input.amount) * 100) / 100;
+  const gross = Math.round(Number(input.amount) * 100) / 100;
+  const rawTax = Math.round(Number(input.taxAmount || 0) * 100) / 100;
+  const taxAmount =
+    Number.isFinite(rawTax) && rawTax > 0 && rawTax < gross ? rawTax : 0;
+  const net =
+    taxAmount > 0
+      ? Math.round((gross - taxAmount) * 100) / 100
+      : gross;
   const label = input.label.trim() || 'Customer instalment';
   const documentNumber = `AR-${input.tripPaymentId.slice(-8).toUpperCase()}`;
+  const baseNotes = `Customer instalment · ${label} · ${documentNumber}`;
+  const taxNotes =
+    typeof input.taxNotes === 'string' && input.taxNotes.trim()
+      ? input.taxNotes.trim()
+      : null;
   return {
     docType: 'invoice',
     direction: 'receivable',
@@ -101,15 +122,17 @@ export function composeCustomerReceivableCommercialDocument(input: {
     tripId: input.tripId,
     documentNumber,
     label: `Receivable · ${label}`,
-    amount,
+    amount: net,
+    taxAmount,
     currency: (input.currency || 'INR').toUpperCase().slice(0, 3),
     dueAt: input.dueAt?.trim() || null,
-    notes: `Customer instalment · ${label} · ${documentNumber}`,
+    notes: taxNotes ? `${baseNotes} · ${taxNotes}` : baseNotes,
     lines: [
       {
         description: label,
         quantity: 1,
-        unitAmount: amount,
+        unitAmount: net,
+        taxAmount,
       },
     ],
   };

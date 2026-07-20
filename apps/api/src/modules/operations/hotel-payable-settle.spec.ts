@@ -24,10 +24,31 @@ describe('composeCustomerReceivableCommercialDocument', () => {
       linkedEntityType: TRIP_PAYMENT_LINKED_ENTITY,
       linkedEntityId: 'tp-balance-01',
       amount: 45000,
+      taxAmount: 0,
       currency: 'INR',
     });
     expect(doc.label).toContain('Receivable');
     expect(doc.documentNumber).toMatch(/^AR-/);
+  });
+
+  it('splits tax-inclusive instalment into net + taxAmount', () => {
+    const doc = composeCustomerReceivableCommercialDocument({
+      tripPaymentId: 'tp-tax-01',
+      tripId: 'trip-1',
+      label: 'Deposit',
+      amount: 55000,
+      currency: 'INR',
+      taxAmount: 5000,
+      taxNotes: 'CGST ₹2,500 · SGST ₹2,500 · display only',
+    });
+    expect(doc.amount).toBe(50000);
+    expect(doc.taxAmount).toBe(5000);
+    expect(doc.lines[0]).toMatchObject({
+      unitAmount: 50000,
+      taxAmount: 5000,
+    });
+    expect(doc.notes).toMatch(/CGST/);
+    expect(doc.amount + doc.taxAmount).toBe(55000);
   });
 });
 

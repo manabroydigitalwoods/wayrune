@@ -27,6 +27,14 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-20-receivable-cd-tax-split',
+    date: '2026-07-20',
+    title: 'Tax split on receivable invoices',
+    summary:
+      'Customer instalment commercial documents store net + tax (pro-rated from the accepted quote) with CGST/SGST or IGST notes — display only, not a GST invoice.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-public-pay-tax-display',
     date: '2026-07-20',
     title: 'Tax breakdown on payment links',

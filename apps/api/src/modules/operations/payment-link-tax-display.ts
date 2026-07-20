@@ -77,3 +77,21 @@ export function composePublicPaymentTaxDisplay(opts: {
     splitCue: taxDisplaySplitCue(split),
   };
 }
+
+/** Compact note for receivable CommercialDocument (display-only cue). */
+export function formatReceivableTaxNotes(
+  tax: PublicPaymentTaxDisplay,
+): string {
+  const parts: string[] = [];
+  if (tax.splitLines.length) parts.push(...tax.splitLines);
+  if (tax.taxIdentity.gstin) parts.push(`GSTIN: ${tax.taxIdentity.gstin}`);
+  if (tax.taxIdentity.placeOfSupply) {
+    parts.push(`POS: ${tax.taxIdentity.placeOfSupply}`);
+  }
+  if (tax.taxIdentity.destinationPlaceOfSupply) {
+    parts.push(`Dest POS: ${tax.taxIdentity.destinationPlaceOfSupply}`);
+  }
+  if (tax.splitCue) parts.push(tax.splitCue);
+  else parts.push('Tax share from accepted quote — display only, not a GST invoice');
+  return parts.join(' · ');
+}

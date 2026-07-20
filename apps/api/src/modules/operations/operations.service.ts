@@ -72,7 +72,10 @@ import {
   assertRazorpayOrderBound,
   outstandingToPaise,
 } from './payment-link-checkout';
-import { composePublicPaymentTaxDisplay } from './payment-link-tax-display';
+import {
+  composePublicPaymentTaxDisplay,
+  formatReceivableTaxNotes,
+} from './payment-link-tax-display';
 import {
   composeHotelVouchersEmailBody,
   composeHotelVouchersWhatsappText,
@@ -4090,6 +4093,11 @@ export class OperationsService {
       select: { partyId: true },
     });
 
+    const tax = await this.resolvePublicPaymentTaxDisplay(
+      tripId,
+      user.organizationId,
+      amount,
+    );
     const payload = composeCustomerReceivableCommercialDocument({
       tripPaymentId: payment.id,
       tripId,
@@ -4098,6 +4106,8 @@ export class OperationsService {
       amount,
       currency: payment.currency,
       dueAt: payment.dueAt?.toISOString() ?? null,
+      taxAmount: tax?.instalmentTaxShare,
+      taxNotes: tax ? formatReceivableTaxNotes(tax) : null,
     });
 
     const doc = await this.prisma.commercialDocument.create({
@@ -4112,6 +4122,7 @@ export class OperationsService {
         documentNumber: payload.documentNumber,
         label: payload.label,
         amount: new Prisma.Decimal(payload.amount),
+        taxAmount: new Prisma.Decimal(payload.taxAmount),
         currency: payload.currency,
         dueAt: payload.dueAt ? new Date(payload.dueAt) : null,
         notes: payload.notes,
@@ -4121,7 +4132,7 @@ export class OperationsService {
             description: l.description,
             quantity: l.quantity,
             unitAmount: l.unitAmount,
-            taxAmount: 0,
+            taxAmount: l.taxAmount,
           })),
         },
       },
@@ -4138,6 +4149,7 @@ export class OperationsService {
         tripId,
         tripPaymentId: payment.id,
         amount: payload.amount,
+        taxAmount: payload.taxAmount,
       },
     });
 
@@ -4174,13 +4186,32 @@ export class OperationsService {
     const amount = Number(payment.amount);
     if (!Number.isFinite(amount) || amount <= 0) return;
 
+    const tax = await this.resolvePublicPaymentTaxDisplay(
+      tripId,
+      user.organizationId,
+      amount,
+    );
+    const payload = composeCustomerReceivableCommercialDocument({
+      tripPaymentId: payment.id,
+      tripId,
+      partyId: null,
+      label: payment.label,
+      amount,
+      currency: payment.currency,
+      dueAt: payment.dueAt?.toISOString() ?? null,
+      taxAmount: tax?.instalmentTaxShare,
+      taxNotes: tax ? formatReceivableTaxNotes(tax) : null,
+    });
+
     await this.prisma.commercialDocument.update({
       where: { id: doc.id },
       data: {
-        label: payment.label,
-        amount: new Prisma.Decimal(amount),
-        currency: payment.currency,
+        label: payload.label,
+        amount: new Prisma.Decimal(payload.amount),
+        taxAmount: new Prisma.Decimal(payload.taxAmount),
+        currency: payload.currency,
         dueAt: payment.dueAt,
+        notes: payload.notes,
       },
     });
     const line = doc.lines[0];
@@ -4189,7 +4220,8 @@ export class OperationsService {
         where: { id: line.id },
         data: {
           description: payment.label,
-          unitAmount: new Prisma.Decimal(amount),
+          unitAmount: new Prisma.Decimal(payload.amount),
+          taxAmount: new Prisma.Decimal(payload.taxAmount),
         },
       });
     }
@@ -4231,14 +4263,22 @@ export class OperationsService {
         where: { id: tripId, organizationId },
         select: { partyId: true },
       });
+      const gross = Number(payment.amount);
+      const tax = await this.resolvePublicPaymentTaxDisplay(
+        tripId,
+        organizationId,
+        gross,
+      );
       const payload = composeCustomerReceivableCommercialDocument({
         tripPaymentId: payment.id,
         tripId,
         partyId: trip?.partyId || null,
         label: payment.label,
-        amount: Number(payment.amount),
+        amount: gross,
         currency: payment.currency,
         dueAt: payment.dueAt?.toISOString() ?? null,
+        taxAmount: tax?.instalmentTaxShare,
+        taxNotes: tax ? formatReceivableTaxNotes(tax) : null,
       });
       doc = await this.prisma.commercialDocument.create({
         data: {
@@ -4252,6 +4292,7 @@ export class OperationsService {
           documentNumber: payload.documentNumber,
           label: payload.label,
           amount: new Prisma.Decimal(payload.amount),
+          taxAmount: new Prisma.Decimal(payload.taxAmount),
           currency: payload.currency,
           dueAt: payload.dueAt ? new Date(payload.dueAt) : null,
           notes: payload.notes,
@@ -4261,7 +4302,7 @@ export class OperationsService {
               description: l.description,
               quantity: l.quantity,
               unitAmount: l.unitAmount,
-              taxAmount: 0,
+              taxAmount: l.taxAmount,
             })),
           },
         },
