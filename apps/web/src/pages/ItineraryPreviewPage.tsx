@@ -13,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
   Input,
+  PublicPageSkeleton,
   toastError,
   toastSuccess,
 } from '@wayrune/ui';
@@ -103,6 +104,8 @@ export function ItineraryPreviewPage() {
     }
   }
 
+  if (loading) return <PublicPageSkeleton />;
+
   return (
     <div className="mx-auto max-w-4xl space-y-4 p-4 md:p-7">
       <Breadcrumbs
@@ -128,9 +131,7 @@ export function ItineraryPreviewPage() {
         </div>
       </div>
 
-      {loading ? (
-        <p className="text-sm text-muted-foreground">Loading client preview…</p>
-      ) : data ? (
+      {data ? (
         <div className="proposal-atmosphere space-y-6">
           {/* Client proposal always renders light — matches public share + PDF */}
           <div className="light rounded-2xl border border-white/70 p-5 text-foreground glass-strong sm:p-8">

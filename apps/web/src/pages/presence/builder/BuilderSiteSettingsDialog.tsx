@@ -768,7 +768,7 @@ export function BuilderSiteSettingsDialog({
                               ) : null}
                               {field.kind === 'font' ? (
                                 <Combobox
-                                  className="h-9 min-w-0 flex-1"
+                                  className="min-w-0 flex-1"
                                   options={
                                     field.fontRole === 'body'
                                       ? bodyFontOptions
@@ -830,7 +830,7 @@ export function BuilderSiteSettingsDialog({
                   <div>
                     <Label className="text-xs">Content width</Label>
                     <Combobox
-                      className="mt-1 h-9"
+                      className="mt-1"
                       disabled={readOnly}
                       value={draft.siteLayout.contentMax}
                       onChange={(value) =>
@@ -846,7 +846,7 @@ export function BuilderSiteSettingsDialog({
                   <div>
                     <Label className="text-xs">Side padding</Label>
                     <Combobox
-                      className="mt-1 h-9"
+                      className="mt-1"
                       disabled={readOnly}
                       value={draft.siteLayout.gutter}
                       onChange={(value) => patchSiteLayout({ gutter: value || '1rem' })}
@@ -862,7 +862,7 @@ export function BuilderSiteSettingsDialog({
                   <div>
                     <Label className="text-xs">Section spacing</Label>
                     <Combobox
-                      className="mt-1 h-9"
+                      className="mt-1"
                       disabled={readOnly}
                       value={draft.siteLayout.sectionGap}
                       onChange={(value) =>
@@ -911,7 +911,7 @@ export function BuilderSiteSettingsDialog({
                   <div>
                     <Label className="text-xs">Button label</Label>
                     <Input
-                      className="mt-1 h-9"
+                      className="mt-1"
                       value={typeof draft.header.ctaLabel === 'string' ? draft.header.ctaLabel : ''}
                       disabled={readOnly}
                       onChange={(e) => patchHeader('ctaLabel', e.target.value)}
@@ -921,7 +921,7 @@ export function BuilderSiteSettingsDialog({
                   <div>
                     <Label className="text-xs">CTA action</Label>
                     <Combobox
-                      className="mt-1 h-9"
+                      className="mt-1"
                       disabled={readOnly}
                       value={
                         draft.header.ctaAction === 'form_popup' ||
@@ -954,7 +954,7 @@ export function BuilderSiteSettingsDialog({
                     <div>
                       <Label className="text-xs">Form</Label>
                       <Combobox
-                        className="mt-1 h-9"
+                        className="mt-1"
                         disabled={readOnly || !forms.length}
                         value={
                           typeof draft.header.ctaFormKey === 'string' && draft.header.ctaFormKey
@@ -1126,7 +1126,7 @@ export function BuilderSiteSettingsDialog({
                   <div>
                     <Label className="text-xs">OG title</Label>
                     <Input
-                      className="mt-1 h-9"
+                      className="mt-1"
                       value={typeof draft.seo.ogTitle === 'string' ? draft.seo.ogTitle : ''}
                       disabled={readOnly}
                       onChange={(e) => patchSeo('ogTitle', e.target.value)}
@@ -1148,7 +1148,7 @@ export function BuilderSiteSettingsDialog({
                   <div>
                     <Label className="text-xs">OG image URL</Label>
                     <Input
-                      className="mt-1 h-9"
+                      className="mt-1"
                       type="url"
                       value={typeof draft.seo.ogImage === 'string' ? draft.seo.ogImage : ''}
                       disabled={readOnly}

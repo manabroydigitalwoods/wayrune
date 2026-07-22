@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { ColumnDef } from '@tanstack/react-table';
+import { useSearchParams } from 'react-router-dom';
+import type { ColumnDef, VisibilityState } from '@tanstack/react-table';
 import {
   Building2,
   ClipboardList,
@@ -8,7 +9,9 @@ import {
   IndianRupee,
   MoreHorizontal,
   Plus,
+  Search,
   UserPlus,
+  X,
 } from 'lucide-react';
 import {
   Button,
@@ -21,8 +24,6 @@ import {
   DropdownMenuTrigger,
   EmailInput,
   Input,
-  ListPageShell,
-  PageHeader,
   PhoneInput,
   RecordSheet,
   SimpleFormField as FormField,
@@ -31,6 +32,9 @@ import {
   SuggestionChips,
   toastError,
   toastSuccess,
+  localStorageKit,
+  usePageChrome,
+  cn,
 } from '@wayrune/ui';
 import { api } from '../api';
 import { Can } from '../components/Can';
@@ -48,6 +52,7 @@ import { isDemoOperateSupplier } from '../lib/demoOperate';
 import { formatSupplierImportSkipReason } from '../lib/supplierImportSkip';
 import {
   SUPPLIER_TYPE_GROUPS,
+  SUPPLIER_TYPE_OPTIONS,
   contactCompletenessLabel,
   isInventorySupplierType,
   isStaySupplierType,
@@ -57,6 +62,19 @@ import {
   supplierRateListLabel,
   supplierTypeLabel,
 } from '../lib/supplierTypes';
+import {
+  parseSuppliersQueryState,
+  patchSuppliersQueryParams,
+  suppliersQueryHasFilters,
+} from '../lib/queue';
+import {
+  ActiveFilterChips,
+  DisplayMenu,
+  FilterMenu,
+  QUEUE_MENU_ITEM_CLASS,
+  QUEUE_PAGE_SEARCH_CLASS,
+  QueuePageChrome,
+} from '../components/queue';
 
 type Supplier = {
   id: string;
@@ -84,8 +102,20 @@ function emptyCreateForm() {
   };
 }
 
+function readSuppliersColumnVisibility(): VisibilityState {
+  const stored = localStorageKit.getJson<VisibilityState>(StorageKeys.suppliers.columns, {
+    version: 1,
+  });
+  if (!stored || typeof stored !== 'object') return {};
+  return stored;
+}
+
 export function SuppliersPage() {
   useDocumentTitle('Suppliers');
+  usePageChrome({
+    title: 'Suppliers',
+    subtitle: 'Quick-create vendors, then open a supplier to complete the profile, rates, and contracts.',
+  });
   const { navigate } = useOrgNavigate();
   const { has, hasAny } = usePermissions();
   const canContracts = has('ops.read');
@@ -94,6 +124,12 @@ export function SuppliersPage() {
   const canRates = hasAny(CAP.ratesWrite) || has('quote.read');
   const canProfile =
     hasAny(CAP.supplierWrite) || has('trip.read') || has('network.read');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const query = useMemo(() => parseSuppliersQueryState(searchParams), [searchParams]);
+  const [searchDraft, setSearchDraft] = useState(query.q ?? '');
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(() =>
+    readSuppliersColumnVisibility(),
+  );
   const [items, setItems] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -120,6 +156,24 @@ export function SuppliersPage() {
     'name,type,email,phone\n',
   );
   const [importing, setImporting] = useState(false);
+
+  function applyQuery(patch: Parameters<typeof patchSuppliersQueryParams>[1]) {
+    setSearchParams(patchSuppliersQueryParams(searchParams, patch), { replace: true });
+  }
+
+  useEffect(() => {
+    setSearchDraft(query.q ?? '');
+  }, [query.q]);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      const next = searchDraft.trim();
+      if ((query.q ?? '') === next) return;
+      applyQuery({ q: next || undefined });
+    }, 300);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce draft only
+  }, [searchDraft]);
 
   async function load() {
     setLoading(true);
@@ -234,6 +288,40 @@ export function SuppliersPage() {
       setImporting(false);
     }
   }
+
+  function toggleColumn(id: string, visible: boolean) {
+    setColumnVisibility((prev) => {
+      const next = { ...prev, [id]: visible };
+      localStorageKit.setJson(StorageKeys.suppliers.columns, next, { version: 1 });
+      return next;
+    });
+  }
+
+  function clearSupplierFilters() {
+    applyQuery({ clearFilters: true });
+  }
+
+  function clearSupplierFiltersAndSearch() {
+    setSearchDraft('');
+    applyQuery({ clearFilters: true, q: '' });
+  }
+
+  const presentTypeOptions = useMemo(() => {
+    const present = new Set(items.map((s) => s.type));
+    return SUPPLIER_TYPE_OPTIONS.filter((o) => present.has(o.value));
+  }, [items]);
+
+  const filteredItems = useMemo(() => {
+    let list = items;
+    if (query.type) list = list.filter((s) => s.type === query.type);
+    const q = query.q?.trim().toLowerCase();
+    if (q) {
+      list = list.filter((s) =>
+        [s.name, s.email, s.phone].filter(Boolean).some((v) => (v as string).toLowerCase().includes(q)),
+      );
+    }
+    return list;
+  }, [items, query.type, query.q]);
 
   const columns = useMemo<ColumnDef<Supplier>[]>(
     () => [
@@ -615,47 +703,151 @@ export function SuppliersPage() {
     }
   }
 
+  const filterDefs =
+    presentTypeOptions.length > 1
+      ? [
+          {
+            id: 'type',
+            label: 'Type',
+            icon: Building2,
+            value: query.type ?? null,
+            options: presentTypeOptions,
+            onSelect: (value: string | null) => applyQuery({ type: value || undefined }),
+          },
+        ]
+      : [];
+
+  const filterChips = [
+    query.type
+      ? {
+          id: 'type',
+          label: `Type: ${supplierTypeLabel(query.type)}`,
+          onRemove: () => applyQuery({ type: undefined }),
+        }
+      : null,
+  ].filter(Boolean) as Array<{ id: string; label: string; onRemove: () => void }>;
+
+  const displayColumns = [
+    { id: 'type', label: 'Type', visible: columnVisibility.type !== false, icon: Building2 },
+    { id: 'contact', label: 'Contact', visible: columnVisibility.contact !== false },
+    { id: 'profile', label: 'Profile', visible: columnVisibility.profile !== false },
+    ...(canRates ? [{ id: 'rates', label: 'Rates', visible: columnVisibility.rates !== false }] : []),
+    ...(canContracts
+      ? [{ id: 'contracts', label: 'Contracts', visible: columnVisibility.contracts !== false }]
+      : []),
+    { id: 'asset', label: 'Linked asset', visible: columnVisibility.asset !== false },
+    { id: 'network', label: 'Linked partner', visible: columnVisibility.network !== false },
+    { id: 'email', label: 'Email', visible: columnVisibility.email !== false },
+    { id: 'phone', label: 'Phone', visible: columnVisibility.phone !== false },
+  ];
+
+  const hasExtraFilters = suppliersQueryHasFilters(query) || Boolean(query.q);
+
+  const queueToolbar = (
+    <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+      <div className="relative min-w-[12rem] flex-1 basis-[14rem]">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 size-[0.875em] -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={searchDraft}
+          onChange={(e) => setSearchDraft(e.target.value)}
+          placeholder="Search suppliers…"
+          className={cn(QUEUE_PAGE_SEARCH_CLASS, searchDraft.trim() && 'pr-8')}
+          aria-label="Search suppliers"
+        />
+        {searchDraft.trim() ? (
+          <button
+            type="button"
+            className="absolute right-1.5 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+            aria-label="Clear search"
+            onClick={() => {
+              setSearchDraft('');
+              applyQuery({ q: '' });
+            }}
+          >
+            <X className="size-3.5" />
+          </button>
+        ) : null}
+      </div>
+      <div className="flex flex-wrap items-center gap-1">
+        <FilterMenu filters={filterDefs} />
+        <DisplayMenu columns={displayColumns} onToggleColumn={toggleColumn} />
+      </div>
+    </div>
+  );
+
   return (
-    <ListPageShell>
-      <PageHeader
-        icon={Building2}
-        title="Suppliers"
-        subtitle="Quick-create vendors, then open a supplier to complete the profile, rates, and contracts."
-        className="mb-4 shrink-0"
-        actions={
-          <Can anyOf={CAP.supplierWrite}>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={() => setImportOpen(true)}>
-                <Import className="size-4" />
-                Import CSV
+    <QueuePageChrome
+      primaryActions={
+        <Can anyOf={CAP.supplierWrite}>
+          <Button size="sm" onClick={() => setOpen(true)}>
+            <Plus className="size-[0.875em]" />
+            New supplier
+          </Button>
+        </Can>
+      }
+      moreMenu={
+        <Can anyOf={CAP.supplierWrite}>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                size="icon"
+                variant="outline"
+                className="size-[var(--control-h-sm)]"
+                aria-label="More actions"
+              >
+                <MoreHorizontal className="size-[0.875em]" />
               </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52 p-1">
+              <DropdownMenuLabel className="text-[length:var(--control-text-sm)]">More</DropdownMenuLabel>
+              <DropdownMenuItem className={QUEUE_MENU_ITEM_CLASS} onClick={() => setImportOpen(true)}>
+                <Import />
+                Import CSV
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </Can>
+      }
+      error={error ? <p className="text-sm text-destructive">{error}</p> : null}
+      toolbar={queueToolbar}
+      chips={
+        <ActiveFilterChips
+          chips={filterChips}
+          onClear={suppliersQueryHasFilters(query) ? clearSupplierFilters : undefined}
+        />
+      }
+    >
+      <DataTable
+        key={`cols-${JSON.stringify(columnVisibility)}`}
+        columns={columns}
+        data={filteredItems}
+        loading={loading}
+        pageSize={25}
+        showSearch={false}
+        showColumnsMenu={false}
+        defaultColumnVisibility={columnVisibility}
+        columnVisibilityKey={StorageKeys.suppliers.columns}
+        emptyTitle={hasExtraFilters ? 'No matching suppliers' : 'No suppliers yet'}
+        emptyDescription={
+          hasExtraFilters
+            ? 'Try clearing filters or search.'
+            : 'Create a supplier with name, type, and contact — then open it to complete the profile.'
+        }
+        emptyIcon={Building2}
+        emptyAction={
+          hasExtraFilters ? (
+            <Button type="button" size="sm" variant="outline" onClick={clearSupplierFiltersAndSearch}>
+              Clear filters
+            </Button>
+          ) : (
+            <Can anyOf={CAP.supplierWrite}>
               <Button onClick={() => setOpen(true)}>
                 <Plus className="size-4" />
                 New supplier
               </Button>
-            </div>
-          </Can>
-        }
-      />
-      <DataTable
-        columns={columns}
-        data={items}
-        loading={loading}
-        error={error}
-        pageSize={25}
-        searchKey="name"
-        searchPlaceholder="Search suppliers…"
-        columnVisibilityKey={StorageKeys.suppliers.columns}
-        emptyTitle="No suppliers yet"
-        emptyDescription="Create a supplier with name, type, and contact — then open it to complete the profile."
-        emptyIcon={Building2}
-        emptyAction={
-          <Can anyOf={CAP.supplierWrite}>
-            <Button onClick={() => setOpen(true)}>
-              <Plus className="size-4" />
-              New supplier
-            </Button>
-          </Can>
+            </Can>
+          )
         }
       />
       <RecordSheet
@@ -737,10 +929,11 @@ export function SuppliersPage() {
         </FormField>
         <p className="text-xs text-muted-foreground">Phone or email required.</p>
         <PlaceSinglePicker
-          label="Near place (optional)"
+          label="Base location (optional)"
+          purpose="destination"
           value={form.placeId}
           onChange={(placeId) => setForm({ ...form, placeId })}
-          placeholder="City or area for discovery"
+          placeholder="Where this supplier is based…"
         />
       </RecordSheet>
       <RecordSheet
@@ -801,6 +994,6 @@ export function SuppliersPage() {
           />
         ) : null}
       </RecordSheet>
-    </ListPageShell>
+    </QueuePageChrome>
   );
 }

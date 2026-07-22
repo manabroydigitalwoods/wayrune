@@ -15,6 +15,143 @@
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/icon.svg" />
     <title>Wayrune</title>
+    <style>
+      /* Boot splash — paints before JS/CSS bundles; mirrors AuthGateSkeleton. */
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: #f0f5f2;
+      }
+      html.dark,
+      html.dark body {
+        background: #0c1412;
+      }
+      #boot-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 99999;
+        display: grid;
+        place-items: center;
+        background: #f0f5f2;
+        transition: opacity 0.22s ease;
+      }
+      html.dark #boot-splash {
+        background: #0c1412;
+      }
+      #boot-splash.boot-splash--done {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #boot-splash .boot-splash__mark {
+        display: flex;
+        width: 2.5rem;
+        height: 2.5rem;
+        align-items: center;
+        justify-content: center;
+        border-radius: 0.55rem;
+        background: #0f766e;
+        color: #ecfdf5;
+        font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+        font-size: 1.35rem;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        line-height: 1;
+        animation: boot-splash-pulse 1.15s ease-in-out infinite;
+        transform-origin: center;
+      }
+      @keyframes boot-splash-pulse {
+        0%,
+        100% {
+          opacity: 0.5;
+          transform: scale(0.94);
+        }
+        50% {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #boot-splash .boot-splash__mark {
+          animation: none;
+          opacity: 0.85;
+        }
+      }
+    </style>
+    <script>
+      (() => {
+        const root = document.documentElement;
+        const read = (key) => {
+          try {
+            return window.localStorage.getItem(key);
+          } catch {
+            return null;
+          }
+        };
+        const remove = (key) => {
+          try {
+            window.localStorage.removeItem(key);
+          } catch {
+            /* ignore */
+          }
+        };
+        const THEMES = new Set(['light', 'dark', 'system']);
+        const DENSITIES = new Set(['compact', 'comfortable', 'spacious']);
+        const FONT_SCALES = new Set(['small', 'default', 'large', 'xlarge']);
+        const MOTIONS = new Set(['system', 'reduce', 'allow']);
+        const GLASS = new Set(['frosted', 'solid']);
+        const COLOR_THEMES = new Set(['wayrune', 'ocean', 'slate', 'sand', 'violet', 'custom']);
+        const pick = (raw, allowed, fallback, key) => {
+          if (raw != null && allowed.has(raw)) return raw;
+          if (raw != null) remove(key);
+          return fallback;
+        };
+        const theme = pick(
+          read('travel.ui.theme') || read('travel-ui-theme'),
+          THEMES,
+          'light',
+          'travel.ui.theme',
+        );
+        const density = pick(read('travel.ui.density'), DENSITIES, 'compact', 'travel.ui.density');
+        const fontScale = pick(
+          read('travel.ui.fontScale'),
+          FONT_SCALES,
+          'default',
+          'travel.ui.fontScale',
+        );
+        const motion = pick(read('travel.ui.motion'), MOTIONS, 'system', 'travel.ui.motion');
+        const glass = pick(read('travel.ui.glass'), GLASS, 'frosted', 'travel.ui.glass');
+        const colorTheme = pick(
+          read('travel.ui.colorTheme'),
+          COLOR_THEMES,
+          'wayrune',
+          'travel.ui.colorTheme',
+        );
+        let highContrast = false;
+        try {
+          const hcRaw = read('travel.ui.highContrast');
+          if (hcRaw) {
+            const parsed = JSON.parse(hcRaw);
+            highContrast = parsed && parsed.v === 1 ? Boolean(parsed.data) : false;
+          }
+        } catch {
+          highContrast = false;
+        }
+        const systemTheme =
+          window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+            ? 'dark'
+            : 'light';
+        const resolvedTheme = theme === 'system' ? systemTheme : theme;
+        root.classList.toggle('dark', resolvedTheme === 'dark');
+        root.style.colorScheme = resolvedTheme;
+        root.dataset.density = density;
+        root.dataset.fontScale = fontScale;
+        root.dataset.motion = motion;
+        root.dataset.glass = glass;
+        root.dataset.colorTheme = colorTheme;
+        root.dataset.contrast = highContrast ? 'high' : 'normal';
+      })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -23,6 +160,10 @@
     />
   </head>
   <body>
+    <!-- Instant reload splash (removed when React mounts). Theme-aware via html.dark. -->
+    <div id="boot-splash" role="status" aria-live="polite" aria-busy="true" aria-label="Loading Wayrune">
+      <div class="boot-splash__mark" aria-hidden="true">W</div>
+    </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

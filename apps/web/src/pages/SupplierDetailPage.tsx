@@ -7,12 +7,12 @@ import {
   UserPlus,
 } from 'lucide-react';
 import {
-  Breadcrumbs,
   Button,
   EmailInput,
   FormGrid,
   Input,
-  PageHeader,
+  PageSkeleton,
+  Skeleton,
   PhoneInput,
   SimpleFormField as FormField,
   StatusBadge,
@@ -22,9 +22,14 @@ import {
   TabsTrigger,
   toastError,
   toastSuccess,
+  usePageChrome,
 } from '@wayrune/ui';
 import { api, type AssetRoomProductRow } from '../api';
 import { Can } from '../components/Can';
+import {
+  DETAIL_PANEL_SHELL,
+  DetailActionStrip,
+} from '../components/detail';
 import { PartnerInventoryPanel } from '../components/partner/PartnerInventoryPanel';
 import { SupplierActivityRatesPanel } from '../components/agency/SupplierActivityRatesPanel';
 import { SupplierContractsPanel } from '../components/agency/SupplierContractsPanel';
@@ -34,7 +39,6 @@ import { SupplierProfilePanel } from '../components/agency/SupplierProfilePanel'
 import { PlaceSinglePicker } from '../components/places/PlacePicker';
 import { CAP } from '../lib/capabilities';
 import { AGENCY_ROUTES } from '../lib/agencyRoutes';
-import { isDemoOperateSupplier } from '../lib/demoOperate';
 import { reportError } from '../lib/errors';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useOrgNavigate } from '../hooks/useOrgNavigate';
@@ -59,6 +63,13 @@ type SupplierDetail = {
   notes?: string | null;
   placeId?: string | null;
   profileJson?: Record<string, unknown> | null;
+  servedPlaceIds?: string[] | null;
+  servedPlaces?: Array<{
+    id: string;
+    name: string;
+    kind?: string;
+    secondaryLabel?: string;
+  }> | null;
   linkedOrganizationId?: string | null;
   linkedOrganization?: { id: string; name: string; kind: string } | null;
   linkedAsset?: { id: string; name: string; assetKind: string } | null;
@@ -87,17 +98,6 @@ function commercialRelationshipLabel(detail: SupplierDetail): string {
   }
   if (detail.type === 'dmc') return 'Multi-service partner';
   return 'Direct commercial — no linked asset yet';
-}
-
-function verificationLabel(
-  profile: Record<string, unknown> | null | undefined,
-): string | null {
-  const raw = profile?.verificationStatus;
-  if (typeof raw !== 'string' || !raw.trim()) return null;
-  const v = raw.trim().toLowerCase();
-  if (v === 'verified' || v === 'approved') return 'Verified';
-  if (v === 'unverified' || v === 'pending') return 'Unverified';
-  return raw.trim();
 }
 
 function tabFromHash(
@@ -168,6 +168,22 @@ export function SupplierDetailPage() {
   const [activeRoomProductCount, setActiveRoomProductCount] = useState(0);
 
   useDocumentTitle(detail?.name || 'Supplier');
+
+  usePageChrome({
+    title: detail?.name ?? 'Supplier',
+    titleMeta: detail
+      ? [supplierTypeLabel(detail.type), detail.email, detail.phone]
+          .filter(Boolean)
+          .join(' · ') || undefined
+      : undefined,
+    icon: Building2,
+    breadcrumbs: detail
+      ? [
+          { label: 'Suppliers', onClick: () => navigate(AGENCY_ROUTES.suppliers) },
+          { label: detail.name },
+        ]
+      : [{ label: 'Suppliers', onClick: () => navigate(AGENCY_ROUTES.suppliers) }],
+  });
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -414,7 +430,7 @@ export function SupplierDetailPage() {
   );
 
   if (loading) {
-    return <p className="text-sm text-muted-foreground">Loading supplier…</p>;
+    return <PageSkeleton variant="detail" />;
   }
 
   if (!detail) {
@@ -428,7 +444,6 @@ export function SupplierDetailPage() {
     );
   }
 
-  const verified = verificationLabel(detail.profileJson);
   const profileStatus = supplierProfileCompletenessLabel(
     detail.type,
     detail.profileJson,
@@ -449,67 +464,49 @@ export function SupplierDetailPage() {
         ? 'None active'
         : `${contractSummary.active} active`;
 
-  const statusChips = [
-    supplierTypeLabel(detail.type),
-    detail.linkedOrganization ? 'Network' : 'Local',
-    detail.linkedOrganization ? 'Claimed' : 'Unclaimed',
-    'Active',
-    verified,
-    isDemoOperateSupplier(detail) ? 'Demo data — not for live booking' : null,
-  ].filter(Boolean) as string[];
-
   return (
-    <div className="space-y-5">
-      <Breadcrumbs
-        items={[
-          { label: 'Suppliers', onClick: () => navigate(AGENCY_ROUTES.suppliers) },
-          { label: detail.name },
-        ]}
-      />
-      <PageHeader
-        icon={Building2}
-        title={detail.name}
-        subtitle={statusChips.join(' · ')}
-        actions={
-          !detail.linkedOrganization && canNetworkWrite ? (
-            <Button size="sm" variant="outline" onClick={() => void inviteSupplier()}>
-              <UserPlus className="size-4" />
-              Invite to claim
-            </Button>
-          ) : null
+    <div className="flex flex-col gap-[var(--gap-page)]">
+      <DetailActionStrip
+        leading={
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[length:var(--control-text-sm)] text-muted-foreground">
+            <StatusBadge
+              value={detail.type}
+              label={supplierTypeLabel(detail.type)}
+              showIcon={false}
+            />
+            {detail.linkedOrganization ? (
+              <StatusBadge value="network" label="Network" showIcon={false} />
+            ) : (
+              <StatusBadge value="local" label="Local" showIcon={false} />
+            )}
+            {contractSummary?.preferred ? (
+              <span title="From active preferred contract">
+                <StatusBadge value="preferred" label="Preferred" showIcon={false} />
+              </span>
+            ) : null}
+            {detail.email ? (
+              <span className="inline-flex items-center gap-1.5">
+                <Mail className="size-3.5" />
+                {detail.email}
+              </span>
+            ) : null}
+            {detail.phone ? (
+              <span className="inline-flex items-center gap-1.5 tabular-nums">
+                <Phone className="size-3.5" />
+                {detail.phone}
+              </span>
+            ) : null}
+            {detail.place?.name ? <span>Near {detail.place.name}</span> : null}
+          </div>
         }
-      />
-
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
-        <StatusBadge
-          value={detail.type}
-          label={supplierTypeLabel(detail.type)}
-          showIcon={false}
-        />
-        {detail.linkedOrganization ? (
-          <StatusBadge value="network" label="Network" showIcon={false} />
-        ) : (
-          <StatusBadge value="local" label="Local" showIcon={false} />
-        )}
-        {contractSummary?.preferred ? (
-          <span title="From active preferred contract">
-            <StatusBadge value="preferred" label="Preferred" showIcon={false} />
-          </span>
+      >
+        {!detail.linkedOrganization && canNetworkWrite ? (
+          <Button size="sm" variant="outline" onClick={() => void inviteSupplier()}>
+            <UserPlus className="size-[0.875em]" />
+            Invite to claim
+          </Button>
         ) : null}
-        {detail.email ? (
-          <span className="inline-flex items-center gap-1.5">
-            <Mail className="size-3.5" />
-            {detail.email}
-          </span>
-        ) : null}
-        {detail.phone ? (
-          <span className="inline-flex items-center gap-1.5 tabular-nums">
-            <Phone className="size-3.5" />
-            {detail.phone}
-          </span>
-        ) : null}
-        {detail.place?.name ? <span>Near {detail.place.name}</span> : null}
-      </div>
+      </DetailActionStrip>
 
       <Tabs value={tab} onValueChange={selectTab} className="space-y-4">
         <TabsList className="h-auto flex-wrap gap-1">
@@ -542,47 +539,55 @@ export function SupplierDetailPage() {
           ) : null}
         </TabsList>
 
-        <TabsContent value="overview" className="mt-0 space-y-4">
-          <section className="rounded-xl border border-border/60 bg-muted/15 px-4 py-3">
+        <TabsContent value="overview" className="mt-0 space-y-3">
+          <section className={DETAIL_PANEL_SHELL}>
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <p className="text-[length:var(--control-text-sm)] font-semibold uppercase tracking-wide text-muted-foreground">
                 Commercial relationship
               </p>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-[length:var(--control-text-sm)] text-muted-foreground">
                 {commercialRelationshipLabel(detail)}
               </p>
             </div>
             <dl className="mt-2 grid gap-3 sm:grid-cols-3">
               <div>
-                <dt className="text-xs text-muted-foreground">Supplier</dt>
-                <dd className="mt-0.5 text-sm font-medium">{detail.name}</dd>
+                <dt className="text-[length:var(--control-text-sm)] text-muted-foreground">
+                  Supplier
+                </dt>
+                <dd className="mt-0.5 text-[length:var(--control-text-sm)] font-medium">
+                  {detail.name}
+                </dd>
               </div>
               <div>
-                <dt className="text-xs text-muted-foreground">Linked asset</dt>
-                <dd className="mt-0.5 text-sm font-medium">
+                <dt className="text-[length:var(--control-text-sm)] text-muted-foreground">
+                  Linked asset
+                </dt>
+                <dd className="mt-0.5 text-[length:var(--control-text-sm)] font-medium">
                   {detail.linkedAsset?.name || 'None yet'}
                   {detail.linkedAsset?.assetKind ? (
-                    <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
+                    <span className="mt-0.5 block text-[length:var(--control-text-sm)] font-normal text-muted-foreground">
                       {detail.linkedAsset.assetKind.replace(/_/g, ' ')}
                     </span>
                   ) : null}
                 </dd>
               </div>
               <div>
-                <dt className="text-xs text-muted-foreground">Claimed by</dt>
-                <dd className="mt-0.5 text-sm font-medium">
+                <dt className="text-[length:var(--control-text-sm)] text-muted-foreground">
+                  Claimed by
+                </dt>
+                <dd className="mt-0.5 text-[length:var(--control-text-sm)] font-medium">
                   {detail.linkedOrganization?.name || 'Unclaimed (local)'}
                 </dd>
               </div>
             </dl>
           </section>
 
-          <section className="rounded-xl border border-border/60 px-4 py-4">
+          <section className={DETAIL_PANEL_SHELL}>
             <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
               <div>
-                <h2 className="text-sm font-semibold">Contact</h2>
-                <p className="text-xs text-muted-foreground">
-                  Phone or email required. Near place improves discovery.
+                <h2 className="text-[length:var(--control-text)] font-semibold">Contact</h2>
+                <p className="text-[length:var(--control-text-sm)] text-muted-foreground">
+                  Phone or email required. Base location improves discovery.
                 </p>
               </div>
               <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -592,6 +597,7 @@ export function SupplierDetailPage() {
             <FormGrid>
               <FormField label="Name" required>
                 <Input
+                  inputSize="sm"
                   value={contactForm.name}
                   disabled={!canWrite}
                   onChange={(e) =>
@@ -600,10 +606,11 @@ export function SupplierDetailPage() {
                 />
               </FormField>
               <FormField label="Type">
-                <Input value={supplierTypeLabel(detail.type)} disabled />
+                <Input inputSize="sm" value={supplierTypeLabel(detail.type)} disabled />
               </FormField>
               <FormField label="Email">
                 <EmailInput
+                  inputSize="sm"
                   value={contactForm.email}
                   disabled={!canWrite}
                   onChange={(email) => setContactForm({ ...contactForm, email })}
@@ -611,6 +618,7 @@ export function SupplierDetailPage() {
               </FormField>
               <FormField label="Phone">
                 <PhoneInput
+                  size="sm"
                   value={contactForm.phone}
                   disabled={!canWrite}
                   onChange={(phone) => setContactForm({ ...contactForm, phone })}
@@ -619,13 +627,18 @@ export function SupplierDetailPage() {
             </FormGrid>
             <div className="mt-3">
               <PlaceSinglePicker
-                label="Near place (recommended)"
+                label="Base location"
+                purpose="destination"
                 value={contactForm.place}
                 onChange={(place) => {
                   if (!canWrite) return;
                   setContactForm({ ...contactForm, place });
                 }}
+                placeholder="Where this supplier is based…"
               />
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Base / HQ pin for discovery — separate from service areas on the Profile tab.
+              </p>
             </div>
             <Can anyOf={CAP.supplierWrite}>
               <Button
@@ -647,10 +660,25 @@ export function SupplierDetailPage() {
               supplierName={detail.name}
               supplierType={detail.type}
               initialProfile={detail.profileJson}
+              initialServedPlaceIds={detail.servedPlaceIds}
+              initialServedPlaces={detail.servedPlaces}
               linkedAssetId={detail.linkedAsset?.id}
               layout="split"
-              onSaved={(profileJson) =>
-                setDetail((prev) => (prev ? { ...prev, profileJson } : prev))
+              onSaved={(payload) =>
+                setDetail((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        profileJson: payload.profileJson,
+                        ...(payload.servedPlaceIds !== undefined
+                          ? { servedPlaceIds: payload.servedPlaceIds }
+                          : {}),
+                        ...(payload.servedPlaces !== undefined
+                          ? { servedPlaces: payload.servedPlaces }
+                          : {}),
+                      }
+                    : prev,
+                )
               }
             />
         </TabsContent>
@@ -712,7 +740,11 @@ export function SupplierDetailPage() {
                 {inventoryBlocked}
               </p>
             ) : inventoryLoading ? (
-              <p className="text-sm text-muted-foreground">Loading inventory…</p>
+              <div className="space-y-2" role="status" aria-busy="true">
+                <span className="sr-only">Loading</span>
+                <Skeleton className="h-4 w-40" />
+                <Skeleton className="h-8 w-full" />
+              </div>
             ) : inventoryTarget ? (
               <PartnerInventoryPanel
                 assetId={inventoryTarget.assetId}

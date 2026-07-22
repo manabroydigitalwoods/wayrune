@@ -21,6 +21,8 @@ import {
   isStaySupplierType,
   supplierProfileSectionTitle,
 } from '../../lib/supplierTypes';
+import { PlaceMultiPicker } from '../places/PlacePicker';
+import type { PlaceRef } from '../../lib/placeRefs';
 import {
   GalleryUrlList,
   ImageUrlField,
@@ -32,6 +34,22 @@ import { SupplierProfilePreview } from './SupplierProfilePreview';
 
 type ProfileMap = Record<string, unknown>;
 
+type ServedPlaceRow = {
+  id: string;
+  name: string;
+  kind?: string;
+  secondaryLabel?: string;
+};
+
+function showsServiceAreasPicker(type: string): boolean {
+  return (
+    type === 'dmc' ||
+    type === 'guide' ||
+    type === 'driver' ||
+    type === 'car_rental' ||
+    type === 'other'
+  );
+}
 const STAY_AMENITY_PRESETS = [
   'WiFi',
   'Breakfast',
@@ -138,6 +156,8 @@ export function SupplierProfilePanel({
   supplierName,
   supplierType,
   initialProfile,
+  initialServedPlaces,
+  initialServedPlaceIds,
   linkedAssetId,
   layout = 'stack',
   onSaved,
@@ -146,13 +166,23 @@ export function SupplierProfilePanel({
   supplierName?: string;
   supplierType: string;
   initialProfile?: ProfileMap | null;
+  /** null = structured coverage unset (legacy CSV may still display). */
+  initialServedPlaceIds?: string[] | null;
+  initialServedPlaces?: ServedPlaceRow[] | null;
   linkedAssetId?: string | null;
   /** split = sticky preview beside fields (detail page). */
   layout?: 'stack' | 'split';
-  onSaved?: (profile: ProfileMap) => void;
+  onSaved?: (payload: {
+    profileJson: ProfileMap;
+    servedPlaceIds?: string[] | null;
+    servedPlaces?: ServedPlaceRow[] | null;
+  }) => void;
 }) {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({});
+  const [servedRefs, setServedRefs] = useState<PlaceRef[]>([]);
+  const [servedDirty, setServedDirty] = useState(false);
+  const [coverageConfigured, setCoverageConfigured] = useState(false);
   const [roomProducts, setRoomProducts] = useState<AssetRoomProductRow[]>([]);
   const [roomFormOpen, setRoomFormOpen] = useState(false);
   const [roomEditOpen, setRoomEditOpen] = useState(false);
@@ -182,6 +212,18 @@ export function SupplierProfilePanel({
 
   useEffect(() => {
     const p = initialProfile && typeof initialProfile === 'object' ? initialProfile : {};
+    const configured = initialServedPlaceIds !== null && initialServedPlaceIds !== undefined;
+    setCoverageConfigured(configured);
+    setServedDirty(false);
+    setServedRefs(
+      configured && initialServedPlaces?.length
+        ? initialServedPlaces.map((sp) => ({
+            placeId: sp.id,
+            name: sp.name,
+            kind: sp.kind,
+          }))
+        : [],
+    );
     if (isStaySupplierType(supplierType)) {
       setForm({
         imageUrl: str(p.imageUrl),
@@ -269,7 +311,16 @@ export function SupplierProfilePanel({
       description: str(p.description),
       serviceArea: str(p.serviceArea),
     });
-  }, [supplierId, supplierType, initialProfile]);
+  }, [supplierId, supplierType, initialProfile, initialServedPlaceIds, initialServedPlaces]);
+
+  const legacyCoverageText = useMemo(() => {
+    const p = initialProfile && typeof initialProfile === 'object' ? initialProfile : {};
+    if (supplierType === 'dmc') return csvFrom(p.destinationsServed);
+    if (supplierType === 'guide') return csvFrom(p.destinations);
+    if (supplierType === 'driver') return csvFrom(p.serviceAreas);
+    if (supplierType === 'car_rental') return csvFrom(p.routesServed);
+    return str(p.serviceArea);
+  }, [initialProfile, supplierType]);
 
   function patch(key: string, value: string) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -496,12 +547,34 @@ export function SupplierProfilePanel({
     setSaving(true);
     try {
       const profileJson = buildProfileJson();
-      await api(`/suppliers/${supplierId}`, {
+      // Only send servedPlaceIds when already configured or the employee edited Service areas.
+      // Prevents profile-only saves from flipping null → [] and dropping legacy display authority.
+      const includeCoverage =
+        showsServiceAreasPicker(supplierType) && (coverageConfigured || servedDirty);
+      const body: Record<string, unknown> = { profileJson };
+      if (includeCoverage) {
+        body.servedPlaceIds = servedRefs
+          .map((r) => r.placeId)
+          .filter((id): id is string => Boolean(id));
+      }
+      const res = await api<{
+        profileJson?: ProfileMap;
+        servedPlaceIds?: string[] | null;
+        servedPlaces?: ServedPlaceRow[] | null;
+      }>(`/suppliers/${supplierId}`, {
         method: 'PATCH',
-        body: JSON.stringify({ profileJson }),
+        body: JSON.stringify(body),
       });
       toastSuccess('Profile saved');
-      onSaved?.(profileJson);
+      if (includeCoverage) {
+        setCoverageConfigured(true);
+        setServedDirty(false);
+      }
+      onSaved?.({
+        profileJson: (res.profileJson as ProfileMap) || profileJson,
+        servedPlaceIds: res.servedPlaceIds,
+        servedPlaces: res.servedPlaces,
+      });
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Could not save profile');
     } finally {
@@ -509,8 +582,33 @@ export function SupplierProfilePanel({
     }
   }
 
+  const serviceAreasBlock =
+    showsServiceAreasPicker(supplierType) ? (
+      <ProfileFormSection
+        title="Service areas"
+        description="Destinations this supplier can serve. Matching uses these places exactly — not parent regions."
+      >
+        <PlaceMultiPicker
+          label="Service areas"
+          purpose="destination"
+          value={servedRefs}
+          onChange={(next) => {
+            setServedRefs(next);
+            setServedDirty(true);
+          }}
+          placeholder="Search city, region, state or country…"
+        />
+        {!coverageConfigured && legacyCoverageText ? (
+          <p className="text-[11px] text-muted-foreground" data-testid="supplier-legacy-coverage">
+            Legacy text (display only until you save service areas): “{legacyCoverageText}”
+          </p>
+        ) : null}
+      </ProfileFormSection>
+    ) : null;
+
   const fields = (
     <>
+      {serviceAreasBlock}
       {isStaySupplierType(supplierType) ? (
         <>
           <ProfileFormSection
@@ -690,22 +788,22 @@ export function SupplierProfilePanel({
                 label="Google score"
                 description="Average out of 5 from guest reviews (e.g. 4.4)."
               >
-                <Input
-                  type="number"
-                  step="0.1"
+                <NumberField
+                  integer={false}
                   min={0}
                   max={5}
                   value={form.googleRating || ''}
-                  onChange={(e) => patch('googleRating', e.target.value)}
+                  onChange={(googleRating) => patch('googleRating', googleRating)}
                   placeholder="4.4"
                 />
               </FormField>
               <FormField label="Number of reviews">
-                <Input
-                  type="number"
+                <NumberField
                   min={0}
                   value={form.googleReviewCount || ''}
-                  onChange={(e) => patch('googleReviewCount', e.target.value)}
+                  onChange={(googleReviewCount) =>
+                    patch('googleReviewCount', googleReviewCount)
+                  }
                   placeholder="312"
                 />
               </FormField>
@@ -759,17 +857,21 @@ export function SupplierProfilePanel({
           </FormField>
           <FormGrid>
             <FormField label="Seating capacity">
-              <Input
-                type="number"
+              <NumberField
+                min={0}
                 value={form.seatingCapacity || ''}
-                onChange={(e) => patch('seatingCapacity', e.target.value)}
+                onChange={(seatingCapacity) =>
+                  patch('seatingCapacity', seatingCapacity)
+                }
               />
             </FormField>
             <FormField label="Reservation lead (hours)">
-              <Input
-                type="number"
+              <NumberField
+                min={0}
                 value={form.reservationLeadHours || ''}
-                onChange={(e) => patch('reservationLeadHours', e.target.value)}
+                onChange={(reservationLeadHours) =>
+                  patch('reservationLeadHours', reservationLeadHours)
+                }
               />
             </FormField>
           </FormGrid>
@@ -819,13 +921,6 @@ export function SupplierProfilePanel({
               placeholder="Sedan, Innova, Tempo"
             />
           </FormField>
-          <FormField label="Routes / regions served">
-            <Input
-              value={form.routesServed || ''}
-              onChange={(e) => patch('routesServed', e.target.value)}
-              placeholder="Darjeeling, Sikkim"
-            />
-          </FormField>
           <FormField label="Permit notes">
             <Input
               value={form.permitNotes || ''}
@@ -863,13 +958,6 @@ export function SupplierProfilePanel({
               value={form.languages || ''}
               onChange={(e) => patch('languages', e.target.value)}
               placeholder="Hindi, English, Nepali"
-            />
-          </FormField>
-          <FormField label="Service areas">
-            <Input
-              value={form.serviceAreas || ''}
-              onChange={(e) => patch('serviceAreas', e.target.value)}
-              placeholder="Darjeeling, Kalimpong"
             />
           </FormField>
           <FormField label="Emergency contact">
@@ -925,10 +1013,10 @@ export function SupplierProfilePanel({
             />
           </FormField>
           <FormField label="Capacity">
-            <Input
-              type="number"
+            <NumberField
+              min={0}
               value={form.capacity || ''}
-              onChange={(e) => patch('capacity', e.target.value)}
+              onChange={(capacity) => patch('capacity', capacity)}
             />
           </FormField>
           <FormField label="Inclusions (comma-separated)">
@@ -953,12 +1041,6 @@ export function SupplierProfilePanel({
             <Input
               value={form.languages || ''}
               onChange={(e) => patch('languages', e.target.value)}
-            />
-          </FormField>
-          <FormField label="Destinations (comma-separated)">
-            <Input
-              value={form.destinations || ''}
-              onChange={(e) => patch('destinations', e.target.value)}
             />
           </FormField>
           <FormField label="Specialties (comma-separated)">
@@ -987,12 +1069,6 @@ export function SupplierProfilePanel({
 
       {supplierType === 'dmc' ? (
         <>
-          <FormField label="Destinations served">
-            <Input
-              value={form.destinationsServed || ''}
-              onChange={(e) => patch('destinationsServed', e.target.value)}
-            />
-          </FormField>
           <FormField label="Service categories">
             <Input
               value={form.serviceCategories || ''}
@@ -1040,12 +1116,6 @@ export function SupplierProfilePanel({
               value={form.description || ''}
               onChange={(e) => patch('description', e.target.value)}
               rows={3}
-            />
-          </FormField>
-          <FormField label="Service area">
-            <Input
-              value={form.serviceArea || ''}
-              onChange={(e) => patch('serviceArea', e.target.value)}
             />
           </FormField>
         </>

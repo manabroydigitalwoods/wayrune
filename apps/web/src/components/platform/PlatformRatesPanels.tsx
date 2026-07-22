@@ -7,6 +7,7 @@ import {
   Combobox,
   EmptyState,
   Input,
+  NumberField,
   PriceField,
   SimpleFormField as FormField,
   formatCurrency,
@@ -307,13 +308,17 @@ export function PlatformTransferFaresPanel() {
             </div>
             <PlaceSinglePicker
               label="From"
+              purpose="transfer_pickup"
               value={form.from}
               onChange={(from) => setForm({ ...form, from })}
+              placeholder="Pickup…"
             />
             <PlaceSinglePicker
               label="To"
+              purpose="transfer_drop"
               value={form.to}
               onChange={(to) => setForm({ ...form, to })}
+              placeholder="Drop…"
             />
             <FormField label="Vehicle">
               <Combobox
@@ -613,20 +618,33 @@ export function PlatformEdgesPanel() {
       <Card>
         <CardContent className="space-y-3 pt-4">
           <h3 className="text-sm font-semibold">Upsert edge</h3>
-          <PlaceSinglePicker label="From" value={from} onChange={setFrom} />
-          <PlaceSinglePicker label="To" value={to} onChange={setTo} />
+          <PlaceSinglePicker
+            label="From"
+            purpose="transfer_pickup"
+            value={from}
+            onChange={setFrom}
+            placeholder="Pickup…"
+          />
+          <PlaceSinglePicker
+            label="To"
+            purpose="transfer_drop"
+            value={to}
+            onChange={setTo}
+            placeholder="Drop…"
+          />
           <FormField label="Distance km">
-            <Input
-              type="number"
+            <NumberField
+              integer={false}
+              min={0}
               value={distanceKm}
-              onChange={(e) => setDistanceKm(e.target.value)}
+              onChange={setDistanceKm}
             />
           </FormField>
           <FormField label="Duration min">
-            <Input
-              type="number"
+            <NumberField
+              min={0}
               value={durationMin}
-              onChange={(e) => setDurationMin(e.target.value)}
+              onChange={setDurationMin}
             />
           </FormField>
           <FormField label="Road hint">

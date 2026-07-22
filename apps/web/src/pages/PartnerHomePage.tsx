@@ -11,6 +11,7 @@ import {
   Input,
   ListPageShell,
   PageHeader,
+  PageSkeleton,
   RecordSheet,
   SimpleFormField as FormField,
   StatusBadge,
@@ -18,6 +19,7 @@ import {
   toastError,
   toastSuccess,
   toastWarning,
+  type PageSkeletonVariant,
 } from '@wayrune/ui';
 import { api, apiUpload } from '../api';
 import { allotmentConfirmToastCue } from '../lib/allotmentConfirmToast';
@@ -932,6 +934,62 @@ export function PartnerHomePage() {
     );
   }
 
+  const skeletonVariant: PageSkeletonVariant = (() => {
+    if (stayPortal) {
+      switch (stayTab) {
+        case 'dashboard':
+          return 'dashboard';
+        case 'profile':
+        case 'rates':
+        case 'rooms':
+        case 'properties':
+        case 'companion_settings':
+          return 'form';
+        case 'reservations':
+        case 'front_desk':
+        case 'inbox':
+          return 'split';
+        case 'housekeeping':
+        case 'maintenance':
+        case 'experiences':
+          return 'cards';
+        default:
+          return 'workspace';
+      }
+    }
+    if (restaurantPortal) {
+      return restaurantTab === 'profile' ? 'form' : 'workspace';
+    }
+    if (fleetPortal) {
+      return mobilityTab === 'profile' ? 'form' : 'workspace';
+    }
+    if (driverPortal) {
+      return driverTab === 'profile' ? 'form' : 'workspace';
+    }
+    switch (partnerTab) {
+      case 'profile':
+        return 'form';
+      case 'portfolio':
+        return 'cards';
+      case 'inventory':
+        return 'workspace';
+      case 'inbound':
+        return 'split';
+      default:
+        return 'detail';
+    }
+  })();
+
+  if (!profile) {
+    return (
+      <ListPageShell
+        fill={!stayPortal && !restaurantPortal && !fleetPortal && !driverPortal}
+      >
+        <PageSkeleton variant={skeletonVariant} />
+      </ListPageShell>
+    );
+  }
+
   return (
     <ListPageShell
       fill={!stayPortal && !restaurantPortal && !fleetPortal && !driverPortal}
@@ -1164,7 +1222,6 @@ export function PartnerHomePage() {
 
       {assetSheet}
       {confirmSheet}
-      {profile ? null : null}
     </ListPageShell>
   );
 }

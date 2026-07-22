@@ -6,9 +6,11 @@ import {
   DatePicker,
   FormGrid,
   Input,
+  NumberField,
   PriceField,
   RecordSheet,
   SimpleFormField as FormField,
+  Skeleton,
   formatCurrency,
   toastError,
   toastSuccess,
@@ -435,7 +437,13 @@ export function SupplierActivityRatesPanel({
       </div>
 
       {loading ? (
-        <p className="text-sm text-muted-foreground">Loading rates…</p>
+        <div role="status" aria-busy="true" className="space-y-2 py-1">
+          <span className="sr-only">Loading</span>
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-5/6" />
+          <Skeleton className="h-10 w-full" />
+        </div>
       ) : sorted.length === 0 ? (
         <p className="rounded-xl border border-dashed border-border/70 bg-muted/10 px-4 py-6 text-sm text-muted-foreground">
           No activity rates yet. Add a named card (e.g. Tiger Hill sunrise) with adult and optional
@@ -613,21 +621,19 @@ export function SupplierActivityRatesPanel({
             />
           </FormField>
           <FormField label="Child age min">
-            <Input
-              type="number"
+            <NumberField
               min={0}
               max={17}
               value={form.childAgeMin}
-              onChange={(e) => setForm((f) => ({ ...f, childAgeMin: e.target.value }))}
+              onChange={(childAgeMin) => setForm((f) => ({ ...f, childAgeMin }))}
             />
           </FormField>
           <FormField label="Child age max">
-            <Input
-              type="number"
+            <NumberField
               min={0}
               max={17}
               value={form.childAgeMax}
-              onChange={(e) => setForm((f) => ({ ...f, childAgeMax: e.target.value }))}
+              onChange={(childAgeMax) => setForm((f) => ({ ...f, childAgeMax }))}
             />
           </FormField>
           <FormField label="Valid from">
@@ -683,7 +689,12 @@ export function SupplierActivityRatesPanel({
         }
       >
         {historyLoading ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <div role="status" aria-busy="true" className="space-y-2 py-1">
+            <span className="sr-only">Loading</span>
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-4/5" />
+          </div>
         ) : historyVersions.length ? (
           <ul className="divide-y divide-border/50 overflow-hidden rounded-xl border border-border/60">
             {(() => {

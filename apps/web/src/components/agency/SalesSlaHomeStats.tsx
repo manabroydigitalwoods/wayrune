@@ -45,16 +45,6 @@ function formatMinutesCompact(minutes: number | null | undefined): string {
   return `${hours}h`;
 }
 
-function medianValue(display: string, cue: string | null) {
-  if (!cue) return display;
-  return (
-    <span className="block">
-      <span>{display}</span>
-      <span className="mt-1 block text-xs font-normal text-muted-foreground">{cue}</span>
-    </span>
-  );
-}
-
 /** Compact sales response / quote-turnaround + inbox unread strip (from GET /dashboard/sales). */
 export function SalesSlaHomeStats({ data }: { data: SalesSlaStats }) {
   const { navigate } = useOrgNavigate();
@@ -76,31 +66,27 @@ export function SalesSlaHomeStats({ data }: { data: SalesSlaStats }) {
     data.fitClaimProtocol?.demoSampleSize ?? data.fitBuildDemoSampleSize30d ?? 0;
 
   return (
-    <div className="mb-4 space-y-4">
+    <div className="space-y-4">
       <div className="space-y-2">
         <div>
           <h2 className="text-sm font-semibold">Sales response</h2>
           <p className="text-xs text-muted-foreground">
-            Lead follow-ups and turnaround (last 30 days). Creating a lead follow-up task stamps the
-            lead due date. FIT build is workspace open → first successful send. Public “under 3
-            minutes” stays testing until real sample size and median clear the claim gate (demo
-            seed does not count). Optional internal targets live in Settings → General.
+            Follow-ups and turnaround (30d). FIT build = workspace open → first send.
           </p>
         </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
           <StatCard
             label="Lead follow-ups overdue"
             value={overdue}
+            hint="Stamp a follow-up task to clear"
             tone={overdue ? 'danger' : 'success'}
             icon={AlertCircle}
             onClick={() => navigate(`${AGENCY_ROUTES.leads}?followUp=overdue`)}
           />
           <StatCard
             label="Median first touch"
-            value={medianValue(
-              formatHoursCompact(data.medianFirstTouchHours30d),
-              firstTouchCue,
-            )}
+            value={formatHoursCompact(data.medianFirstTouchHours30d)}
+            hint={firstTouchCue ?? undefined}
             tone={salesSlaMedianTone(
               data.medianFirstTouchHours30d,
               data.firstTouchTargetHours,
@@ -110,10 +96,8 @@ export function SalesSlaHomeStats({ data }: { data: SalesSlaStats }) {
           />
           <StatCard
             label="Median lead → quote"
-            value={medianValue(
-              formatHoursCompact(data.medianLeadToQuoteHours30d),
-              leadToQuoteCue,
-            )}
+            value={formatHoursCompact(data.medianLeadToQuoteHours30d)}
+            hint={leadToQuoteCue ?? undefined}
             tone={salesSlaMedianTone(
               data.medianLeadToQuoteHours30d,
               data.leadToQuoteTargetHours,
@@ -123,7 +107,8 @@ export function SalesSlaHomeStats({ data }: { data: SalesSlaStats }) {
           />
           <StatCard
             label="Median FIT build (real)"
-            value={medianValue(formatMinutesCompact(fitMedian), fitCardCue)}
+            value={formatMinutesCompact(fitMedian)}
+            hint={fitCardCue ?? undefined}
             tone={
               data.fitClaimProtocol?.publicClaimAllowed
                 ? 'success'
@@ -140,6 +125,7 @@ export function SalesSlaHomeStats({ data }: { data: SalesSlaStats }) {
           <StatCard
             label="Win rate"
             value={pct(data.conversionRate)}
+            hint="Closed-won share"
             tone="success"
             icon={Target}
             onClick={() => navigate(`${AGENCY_ROUTES.leads}?stage=won`)}
@@ -162,13 +148,14 @@ export function SalesSlaHomeStats({ data }: { data: SalesSlaStats }) {
         <div>
           <h2 className="text-sm font-semibold">Inbox response</h2>
           <p className="text-xs text-muted-foreground">
-            Open unread threads · aging = no reply for {agingHours}h+.
+            Unread threads · aging = no reply for {agingHours}h+.
           </p>
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <StatCard
             label="Unread threads"
             value={unread}
+            hint="Open inbox filter"
             tone={unread ? 'warn' : 'success'}
             icon={Inbox}
             onClick={() => navigate(`${AGENCY_ROUTES.inbox}?unread=1`)}
@@ -176,6 +163,7 @@ export function SalesSlaHomeStats({ data }: { data: SalesSlaStats }) {
           <StatCard
             label={agingFilterLabel}
             value={aging}
+            hint="Needs a reply now"
             tone={aging ? 'danger' : 'success'}
             icon={MessageCircleWarning}
             onClick={() => navigate(`${AGENCY_ROUTES.inbox}?unread=1&aging=1`)}

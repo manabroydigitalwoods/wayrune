@@ -20,16 +20,16 @@ type ComposerLayout = {
 };
 
 const DEFAULT_LAYOUT: ComposerLayout = {
-  width: 416,
-  height: 480,
+  width: 460,
+  height: 520,
   x: 0,
   y: 0,
 };
 
-const MIN_WIDTH = 320;
-const MIN_HEIGHT = 280;
+const MIN_WIDTH = 360;
+const MIN_HEIGHT = 360;
 const MAX_WIDTH = 920;
-const MAX_HEIGHT = 860;
+const MAX_HEIGHT = 820;
 
 function clampSize(width: number, height: number) {
   const vw = typeof window !== 'undefined' ? window.innerWidth : 1280;

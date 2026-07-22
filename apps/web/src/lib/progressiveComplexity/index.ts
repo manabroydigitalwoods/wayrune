@@ -37,4 +37,4 @@ export { shouldShowCanonicalCreate, shouldShowTravelRequestIntake } from './crea
 
 export { resolveNavIcon } from './navIcons';
 
-export { trackExperienceEvent } from './analytics';
+export { trackExperienceEvent, identifyAnalyticsUser } from './analytics';

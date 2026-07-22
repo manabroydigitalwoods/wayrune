@@ -37,6 +37,7 @@ export class TravelRequestsService {
       interactionId,
       conversationId,
       campaignId,
+      destinationText: destinationTextInput,
       ...travel
     } = input;
     const channel = (channelKey?.trim() || 'phone') as
@@ -86,12 +87,26 @@ export class TravelRequestsService {
       }
 
       let resolvedConversationId = conversationId ?? null;
-      if (!resolvedConversationId && interactionId) {
+      let destinationText =
+        typeof destinationTextInput === 'string' && destinationTextInput.trim()
+          ? destinationTextInput.trim()
+          : null;
+
+      if (interactionId && (!resolvedConversationId || !destinationText)) {
         const ix = await tx.interaction.findFirst({
           where: { id: interactionId, organizationId: user.organizationId },
-          select: { conversationId: true },
+          select: { conversationId: true, rawPayloadJson: true },
         });
-        resolvedConversationId = ix?.conversationId ?? null;
+        if (!resolvedConversationId) {
+          resolvedConversationId = ix?.conversationId ?? null;
+        }
+        if (!destinationText) {
+          const raw = (ix?.rawPayloadJson ?? {}) as Record<string, unknown>;
+          if (typeof raw.destinations === 'string' && raw.destinations.trim()) {
+            // Preserve visitor spelling exactly — do not mutate rawPayloadJson.
+            destinationText = raw.destinations.trim();
+          }
+        }
       }
       if (!resolvedConversationId) {
         const conv = await this.interactions.resolveOrCreateConversation(
@@ -119,6 +134,9 @@ export class TravelRequestsService {
           channel,
           campaignId: campaignId ?? null,
           priority: priority ?? 'normal',
+          ...(destinationText
+            ? { customFields: { destinationText } }
+            : {}),
         },
         tx,
       );

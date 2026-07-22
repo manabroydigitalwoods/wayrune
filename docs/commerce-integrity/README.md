@@ -15,3 +15,4 @@ PR review should reference these before schema sprawl.
 | [09 Events & idempotency](./09-domain-events-and-idempotency.md) | Outbox, keys, recovery |
 | [10 Data governance & AI](./10-data-governance-and-ai-readiness.md) | Classification, AI eligibility |
 | [11 Inventory adapters & stay modify](./11-inventory-adapters-and-stay-modify.md) | Adapter contract, named modify ops, day close, cancel outcome |
+| [12 Deferred schema & search follow-ups](./12-schema-index-followups.md) | Evidence-triggered deferred index/search work |

@@ -1,20 +1,30 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import type { ColumnDef } from '@tanstack/react-table';
-import { ArrowUpRight, BarChart3, Download, Save, Users } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
+import type { ColumnDef, VisibilityState } from '@tanstack/react-table';
+import { ArrowUpRight, BarChart3, Download, MoreHorizontal, Save, Search, Users, X } from 'lucide-react';
 import {
   Button,
   DataTable,
-  ListPageShell,
-  PageHeader,
+  DateRangeFilter,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+  Input,
+  RecordDialog,
   StatusBadge,
   StorageKeys,
+  cn,
   formatCurrency,
   formatDate,
   formatPercent,
+  localStorageKit,
   toastError,
   toastSuccess,
+  usePageChrome,
   usePersistentState,
+  type DateRangeValue,
 } from '@wayrune/ui';
 import { api } from '../api';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
@@ -30,6 +40,21 @@ import {
   updateFinanceReportPack,
   type FinanceReportPack,
 } from '../lib/financeReportPacks';
+import {
+  financePortfolioApiQueryFromState,
+  financePortfolioQueryHasFilters,
+  parseFinancePortfolioQueryState,
+  patchFinancePortfolioQueryParams,
+  type FinancePortfolioStatusFilter,
+} from '../lib/queue';
+import {
+  ActiveFilterChips,
+  DisplayMenu,
+  FilterMenu,
+  QUEUE_MENU_ITEM_CLASS,
+  QUEUE_PAGE_SEARCH_CLASS,
+  QueuePageChrome,
+} from '../components/queue';
 
 type PortfolioRow = {
   tripId: string;
@@ -73,14 +98,35 @@ type PortfolioPreset = {
   to: string;
 };
 
+const STATUS_OPTIONS: Array<{ value: FinancePortfolioStatusFilter; label: string }> = [
+  { value: 'confirmed', label: 'Confirmed' },
+  { value: 'booking_in_progress', label: 'Booking' },
+  { value: 'ready_to_travel', label: 'Ready' },
+  { value: 'completed', label: 'Completed' },
+];
+
+function readPortfolioColumnVisibility(): VisibilityState {
+  const stored = localStorageKit.getJson<VisibilityState>(StorageKeys.financePortfolio.columns, {
+    version: 1,
+  });
+  if (!stored || typeof stored !== 'object') return {};
+  return stored;
+}
+
 export function FinancePortfolioPage() {
-  useDocumentTitle('Portfolio profitability');
+  useDocumentTitle('Profitability');
   const { toOrgPath } = useOrgNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const query = useMemo(() => parseFinancePortfolioQueryState(searchParams), [searchParams]);
+  const [searchDraft, setSearchDraft] = useState(query.q ?? '');
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(() =>
+    readPortfolioColumnVisibility(),
+  );
   const [data, setData] = useState<PortfolioBoard | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
+  const from = query.from ?? '';
+  const to = query.to ?? '';
   const [presets, setPresets] = usePersistentState<PortfolioPreset[]>(
     StorageKeys.financePortfolio.presets,
     [],
@@ -90,6 +136,35 @@ export function FinancePortfolioPage() {
   const [savingOrgPack, setSavingOrgPack] = useState(false);
   const [scheduleEmails, setScheduleEmails] = useState('');
   const [sendingPackId, setSendingPackId] = useState<string | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
+
+  function applyQuery(patch: Parameters<typeof patchFinancePortfolioQueryParams>[1]) {
+    setSearchParams(patchFinancePortfolioQueryParams(searchParams, patch), { replace: true });
+  }
+
+  useEffect(() => {
+    setSearchDraft(query.q ?? '');
+  }, [query.q]);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      const next = searchDraft.trim();
+      if ((query.q ?? '') === next) return;
+      applyQuery({ q: next || undefined });
+    }, 300);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce draft only
+  }, [searchDraft]);
+
+  const range: DateRangeValue = {
+    from: query.from ?? null,
+    to: query.to ?? null,
+    presetId: query.period ?? null,
+  };
+
+  function onRangeChange(next: DateRangeValue) {
+    applyQuery({ from: next.from, to: next.to, period: next.presetId });
+  }
 
   async function refreshOrgPacks() {
     try {
@@ -108,10 +183,7 @@ export function FinancePortfolioPage() {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    const params = new URLSearchParams();
-    if (from) params.set('from', from);
-    if (to) params.set('to', to);
-    const qs = params.toString();
+    const qs = financePortfolioApiQueryFromState(query);
     api<PortfolioBoard>(
       `/operations/finance/portfolio${qs ? `?${qs}` : ''}`,
     )
@@ -139,6 +211,7 @@ export function FinancePortfolioPage() {
         id: 'trip',
         accessorFn: (r) => `${r.tripNumber} ${r.tripTitle}`,
         header: 'Trip',
+        enableHiding: false,
         cell: ({ row }) => (
           <Link
             to={toOrgPath(`/trips/${row.original.tripId}?tab=finance`)}
@@ -233,6 +306,20 @@ export function FinancePortfolioPage() {
   );
 
   const summary = data?.summary;
+
+  const filteredRows = useMemo(() => {
+    let rows = data?.rows ?? [];
+    if (query.status) rows = rows.filter((r) => r.tripStatus === query.status);
+    const q = query.q?.trim().toLowerCase();
+    if (q) {
+      rows = rows.filter((r) =>
+        [r.tripNumber, r.tripTitle, r.partyName, r.quoteNumber]
+          .filter(Boolean)
+          .some((v) => (v as string).toLowerCase().includes(q)),
+      );
+    }
+    return rows;
+  }, [data?.rows, query.status, query.q]);
 
   function downloadCsv() {
     const rows = data?.rows ?? [];
@@ -380,14 +467,12 @@ export function FinancePortfolioPage() {
   }
 
   function applyPreset(p: PortfolioPreset) {
-    setFrom(p.from);
-    setTo(p.to);
+    applyQuery({ from: p.from || null, to: p.to || null, period: 'custom' });
   }
 
   function applyOrgPack(p: FinanceReportPack) {
     if (!p.portfolio) return;
-    setFrom(p.portfolio.from);
-    setTo(p.portfolio.to);
+    applyQuery({ from: p.portfolio.from || null, to: p.portfolio.to || null, period: 'custom' });
   }
 
   function removePreset(id: string) {
@@ -404,153 +489,157 @@ export function FinancePortfolioPage() {
     }
   }
 
-  return (
-    <ListPageShell>
-      <PageHeader
-        icon={BarChart3}
-        title="Portfolio profitability"
-        subtitle="Accepted quotes rolled up by trip — sell, cost, and margin."
-        className="mb-4 shrink-0"
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              From
-              <input
-                type="date"
-                className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground"
-                value={from}
-                onChange={(e) => setFrom(e.target.value)}
-              />
-            </label>
-            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              To
-              <input
-                type="date"
-                className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground"
-                value={to}
-                onChange={(e) => setTo(e.target.value)}
-              />
-            </label>
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={loading || !(data?.rows.length)}
-              onClick={downloadCsv}
-            >
-              <Download className="size-4" />
-              Download CSV
-            </Button>
-          </div>
+  function toggleColumn(id: string, visible: boolean) {
+    setColumnVisibility((prev) => {
+      const next = { ...prev, [id]: visible };
+      localStorageKit.setJson(StorageKeys.financePortfolio.columns, next, { version: 1 });
+      return next;
+    });
+  }
+
+  function clearPortfolioFilters() {
+    applyQuery({ clearFilters: true });
+  }
+
+  function clearPortfolioFiltersAndSearch() {
+    setSearchDraft('');
+    applyQuery({ clearFilters: true, q: '' });
+  }
+
+  const filterDefs = [
+    {
+      id: 'savedRange',
+      label: 'Saved range',
+      value:
+        presets.find((p) => p.from === from && p.to === to && (from || to))?.id ?? null,
+      options: presets.map((p) => ({ value: p.id, label: p.name })),
+      onSelect: (value: string | null) => {
+        if (!value) return;
+        const preset = presets.find((p) => p.id === value);
+        if (preset) applyPreset(preset);
+      },
+    },
+    {
+      id: 'status',
+      label: 'Status',
+      value: query.status ?? null,
+      options: STATUS_OPTIONS,
+      onSelect: (value: string | null) =>
+        applyQuery({ status: (value as FinancePortfolioStatusFilter | null) || undefined }),
+    },
+  ];
+
+  const filterChips = [
+    query.status
+      ? {
+          id: 'status',
+          label: `Status: ${STATUS_OPTIONS.find((o) => o.value === query.status)?.label ?? query.status}`,
+          onRemove: () => applyQuery({ status: undefined }),
         }
-      />
+      : null,
+  ].filter(Boolean) as Array<{ id: string; label: string; onRemove: () => void }>;
 
-      <div className="mb-4 space-y-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            className="h-9 min-w-[10rem] flex-1 rounded-md border border-input bg-background px-3 text-sm sm:max-w-xs"
-            placeholder="Preset name (optional)"
-            value={presetName}
-            onChange={(e) => setPresetName(e.target.value)}
-          />
-          <input
-            className="h-9 min-w-[12rem] flex-1 rounded-md border border-input bg-background px-3 text-sm sm:max-w-sm"
-            placeholder="Weekly email to (optional, comma-separated)"
-            value={scheduleEmails}
-            onChange={(e) => setScheduleEmails(e.target.value)}
-          />
-          <Button size="sm" variant="secondary" onClick={savePreset}>
-            <Save className="size-4" />
-            Save for me
-          </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={savingOrgPack}
-            onClick={() => void saveOrgPack()}
+  const displayColumns = [
+    { id: 'startDate', label: 'Travel', visible: columnVisibility.startDate !== false },
+    { id: 'quote', label: 'Quote', visible: columnVisibility.quote !== false },
+    { id: 'sellTotal', label: 'Sell', visible: columnVisibility.sellTotal !== false },
+    { id: 'costTotal', label: 'Cost', visible: columnVisibility.costTotal !== false },
+    { id: 'marginAmount', label: 'Margin', visible: columnVisibility.marginAmount !== false },
+    { id: 'tripStatus', label: 'Status', visible: columnVisibility.tripStatus !== false },
+  ];
+
+  usePageChrome({
+    title: 'Profitability',
+    subtitle: 'Portfolio profitability — accepted quotes rolled up by trip, sell, cost, and margin.',
+  });
+
+  const queueToolbar = (
+    <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+      <div className="relative min-w-[12rem] flex-1 basis-[14rem]">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 size-[0.875em] -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={searchDraft}
+          onChange={(e) => setSearchDraft(e.target.value)}
+          placeholder="Search trip…"
+          className={cn(QUEUE_PAGE_SEARCH_CLASS, searchDraft.trim() && 'pr-8')}
+          aria-label="Search profitability"
+        />
+        {searchDraft.trim() ? (
+          <button
+            type="button"
+            className="absolute right-1.5 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+            aria-label="Clear search"
+            onClick={() => {
+              setSearchDraft('');
+              applyQuery({ q: '' });
+            }}
           >
-            <Users className="size-4" />
-            {savingOrgPack ? 'Sharing…' : 'Share with agency'}
-          </Button>
-        </div>
-        {presets.length ? (
-          <div className="flex flex-wrap gap-1.5">
-            {presets.map((p) => (
-              <span
-                key={p.id}
-                className="inline-flex items-center gap-1 rounded-full border border-border/60 px-2 py-1 text-xs"
-              >
-                <button
-                  type="button"
-                  className="font-medium hover:underline"
-                  onClick={() => applyPreset(p)}
-                >
-                  {p.name}
-                </button>
-                <button
-                  type="button"
-                  className="text-muted-foreground hover:text-destructive"
-                  aria-label={`Remove ${p.name}`}
-                  onClick={() => removePreset(p.id)}
-                >
-                  ×
-                </button>
-              </span>
-            ))}
-          </div>
+            <X className="size-3.5" />
+          </button>
         ) : null}
-        {orgPacks.length ? (
-          <div className="flex flex-wrap gap-1.5">
-            {orgPacks.map((p) => {
-              const deliveryCue = packDeliveryHonestyCue(p);
-              return (
-              <span
-                key={p.id}
-                className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2 py-1 text-xs"
-                title={deliveryCue || undefined}
-              >
-                <Users className="size-3 text-primary" aria-hidden />
-                <button
-                  type="button"
-                  className="font-medium hover:underline"
-                  onClick={() => applyOrgPack(p)}
-                >
-                  {p.name}
-                  {deliveryCue ? ` · ${deliveryCue}` : ''}
-                </button>
-                <button
-                  type="button"
-                  className="text-muted-foreground hover:underline"
-                  disabled={sendingPackId === p.id}
-                  onClick={() => void emailPackNow(p)}
-                >
-                  {sendingPackId === p.id ? '…' : 'Email now'}
-                </button>
-                <button
-                  type="button"
-                  className="text-muted-foreground hover:underline"
-                  onClick={() => void togglePackSchedule(p)}
-                >
-                  {p.delivery?.enabled ? 'Unschedule' : 'Schedule'}
-                </button>
-                <button
-                  type="button"
-                  className="text-muted-foreground hover:text-destructive"
-                  aria-label={`Remove org pack ${p.name}`}
-                  onClick={() => void removeOrgPack(p.id)}
-                >
-                  ×
-                </button>
-              </span>
-              );
-            })}
-          </div>
-        ) : (
-          <span className="text-xs text-muted-foreground">
-            Personal or agency shared travel-date windows · optional weekly CSV email
-          </span>
-        )}
       </div>
+      <div className="flex flex-wrap items-center gap-1">
+        <DateRangeFilter
+          pack="history"
+          dimensionLabel="Travel"
+          value={range}
+          onChange={onRangeChange}
+          emptyLabel="All trips"
+          data-testid="portfolio-travel-range"
+        />
+        <FilterMenu filters={filterDefs} />
+        <DisplayMenu columns={displayColumns} onToggleColumn={toggleColumn} />
+      </div>
+    </div>
+  );
 
+  return (
+    <QueuePageChrome
+      primaryActions={
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={loading || !(data?.rows.length)}
+          onClick={downloadCsv}
+        >
+          <Download className="size-[0.875em]" />
+          Download CSV
+        </Button>
+      }
+      moreMenu={
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              className="size-[var(--control-h-sm)]"
+              aria-label="More actions"
+            >
+              <MoreHorizontal className="size-[0.875em]" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-52 p-1">
+            <DropdownMenuLabel className="text-[length:var(--control-text-sm)]">More</DropdownMenuLabel>
+            <DropdownMenuItem
+              className={QUEUE_MENU_ITEM_CLASS}
+              onClick={() => setShareOpen(true)}
+            >
+              <Users />
+              Presets &amp; sharing
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      }
+      error={error ? <p className="text-sm text-destructive">{error}</p> : null}
+      toolbar={queueToolbar}
+      chips={
+        <ActiveFilterChips
+          chips={filterChips}
+          onClear={financePortfolioQueryHasFilters(query) ? clearPortfolioFilters : undefined}
+        />
+      }
+    >
       {summary ? (
         <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           <div className="rounded-lg border border-border/60 px-3 py-2">
@@ -604,31 +693,149 @@ export function FinancePortfolioPage() {
       ) : null}
 
       <DataTable
+        key={`cols-${JSON.stringify(columnVisibility)}-status-${query.status ?? 'all'}`}
         columns={columns}
-        data={data?.rows ?? []}
+        data={filteredRows}
         loading={loading}
         error={error ?? undefined}
         pageSize={25}
-        searchKey="trip"
-        searchPlaceholder="Search trip…"
+        showSearch={false}
+        showColumnsMenu={false}
+        defaultColumnVisibility={columnVisibility}
         columnVisibilityKey={StorageKeys.financePortfolio.columns}
-        facets={[
-          {
-            id: 'tripStatus',
-            columnId: 'tripStatus',
-            label: 'Status',
-            options: [
-              { value: 'confirmed', label: 'Confirmed' },
-              { value: 'booking_in_progress', label: 'Booking' },
-              { value: 'ready_to_travel', label: 'Ready' },
-              { value: 'completed', label: 'Completed' },
-            ],
-          },
-        ]}
-        emptyTitle="No accepted quotes in this window"
-        emptyDescription="Trips with an accepted quotation will appear here with sell, cost, and margin."
+        emptyTitle={
+          financePortfolioQueryHasFilters(query) || query.q
+            ? 'No matching trips'
+            : 'No accepted quotes in this window'
+        }
+        emptyDescription={
+          financePortfolioQueryHasFilters(query) || query.q
+            ? 'Try clearing filters or search.'
+            : 'Trips with an accepted quotation will appear here with sell, cost, and margin.'
+        }
         emptyIcon={BarChart3}
+        emptyAction={
+          financePortfolioQueryHasFilters(query) || query.q ? (
+            <Button type="button" size="sm" variant="outline" onClick={clearPortfolioFiltersAndSearch}>
+              Clear filters
+            </Button>
+          ) : undefined
+        }
       />
-    </ListPageShell>
+
+      <RecordDialog
+        open={shareOpen}
+        onOpenChange={setShareOpen}
+        title="Presets & sharing"
+        description="Personal or agency shared travel-date windows · optional weekly CSV email"
+        cancelLabel="Close"
+        size="lg"
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            className="min-w-[10rem] flex-1 sm:max-w-xs"
+            placeholder="Preset name (optional)"
+            value={presetName}
+            onChange={(e) => setPresetName(e.target.value)}
+          />
+          <Input
+            className="min-w-[12rem] flex-1 sm:max-w-sm"
+            placeholder="Weekly email to (optional, comma-separated)"
+            value={scheduleEmails}
+            onChange={(e) => setScheduleEmails(e.target.value)}
+          />
+          <Button size="sm" variant="secondary" onClick={savePreset}>
+            <Save className="size-4" />
+            Save for me
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={savingOrgPack}
+            onClick={() => void saveOrgPack()}
+          >
+            <Users className="size-4" />
+            {savingOrgPack ? 'Sharing…' : 'Share with agency'}
+          </Button>
+        </div>
+        {presets.length ? (
+          <div className="flex flex-wrap gap-1.5">
+            {presets.map((p) => (
+              <span
+                key={p.id}
+                className="inline-flex items-center gap-1 rounded-full border border-border/60 px-2 py-1 text-xs"
+              >
+                <button
+                  type="button"
+                  className="font-medium hover:underline"
+                  onClick={() => applyPreset(p)}
+                >
+                  {p.name}
+                </button>
+                <button
+                  type="button"
+                  className="text-muted-foreground hover:text-destructive"
+                  aria-label={`Remove ${p.name}`}
+                  onClick={() => removePreset(p.id)}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : null}
+        {orgPacks.length ? (
+          <div className="flex flex-wrap gap-1.5">
+            {orgPacks.map((p) => {
+              const deliveryCue = packDeliveryHonestyCue(p);
+              return (
+                <span
+                  key={p.id}
+                  className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2 py-1 text-xs"
+                  title={deliveryCue || undefined}
+                >
+                  <Users className="size-3 text-primary" aria-hidden />
+                  <button
+                    type="button"
+                    className="font-medium hover:underline"
+                    onClick={() => applyOrgPack(p)}
+                  >
+                    {p.name}
+                    {deliveryCue ? ` · ${deliveryCue}` : ''}
+                  </button>
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:underline"
+                    disabled={sendingPackId === p.id}
+                    onClick={() => void emailPackNow(p)}
+                  >
+                    {sendingPackId === p.id ? '…' : 'Email now'}
+                  </button>
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:underline"
+                    onClick={() => void togglePackSchedule(p)}
+                  >
+                    {p.delivery?.enabled ? 'Unschedule' : 'Schedule'}
+                  </button>
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:text-destructive"
+                    aria-label={`Remove org pack ${p.name}`}
+                    onClick={() => void removeOrgPack(p.id)}
+                  >
+                    ×
+                  </button>
+                </span>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            No shared views yet — share this view to give your team a one-click deep-link.
+          </p>
+        )}
+      </RecordDialog>
+    </QueuePageChrome>
   );
 }

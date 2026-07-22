@@ -22,13 +22,14 @@ function ppDeltaLabel(n: number): string {
   return `${sign}${abs.toFixed(1)} pp`;
 }
 
-/** Before → after cost / sell / margin when revising a draft. */
+/** Before → after sell/tax (and cost/margin when permitted) when revising a draft. */
 export function FitRevisionMarginDeltaStrip({
   delta,
   currency,
 }: FitRevisionMarginDeltaStripProps) {
   const marginUp = delta.deltaMarginPp > 0.05;
   const marginDown = delta.deltaMarginPp < -0.05;
+  const showCost = delta.showCost !== false;
 
   return (
     <div
@@ -47,18 +48,20 @@ export function FitRevisionMarginDeltaStrip({
         ) : null}
       </div>
       <dl className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 tabular-nums">
-        <div className="flex gap-1.5">
-          <dt className="text-muted-foreground">Cost</dt>
-          <dd>
-            {formatCurrency(delta.before.costTotal, currency)}
-            <span className="text-muted-foreground"> → </span>
-            {formatCurrency(delta.after.costTotal, currency)}
-            <span className="ml-1 text-muted-foreground">
-              ({moneyDeltaLabel(delta.deltaCost, currency)})
-            </span>
-          </dd>
-        </div>
-        <div className="flex gap-1.5">
+        {showCost ? (
+          <div className="flex gap-1.5">
+            <dt className="text-muted-foreground">Cost</dt>
+            <dd>
+              {formatCurrency(delta.before.costTotal, currency)}
+              <span className="text-muted-foreground"> → </span>
+              {formatCurrency(delta.after.costTotal, currency)}
+              <span className="ml-1 text-muted-foreground">
+                ({moneyDeltaLabel(delta.deltaCost, currency)})
+              </span>
+            </dd>
+          </div>
+        ) : null}
+        <div className="flex gap-1.5" data-testid="revision-delta-sell">
           <dt className="text-muted-foreground">Sell</dt>
           <dd>
             {formatCurrency(delta.before.sellExTax, currency)}
@@ -69,26 +72,28 @@ export function FitRevisionMarginDeltaStrip({
             </span>
           </dd>
         </div>
-        <div className="flex gap-1.5">
+        <div className="flex gap-1.5" data-testid="revision-delta-tax">
           <dt className="text-muted-foreground">Tax</dt>
           <dd>
             {moneyDeltaLabel(delta.deltaTax, currency)}
           </dd>
         </div>
-        <div className="flex gap-1.5">
-          <dt className="text-muted-foreground">Margin</dt>
-          <dd
-            className={cn(
-              marginUp && 'text-emerald-700 dark:text-emerald-400',
-              marginDown && 'text-amber-800 dark:text-amber-300',
-            )}
-          >
-            {formatPercent(delta.before.marginPercent)}
-            <span className="text-muted-foreground"> → </span>
-            {formatPercent(delta.after.marginPercent)}
-            <span className="ml-1">({ppDeltaLabel(delta.deltaMarginPp)})</span>
-          </dd>
-        </div>
+        {showCost ? (
+          <div className="flex gap-1.5">
+            <dt className="text-muted-foreground">Margin</dt>
+            <dd
+              className={cn(
+                marginUp && 'text-emerald-700 dark:text-emerald-400',
+                marginDown && 'text-amber-800 dark:text-amber-300',
+              )}
+            >
+              {formatPercent(delta.before.marginPercent)}
+              <span className="text-muted-foreground"> → </span>
+              {formatPercent(delta.after.marginPercent)}
+              <span className="ml-1">({ppDeltaLabel(delta.deltaMarginPp)})</span>
+            </dd>
+          </div>
+        ) : null}
       </dl>
       {delta.changedLineSummaries.length ? (
         <p className="mt-1.5 text-[11px] text-muted-foreground">

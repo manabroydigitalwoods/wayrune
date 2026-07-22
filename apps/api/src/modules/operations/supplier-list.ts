@@ -38,6 +38,21 @@ export const supplierListInclude = {
     },
   },
   place: { select: { id: true, name: true, kind: true } },
+  servedPlaces: {
+    orderBy: { createdAt: 'asc' },
+    include: {
+      place: {
+        select: {
+          id: true,
+          name: true,
+          kind: true,
+          country: true,
+          region: true,
+          parent: { select: { id: true, name: true, kind: true } },
+        },
+      },
+    },
+  },
   _count: {
     select: {
       hotelRates: { where: activeRateWhere },

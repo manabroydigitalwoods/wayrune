@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { ColumnDef } from '@tanstack/react-table';
+import type { ColumnDef, VisibilityState } from '@tanstack/react-table';
 import { useSearchParams } from 'react-router-dom';
 import {
   BedDouble,
+  Building2,
   Car,
   Copy,
-  IndianRupee,
+  Import,
   MoreHorizontal,
   Pencil,
   Plus,
+  Search,
   Trash2,
-  Import,
+  X,
 } from 'lucide-react';
 import {
   Button,
@@ -27,16 +29,17 @@ import {
   FormGrid,
   FormSection,
   Input,
-  ListPageShell,
-  PageHeader,
   PriceField,
   RecordSheet,
   SimpleFormField as FormField,
   StatusBadge,
   StorageKeys,
+  cn,
   formatCurrency,
+  localStorageKit,
   toastError,
   toastSuccess,
+  usePageChrome,
 } from '@wayrune/ui';
 import { api } from '../api';
 import { Can } from '../components/Can';
@@ -49,13 +52,21 @@ import { RatesCsvImportDialog } from '../components/rates/RatesCsvImportDialog';
 import { type PlaceRef } from '../lib/placeRefs';
 import { formatDateInput, parseDateInput } from '../lib/dateInput';
 import { STAY_SUPPLIER_TYPE_QUERY, supplierTypeLabel } from '../lib/supplierTypes';
-
-type RatesTab = 'hotel' | 'transfer';
-
-function tabFromSearch(raw: string | null): RatesTab {
-  if (raw === 'transfer') return 'transfer';
-  return 'hotel';
-}
+import {
+  parseRatesQueryState,
+  patchRatesQueryParams,
+  ratesQueryHasFilters,
+  type RatesTab,
+} from '../lib/queue';
+import {
+  ActiveFilterChips,
+  DisplayMenu,
+  FilterMenu,
+  QUEUE_MENU_ITEM_CLASS,
+  QUEUE_PAGE_SEARCH_CLASS,
+  QueuePageChrome,
+  QueueViewToggle,
+} from '../components/queue';
 
 type HotelRate = {
   id: string;
@@ -170,24 +181,42 @@ function hotelKind(r: HotelRate): 'supplier' | 'place' {
   return r.supplierId || r.supplier ? 'supplier' : 'place';
 }
 
+function hotelSource(r: HotelRate): 'system' | 'agency' {
+  return r.isSystem ? 'system' : 'agency';
+}
+
+function transferSource(f: TransferFare): 'system' | 'agency' {
+  return f.isSystem ? 'system' : 'agency';
+}
+
 function transferRouteLabel(f: TransferFare) {
   return `${f.fromPlace?.name || '—'} → ${f.toPlace?.name || '—'}`;
 }
 
+function readColumnVisibility(key: string): VisibilityState {
+  const stored = localStorageKit.getJson<VisibilityState>(key, { version: 1 });
+  if (!stored || typeof stored !== 'object') return {};
+  return stored;
+}
+
 export function RatesPage() {
-  useDocumentTitle('Catalog & transfers');
+  useDocumentTitle('Products & rates');
+  usePageChrome({
+    title: 'Products & rates',
+    subtitle:
+      'Place-level hotel defaults and the transfer fare matrix. Negotiated hotel sheets live on each supplier’s Rate chart.',
+  });
   const { hasAny } = usePermissions();
   const canWrite = hasAny(CAP.ratesWrite);
   const [searchParams, setSearchParams] = useSearchParams();
-  const tab = tabFromSearch(searchParams.get('tab'));
-  const setTab = useCallback(
-    (next: RatesTab) => {
-      const params = new URLSearchParams(searchParams);
-      if (next === 'hotel') params.delete('tab');
-      else params.set('tab', next);
-      setSearchParams(params, { replace: true });
-    },
-    [searchParams, setSearchParams],
+  const query = useMemo(() => parseRatesQueryState(searchParams), [searchParams]);
+  const tab = query.tab;
+  const [searchDraft, setSearchDraft] = useState(query.q ?? '');
+  const [hotelColumnVisibility, setHotelColumnVisibility] = useState<VisibilityState>(() =>
+    readColumnVisibility(StorageKeys.rates.hotelColumns),
+  );
+  const [transferColumnVisibility, setTransferColumnVisibility] = useState<VisibilityState>(() =>
+    readColumnVisibility(StorageKeys.rates.transferColumns),
   );
   const [hotelRates, setHotelRates] = useState<HotelRate[]>([]);
   const [transferFares, setTransferFares] = useState<TransferFare[]>([]);
@@ -200,6 +229,31 @@ export function RatesPage() {
   const [hotelForm, setHotelForm] = useState(emptyHotelForm);
   const [transferForm, setTransferForm] = useState(emptyTransferForm);
   const [saving, setSaving] = useState(false);
+
+  function applyQuery(patch: Parameters<typeof patchRatesQueryParams>[1]) {
+    setSearchParams(patchRatesQueryParams(searchParams, patch), { replace: true });
+  }
+
+  const setTab = useCallback(
+    (next: RatesTab) => {
+      setSearchParams(patchRatesQueryParams(searchParams, { tab: next }), { replace: true });
+    },
+    [searchParams, setSearchParams],
+  );
+
+  useEffect(() => {
+    setSearchDraft(query.q ?? '');
+  }, [query.q]);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      const next = searchDraft.trim();
+      if ((query.q ?? '') === next) return;
+      applyQuery({ q: next || undefined });
+    }, 300);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce draft only
+  }, [searchDraft]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -511,6 +565,48 @@ export function RatesPage() {
     }
   }
 
+  function toggleHotelColumn(id: string, visible: boolean) {
+    setHotelColumnVisibility((prev) => {
+      const next = { ...prev, [id]: visible };
+      localStorageKit.setJson(StorageKeys.rates.hotelColumns, next, { version: 1 });
+      return next;
+    });
+  }
+
+  function toggleTransferColumn(id: string, visible: boolean) {
+    setTransferColumnVisibility((prev) => {
+      const next = { ...prev, [id]: visible };
+      localStorageKit.setJson(StorageKeys.rates.transferColumns, next, { version: 1 });
+      return next;
+    });
+  }
+
+  function clearRatesFilters() {
+    applyQuery({ clearFilters: true });
+  }
+
+  function clearRatesFiltersAndSearch() {
+    setSearchDraft('');
+    applyQuery({ clearFilters: true, q: '' });
+  }
+
+  const filteredHotelRates = useMemo(() => {
+    let list = hotelRates;
+    if (query.kind) list = list.filter((r) => hotelKind(r) === query.kind);
+    if (query.source) list = list.filter((r) => hotelSource(r) === query.source);
+    const q = query.q?.trim().toLowerCase();
+    if (q) list = list.filter((r) => hotelLabel(r).toLowerCase().includes(q));
+    return list;
+  }, [hotelRates, query.kind, query.source, query.q]);
+
+  const filteredTransferFares = useMemo(() => {
+    let list = transferFares;
+    if (query.source) list = list.filter((f) => transferSource(f) === query.source);
+    const q = query.q?.trim().toLowerCase();
+    if (q) list = list.filter((f) => transferRouteLabel(f).toLowerCase().includes(q));
+    return list;
+  }, [transferFares, query.source, query.q]);
+
   const hotelColumns = useMemo<ColumnDef<HotelRate>[]>(
     () => [
       {
@@ -559,7 +655,7 @@ export function RatesPage() {
       },
       {
         id: 'source',
-        accessorFn: (r) => (r.isSystem ? 'system' : 'agency'),
+        accessorFn: (r) => hotelSource(r),
         header: 'Source',
         meta: { label: 'Source' },
         size: 120,
@@ -706,7 +802,7 @@ export function RatesPage() {
       },
       {
         id: 'source',
-        accessorFn: (r) => (r.isSystem ? 'system' : 'agency'),
+        accessorFn: (r) => transferSource(r),
         header: 'Source',
         meta: { label: 'Source' },
         size: 120,
@@ -837,49 +933,170 @@ export function RatesPage() {
     [load],
   );
 
-  return (
-    <ListPageShell>
-      <PageHeader
-        icon={IndianRupee}
-        title="Catalog & transfers"
-        subtitle="Place-level hotel defaults and the transfer fare matrix. Negotiated hotel sheets live on each supplier’s Rate chart."
-        className="mb-4 shrink-0"
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-2 rounded-xl border p-1 glass-strong">
-              <Button
-                size="sm"
-                variant={tab === 'hotel' ? 'secondary' : 'ghost'}
-                onClick={() => setTab('hotel')}
-              >
-                <BedDouble className="size-4" />
-                Hotel
-              </Button>
-              <Button
-                size="sm"
-                variant={tab === 'transfer' ? 'secondary' : 'ghost'}
-                onClick={() => setTab('transfer')}
-              >
-                <Car className="size-4" />
-                Transfer
-              </Button>
-            </div>
-            <Can anyOf={CAP.ratesWrite}>
-              <Button variant="outline" onClick={() => setImportOpen(true)}>
-                <Import className="size-4" />
-                Import CSV / Excel
-              </Button>
-              <Button
-                onClick={tab === 'hotel' ? openCreateHotel : openCreateTransfer}
-              >
-                <Plus className="size-4" />
-                {tab === 'hotel' ? 'Add hotel rate' : 'Add transfer fare'}
-              </Button>
-            </Can>
-          </div>
-        }
-      />
+  const hotelFilterDefs = [
+    {
+      id: 'kind',
+      label: 'Kind',
+      icon: BedDouble,
+      value: query.kind ?? null,
+      options: [
+        { value: 'place', label: 'Place defaults' },
+        { value: 'supplier', label: 'Supplier rates' },
+      ],
+      onSelect: (value: string | null) =>
+        applyQuery({ kind: (value as 'place' | 'supplier' | null) || undefined }),
+    },
+    {
+      id: 'source',
+      label: 'Source',
+      icon: Building2,
+      value: query.source ?? null,
+      options: [
+        { value: 'system', label: 'System' },
+        { value: 'agency', label: 'Agency' },
+      ],
+      onSelect: (value: string | null) =>
+        applyQuery({ source: (value as 'system' | 'agency' | null) || undefined }),
+    },
+  ];
 
+  const transferFilterDefs = [
+    {
+      id: 'source',
+      label: 'Source',
+      icon: Building2,
+      value: query.source ?? null,
+      options: [
+        { value: 'system', label: 'System' },
+        { value: 'agency', label: 'Agency' },
+      ],
+      onSelect: (value: string | null) =>
+        applyQuery({ source: (value as 'system' | 'agency' | null) || undefined }),
+    },
+  ];
+
+  const filterChips = [
+    tab === 'hotel' && query.kind
+      ? {
+          id: 'kind',
+          label: `Kind: ${query.kind === 'supplier' ? 'Supplier rates' : 'Place defaults'}`,
+          onRemove: () => applyQuery({ kind: undefined }),
+        }
+      : null,
+    query.source
+      ? {
+          id: 'source',
+          label: `Source: ${query.source === 'system' ? 'System' : 'Agency'}`,
+          onRemove: () => applyQuery({ source: undefined }),
+        }
+      : null,
+  ].filter(Boolean) as Array<{ id: string; label: string; onRemove: () => void }>;
+
+  const hotelDisplayColumns = [
+    { id: 'kind', label: 'Kind', visible: hotelColumnVisibility.kind !== false, icon: BedDouble },
+    { id: 'source', label: 'Source', visible: hotelColumnVisibility.source !== false },
+    { id: 'roomType', label: 'Room', visible: hotelColumnVisibility.roomType !== false },
+    { id: 'mealPlan', label: 'Meal', visible: hotelColumnVisibility.mealPlan !== false },
+    { id: 'unitCost', label: 'Cost / night', visible: hotelColumnVisibility.unitCost !== false },
+  ];
+
+  const transferDisplayColumns = [
+    { id: 'source', label: 'Source', visible: transferColumnVisibility.source !== false },
+    { id: 'vehicle', label: 'Vehicle', visible: transferColumnVisibility.vehicle !== false, icon: Car },
+    { id: 'pricing', label: 'Mode', visible: transferColumnVisibility.pricing !== false },
+    { id: 'unitCost', label: 'Adult / vehicle', visible: transferColumnVisibility.unitCost !== false },
+    { id: 'child', label: 'Child', visible: transferColumnVisibility.child !== false },
+  ];
+
+  const hasExtraFilters = ratesQueryHasFilters(query) || Boolean(query.q);
+
+  const queueToolbar = (
+    <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+      <div className="relative min-w-[12rem] flex-1 basis-[14rem]">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 size-[0.875em] -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={searchDraft}
+          onChange={(e) => setSearchDraft(e.target.value)}
+          placeholder={tab === 'hotel' ? 'Search suppliers or places…' : 'Search routes…'}
+          className={cn(QUEUE_PAGE_SEARCH_CLASS, searchDraft.trim() && 'pr-8')}
+          aria-label={tab === 'hotel' ? 'Search hotel rates' : 'Search transfer fares'}
+        />
+        {searchDraft.trim() ? (
+          <button
+            type="button"
+            className="absolute right-1.5 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+            aria-label="Clear search"
+            onClick={() => {
+              setSearchDraft('');
+              applyQuery({ q: '' });
+            }}
+          >
+            <X className="size-3.5" />
+          </button>
+        ) : null}
+      </div>
+      <div className="flex flex-wrap items-center gap-1">
+        <FilterMenu filters={tab === 'hotel' ? hotelFilterDefs : transferFilterDefs} />
+        <DisplayMenu
+          columns={tab === 'hotel' ? hotelDisplayColumns : transferDisplayColumns}
+          onToggleColumn={tab === 'hotel' ? toggleHotelColumn : toggleTransferColumn}
+        />
+      </div>
+    </div>
+  );
+
+  return (
+    <QueuePageChrome
+      viewToggle={
+        <QueueViewToggle
+          value={tab}
+          onChange={(id) => setTab(id as RatesTab)}
+          options={[
+            { id: 'hotel', label: 'Hotel', icon: <BedDouble className="size-[0.875em]" /> },
+            { id: 'transfer', label: 'Transfer', icon: <Car className="size-[0.875em]" /> },
+          ]}
+        />
+      }
+      primaryActions={
+        <Can anyOf={CAP.ratesWrite}>
+          <Button size="sm" onClick={tab === 'hotel' ? openCreateHotel : openCreateTransfer}>
+            <Plus className="size-[0.875em]" />
+            {tab === 'hotel' ? 'Add hotel rate' : 'Add transfer fare'}
+          </Button>
+        </Can>
+      }
+      moreMenu={
+        <Can anyOf={CAP.ratesWrite}>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                size="icon"
+                variant="outline"
+                className="size-[var(--control-h-sm)]"
+                aria-label="More actions"
+              >
+                <MoreHorizontal className="size-[0.875em]" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52 p-1">
+              <DropdownMenuLabel className="text-[length:var(--control-text-sm)]">More</DropdownMenuLabel>
+              <DropdownMenuItem className={QUEUE_MENU_ITEM_CLASS} onClick={() => setImportOpen(true)}>
+                <Import />
+                Import CSV / Excel
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </Can>
+      }
+      toolbar={queueToolbar}
+      chips={
+        <ActiveFilterChips
+          chips={filterChips}
+          onClear={ratesQueryHasFilters(query) ? clearRatesFilters : undefined}
+        />
+      }
+    >
       <RatesCsvImportDialog
         open={importOpen}
         onOpenChange={setImportOpen}
@@ -890,75 +1107,66 @@ export function RatesPage() {
         <DataTable
           key="hotel-rates"
           columns={hotelColumns}
-          data={hotelRates}
+          data={filteredHotelRates}
           loading={loading}
           pageSize={25}
-          searchKey="name"
-          searchPlaceholder="Search suppliers or places…"
+          showSearch={false}
+          showColumnsMenu={false}
+          defaultColumnVisibility={hotelColumnVisibility}
           columnVisibilityKey={StorageKeys.rates.hotelColumns}
-          facets={[
-            {
-              id: 'kind',
-              columnId: 'kind',
-              label: 'Kind',
-              options: [
-                { value: 'place', label: 'Place defaults' },
-                { value: 'supplier', label: 'Supplier rates' },
-              ],
-            },
-            {
-              id: 'source',
-              columnId: 'source',
-              label: 'Source',
-              options: [
-                { value: 'system', label: 'System' },
-                { value: 'agency', label: 'Agency' },
-              ],
-            },
-          ]}
-          emptyIcon={IndianRupee}
-          emptyTitle="No hotel rates yet"
-          emptyDescription="Place defaults appear when seeded. Add negotiated rates from a supplier’s Rate chart (Suppliers → ⋯ → Rate chart)."
+          emptyIcon={BedDouble}
+          emptyTitle={hasExtraFilters ? 'No matching hotel rates' : 'No hotel rates yet'}
+          emptyDescription={
+            hasExtraFilters
+              ? 'Try clearing filters or search.'
+              : 'Place defaults appear when seeded. Add negotiated rates from a supplier’s Rate chart (Suppliers → ⋯ → Rate chart).'
+          }
           emptyAction={
-            <Can anyOf={CAP.ratesWrite}>
-              <Button onClick={openCreateHotel}>
-                <Plus className="size-4" />
-                Add place / hotel rate
+            hasExtraFilters ? (
+              <Button type="button" size="sm" variant="outline" onClick={clearRatesFiltersAndSearch}>
+                Clear filters
               </Button>
-            </Can>
+            ) : (
+              <Can anyOf={CAP.ratesWrite}>
+                <Button onClick={openCreateHotel}>
+                  <Plus className="size-4" />
+                  Add place / hotel rate
+                </Button>
+              </Can>
+            )
           }
         />
       ) : (
         <DataTable
           key="transfer-fares"
           columns={transferColumns}
-          data={transferFares}
+          data={filteredTransferFares}
           loading={loading}
           pageSize={25}
-          searchKey="route"
-          searchPlaceholder="Search routes…"
+          showSearch={false}
+          showColumnsMenu={false}
+          defaultColumnVisibility={transferColumnVisibility}
           columnVisibilityKey={StorageKeys.rates.transferColumns}
-          facets={[
-            {
-              id: 'source',
-              columnId: 'source',
-              label: 'Source',
-              options: [
-                { value: 'system', label: 'System' },
-                { value: 'agency', label: 'Agency' },
-              ],
-            },
-          ]}
-          emptyIcon={IndianRupee}
-          emptyTitle="No transfer fares yet"
-          emptyDescription="Click a system route (or ⋯ → Override & edit) to customize for your agency."
+          emptyIcon={Car}
+          emptyTitle={hasExtraFilters ? 'No matching transfer fares' : 'No transfer fares yet'}
+          emptyDescription={
+            hasExtraFilters
+              ? 'Try clearing filters or search.'
+              : 'Click a system route (or ⋯ → Override & edit) to customize for your agency.'
+          }
           emptyAction={
-            <Can anyOf={CAP.ratesWrite}>
-              <Button onClick={openCreateTransfer}>
-                <Plus className="size-4" />
-                Add transfer fare
+            hasExtraFilters ? (
+              <Button type="button" size="sm" variant="outline" onClick={clearRatesFiltersAndSearch}>
+                Clear filters
               </Button>
-            </Can>
+            ) : (
+              <Can anyOf={CAP.ratesWrite}>
+                <Button onClick={openCreateTransfer}>
+                  <Plus className="size-4" />
+                  Add transfer fare
+                </Button>
+              </Can>
+            )
           }
         />
       )}
@@ -1083,13 +1291,17 @@ export function RatesPage() {
           <FormGrid>
             <PlaceSinglePicker
               label="From"
+              purpose="transfer_pickup"
               value={transferForm.from}
               onChange={(from) => setTransferForm({ ...transferForm, from })}
+              placeholder="Pickup…"
             />
             <PlaceSinglePicker
               label="To"
+              purpose="transfer_drop"
               value={transferForm.to}
               onChange={(to) => setTransferForm({ ...transferForm, to })}
+              placeholder="Drop…"
             />
           </FormGrid>
           <FormGrid>
@@ -1211,6 +1423,6 @@ export function RatesPage() {
           </FormGrid>
         </FormSection>
       </RecordSheet>
-    </ListPageShell>
+    </QueuePageChrome>
   );
 }

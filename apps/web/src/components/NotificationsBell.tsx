@@ -65,7 +65,7 @@ export function NotificationsBell({ onNavigate }: { onNavigate: (to: string) => 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button type="button" size="icon" variant="outline" className="relative" aria-label="Notifications">
+        <Button type="button" size="icon" variant="outline" className="relative overflow-visible" aria-label="Notifications">
           <Bell className="size-4" />
           {unread > 0 ? (
             <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold text-destructive-foreground">

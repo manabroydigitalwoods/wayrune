@@ -17,8 +17,14 @@ import { AuditService } from '../audit/audit.service';
 import { TripsService } from '../trips/trips.service';
 import { LeadsService } from '../leads/leads.service';
 import { GoogleService } from '../google/google.service';
+import {
+  pickActiveInquiryProposalTrip,
+  type InquiryProposalReadiness,
+} from '@wayrune/contracts';
 import { computeMissingInquiryFields, type AuthUser } from '../../common/helpers';
 import {
+  originRefFromInquiry,
+  inquiryOriginWriteData,
   placeRefsFromJson,
   resolveOnePlaceRef,
   resolvePlaceRefs,
@@ -29,6 +35,10 @@ import {
   type InquiryListFilters,
 } from './inquiry-queue';
 import { inboxAgingHoursFromSettings } from '../dashboard/inbox-sla-metrics';
+import {
+  ensureProposalSeedOnTrip,
+  readinessFromInquiry,
+} from './proposal-seed';
 
 @Injectable()
 export class InquiriesService {
@@ -82,8 +92,7 @@ export class InquiriesService {
         ownerId: user.sub,
         travelType: input.travelType ?? null,
         domesticOrIntl: input.domesticOrIntl ?? null,
-        origin: originRef?.name ?? null,
-        originPlaceId: originRef?.placeId ?? null,
+        ...inquiryOriginWriteData(originRef),
         destinationsJson: destinations,
         stopsJson: stops,
         dateFlexible: input.dateFlexible ?? false,
@@ -189,7 +198,8 @@ export class InquiriesService {
       include: { party: true, lead: true, statusHistory: { orderBy: { createdAt: 'desc' } }, trips: true },
     });
     if (!inquiry) throw new NotFoundException('Inquiry not found');
-    return inquiry;
+    const proposalReadiness: InquiryProposalReadiness = readinessFromInquiry(inquiry);
+    return { ...inquiry, proposalReadiness };
   }
 
   async update(user: AuthUser, id: string, input: UpdateInquiryInput) {
@@ -209,12 +219,7 @@ export class InquiriesService {
     const originRef =
       input.origin !== undefined
         ? await resolveOnePlaceRef(this.prisma, user.organizationId, input.origin ?? null)
-        : existing.origin
-          ? {
-              placeId: existing.originPlaceId,
-              name: existing.origin,
-            }
-          : null;
+        : originRefFromInquiry(existing);
 
     const travelType = input.travelType !== undefined ? input.travelType : existing.travelType;
     const domesticOrIntl =
@@ -261,9 +266,7 @@ export class InquiriesService {
       data: {
         ...(input.travelType !== undefined ? { travelType: input.travelType } : {}),
         ...(input.domesticOrIntl !== undefined ? { domesticOrIntl: input.domesticOrIntl } : {}),
-        ...(input.origin !== undefined
-          ? { origin: originRef?.name ?? null, originPlaceId: originRef?.placeId ?? null }
-          : {}),
+        ...(input.origin !== undefined ? inquiryOriginWriteData(originRef) : {}),
         ...(input.destinations !== undefined ? { destinationsJson: destinations } : {}),
         ...(input.stops !== undefined ? { stopsJson: stops } : {}),
         ...(input.dateFlexible !== undefined ? { dateFlexible: input.dateFlexible } : {}),
@@ -294,6 +297,7 @@ export class InquiriesService {
           ? { specialRequirements: input.specialRequirements }
           : {}),
         ...(input.internalNotes !== undefined ? { internalNotes: input.internalNotes } : {}),
+        ...(input.partyId !== undefined ? { partyId: input.partyId } : {}),
         ...(autoQualify ? { status: 'qualified' } : {}),
         missingFieldsJson: missing,
         updatedBy: user.sub,
@@ -414,12 +418,7 @@ export class InquiriesService {
       leadId: source.leadId,
       travelType: source.travelType,
       domesticOrIntl: source.domesticOrIntl as 'domestic' | 'international' | null,
-      origin: source.origin
-        ? {
-            placeId: source.originPlaceId,
-            name: source.origin,
-          }
-        : null,
+      origin: originRefFromInquiry(source),
       destinations: placeRefsFromJson(source.destinationsJson),
       stops: placeRefsFromJson(source.stopsJson),
       dateFlexible: source.dateFlexible,
@@ -448,90 +447,146 @@ export class InquiriesService {
   }
 
   async convertToTrip(user: AuthUser, id: string) {
-    const inquiry = await this.get(user.organizationId, id);
-    if (inquiry.status === 'converted') {
-      const existing = await this.prisma.trip.findFirst({
-        where: { inquiryId: id, organizationId: user.organizationId, deletedAt: null },
-        orderBy: { createdAt: 'desc' },
-      });
-      if (existing) {
-        throw new BadRequestException(
-          `Inquiry already converted to ${existing.tripNumber}. Open that trip instead.`,
-        );
-      }
+    const inquiryPreview = await this.get(user.organizationId, id);
+    const readiness = readinessFromInquiry(inquiryPreview);
+    if (!readiness.draftable) {
+      throw new BadRequestException(
+        `Proposal not ready: ${readiness.draftableGaps.join(', ') || 'missing requirements'}`,
+      );
     }
 
-    const destinations = [
-      ...placeRefsFromJson(inquiry.destinationsJson),
-      ...placeRefsFromJson(inquiry.stopsJson),
-    ];
-    const destLabel =
-      destinations
-        .map((d) => d.name)
-        .filter(Boolean)
-        .slice(0, 2)
-        .join(' · ') || null;
-    const partyName = inquiry.party?.displayName?.trim() || null;
-    const title =
-      destLabel && partyName
-        ? `${partyName} — ${destLabel}`
-        : destLabel || partyName || `${inquiry.inquiryNumber} trip`;
+    const org = await this.prisma.organization.findFirst({
+      where: { id: user.organizationId },
+      select: { timezone: true, currency: true, settingsJson: true },
+    });
+    const timeZone = org?.timezone || 'Asia/Kolkata';
 
-    const trip = await this.prisma.$transaction(async (tx) => {
-      const created = await this.trips.create(
-        user,
-        {
-          title,
-          inquiryId: inquiry.id,
-          partyId: inquiry.partyId,
-          startDate: inquiry.startDate?.toISOString() ?? null,
-          endDate: inquiry.endDate?.toISOString() ?? null,
-          destinations,
-        },
-        tx,
-      );
+    const result = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`
+        SELECT id FROM inquiries
+        WHERE id = ${id} AND organization_id = ${user.organizationId} AND deleted_at IS NULL
+        FOR UPDATE
+      `;
 
-      await tx.inquiry.update({
-        where: { id },
-        data: {
-          status: 'converted',
-          updatedBy: user.sub,
-          statusHistory: {
-            create: {
-              status: 'converted',
-              changedBy: user.sub,
-              note: `Converted to ${created.tripNumber}`,
-            },
+      const inquiry = await tx.inquiry.findFirst({
+        where: { id, organizationId: user.organizationId, deletedAt: null },
+        include: { party: true, trips: true },
+      });
+      if (!inquiry) throw new NotFoundException('Inquiry not found');
+
+      const linkedTrips = (inquiry.trips || []).filter((t) => !t.deletedAt);
+      const active = pickActiveInquiryProposalTrip(linkedTrips);
+      let tripId: string;
+      let created = false;
+      let reusedExistingProposal = false;
+
+      if (active) {
+        tripId = active.id;
+        reusedExistingProposal = true;
+      } else {
+        const destinations = [
+          ...placeRefsFromJson(inquiry.destinationsJson),
+          ...placeRefsFromJson(inquiry.stopsJson),
+        ];
+        const destLabel =
+          destinations
+            .map((d) => d.name)
+            .filter(Boolean)
+            .slice(0, 2)
+            .join(' · ') || null;
+        const partyName = inquiry.party?.displayName?.trim() || null;
+        const title =
+          destLabel && partyName
+            ? `${partyName} — ${destLabel}`
+            : destLabel || partyName || `${inquiry.inquiryNumber} trip`;
+
+        const createdTrip = await this.trips.create(
+          user,
+          {
+            title,
+            inquiryId: inquiry.id,
+            partyId: inquiry.partyId,
+            startDate: inquiry.startDate?.toISOString() ?? null,
+            endDate: inquiry.endDate?.toISOString() ?? null,
+            destinations,
           },
-        },
+          tx,
+        );
+        tripId = createdTrip.id;
+        created = true;
+
+        if (inquiry.status !== 'converted') {
+          await tx.inquiry.update({
+            where: { id },
+            data: {
+              status: 'converted',
+              updatedBy: user.sub,
+              statusHistory: {
+                create: {
+                  status: 'converted',
+                  changedBy: user.sub,
+                  note: `Converted to ${createdTrip.tripNumber}`,
+                },
+              },
+            },
+          });
+        }
+      }
+
+      const { summary } = await ensureProposalSeedOnTrip({
+        db: tx,
+        organizationId: user.organizationId,
+        userId: user.sub,
+        tripId,
+        inquiry,
+        timeZone,
+        orgSettingsJson: org?.settingsJson ?? null,
+        orgCurrency: org?.currency ?? null,
       });
 
-      return created;
+      const trip = await tx.trip.findFirst({
+        where: { id: tripId },
+        include: { itineraries: { include: { versions: true } } },
+      });
+      if (!trip) throw new NotFoundException('Trip not found');
+
+      return {
+        trip,
+        created,
+        reusedExistingProposal,
+        seed: summary,
+      };
     });
 
-    await this.audit.record({
-      organizationId: user.organizationId,
-      actorUserId: user.sub,
-      action: 'trip.create',
-      entityType: 'trip',
-      entityId: trip.id,
-      metadata: { fromInquiryId: id },
-    });
-    await this.audit.record({
-      organizationId: user.organizationId,
-      actorUserId: user.sub,
-      action: 'inquiry.convert_to_trip',
-      entityType: 'inquiry',
-      entityId: id,
-      metadata: { tripId: trip.id },
-    });
+    if (result.created) {
+      await this.audit.record({
+        organizationId: user.organizationId,
+        actorUserId: user.sub,
+        action: 'trip.create',
+        entityType: 'trip',
+        entityId: result.trip.id,
+        metadata: { fromInquiryId: id },
+      });
+      await this.audit.record({
+        organizationId: user.organizationId,
+        actorUserId: user.sub,
+        action: 'inquiry.convert_to_trip',
+        entityType: 'inquiry',
+        entityId: id,
+        metadata: { tripId: result.trip.id },
+      });
+    }
 
-    const leadOutcome = await this.leads.markWonIfEligible(
-      user,
-      inquiry.leadId,
-      'converted to trip',
-    );
+    const leadOutcome = result.created
+      ? await this.leads.markWonIfEligible(user, inquiryPreview.leadId, 'converted to trip')
+      : undefined;
 
-    return { ...trip, leadOutcome };
+    return {
+      ...result.trip,
+      created: result.created,
+      reusedExistingProposal: result.reusedExistingProposal,
+      seed: result.seed,
+      leadOutcome,
+    };
   }
 }

@@ -23,6 +23,8 @@ export type TemplateVersionListItem = {
   createdAt: string;
   lineCount?: number;
   destinationHint?: string | null;
+  /** Machine meta — optional catalog matching hint. */
+  destinationPlaceId?: string | null;
   diffVsActive?: TemplateVersionDiffVsActive;
 };
 

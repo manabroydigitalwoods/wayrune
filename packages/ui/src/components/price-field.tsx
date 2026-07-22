@@ -22,6 +22,8 @@ export type PriceFieldProps = {
   maxFractionDigits?: number;
   allowNegative?: boolean;
   autoFocus?: boolean;
+  /** Match Input / Combobox density — `sm` uses `--control-h-sm`. */
+  size?: 'default' | 'sm';
   'aria-invalid'?: boolean;
   /** Optional control beside the field (e.g. Suggest). */
   trailing?: ReactNode;
@@ -44,18 +46,21 @@ export function PriceField({
   maxFractionDigits = 2,
   allowNegative = false,
   autoFocus,
+  size = 'default',
   'aria-invalid': ariaInvalid,
   trailing,
 }: PriceFieldProps) {
   const display = value === '' || value == null ? '' : String(value);
   const symbol = currencyAdornment(currency);
+  const compact = size === 'sm';
 
   return (
     <div className={cn('flex items-center gap-2', className)}>
       <div
         className={cn(
-          'flex h-9 min-w-0 flex-1 items-stretch overflow-hidden rounded-md border border-input bg-card/85 shadow-sm transition-[color,box-shadow,border-color]',
-          'focus-within:border-ring focus-within:outline-none focus-within:ring-2 focus-within:ring-ring',
+          'flex min-w-0 flex-1 items-stretch overflow-hidden rounded-md border border-input bg-card/85 shadow-sm transition-[color,box-shadow,border-color]',
+          compact ? 'h-[var(--control-h-sm)]' : 'h-[var(--control-h)]',
+          'focus-within:border-ring focus-within:outline-none focus-within:ring-1 focus-within:ring-ring/60',
           ariaInvalid &&
             'border-destructive focus-within:border-destructive focus-within:ring-destructive/40',
           disabled && 'opacity-50',
@@ -63,7 +68,7 @@ export function PriceField({
       >
         {showCurrency ? (
           <span
-            className="flex h-full shrink-0 items-center border-r border-border/80 bg-muted/50 px-1.5 text-xs font-semibold leading-none tabular-nums text-muted-foreground"
+            className="flex h-full shrink-0 items-center border-r border-border/80 bg-muted/50 px-[var(--control-px-sm)] text-[length:var(--control-text-sm)] font-semibold leading-none tabular-nums text-muted-foreground"
             aria-hidden
           >
             {symbol}
@@ -79,6 +84,7 @@ export function PriceField({
           placeholder={placeholder}
           autoFocus={autoFocus}
           aria-invalid={ariaInvalid}
+          inputSize={size}
           value={display}
           onFocus={(e) => e.currentTarget.select()}
           onChange={(e) => {

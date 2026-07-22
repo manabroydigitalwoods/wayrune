@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Pencil, Star, Trash2 } from 'lucide-react';
-import { Button, Label, Textarea, cn, toastError, toastSuccess } from '@wayrune/ui';
+import { Button, Label, Skeleton, Textarea, cn, toastError, toastSuccess } from '@wayrune/ui';
 import { api } from '../../api';
 import type { CatalogReview } from './catalogDetail';
 import { CatalogRatingBadge, CatalogReviewsList } from './CatalogDetailParts';
@@ -235,7 +235,12 @@ export function CatalogReviewsPanel({
       </div>
 
       {loading ? (
-        <p className="text-sm text-muted-foreground">Loading reviews…</p>
+        <div className="space-y-2" role="status" aria-busy="true">
+          <span className="sr-only">Loading</span>
+          <Skeleton className="h-4 w-40" />
+          <Skeleton className="h-8 w-full" />
+          <Skeleton className="h-8 w-full" />
+        </div>
       ) : (
         <>
           {canWrite && mine && !editing ? (

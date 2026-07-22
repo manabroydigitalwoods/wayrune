@@ -22,6 +22,7 @@ export type QuoteAttentionLineInput = {
   unitCost: number | null;
   unitSell: number | null;
   rateUnmatched?: boolean;
+  includedMeta?: { at?: string; reason?: string } | null;
   rateBlockReason?: 'blackout' | 'stop_sell' | string | null;
   marginOverride?: { reason?: string | null } | null;
   rateId?: string | null;
@@ -207,6 +208,7 @@ export function quoteAttentionReasons(
   if (opts.canViewCost && line.unitCost == null) reasons.push('no_buy');
   if (
     opts.canViewCost &&
+    !line.includedMeta &&
     lineMarginPolicyViolation(line.unitCost, line.unitSell, opts.minMarginPercent) &&
     !line.marginOverride?.reason?.trim()
   ) {

@@ -3,6 +3,7 @@ import {
   Button,
   Checkbox,
   Input,
+  Skeleton,
   SoftIcon,
   Textarea,
   cn,
@@ -329,11 +330,16 @@ export function FamilySharingPanel({
     return (
       <div
         className={cn(
-          'rounded-2xl border px-5 py-6 text-center text-sm text-muted-foreground glass',
+          'space-y-3 rounded-2xl border px-5 py-6 glass',
           className,
         )}
+        role="status"
+        aria-busy="true"
       >
-        Loading family sharing…
+        <span className="sr-only">Loading</span>
+        <Skeleton className="mx-auto h-4 w-48" />
+        <Skeleton className="h-3 w-full" />
+        <Skeleton className="h-9 w-full" />
       </div>
     );
   }

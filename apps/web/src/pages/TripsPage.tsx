@@ -1,21 +1,24 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useNavigate, Navigate, useSearchParams } from 'react-router-dom';
 import { useOrgNavigate } from '../hooks/useOrgNavigate';
-import type { ColumnDef } from '@tanstack/react-table';
+import type { ColumnDef, VisibilityState } from '@tanstack/react-table';
 import {
   ArrowUpRight,
   ClipboardList,
+  GitBranch,
   MoreHorizontal,
   PackagePlus,
-  Plane,
   Plus,
+  Search,
   Wallet,
+  X,
 } from 'lucide-react';
 import {
   Button,
   Combobox,
   DataTable,
   DatePicker,
+  DateRangeFilter,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -25,8 +28,7 @@ import {
   EntityCombobox,
   FormGrid,
   Input,
-  ListPageShell,
-  PageHeader,
+  NumberField,
   RecordSheet,
   SimpleFormField as FormField,
   StatusBadge,
@@ -35,7 +37,11 @@ import {
   toastSuccess,
   formatDate,
   formatDateRange,
+  localStorageKit,
+  usePageChrome,
+  cn,
   type ComboboxOption,
+  type DateRangeValue,
 } from '@wayrune/ui';
 import { tripTravelEndOnOrAfterStart } from '@wayrune/contracts';
 import { api } from '../api';
@@ -76,6 +82,14 @@ import {
 import { AGENCY_ROUTES } from '../lib/agencyRoutes';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useCanonicalCreateVisibility } from '../hooks/useCanonicalCreateVisibility';
+import { parseTripsQueryState, patchTripsQueryParams, tripsQueryHasFilters } from '../lib/queue';
+import {
+  ActiveFilterChips,
+  DisplayMenu,
+  FilterMenu,
+  QUEUE_PAGE_SEARCH_CLASS,
+  QueuePageChrome,
+} from '../components/queue';
 
 type Trip = {
   id: string;
@@ -107,6 +121,7 @@ type QuoteTemplateRow = {
   name: string;
   content?: {
     destinationHint?: string | null;
+    destinationPlaceId?: string | null;
     items?: unknown[];
     tags?: string[];
     folder?: string | null;
@@ -128,6 +143,14 @@ const EMPTY_FORM = {
 };
 
 const STATUS_OPTIONS = [...TRIP_STATUS_OPTIONS];
+const OPS_STATUS_VALUES = ['confirmed', 'booking_in_progress', 'ready_to_travel'];
+const FINANCE_STATUS_VALUES = [
+  'confirmed',
+  'booking_in_progress',
+  'ready_to_travel',
+  'in_progress',
+  'completed',
+];
 
 function formatDestinations(value: unknown): string {
   if (!value) return '';
@@ -148,6 +171,18 @@ function formatDestinations(value: unknown): string {
   return '';
 }
 
+function readTripsColumnVisibility(key: string, opsMode: boolean): VisibilityState {
+  const defaults: VisibilityState = {
+    searchText: false,
+    inquiry: false,
+    updated: false,
+    ...(opsMode ? { destinations: false } : {}),
+  };
+  const stored = localStorageKit.getJson<VisibilityState>(key, { version: 1 });
+  if (!stored || typeof stored !== 'object') return defaults;
+  return { ...defaults, ...stored };
+}
+
 export function TripsPage() {
   const { navigate, toOrgPath } = useOrgNavigate();
   const variant = useTripsPageVariant();
@@ -159,7 +194,17 @@ export function TripsPage() {
   const showNewTrip = useCanonicalCreateVisibility('trip');
   const { hasAny } = usePermissions();
   const canQuoteWrite = hasAny(CAP.quoteWrite);
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const query = useMemo(() => parseTripsQueryState(searchParams), [searchParams]);
+  const [searchDraft, setSearchDraft] = useState(query.q ?? '');
+  const columnsStorageKey = opsMode
+    ? `${StorageKeys.trips.columns}-ops`
+    : financeMode
+      ? `${StorageKeys.trips.columns}-finance`
+      : StorageKeys.trips.columns;
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(() =>
+    readTripsColumnVisibility(columnsStorageKey, opsMode),
+  );
   const [items, setItems] = useState<Trip[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -177,6 +222,38 @@ export function TripsPage() {
   const [form, setForm] = useState(EMPTY_FORM);
 
   useDocumentTitle(copy.documentTitle);
+  usePageChrome({ title: copy.title, subtitle: copy.subtitle });
+
+  function applyQuery(patch: Parameters<typeof patchTripsQueryParams>[1]) {
+    setSearchParams(patchTripsQueryParams(searchParams, patch), { replace: true });
+  }
+
+  useEffect(() => {
+    setSearchDraft(query.q ?? '');
+  }, [query.q]);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      const next = searchDraft.trim();
+      if ((query.q ?? '') === next) return;
+      applyQuery({ q: next || undefined });
+    }, 300);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce draft only
+  }, [searchDraft]);
+
+  const bookingsFocus =
+    variant === 'operations-bookings' || searchParams.get('focus') === 'bookings';
+
+  const travelRange: DateRangeValue = {
+    from: query.travelFrom ?? null,
+    to: query.travelTo ?? null,
+    presetId: query.travelPeriod ?? null,
+  };
+
+  function onTravelRangeChange(next: DateRangeValue) {
+    applyQuery({ travelFrom: next.from, travelTo: next.to, travelPeriod: next.presetId });
+  }
 
   const filteredItems = useMemo(() => {
     let list = items;
@@ -184,19 +261,22 @@ export function TripsPage() {
     if (opsMode) {
       // Ops queue: confirmed through ready — still actionable for bookings/readiness.
       // Exclude in_progress (already travelling) so the queue stays focused.
-      list = list.filter((t) =>
-        ['confirmed', 'booking_in_progress', 'ready_to_travel'].includes(t.status),
-      );
+      list = list.filter((t) => OPS_STATUS_VALUES.includes(t.status));
+    }
+    if (bookingsFocus) {
+      // Deep-link / filtered view: trips with no bookings yet or open confirms.
+      list = list.filter((t) => {
+        const s = t.opsSummary;
+        if (!s || s.totalBookings === 0) return true;
+        return s.openBookings > 0;
+      });
     }
     if (financeMode) {
-      list = list.filter((t) =>
-        ['confirmed', 'booking_in_progress', 'ready_to_travel', 'in_progress', 'completed'].includes(
-          t.status,
-        ),
-      );
+      list = list.filter((t) => FINANCE_STATUS_VALUES.includes(t.status));
     }
+    if (query.status) list = list.filter((t) => t.status === query.status);
     return list;
-  }, [items, statusFromUrl, opsMode, financeMode]);
+  }, [items, statusFromUrl, opsMode, financeMode, bookingsFocus, query.status]);
 
   const tableRows = useMemo(
     () =>
@@ -216,6 +296,12 @@ export function TripsPage() {
     [filteredItems],
   );
 
+  const searchedRows = useMemo(() => {
+    const q = query.q?.trim().toLowerCase();
+    if (!q) return tableRows;
+    return tableRows.filter((r) => r.searchText.toLowerCase().includes(q));
+  }, [tableRows, query.q]);
+
   function tripPath(id: string, tab?: string) {
     if (tab) return `/trips/${id}?tab=${tab}`;
     if (opsMode) return `/trips/${id}?tab=operations`;
@@ -228,10 +314,13 @@ export function TripsPage() {
     return `/trips/${id}`;
   }
 
-  async function load() {
+  async function load(range: DateRangeValue = travelRange) {
     setLoading(true);
     try {
-      const res = await api<{ items: Trip[] }>('/trips?pageSize=100');
+      const params = new URLSearchParams({ pageSize: '100' });
+      if (range.from) params.set('travelFrom', range.from);
+      if (range.to) params.set('travelTo', range.to);
+      const res = await api<{ items: Trip[] }>(`/trips?${params.toString()}`);
       setItems(res.items);
       setError('');
     } catch (e) {
@@ -244,7 +333,9 @@ export function TripsPage() {
   useEffect(() => {
     void load();
     void loadTemplates();
-  }, []);
+    // Reload when the travel window changes; other filters are client-side.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query.travelFrom, query.travelTo]);
 
   async function searchParties(q: string): Promise<ComboboxOption[]> {
     const res = await api<{ items: Array<{ id: string; displayName: string; email?: string }> }>(
@@ -809,100 +900,206 @@ export function TripsPage() {
   if (searchParams.get('finance') === '1') return <Navigate to={toOrgPath(AGENCY_ROUTES.finance)} replace />;
   if (searchParams.get('status') === 'quoted') return <Navigate to={toOrgPath(AGENCY_ROUTES.workQuotations)} replace />;
   if (searchParams.get('status') === 'draft') return <Navigate to={toOrgPath(AGENCY_ROUTES.workQuotationDrafts)} replace />;
+  if (variant === 'operations' && searchParams.get('focus') === 'bookings') {
+    return <Navigate to={toOrgPath(AGENCY_ROUTES.operationsBookings)} replace />;
+  }
+
+  function clearTripFilters() {
+    applyQuery({ clearFilters: true });
+  }
+
+  /** Empty-state reset: drop filters and search so results can show again. */
+  function clearTripFiltersAndSearch() {
+    setSearchDraft('');
+    applyQuery({ clearFilters: true, q: '' });
+  }
+
+  function toggleColumn(id: string, visible: boolean) {
+    setColumnVisibility((prev) => {
+      const next = { ...prev, [id]: visible };
+      localStorageKit.setJson(columnsStorageKey, next, { version: 1 });
+      return next;
+    });
+  }
+
+  const statusOptions = opsMode
+    ? STATUS_OPTIONS.filter((o) => OPS_STATUS_VALUES.includes(o.value))
+    : financeMode
+      ? STATUS_OPTIONS.filter((o) => FINANCE_STATUS_VALUES.includes(o.value))
+      : STATUS_OPTIONS;
+  const showStatusFilter = variant !== 'quotations' && variant !== 'drafts';
+
+  const filterDefs = showStatusFilter
+    ? [
+        {
+          id: 'status',
+          label: 'Status',
+          icon: GitBranch,
+          value: query.status ?? null,
+          options: statusOptions,
+          onSelect: (value: string | null) => applyQuery({ status: value || undefined }),
+        },
+      ]
+    : [];
+
+  const filterChips = [
+    query.status
+      ? {
+          id: 'status',
+          label: `Status: ${statusOptions.find((o) => o.value === query.status)?.label ?? query.status}`,
+          onRemove: () => applyQuery({ status: undefined }),
+        }
+      : null,
+    query.travelFrom || query.travelTo
+      ? {
+          id: 'travel',
+          label: 'Travel range',
+          onRemove: () => applyQuery({ travelFrom: null, travelTo: null, travelPeriod: null }),
+        }
+      : null,
+  ].filter(Boolean) as Array<{ id: string; label: string; onRemove: () => void }>;
+
+  const displayColumns = [
+    { id: 'title', label: 'Title', visible: columnVisibility.title !== false },
+    { id: 'client', label: 'Client', visible: columnVisibility.client !== false },
+    { id: 'status', label: 'Status', visible: columnVisibility.status !== false, icon: GitBranch },
+    {
+      id: 'destinations',
+      label: 'Destinations',
+      visible: columnVisibility.destinations !== false,
+    },
+    { id: 'dates', label: 'Dates', visible: columnVisibility.dates !== false },
+    ...(opsMode
+      ? [
+          { id: 'bookings', label: 'Bookings', visible: columnVisibility.bookings !== false },
+          { id: 'readiness', label: 'Readiness', visible: columnVisibility.readiness !== false },
+        ]
+      : []),
+    { id: 'inquiry', label: 'Inquiry', visible: columnVisibility.inquiry !== false },
+    { id: 'updated', label: 'Updated', visible: columnVisibility.updated !== false },
+  ];
+
+  const hasExtraFilters = Boolean(query.status || query.q);
+
+  const queueToolbar = (
+    <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+      <div className="relative min-w-[12rem] flex-1 basis-[14rem]">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 size-[0.875em] -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={searchDraft}
+          onChange={(e) => setSearchDraft(e.target.value)}
+          placeholder="Search trips, clients, destinations…"
+          className={cn(QUEUE_PAGE_SEARCH_CLASS, searchDraft.trim() && 'pr-8')}
+          aria-label="Search trips"
+        />
+        {searchDraft.trim() ? (
+          <button
+            type="button"
+            className="absolute right-1.5 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+            aria-label="Clear search"
+            onClick={() => {
+              setSearchDraft('');
+              applyQuery({ q: '' });
+            }}
+          >
+            <X className="size-3.5" />
+          </button>
+        ) : null}
+      </div>
+      <div className="flex flex-wrap items-center gap-1">
+        {!financeMode ? (
+          <DateRangeFilter
+            pack="forward"
+            dimensionLabel="Travel"
+            value={travelRange}
+            onChange={onTravelRangeChange}
+            emptyLabel="All dates"
+            data-testid="trips-travel-range"
+          />
+        ) : null}
+        <FilterMenu filters={filterDefs} />
+        <DisplayMenu columns={displayColumns} onToggleColumn={toggleColumn} />
+      </div>
+    </div>
+  );
 
   return (
-    <ListPageShell>
-      <PageHeader
-        icon={opsMode ? ClipboardList : financeMode ? Wallet : Plane}
-        title={copy.title}
-        subtitle={copy.subtitle}
-        className="mb-4 shrink-0"
-        actions={
-          opsMode ? (
-            <Button variant="secondary" onClick={() => navigate(AGENCY_ROUTES.trips)}>
+    <QueuePageChrome
+      primaryActions={
+        opsMode ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {variant === 'operations' ? (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => navigate(AGENCY_ROUTES.operationsBookings)}
+              >
+                Open bookings only
+              </Button>
+            ) : null}
+            {bookingsFocus ? (
+              <Button size="sm" variant="secondary" onClick={() => navigate(AGENCY_ROUTES.operations)}>
+                All operations
+              </Button>
+            ) : null}
+            <Button size="sm" variant="secondary" onClick={() => navigate(AGENCY_ROUTES.trips)}>
               All trips
             </Button>
-          ) : (
-            <Can anyOf={CAP.tripWrite}>
-              {showNewTrip ? (
-              <Button onClick={() => setOpen(true)}>
-                <Plus className="size-4" />
+          </div>
+        ) : (
+          <Can anyOf={CAP.tripWrite}>
+            {showNewTrip ? (
+              <Button size="sm" onClick={() => setOpen(true)}>
+                <Plus className="size-[0.875em]" />
                 New trip
               </Button>
-              ) : null}
-            </Can>
-          )
-        }
-      />
+            ) : null}
+          </Can>
+        )
+      }
+      error={error ? <p className="text-sm text-destructive">{error}</p> : null}
+      toolbar={queueToolbar}
+      chips={
+        <ActiveFilterChips
+          chips={filterChips}
+          onClear={tripsQueryHasFilters(query) ? clearTripFilters : undefined}
+        />
+      }
+    >
       <DataTable
-        key={
-          statusFromUrl
-            ? `status-${statusFromUrl}`
-            : opsMode
-              ? 'ops'
-              : financeMode
-                ? 'finance'
-                : 'all'
-        }
+        key={`cols-${JSON.stringify(columnVisibility)}`}
         columns={columns}
-        data={tableRows}
+        data={searchedRows}
         loading={loading}
-        error={error}
         pageSize={25}
-        searchKey="searchText"
-        searchPlaceholder="Search trips, clients, destinations…"
-        columnVisibilityKey={
-          opsMode
-            ? `${StorageKeys.trips.columns}-ops`
-            : financeMode
-              ? `${StorageKeys.trips.columns}-finance`
-              : StorageKeys.trips.columns
-        }
-        defaultColumnVisibility={{
-          searchText: false,
-          inquiry: false,
-          updated: false,
-          ...(opsMode ? { destinations: false } : {}),
-        }}
-        defaultFacetValues={statusFromUrl ? { status: statusFromUrl } : undefined}
-        facets={[
-          {
-            id: 'status',
-            columnId: 'status',
-            label: 'Status',
-            options: opsMode
-              ? STATUS_OPTIONS.filter((o) =>
-                  ['confirmed', 'booking_in_progress', 'ready_to_travel'].includes(o.value),
-                )
-              : financeMode
-                ? STATUS_OPTIONS.filter((o) =>
-                    [
-                      'confirmed',
-                      'booking_in_progress',
-                      'ready_to_travel',
-                      'in_progress',
-                      'completed',
-                    ].includes(o.value),
-                  )
-                : STATUS_OPTIONS,
-          },
-        ]}
-        emptyTitle={opsMode || financeMode ? 'No matching trips' : 'No trips yet'}
+        showSearch={false}
+        showColumnsMenu={false}
+        defaultColumnVisibility={columnVisibility}
+        columnVisibilityKey={columnsStorageKey}
+        emptyTitle={hasExtraFilters ? 'No matching trips' : opsMode || financeMode ? 'No matching trips' : 'No trips yet'}
         emptyDescription={
-          opsMode
-            ? 'Trips appear here after a quote is confirmed. Accept a quotation, then open the trip Operations tab to add bookings.'
-            : financeMode
-              ? 'Confirmed trips will appear here for payments.'
-              : tripsEmptyShowInstallPack({
-                    templateCount: templates.length,
-                    templatesLoading,
-                  })
-                ? 'Install the sample FIT pack for Darjeeling / Goa packages and a demo trip, or create a trip from scratch.'
-                : 'Create a trip or convert an inquiry.'
+          hasExtraFilters
+            ? 'Try clearing filters or search.'
+            : bookingsFocus
+              ? 'No trips need booking work right now — all supplier bookings are confirmed, or none are in the ops queue yet.'
+              : opsMode
+                ? 'Trips appear here after a quote is confirmed. Accept a quotation, then open the trip Operations tab to add bookings.'
+                : financeMode
+                  ? 'Confirmed trips will appear here for payments.'
+                  : tripsEmptyShowInstallPack({
+                        templateCount: templates.length,
+                        templatesLoading,
+                      })
+                    ? 'Install the sample FIT pack for Darjeeling / Goa packages and a demo trip, or create a trip from scratch.'
+                    : 'Create a trip or convert an inquiry.'
         }
-        emptyIcon={opsMode ? ClipboardList : Plane}
+        emptyIcon={opsMode ? ClipboardList : undefined}
         emptyAction={
-          opsMode ? (
+          hasExtraFilters ? (
+            <Button type="button" size="sm" variant="outline" onClick={clearTripFiltersAndSearch}>
+              Clear filters
+            </Button>
+          ) : opsMode ? (
             <div className="flex flex-wrap justify-center gap-2">
               <Button variant="secondary" onClick={() => navigate('/trips?status=awaiting_approval')}>
                 Awaiting approval
@@ -991,7 +1188,7 @@ export function TripsPage() {
             label="Package (optional)"
             description={
               templatesLoading
-                ? 'Loading packages…'
+                ? undefined
                 : templates.length
                   ? 'Creates a draft quote from the package on this trip'
                   : 'No packages yet — install the sample FIT pack'
@@ -1182,58 +1379,52 @@ export function TripsPage() {
             <div className="space-y-3">
               <FormGrid>
                 <FormField label="Adults" required>
-                  <Input
-                    type="number"
+                  <NumberField
                     min={1}
                     max={99}
                     value={form.adults}
-                    onChange={(e) => {
-                      const adults = Math.max(
-                        1,
-                        Math.min(99, Number(e.target.value) || 1),
-                      );
+                    onChange={(raw) => {
+                      if (raw === '') return;
+                      const adults = Math.max(1, Math.min(99, Number(raw) || 1));
                       setForm({
                         ...form,
                         adults,
                         rooms: Math.max(1, Math.ceil(adults / 2)),
                       });
                     }}
+                    quickPicks={[1, 2, 3, 4]}
                   />
                 </FormField>
                 <FormField label="Rooms" required>
-                  <Input
-                    type="number"
+                  <NumberField
                     min={1}
                     max={99}
                     value={form.rooms}
-                    onChange={(e) =>
+                    onChange={(raw) => {
+                      if (raw === '') return;
                       setForm({
                         ...form,
-                        rooms: Math.max(
-                          1,
-                          Math.min(99, Number(e.target.value) || 1),
-                        ),
-                      })
-                    }
+                        rooms: Math.max(1, Math.min(99, Number(raw) || 1)),
+                      });
+                    }}
+                    quickPicks={[1, 2, 3, 4]}
                   />
                 </FormField>
                 <FormField label="Children">
-                  <Input
-                    type="number"
+                  <NumberField
                     min={0}
                     max={99}
                     value={form.children}
-                    onChange={(e) => {
-                      const children = Math.max(
-                        0,
-                        Math.min(99, Number(e.target.value) || 0),
-                      );
+                    onChange={(raw) => {
+                      const children =
+                        raw === '' ? 0 : Math.max(0, Math.min(99, Number(raw) || 0));
                       setForm({
                         ...form,
                         children,
                         childrenWithoutBed: Math.min(form.childrenWithoutBed, children),
                       });
                     }}
+                    quickPicks={[0, 1, 2]}
                   />
                 </FormField>
               </FormGrid>
@@ -1252,23 +1443,23 @@ export function TripsPage() {
                     />
                   </FormField>
                   <FormField label="Children without bed">
-                    <Input
-                      type="number"
+                    <NumberField
                       min={0}
                       max={form.children}
                       value={form.childrenWithoutBed}
-                      onChange={(e) =>
+                      onChange={(raw) =>
                         setForm({
                           ...form,
-                          childrenWithoutBed: Math.max(
-                            0,
-                            Math.min(
-                              form.children,
-                              Number(e.target.value) || 0,
-                            ),
-                          ),
+                          childrenWithoutBed:
+                            raw === ''
+                              ? 0
+                              : Math.max(
+                                  0,
+                                  Math.min(form.children, Number(raw) || 0),
+                                ),
                         })
                       }
+                      quickPicks={[0, 1, 2]}
                     />
                   </FormField>
                 </FormGrid>
@@ -1282,6 +1473,6 @@ export function TripsPage() {
           ) : null}
         </form>
       </RecordSheet>
-    </ListPageShell>
+    </QueuePageChrome>
   );
 }

@@ -44,7 +44,10 @@ type OnboardingStatus = {
 };
 
 type Props = {
-  /** When true, hide the panel after dismiss or when Operate-ready is complete. */
+  /**
+   * When true and Operate-ready is complete, show a compact readiness strip
+   * (not the full track list) until the user dismisses.
+   */
   hideWhenComplete?: boolean;
 };
 
@@ -63,7 +66,7 @@ function TrackList({
         <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           {title}
         </h3>
-        <span className="text-[11px] text-muted-foreground tabular-nums">
+        <span className="text-[length:var(--control-text-sm)] text-muted-foreground tabular-nums">
           {track.scorePercent}% · {track.doneCount}/{track.total}
           {track.complete ? ' · ready' : ''}
         </span>
@@ -77,7 +80,7 @@ function TrackList({
               onClick={() => navigate(item.href)}
             >
               {item.done ? (
-                <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600" />
+                <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" />
               ) : (
                 <Circle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
               )}
@@ -126,22 +129,6 @@ export function AgencyOnboardingChecklist({ hideWhenComplete = true }: Props) {
     void load();
   }, [dismissed]);
 
-  if (dismissed) return null;
-  if (!data) return null;
-
-  const operateComplete = data.operateReady?.complete ?? data.complete;
-  if (hideWhenComplete && operateComplete) return null;
-
-  const quote = data.quoteReady;
-  const operate = data.operateReady;
-  const next =
-    operate?.items.find((i) => !i.done) ||
-    quote?.items.find((i) => !i.done) ||
-    data.items.find((i) => !i.done);
-  const needsTemplates = (quote?.items || data.items).some(
-    (i) => i.key === 'quote_template' && !i.done,
-  );
-
   async function installFitPack() {
     setInstallingPack(true);
     try {
@@ -181,16 +168,113 @@ export function AgencyOnboardingChecklist({ hideWhenComplete = true }: Props) {
     }
   }
 
+  if (dismissed) return null;
+  if (!data) return null;
+
+  const operateComplete = data.operateReady?.complete ?? data.complete;
+  const quote = data.quoteReady;
+  const operate = data.operateReady;
+
+  // When Operate-ready is complete, keep a compact readiness strip (scores + honesty)
+  // until dismiss — full track lists hide so mature orgs are not nagged.
+  if (hideWhenComplete && operateComplete) {
+    return (
+      <div
+        className="mb-6 rounded-xl border border-border/60 bg-card/40 p-4"
+        data-testid="agency-onboarding-checklist"
+        data-onboarding-complete="true"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="flex items-start gap-2">
+            <Rocket className="mt-0.5 size-4 text-primary" />
+            <div>
+              <h2 className="text-sm font-semibold">Agency readiness</h2>
+              <p
+                className="text-xs text-muted-foreground"
+                data-testid="onboarding-score-line"
+              >
+                Quote-ready{' '}
+                <span data-testid="onboarding-quote-ready-score">
+                  {quote?.scorePercent ?? data.scorePercent}%
+                </span>{' '}
+                · Operate-ready{' '}
+                <span data-testid="onboarding-operate-ready-score">
+                  {operate?.scorePercent ?? 0}%
+                </span>
+                {operate?.complete ? ' · ready' : ''}
+              </p>
+              <p
+                className="mt-1 text-[length:var(--control-text-sm)] text-muted-foreground"
+                data-testid="onboarding-demo-vs-real-cue"
+              >
+                Demo Operate-ready can go green on labeled [Demo] suppliers. After
+                Replace demo, import real suppliers and rates — that is not the same
+                as real-agency Operate-ready.
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={installingPack}
+              data-testid="onboarding-open-demo-trip"
+              onClick={() => void openDemoTrip()}
+            >
+              {installingPack ? 'Opening…' : 'Open demo trip'}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label="Dismiss checklist"
+              onClick={() => setDismissed(true)}
+            >
+              <X className="size-4" />
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const next =
+    operate?.items.find((i) => !i.done) ||
+    quote?.items.find((i) => !i.done) ||
+    data.items.find((i) => !i.done);
+  const needsTemplates = (quote?.items || data.items).some(
+    (i) => i.key === 'quote_template' && !i.done,
+  );
+
   return (
-    <div className="mb-6 rounded-xl border border-border/60 bg-card/40 p-4">
+    <div
+      className="mb-6 rounded-xl border border-border/60 bg-card/40 p-4"
+      data-testid="agency-onboarding-checklist"
+    >
       <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
         <div className="flex items-start gap-2">
           <Rocket className="mt-0.5 size-4 text-primary" />
           <div>
             <h2 className="text-sm font-semibold">Get your agency ready</h2>
-            <p className="text-xs text-muted-foreground">
-              Quote-ready {quote?.scorePercent ?? data.scorePercent}% · Operate-ready{' '}
-              {operate?.scorePercent ?? 0}%
+            <p
+              className="text-xs text-muted-foreground"
+              data-testid="onboarding-score-line"
+            >
+              Quote-ready{' '}
+              <span data-testid="onboarding-quote-ready-score">
+                {quote?.scorePercent ?? data.scorePercent}%
+              </span>{' '}
+              · Operate-ready{' '}
+              <span data-testid="onboarding-operate-ready-score">
+                {operate?.scorePercent ?? 0}%
+              </span>
+            </p>
+            <p
+              className="mt-1 text-[length:var(--control-text-sm)] text-muted-foreground"
+              data-testid="onboarding-demo-vs-real-cue"
+            >
+              Demo Operate-ready can go green on labeled [Demo] suppliers. After
+              Replace demo, import real suppliers and rates — that is not the same
+              as real-agency Operate-ready.
             </p>
           </div>
         </div>
@@ -215,6 +299,7 @@ export function AgencyOnboardingChecklist({ hideWhenComplete = true }: Props) {
             <Button
               size="sm"
               disabled={installingPack}
+              data-testid="onboarding-install-fit-pack"
               onClick={() => void installFitPack()}
             >
               <PackagePlus className="size-4" />
@@ -228,6 +313,7 @@ export function AgencyOnboardingChecklist({ hideWhenComplete = true }: Props) {
             size="sm"
             variant="outline"
             disabled={installingPack}
+            data-testid="onboarding-open-demo-trip"
             onClick={() => void openDemoTrip()}
           >
             {installingPack ? 'Opening…' : 'Open demo trip'}
@@ -254,7 +340,7 @@ export function AgencyOnboardingChecklist({ hideWhenComplete = true }: Props) {
                   onClick={() => navigate(item.href)}
                 >
                   {item.done ? (
-                    <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600" />
+                    <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" />
                   ) : (
                     <Circle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
                   )}

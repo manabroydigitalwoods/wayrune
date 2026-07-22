@@ -87,8 +87,8 @@ export function SoftIcon({
     info: 'bg-info-soft text-info',
   }[tone];
   return (
-    <div className={cn('inline-flex size-10 items-center justify-center rounded-xl', bg, className)}>
-      <Lucide className="size-5" aria-hidden />
+    <div className={cn('inline-flex size-8 items-center justify-center rounded-lg', bg, className)}>
+      <Lucide className="size-4" aria-hidden />
     </div>
   );
 }

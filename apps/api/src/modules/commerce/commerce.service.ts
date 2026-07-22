@@ -48,6 +48,10 @@ import type {
   UpdateTripChangeCaseSchema,
 } from '@wayrune/contracts';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  deriveOrgProfileLocationSnapshots,
+  isAllowedOrgProfilePlaceKind,
+} from './org-profile-place';
 import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { OutboxService } from '../outbox/outbox.service';
@@ -207,6 +211,13 @@ export class CommerceService {
     const existing = await this.prisma.organizationPartnerProfile.findUnique({
       where: { organizationId },
     });
+
+    const location = await this.resolveOrgProfileLocationWrite(
+      organizationId,
+      existing,
+      input,
+    );
+
     const data: Prisma.OrganizationPartnerProfileUpdateInput = {
       legalName: input.legalName ?? undefined,
       displayName: input.displayName ?? undefined,
@@ -215,15 +226,27 @@ export class CommerceService {
       website: input.website ?? undefined,
       contactEmail: input.contactEmail ?? undefined,
       contactPhone: input.contactPhone ?? undefined,
-      city: input.city ?? undefined,
-      region: input.region ?? undefined,
-      country: input.country ?? undefined,
       verificationStatus: input.verificationStatus ?? undefined,
       latitude: input.latitude != null ? input.latitude : undefined,
       longitude: input.longitude != null ? input.longitude : undefined,
+      ...(location.placeId !== undefined
+        ? {
+            place:
+              location.placeId === null
+                ? { disconnect: true }
+                : { connect: { id: location.placeId } },
+          }
+        : {}),
+      ...(location.city !== undefined ? { city: location.city } : {}),
+      ...(location.region !== undefined ? { region: location.region } : {}),
+      ...(location.country !== undefined ? { country: location.country } : {}),
       profileJson: {
         ...((existing?.profileJson as Record<string, unknown>) || {}),
         ...input,
+        ...(location.placeId !== undefined ? { placeId: location.placeId } : {}),
+        ...(location.city !== undefined ? { city: location.city } : {}),
+        ...(location.region !== undefined ? { region: location.region } : {}),
+        ...(location.country !== undefined ? { country: location.country } : {}),
       } as Prisma.InputJsonValue,
     };
     if (existing) {
@@ -235,10 +258,163 @@ export class CommerceService {
     return this.prisma.organizationPartnerProfile.create({
       data: {
         organizationId,
-        ...data,
+        legalName: input.legalName ?? null,
+        displayName: input.displayName ?? null,
+        bio: input.description ?? null,
+        logoUrl: input.logoUrl ?? null,
+        website: input.website ?? null,
+        contactEmail: input.contactEmail ?? null,
+        contactPhone: input.contactPhone ?? null,
+        placeId: location.placeId ?? null,
+        city: location.city ?? null,
+        region: location.region ?? null,
+        country: location.country ?? 'India',
+        verificationStatus: input.verificationStatus ?? 'unverified',
+        latitude: input.latitude ?? null,
+        longitude: input.longitude ?? null,
+        profileJson: {
+          ...input,
+          placeId: location.placeId ?? null,
+          city: location.city ?? null,
+          region: location.region ?? null,
+          country: location.country ?? null,
+        } as Prisma.InputJsonValue,
         discoverable: false,
-      } as Prisma.OrganizationPartnerProfileCreateInput,
+      },
     });
+  }
+
+  /**
+   * Linked placeId + snapshots must never silently disagree.
+   * - placeId null → clear ID and snapshots
+   * - placeId set → validate + server-derive city/region/country (ignore client snapshots)
+   * - placeId omitted → if already linked, keep/re-derive; else allow free-text city/region/country
+   */
+  private async resolveOrgProfileLocationWrite(
+    organizationId: string,
+    existing: {
+      placeId: string | null;
+      city: string | null;
+      region: string | null;
+      country: string | null;
+    } | null,
+    input: z.infer<typeof UpdateOrganizationProfileSchema>,
+  ): Promise<{
+    placeId?: string | null;
+    city?: string | null;
+    region?: string | null;
+    country?: string | null;
+  }> {
+    if (input.placeId === null) {
+      // Clear linked ID; optional same-request custom text (never invents a Place).
+      return {
+        placeId: null,
+        city: input.city !== undefined ? input.city : null,
+        region: input.region !== undefined ? input.region : null,
+        country: input.country !== undefined ? input.country : null,
+      };
+    }
+
+    if (typeof input.placeId === 'string' && input.placeId.trim()) {
+      return this.loadOrgProfilePlaceSnapshots(
+        organizationId,
+        input.placeId.trim(),
+      );
+    }
+
+    if (existing?.placeId) {
+      try {
+        return await this.loadOrgProfilePlaceSnapshots(
+          organizationId,
+          existing.placeId,
+        );
+      } catch {
+        // Place deleted/inaccessible — FK SetNull; keep saved snapshots readable.
+        return {
+          placeId: null,
+          city: existing.city,
+          region: existing.region,
+          country: existing.country,
+        };
+      }
+    }
+
+    const hasCustomPatch =
+      input.city !== undefined ||
+      input.region !== undefined ||
+      input.country !== undefined;
+    if (!hasCustomPatch) {
+      return {};
+    }
+
+    return {
+      placeId: null,
+      city: input.city !== undefined ? input.city : existing?.city ?? null,
+      region: input.region !== undefined ? input.region : existing?.region ?? null,
+      country:
+        input.country !== undefined ? input.country : existing?.country ?? null,
+    };
+  }
+
+  private async loadOrgProfilePlaceSnapshots(
+    organizationId: string,
+    placeId: string,
+  ) {
+    const place = await this.prisma.place.findFirst({
+      where: {
+        id: placeId,
+        deletedAt: null,
+        isActive: true,
+        OR: [{ isSystem: true, organizationId: null }, { organizationId }],
+      },
+      select: {
+        id: true,
+        name: true,
+        kind: true,
+        country: true,
+        region: true,
+        parentId: true,
+      },
+    });
+    if (!place) {
+      throw new BadRequestException('Place not found or not visible for this organisation');
+    }
+    if (!isAllowedOrgProfilePlaceKind(place.kind)) {
+      throw new BadRequestException(
+        'Organisation location must be a country, state, region, area, or city',
+      );
+    }
+
+    const ancestors: Array<{ name: string; kind: string; country?: string | null }> =
+      [];
+    let currentId = place.parentId;
+    const guard = new Set<string>();
+    while (currentId && !guard.has(currentId)) {
+      guard.add(currentId);
+      const parent = await this.prisma.place.findFirst({
+        where: {
+          id: currentId,
+          deletedAt: null,
+          OR: [{ isSystem: true, organizationId: null }, { organizationId }],
+        },
+        select: {
+          id: true,
+          name: true,
+          kind: true,
+          country: true,
+          parentId: true,
+        },
+      });
+      if (!parent) break;
+      ancestors.push({
+        name: parent.name,
+        kind: parent.kind,
+        country: parent.country,
+      });
+      currentId = parent.parentId;
+    }
+
+    return deriveOrgProfileLocationSnapshots(place, ancestors);
   }
 
   // ─── Policies ──────────────────────────────────────────────────────

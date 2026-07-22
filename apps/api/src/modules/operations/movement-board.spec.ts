@@ -35,6 +35,17 @@ describe('movement-board', () => {
     expect(win.to.toISOString().slice(0, 10)).toBe('2026-04-15');
   });
 
+  it('resolves inclusive from/to calendar range', async () => {
+    const { resolveMovementWindow } = await import('./movement-board');
+    const win = resolveMovementWindow({
+      from: '2026-04-10',
+      to: '2026-04-14',
+    });
+    expect(win.from.toISOString().slice(0, 10)).toBe('2026-04-10');
+    expect(win.to.toISOString().slice(0, 10)).toBe('2026-04-15');
+    expect(win.days).toBe(5);
+  });
+
   it('includes hotel in window and flags missing transfer', () => {
     const now = new Date('2026-04-01T12:00:00.000Z');
     const bookings = [hotel()];

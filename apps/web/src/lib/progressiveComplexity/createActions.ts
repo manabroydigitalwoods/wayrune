@@ -10,7 +10,8 @@ export function shouldShowCanonicalCreate(
 ): boolean {
   switch (workspace) {
     case 'sales_executive':
-      return false;
+      // New lead is the CRM entry point for sales; inquiry create stays gated.
+      return kind === 'lead';
     case 'sales_manager':
     case 'owner':
       return kind !== 'party' || workspace === 'owner';

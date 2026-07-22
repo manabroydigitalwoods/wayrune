@@ -7,6 +7,7 @@ import {
   FormGrid,
   Input,
   SimpleFormField as FormField,
+  Skeleton,
   toastError,
   toastSuccess,
 } from '@wayrune/ui';
@@ -72,7 +73,14 @@ export function GuestSettingsPanel({ isRestaurant }: { isRestaurant: boolean }) 
   }
 
   if (loading) {
-    return <p className="text-sm text-muted-foreground">Loading settings…</p>;
+    return (
+      <div className="space-y-2" role="status" aria-busy="true">
+        <span className="sr-only">Loading</span>
+        <Skeleton className="h-4 w-40" />
+        <Skeleton className="h-8 w-full" />
+        <Skeleton className="h-8 w-full" />
+      </div>
+    );
   }
 
   return (

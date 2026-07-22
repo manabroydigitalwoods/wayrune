@@ -1,6 +1,6 @@
 import DOMPurify from 'dompurify';
 
-const ALLOWED_TAGS = ['p', 'strong', 'em', 'u', 'ul', 'ol', 'li', 'a', 'br', 'img', 'span'];
+const ALLOWED_TAGS = ['p', 'strong', 'em', 'u', 's', 'del', 'ul', 'ol', 'li', 'a', 'br', 'img', 'span'];
 const ALLOWED_ATTR = ['href', 'target', 'rel', 'src', 'alt', 'class'];
 
 export function sanitizeRichHtml(html: string): string {

@@ -18,7 +18,7 @@ import type {
   ProposalFamilyReactInput,
   SaveItineraryVersionInput,
 } from '@wayrune/contracts';
-import { tripClimateSeason } from '@wayrune/contracts';
+import { tripClimateSeason, normalizeItineraryContentForWrite } from '@wayrune/contracts';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -444,10 +444,10 @@ export class ItinerariesService {
       }
 
       const existing = (latest.contentJson || {}) as { story?: unknown };
-      const contentJson = {
+      const contentJson = normalizeItineraryContentForWrite({
         days: input.days,
         story: input.story !== undefined ? input.story : existing.story,
-      };
+      });
 
       return this.prisma.itineraryVersion.update({
         where: { id: latest.id },
@@ -483,10 +483,10 @@ export class ItinerariesService {
         versionNumber: (latest?.versionNumber ?? 0) + 1,
         label: input.label ?? `v${(latest?.versionNumber ?? 0) + 1}`,
         status: 'draft',
-        contentJson: {
+        contentJson: normalizeItineraryContentForWrite({
           days: input.days,
           story: input.story !== undefined ? input.story : existingStory,
-        } as Prisma.InputJsonValue,
+        }) as Prisma.InputJsonValue,
         versionLock: 1,
         createdBy: user.sub,
       },
@@ -525,7 +525,9 @@ export class ItinerariesService {
         versionNumber: (latest?.versionNumber ?? 0) + 1,
         label: `Restore of v${source.versionNumber}`,
         status: 'draft',
-        contentJson: source.contentJson as Prisma.InputJsonValue,
+        contentJson: normalizeItineraryContentForWrite(
+          source.contentJson,
+        ) as Prisma.InputJsonValue,
         createdBy: user.sub,
       },
     });

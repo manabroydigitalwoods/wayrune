@@ -16,6 +16,8 @@ import {
   Combobox,
   Input,
   Label,
+  NumberField,
+  PageSkeleton,
   Switch,
   Tabs,
   TabsContent,
@@ -223,19 +225,8 @@ export function ChatflowEditorPage() {
     }));
   };
 
-  if (loading) {
-    return (
-      <SettingsNavShell
-        activeId="inbox"
-        title="Chatflow"
-        description="Loading…"
-        backTo={{ href: settingsInboxChatflowsPath(orgRef || ''), label: 'Back to Chatflows' }}
-      >
-        <p className="text-sm text-muted-foreground">Loading chatflow…</p>
-      </SettingsNavShell>
-    );
-  }
-  if (!row) return null;
+  if (loading) return <PageSkeleton variant="form" />;
+  if (!row) return <PageSkeleton variant="form" />;
 
   const chatPath = `${settingsInboxChatPath(orgRef || '')}?section=web`;
 
@@ -496,12 +487,12 @@ export function ChatflowEditorPage() {
               <section className="space-y-3 rounded-xl border p-4">
                 <div>
                   <Label>Priority</Label>
-                  <Input
+                  <NumberField
                     className="mt-1 h-9 w-28"
-                    type="number"
                     value={priority}
                     disabled={!canWrite || saving}
-                    onChange={(e) => setPriority(Number(e.target.value) || 0)}
+                    onChange={(raw) => setPriority(Number(raw) || 0)}
+                    min={0}
                   />
                   <p className="mt-1 text-[11px] text-muted-foreground">
                     Lower number = higher in list.

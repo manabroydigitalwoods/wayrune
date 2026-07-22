@@ -33,6 +33,10 @@ export type PlaceProfile = {
   officialName?: string;
   /** Alternate short / local nickname (e.g. IGI, CSMT). */
   shortName?: string;
+  /** Catalog source URL from CSV ingest. */
+  sourceUrl?: string;
+  /** Previous short keys after path-key migration (CSV ingest). */
+  legacyKeys?: string[];
 };
 
 export type SystemPlaceNode = {

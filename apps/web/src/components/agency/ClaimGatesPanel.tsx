@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { StatusBadge } from '@wayrune/ui';
+import { Skeleton, StatusBadge } from '@wayrune/ui';
 import { api } from '../../api';
 import { formatFitClaimProtocolCue } from './salesSlaFormat';
 import {
@@ -71,8 +71,15 @@ export function ClaimGatesPanel() {
 
   if (!data) {
     return (
-      <section className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
-        Loading claim gates…
+      <section
+        className="space-y-2 rounded-xl border border-border/60 bg-muted/20 px-4 py-3"
+        role="status"
+        aria-busy="true"
+      >
+        <span className="sr-only">Loading</span>
+        <Skeleton className="h-4 w-40" />
+        <Skeleton className="h-3 w-full" />
+        <Skeleton className="h-3 w-3/4" />
       </section>
     );
   }

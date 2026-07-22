@@ -23,6 +23,7 @@ import {
   formatHotelMaxStayNote,
   withMaxStayProvenance,
 } from './hotelMaxStayNote';
+import { transferSameEndpointWarning } from './transferEndpointRefs';
 
 export type QuoteServiceDetails = QuotationItemDetails;
 export type { QuoteRateProvenance };
@@ -1044,8 +1045,14 @@ export function validateTransferV1(
   });
   if (routeWarn) warnings.push(routeWarn);
 
-  if (!d.fromPlaceId) matchBlockedReasons.push('select From place');
-  if (!d.toPlaceId) matchBlockedReasons.push('select To place');
+  const sameEndpoint = transferSameEndpointWarning(d.fromPlaceId, d.toPlaceId);
+  if (sameEndpoint) warnings.push(sameEndpoint);
+
+  if (!d.fromPlaceId || !d.toPlaceId) {
+    matchBlockedReasons.push(
+      'Select both pickup and drop locations to match transfer rates',
+    );
+  }
   if (!d.vehicleTypeId) matchBlockedReasons.push('select vehicle');
   if (!d.serviceDate) matchBlockedReasons.push('select service date');
   if (

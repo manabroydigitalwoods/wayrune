@@ -29,6 +29,7 @@ import {
 } from 'react-router-dom';
 import {
   AppShell,
+  AuthGateSkeleton,
   Button,
   DropdownMenu,
   DropdownMenuContent,
@@ -37,6 +38,7 @@ import {
   DropdownMenuTrigger,
 } from '@wayrune/ui';
 import { GlobalSearch } from './components/GlobalSearch';
+import { ThemeToggleButton } from './components/ThemeToggleButton';
 import { NotificationsBell } from './components/NotificationsBell';
 import { OrgScopedLayout } from './components/OrgScopedLayout';
 import {
@@ -134,49 +136,50 @@ function withNavId(item: Omit<AppNavItem, 'id'> & { id?: string }): AppNavItem {
 function agencyNavForKind(kind?: string): AppNavItem[] {
   const clients = agencyClientsLabel(kind);
   const dmc = isDmcOrgKind(kind);
+  // Spine: sell → trips/ops → finance → products → admin
   return [
     withNavId({
       to: '/',
-      label: dmc ? 'Home' : 'Dashboard',
+      label: 'Dashboard',
       icon: LayoutDashboard,
-      section: dmc ? 'DMC' : 'Sales',
+      section: 'Home',
     }),
-    withNavId({ to: '/leads', label: 'Leads', icon: Users, section: dmc ? 'Acquire' : 'Sales', permission: 'lead.read.own' }),
-    withNavId({ to: '/inquiries', label: 'Inquiries', icon: Contact, section: dmc ? 'Acquire' : 'Sales', permission: 'inquiry.read' }),
-    withNavId({ to: '/parties', label: clients, icon: Building2, section: dmc ? 'Acquire' : 'Sales', permission: 'party.read' }),
-    withNavId({ to: '/trips', label: dmc ? 'Packages' : 'Trips', icon: Plane, section: 'Operations', permission: 'trip.read' }),
+    withNavId({ to: '/leads', label: 'Leads', icon: Users, section: 'Sales', permission: 'lead.read.own' }),
+    withNavId({ to: '/inquiries', label: 'Inquiries', icon: Contact, section: 'Sales', permission: 'inquiry.read' }),
+    withNavId({ to: '/parties', label: clients, icon: Building2, section: 'Sales', permission: 'party.read' }),
+    withNavId({ to: '/trips', label: dmc ? 'Packages' : 'Trips', icon: Plane, section: 'Trips & operations', permission: 'trip.read' }),
     withNavId({
       to: '/trips?ops=1',
       label: 'Operations',
       icon: ClipboardList,
-      section: 'Operations',
+      section: 'Trips & operations',
       permission: 'ops.read',
     }),
     withNavId({
       to: '/trips?finance=1',
       label: 'Finance',
       icon: Wallet,
-      section: 'Operations',
+      section: 'Finance',
       permission: 'finance.cost.read',
     }),
-    withNavId({ to: '/tasks', label: 'Tasks', icon: CheckSquare, section: 'Operations', permission: 'task.read' }),
-    withNavId({ to: '/places', label: 'Places', icon: MapPin, section: 'Operations', permission: 'trip.read' }),
-    withNavId({ to: '/network', label: 'Network', icon: Network, section: 'Partners', permission: 'network.read' }),
+    withNavId({ to: '/tasks', label: 'Tasks', icon: CheckSquare, section: 'Sales', permission: 'task.read' }),
     withNavId({
       to: '/suppliers',
       label: dmc ? 'Local suppliers' : 'Suppliers',
       icon: Truck,
-      section: 'Partners',
+      section: 'Products & suppliers',
       permission: 'network.read',
     }),
     withNavId({
       to: '/rates',
-      label: dmc ? 'Net rates' : 'Catalog & transfers',
+      label: dmc ? 'Net rates' : 'Products & rates',
       icon: IndianRupee,
-      section: 'Partners',
+      section: 'Products & suppliers',
       permission: 'quote.read',
     }),
-    withNavId({ to: '/settings', label: 'Settings', icon: Settings, section: 'System', permission: 'org.settings.read' }),
+    withNavId({ to: '/places', label: 'Destinations', icon: MapPin, section: 'Products & suppliers', permission: 'trip.read' }),
+    withNavId({ to: '/network', label: 'Partner network', icon: Network, section: 'Products & suppliers', permission: 'network.read' }),
+    withNavId({ to: '/settings', label: 'Settings', icon: Settings, section: 'Administration', permission: 'org.settings.read' }),
   ];
 }
 
@@ -381,6 +384,7 @@ function Shell({ children }: { children: React.ReactNode }) {
           ) : null}
           <GlobalSearch onNavigate={(to) => navigate(resolveAppHref(to))} />
           <NotificationsBell onNavigate={(to) => navigate(resolveAppHref(to))} />
+          <ThemeToggleButton />
         </>
       }
     >
@@ -412,7 +416,7 @@ function Private({ children }: { children: React.ReactNode }) {
   const { me, loading } = useAuth();
   const location = useLocation();
   if (loading) {
-    return <div className="p-10 text-muted-foreground">Loading…</div>;
+    return <AuthGateSkeleton />;
   }
   if (!me) {
     const next = encodeURIComponent(`${location.pathname}${location.search}`);
@@ -426,7 +430,7 @@ function OrgPortalShellLayout() {
   const { me, loading } = useAuth();
   const location = useLocation();
   if (loading) {
-    return <div className="p-10 text-muted-foreground">Loading…</div>;
+    return <AuthGateSkeleton />;
   }
   if (!me) {
     const next = encodeURIComponent(`${location.pathname}${location.search}`);
@@ -449,7 +453,7 @@ function PartnerGate({ children }: { children: React.ReactNode }) {
   const { me, loading } = useAuth();
   const { orgRef } = useParams<{ orgRef?: string }>();
   if (loading) {
-    return <div className="p-10 text-muted-foreground">Loading…</div>;
+    return <AuthGateSkeleton />;
   }
   if (!me) return <Navigate to="/login" replace />;
   if (!isPartnerOrgKind(me.organization.kind)) {
@@ -466,7 +470,7 @@ function PartnerGate({ children }: { children: React.ReactNode }) {
 function PartnerOnly({ children }: { children: React.ReactNode }) {
   const { me, loading } = useAuth();
   if (loading) {
-    return <div className="p-10 text-muted-foreground">Loading…</div>;
+    return <AuthGateSkeleton />;
   }
   if (!me) return <Navigate to="/login" replace />;
   if (!isPartnerOrgKind(me.organization.kind)) {
@@ -485,7 +489,7 @@ function RequirePermission({
   const { me, loading } = useAuth();
   const { orgRef } = useParams<{ orgRef?: string }>();
   if (loading) {
-    return <div className="p-10 text-muted-foreground">Loading…</div>;
+    return <AuthGateSkeleton />;
   }
   if (!me) return <Navigate to="/login" replace />;
   if (!hasAnyPermission(me.permissions ?? [], anyOf)) {
@@ -525,7 +529,7 @@ function RootEntry() {
   const { me, loading } = useAuth();
   const location = useLocation();
   if (loading) {
-    return <div className="p-10 text-muted-foreground">Loading…</div>;
+    return <AuthGateSkeleton />;
   }
   if (!me) {
     const next = encodeURIComponent(`${location.pathname}${location.search}`);
@@ -553,7 +557,7 @@ function LegacyOrgPathRedirect() {
   const { me, loading } = useAuth();
   const location = useLocation();
   if (loading) {
-    return <div className="p-10 text-muted-foreground">Loading…</div>;
+    return <AuthGateSkeleton />;
   }
   if (!me) {
     const next = encodeURIComponent(`${location.pathname}${location.search}`);
@@ -593,7 +597,7 @@ const partnerOsPaths = allPartnerOsMountPaths().filter((p) => p !== '/inbox');
 function InboxRoute() {
   const { me, loading } = useAuth();
   if (loading) {
-    return <div className="p-10 text-muted-foreground">Loading…</div>;
+    return <AuthGateSkeleton />;
   }
   if (!me) return <Navigate to="/login" replace />;
   if (isPartnerOrgKind(me.organization.kind) || isAgencyKind(me.organization.kind)) {
@@ -779,7 +783,7 @@ function PresenceWidgetsRedirect() {
 
 function OrgInboxRoute() {
   const { me, loading } = useAuth();
-  if (loading) return <div className="p-10 text-muted-foreground">Loading…</div>;
+  if (loading) return <AuthGateSkeleton />;
   if (!me) return <Navigate to="/login" replace />;
   if (isPartnerOrgKind(me.organization.kind)) {
     return <PartnerHomePage />;
@@ -789,7 +793,7 @@ function OrgInboxRoute() {
 
 function OrgSettingsRoute() {
   const { me, loading } = useAuth();
-  if (loading) return <div className="p-10 text-muted-foreground">Loading…</div>;
+  if (loading) return <AuthGateSkeleton />;
   if (!me) return <Navigate to="/login" replace />;
   if (isPartnerOrgKind(me.organization.kind)) {
     return (
@@ -803,7 +807,7 @@ function OrgSettingsRoute() {
 
 function OrgNetworkRoute() {
   const { me, loading } = useAuth();
-  if (loading) return <div className="p-10 text-muted-foreground">Loading…</div>;
+  if (loading) return <AuthGateSkeleton />;
   if (!me) return <Navigate to="/login" replace />;
   return (
     <RequirePermission anyOf={['network.read']}>
@@ -814,7 +818,7 @@ function OrgNetworkRoute() {
 
 function OrgSuppliersRoute() {
   const { me, loading } = useAuth();
-  if (loading) return <div className="p-10 text-muted-foreground">Loading…</div>;
+  if (loading) return <AuthGateSkeleton />;
   if (!me) return <Navigate to="/login" replace />;
   return (
     <RequirePermission anyOf={['network.read']}>
@@ -837,7 +841,7 @@ function SharedSettingsRedirect({
 }) {
   const { me, loading } = useAuth();
   const location = useLocation();
-  if (loading) return <div className="p-10 text-muted-foreground">Loading…</div>;
+  if (loading) return <AuthGateSkeleton />;
   if (!me) {
     const next = encodeURIComponent(`${location.pathname}${location.search}`);
     return <Navigate to={`/login?next=${next}`} replace />;
@@ -936,7 +940,7 @@ function SharedSettingsRedirect({
 function SharedNetworkRedirect() {
   const { me, loading } = useAuth();
   const location = useLocation();
-  if (loading) return <div className="p-10 text-muted-foreground">Loading…</div>;
+  if (loading) return <AuthGateSkeleton />;
   if (!me) {
     const next = encodeURIComponent(`${location.pathname}${location.search}`);
     return <Navigate to={`/login?next=${next}`} replace />;
@@ -964,7 +968,7 @@ function SharedNetworkRedirect() {
 function SharedSuppliersRedirect() {
   const { me, loading } = useAuth();
   const location = useLocation();
-  if (loading) return <div className="p-10 text-muted-foreground">Loading…</div>;
+  if (loading) return <AuthGateSkeleton />;
   if (!me) {
     const next = encodeURIComponent(`${location.pathname}${location.search}`);
     return <Navigate to={`/login?next=${next}`} replace />;

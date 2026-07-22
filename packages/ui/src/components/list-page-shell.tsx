@@ -2,10 +2,11 @@ import type { ReactNode } from 'react';
 import { cn } from '../lib/utils';
 
 /**
- * Full-viewport list layout matching the Leads table experience:
- * header stays put; DataTable fills remaining height and scrolls internally.
+ * Full-viewport list layout: page chrome stays fixed; DataTable (or board)
+ * fills remaining height and scrolls internally — no document scroll.
  *
- * Height leaves room for AppShell main bottom padding (pb-10 / md:pb-12).
+ * Fill mode uses `.list-page-fill` to occupy the main content box and cancel
+ * AppShell’s bottom padding (so lists aren’t left with an empty gutter).
  * Set `fill={false}` for card/scroll pages that should grow with content.
  */
 export function ListPageShell({
@@ -21,10 +22,8 @@ export function ListPageShell({
   return (
     <div
       className={cn(
-        'relative flex min-h-0 flex-col',
-        fill
-          ? 'h-[calc(100dvh-5.5rem-2.5rem)] md:h-[calc(100dvh-3.5rem-3rem)]'
-          : 'pb-2',
+        'relative flex min-h-0 flex-col gap-[var(--gap-page)]',
+        fill ? 'list-page-fill min-h-0 overflow-hidden' : null,
         className,
       )}
     >

@@ -105,6 +105,7 @@ import {
   shiftQuoteItemsToTripStart,
   stampApplyPaxOntoQuoteItems,
   templateItineraryDays,
+  withSanitizedDestinationPlaceId,
 } from './quote-template-content';
 import {
   remapTemplateFolderPrefix,
@@ -321,6 +322,7 @@ export class QuotationsService {
     });
     const minMarginPercent = parseMinMarginPercent(org?.settingsJson);
     const unauthorised = items.filter((i) => {
+      if ((i as { includedMeta?: unknown }).includedMeta) return false;
       const violation = lineMarginPolicyViolation(
         i.unitCost,
         i.unitSell,
@@ -794,6 +796,28 @@ export class QuotationsService {
     };
   }
 
+  /**
+   * destinationPlaceId is a matching hint only. Clear inaccessible IDs on write
+   * while keeping destinationHint (portable fallback). Never invent a replacement.
+   */
+  private async sanitizeTemplateDestinationPlace(
+    organizationId: string,
+    content: ReturnType<typeof parseQuoteTemplateContent>,
+  ) {
+    const requested = content.destinationPlaceId?.trim() || null;
+    if (!requested) return withSanitizedDestinationPlaceId(content, null);
+    const place = await this.prisma.place.findFirst({
+      where: {
+        id: requested,
+        deletedAt: null,
+        isActive: true,
+        OR: [{ isSystem: true, organizationId: null }, { organizationId }],
+      },
+      select: { id: true },
+    });
+    return withSanitizedDestinationPlaceId(content, place?.id ?? null);
+  }
+
   /** Embed trip Story days/meta into a save-as-template payload when missing. */
   private async loadTripItinerarySnapshot(
     organizationId: string,
@@ -838,6 +862,7 @@ export class QuotationsService {
         exclusions: version.exclusions,
         terms: version.terms,
         destinationHint: content?.destinationHint,
+        destinationPlaceId: content?.destinationPlaceId,
         tags: content?.tags,
         folder: content?.folder,
         itinerary: content?.itinerary,
@@ -848,6 +873,8 @@ export class QuotationsService {
     if (!content) {
       throw new BadRequestException('Provide contentJson or versionId');
     }
+
+    content = await this.sanitizeTemplateDestinationPlace(user.organizationId, content);
 
     if (tripIdForEmbed && !content.itinerary?.days?.length && !content.itinerary?.story) {
       const embedded = await this.loadTripItinerarySnapshot(
@@ -932,7 +959,8 @@ export class QuotationsService {
 
     // Content changes create a new version (immutable history); rename stays in place.
     if (input.contentJson != null) {
-      const content = parseQuoteTemplateContent(input.contentJson);
+      let content = parseQuoteTemplateContent(input.contentJson);
+      content = await this.sanitizeTemplateDestinationPlace(user.organizationId, content);
       const name =
         input.name != null ? normalizeTemplateName(input.name) : existing.name;
       const template = await this.prisma.$transaction(async (tx) => {
@@ -1523,6 +1551,7 @@ export class QuotationsService {
         createdAt: t.createdAt,
         lineCount,
         destinationHint: content.destinationHint ?? null,
+        destinationPlaceId: content.destinationPlaceId ?? null,
         ...(diffVsActive ? { diffVsActive } : {}),
       };
     });
@@ -1551,7 +1580,10 @@ export class QuotationsService {
       throw new BadRequestException(e instanceof Error ? e.message : 'Cannot restore template');
     }
 
-    const content = parseQuoteTemplateContent(source.contentJson);
+    const content = await this.sanitizeTemplateDestinationPlace(
+      user.organizationId,
+      parseQuoteTemplateContent(source.contentJson),
+    );
     const name = normalizeTemplateName(source.name);
 
     const template = await this.prisma.$transaction(async (tx) => {

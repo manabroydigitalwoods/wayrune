@@ -15,6 +15,21 @@ const FIELD_LABELS: Record<string, string> = {
   email: 'Email',
   phone: 'Phone',
   title: 'Title',
+  duration: 'Duration',
+  hotelCategory: 'Hotel category',
+  meals: 'Meals',
+  transportPref: 'Transport',
+  flightsRequired: 'Flights',
+  roomRequirements: 'Room requirements',
+  childAges: 'Child ages',
+  exactDates: 'Exact dates',
+  origin: 'Origin',
+  hotel_category: 'Hotel category',
+  room_configuration: 'Room setup',
+  meal_plan: 'Meal plan',
+  transport_mode: 'Transport',
+  flight_inclusion: 'Flights',
+  itinerary_pace: 'Itinerary pace',
 };
 
 const ACTIVITY_LABELS: Record<string, string> = {

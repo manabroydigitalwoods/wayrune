@@ -4,22 +4,19 @@ import {
   PointerSensor,
   KeyboardSensor,
   closestCorners,
+  pointerWithin,
   useSensor,
   useSensors,
   useDroppable,
+  useDraggable,
+  type CollisionDetection,
   type DragEndEvent,
   type DragOverEvent,
   type DragStartEvent,
 } from '@dnd-kit/core';
-import {
-  SortableContext,
-  useSortable,
-  verticalListSortingStrategy,
-  sortableKeyboardCoordinates,
-} from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
-import { Mail, Phone } from 'lucide-react';
+import { ArrowRight, Mail, Phone } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { cn } from '../lib/utils';
 import { Avatar, AvatarFallback } from './ui/avatar';
 
@@ -88,7 +85,7 @@ function PriorityChip({ priority }: { priority: string }) {
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+        'inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[length:var(--control-text-sm)] font-semibold uppercase tracking-wide',
         style.chip,
       )}
     >
@@ -101,7 +98,6 @@ function PriorityChip({ priority }: { priority: string }) {
 function LeadCardBody({ lead }: { lead: PipelineLead }) {
   const priority = PRIORITY_STYLES[lead.priority] ?? PRIORITY_STYLES.normal;
   const contactLine = lead.contactName?.trim() || null;
-  const detailBits = [lead.email, lead.phone].filter(Boolean) as string[];
 
   return (
     <div className="relative min-w-0 pl-2.5">
@@ -113,16 +109,16 @@ function LeadCardBody({ lead }: { lead: PipelineLead }) {
       {contactLine ? (
         <div className="mt-1 truncate text-xs text-muted-foreground">{contactLine}</div>
       ) : null}
-      {detailBits.length ? (
+      {lead.email || lead.phone ? (
         <div className="mt-1.5 flex flex-col gap-0.5">
           {lead.email ? (
-            <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground/90">
+            <div className="flex min-w-0 items-center gap-1.5 text-[length:var(--control-text-sm)] text-muted-foreground/90">
               <Mail className="size-3 shrink-0 opacity-60" aria-hidden />
               <span className="truncate">{lead.email}</span>
             </div>
           ) : null}
           {lead.phone ? (
-            <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground/90">
+            <div className="flex min-w-0 items-center gap-1.5 text-[length:var(--control-text-sm)] text-muted-foreground/90">
               <Phone className="size-3 shrink-0 opacity-60" aria-hidden />
               <span className="truncate">{lead.phone}</span>
             </div>
@@ -135,55 +131,71 @@ function LeadCardBody({ lead }: { lead: PipelineLead }) {
         <PriorityChip priority={lead.priority} />
         {lead.owner?.fullName ? (
           <Avatar className="size-6 ring-2 ring-background" title={lead.owner.fullName}>
-            <AvatarFallback className="bg-primary/12 text-[10px] font-semibold text-primary">
+            <AvatarFallback className="bg-primary/12 text-[length:var(--control-text-sm)] font-semibold text-primary">
               {initials(lead.owner.fullName)}
             </AvatarFallback>
           </Avatar>
         ) : (
-          <span className="text-[10px] text-muted-foreground/60">Unassigned</span>
+          <span className="text-[length:var(--control-text-sm)] text-muted-foreground/60">Unassigned</span>
         )}
       </div>
     </div>
   );
 }
 
-function SortableLeadCard({
+function ColumnDropPlaceholder({ stageName }: { stageName: string }) {
+  return (
+    <div
+      className="flex min-h-[5.5rem] flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-primary/55 bg-primary/10 px-3 py-4 text-center"
+      aria-hidden
+    >
+      <p className="text-[length:var(--control-text-sm)] font-semibold text-primary">Drop to move here</p>
+      <p className="text-[length:var(--control-text-sm)] text-primary/80">{stageName}</p>
+    </div>
+  );
+}
+
+function DraggableLeadCard({
   lead,
+  stageKey,
+  stageName,
+  dragging,
   onOpen,
 }: {
   lead: PipelineLead;
+  stageKey: string;
+  stageName: string;
+  dragging: boolean;
   onOpen?: (id: string) => void;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: lead.id,
-    data: { type: 'lead', lead },
+    data: { type: 'lead', lead, stageKey, stageName },
   });
   const suppressClickRef = useRef(false);
+  const active = isDragging || dragging;
 
   useEffect(() => {
     if (isDragging) suppressClickRef.current = true;
   }, [isDragging]);
 
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  };
-
   return (
     <div
       ref={setNodeRef}
-      style={style}
-      {...attributes}
       {...listeners}
+      {...attributes}
       role="button"
       tabIndex={0}
       aria-label={`Lead ${lead.title}. Drag to change stage, click to open.`}
+      aria-grabbed={active || undefined}
       className={cn(
-        'rounded-xl border border-border/60 p-3 text-sm glass',
-        'cursor-grab touch-none select-none ring-offset-background transition-all',
-        'hover:-translate-y-px hover:border-primary/25 hover:shadow-md active:cursor-grabbing',
+        'rounded-xl border border-border/60 p-[var(--pad-card)] text-[length:var(--control-text)] glass',
+        'cursor-grab touch-none select-none ring-offset-background',
+        'transition-[box-shadow,border-color,opacity]',
+        'hover:border-primary/25 hover:shadow-md active:cursor-grabbing',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-        isDragging && 'opacity-30 shadow-none',
+        // Keep size stable — only fade. Floating clone is DragOverlay (portaled).
+        active && 'cursor-grabbing border-dashed border-primary/40 bg-primary/5 opacity-40 shadow-none',
       )}
       onClick={() => {
         if (suppressClickRef.current) {
@@ -213,6 +225,8 @@ function ColumnDropZone({
   hasMore,
   loadingMore,
   onLoadMore,
+  isOver,
+  isDropTarget,
   children,
 }: {
   stageKey: string;
@@ -223,11 +237,13 @@ function ColumnDropZone({
   hasMore?: boolean;
   loadingMore?: boolean;
   onLoadMore?: () => void;
+  isOver: boolean;
+  isDropTarget: boolean;
   children: ReactNode;
 }) {
-  const { setNodeRef, isOver } = useDroppable({
+  const { setNodeRef } = useDroppable({
     id: `column:${stageKey}`,
-    data: { type: 'column', stageKey },
+    data: { type: 'column', stageKey, stageName: title },
   });
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
@@ -259,43 +275,49 @@ function ColumnDropZone({
       ref={setNodeRef}
       className={cn(
         'flex h-full min-h-0 w-[280px] shrink-0 flex-col overflow-hidden rounded-2xl',
-        'border border-border/60 glass-panel',
-        isOver && 'border-primary/40 ring-2 ring-inset ring-primary/15',
+        'border border-border/60 glass-panel transition-[border-color,box-shadow,background-color]',
+        isDropTarget && 'border-primary/50 bg-primary/5 ring-2 ring-inset ring-primary/20',
+        isOver && !isDropTarget && 'border-primary/30',
       )}
     >
-      <div className="flex shrink-0 items-center gap-2.5 px-3 pb-2 pt-3">
+      <div className="flex shrink-0 items-center gap-[var(--field-gap)] px-[var(--control-px)] pb-[var(--field-gap)] pt-[var(--gap-section)]">
         <span className={cn('h-8 w-1 shrink-0 rounded-full', accentClass)} aria-hidden />
         <div className="min-w-0 flex-1">
-          <strong className="block truncate text-sm font-semibold text-foreground" title={title}>
+          <strong
+            className="block truncate text-[length:var(--control-text)] font-semibold text-foreground"
+            title={title}
+          >
             {title}
           </strong>
-          <span className="text-[11px] text-muted-foreground">
-            {count === 0
-              ? 'Empty'
-              : loadedCount < count
-                ? `${loadedCount} of ${count} leads`
-                : count === 1
-                  ? '1 lead'
-                  : `${count} leads`}
+          <span className="text-[length:var(--control-text-sm)] text-muted-foreground">
+            {isDropTarget
+              ? 'Drop to move here'
+              : count === 0
+                ? 'Empty'
+                : loadedCount < count
+                  ? `${loadedCount} of ${count} leads`
+                  : count === 1
+                    ? '1 lead'
+                    : `${count} leads`}
           </span>
         </div>
-        <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-card text-xs font-semibold tabular-nums text-foreground shadow-sm ring-1 ring-border/60">
+        <span className="flex size-[var(--control-h-sm)] shrink-0 items-center justify-center rounded-full bg-card text-[length:var(--control-text-sm)] font-semibold tabular-nums text-foreground shadow-sm ring-1 ring-border/60">
           {count}
         </span>
       </div>
       <div
         ref={scrollRef}
-        className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2.5 pb-3 pt-1"
+        className="flex min-h-0 flex-1 flex-col gap-[var(--field-gap)] overflow-y-auto px-2.5 pb-[var(--gap-section)] pt-1 [scrollbar-gutter:stable]"
       >
         {children}
         {hasMore ? (
           <div
             ref={sentinelRef}
-            className="flex items-center justify-center py-3 text-[11px] text-muted-foreground"
+            className="flex items-center justify-center py-[var(--gap-section)] text-[length:var(--control-text-sm)] text-muted-foreground"
           >
             {loadingMore ? 'Loading more…' : 'Scroll for more'}
           </div>
-        ) : loadedCount > 0 && count > loadedCount ? null : null}
+        ) : null}
       </div>
     </div>
   );
@@ -308,6 +330,15 @@ function findContainer(columns: PipelineColumnData[], id: string): string | unde
   }
   return undefined;
 }
+
+/** Prefer column droppables under the pointer so stage targets stay clear. */
+const pipelineCollision: CollisionDetection = (args) => {
+  const pointerHits = pointerWithin(args);
+  const columnHit = pointerHits.find((c) => String(c.id).startsWith('column:'));
+  if (columnHit) return [columnHit];
+  if (pointerHits.length) return pointerHits;
+  return closestCorners(args);
+};
 
 export function PipelineBoard({
   columns: initialColumns,
@@ -330,8 +361,11 @@ export function PipelineBoard({
 }) {
   const [columns, setColumns] = useState(initialColumns);
   const [activeLead, setActiveLead] = useState<PipelineLead | null>(null);
+  const [fromStageKey, setFromStageKey] = useState<string | null>(null);
+  const [fromStageName, setFromStageName] = useState<string | null>(null);
+  const [overStageKey, setOverStageKey] = useState<string | null>(null);
+  const [moving, setMoving] = useState(false);
   const columnsRef = useRef(columns);
-  const dragFromRef = useRef<string | null>(null);
 
   useEffect(() => {
     setColumns(initialColumns);
@@ -342,152 +376,219 @@ export function PipelineBoard({
   }, [columns]);
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+    useSensor(PointerSensor, {
+      // Small move before drag starts so a plain click still opens the lead.
+      activationConstraint: { distance: 6 },
+    }),
+    useSensor(KeyboardSensor),
   );
 
-  const leadIdsByColumn = useMemo(() => {
-    const map: Record<string, string[]> = {};
-    for (const col of columns) {
-      map[col.stage.key] = col.leads.map((l) => l.id);
-    }
+  const stageNameByKey = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const col of columns) map[col.stage.key] = col.stage.name;
     return map;
   }, [columns]);
 
+  const overStageName = overStageKey ? stageNameByKey[overStageKey] : null;
+  const willChangeStage = Boolean(
+    activeLead && overStageKey && fromStageKey && overStageKey !== fromStageKey,
+  );
+
+  function resetDragUi() {
+    setActiveLead(null);
+    setFromStageKey(null);
+    setFromStageName(null);
+    setOverStageKey(null);
+  }
+
   function onDragStart(event: DragStartEvent) {
     const leadId = String(event.active.id);
-    const lead = columns.flatMap((c) => c.leads).find((l) => l.id === leadId);
-    dragFromRef.current = findContainer(columns, leadId) ?? null;
-    setActiveLead(lead ?? null);
+    const data = event.active.data.current as
+      | { lead?: PipelineLead; stageKey?: string; stageName?: string }
+      | undefined;
+    const lead =
+      data?.lead ?? columns.flatMap((c) => c.leads).find((l) => l.id === leadId) ?? null;
+    const stageKey = data?.stageKey ?? findContainer(columns, leadId) ?? null;
+    setActiveLead(lead);
+    setFromStageKey(stageKey);
+    setFromStageName(data?.stageName ?? (stageKey ? stageNameByKey[stageKey] ?? null : null));
+    setOverStageKey(stageKey);
   }
 
   function onDragOver(event: DragOverEvent) {
-    const { active, over } = event;
-    if (!over) return;
-    const activeId = String(active.id);
-    const overId = String(over.id);
-
-    setColumns((prev) => {
-      const from = findContainer(prev, activeId);
-      const to = findContainer(prev, overId);
-      if (!from || !to || from === to) return prev;
-      const fromCol = prev.find((c) => c.stage.key === from);
-      const toCol = prev.find((c) => c.stage.key === to);
-      if (!fromCol || !toCol) return prev;
-      const lead = fromCol.leads.find((l) => l.id === activeId);
-      if (!lead) return prev;
-
-      const overIndex = toCol.leads.findIndex((l) => l.id === overId);
-      const insertAt = overIndex >= 0 ? overIndex : toCol.leads.length;
-
-      return prev.map((col) => {
-        if (col.stage.key === from) {
-          return {
-            ...col,
-            leads: col.leads.filter((l) => l.id !== activeId),
-            total: col.total != null ? Math.max(0, col.total - 1) : col.total,
-          };
-        }
-        if (col.stage.key === to) {
-          const next = col.leads.filter((l) => l.id !== activeId);
-          next.splice(insertAt, 0, lead);
-          return {
-            ...col,
-            leads: next,
-            total: col.total != null ? col.total + 1 : col.total,
-          };
-        }
-        return col;
-      });
-    });
+    const overId = event.over ? String(event.over.id) : null;
+    if (!overId) {
+      setOverStageKey(null);
+      return;
+    }
+    const stageKey =
+      (event.over?.data.current as { stageKey?: string } | undefined)?.stageKey ??
+      findContainer(columnsRef.current, overId) ??
+      null;
+    setOverStageKey(stageKey);
   }
 
   async function onDragEnd(event: DragEndEvent) {
     const { active, over } = event;
-    setActiveLead(null);
-    const fromStageKey = dragFromRef.current;
-    dragFromRef.current = null;
-    if (!over || !fromStageKey) return;
-
     const leadId = String(active.id);
-    const overId = String(over.id);
-    const latest = columnsRef.current;
-    const toStageKey = findContainer(latest, overId) ?? findContainer(latest, leadId);
-    if (!toStageKey || fromStageKey === toStageKey) return;
+    const origin = fromStageKey;
+    const destination =
+      (over?.data.current as { stageKey?: string } | undefined)?.stageKey ??
+      (over ? findContainer(columnsRef.current, String(over.id)) : null);
 
+    resetDragUi();
+
+    if (!over || !origin || !destination || origin === destination) return;
+
+    const snapshot = columnsRef.current;
+    const fromCol = snapshot.find((c) => c.stage.key === origin);
+    const lead = fromCol?.leads.find((l) => l.id === leadId);
+    if (!lead) return;
+
+    // Optimistic: append to target stage (order within stage is not persisted).
+    setColumns((prev) =>
+      prev.map((col) => {
+        if (col.stage.key === origin) {
+          return {
+            ...col,
+            leads: col.leads.filter((l) => l.id !== leadId),
+            total: col.total != null ? Math.max(0, col.total - 1) : col.total,
+          };
+        }
+        if (col.stage.key === destination) {
+          if (col.leads.some((l) => l.id === leadId)) return col;
+          return {
+            ...col,
+            leads: [...col.leads, lead],
+            total: col.total != null ? col.total + 1 : col.total,
+          };
+        }
+        return col;
+      }),
+    );
+
+    setMoving(true);
     try {
-      await onMove({ leadId, fromStageKey, toStageKey });
+      await onMove({ leadId, fromStageKey: origin, toStageKey: destination });
     } catch {
-      setColumns(initialColumns);
+      setColumns(snapshot);
+    } finally {
+      setMoving(false);
     }
   }
 
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCorners}
+      collisionDetection={pipelineCollision}
       onDragStart={onDragStart}
       onDragOver={onDragOver}
       onDragEnd={onDragEnd}
       onDragCancel={() => {
-        setActiveLead(null);
+        resetDragUi();
         setColumns(initialColumns);
       }}
     >
       <div
         className={cn(
-          'flex h-full min-h-0 gap-3.5 overflow-x-auto overflow-y-hidden',
+          'flex h-full min-h-0 gap-[var(--gap-section)] overflow-x-auto overflow-y-hidden',
           'scroll-smooth pb-1 [scrollbar-gutter:stable]',
+          moving && 'pointer-events-none opacity-90',
           className,
         )}
+        aria-busy={moving || undefined}
       >
-        {columns.map((col, index) => (
-          <div key={col.stage.id} className="h-full shrink-0 snap-start">
-            <ColumnDropZone
-              stageKey={col.stage.key}
-              title={col.stage.name}
-              count={col.total ?? col.leads.length}
-              loadedCount={col.leads.length}
-              accentClass={STAGE_ACCENTS[index % STAGE_ACCENTS.length]!}
-              hasMore={Boolean(col.hasMore)}
-              loadingMore={Boolean(loadingMoreByStage?.[col.stage.key])}
-              onLoadMore={onLoadMore ? () => onLoadMore(col.stage.key) : undefined}
-            >
-              <SortableContext
-                id={col.stage.key}
-                items={leadIdsByColumn[col.stage.key] || []}
-                strategy={verticalListSortingStrategy}
+        {columns.map((col, index) => {
+          const isDropTarget = Boolean(
+            activeLead && overStageKey === col.stage.key && fromStageKey !== col.stage.key,
+          );
+          return (
+            <div key={col.stage.id} className="h-full shrink-0 snap-start">
+              <ColumnDropZone
+                stageKey={col.stage.key}
+                title={col.stage.name}
+                count={col.total ?? col.leads.length}
+                loadedCount={col.leads.length}
+                accentClass={STAGE_ACCENTS[index % STAGE_ACCENTS.length]!}
+                hasMore={Boolean(col.hasMore)}
+                loadingMore={Boolean(loadingMoreByStage?.[col.stage.key])}
+                onLoadMore={onLoadMore ? () => onLoadMore(col.stage.key) : undefined}
+                isOver={overStageKey === col.stage.key && Boolean(activeLead)}
+                isDropTarget={isDropTarget}
               >
-                {col.leads.length === 0 ? (
-                  <div className="flex flex-1 flex-col items-center justify-center rounded-xl px-3 py-8 text-center">
-                    <div className="mb-2 size-8 rounded-full border border-dashed border-border/80 bg-card/60" />
-                    <p className="text-xs font-medium text-muted-foreground">Drop a lead here</p>
-                    <p className="mt-0.5 text-[11px] text-muted-foreground/70">Drag from another stage</p>
+                {isDropTarget ? <ColumnDropPlaceholder stageName={col.stage.name} /> : null}
+                {col.leads.length === 0 && !isDropTarget ? (
+                  <div className="flex flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-border/70 px-[var(--control-px)] py-8 text-center">
+                    <div className="mb-[var(--field-gap)] size-[var(--control-h)] rounded-full border border-dashed border-border/80 bg-card/60" />
+                    <p className="text-[length:var(--control-text-sm)] font-medium text-muted-foreground">
+                      Drop a lead here
+                    </p>
+                    <p className="mt-0.5 text-[length:var(--control-text-sm)] text-muted-foreground/70">
+                      Click and drag a lead here
+                    </p>
                   </div>
                 ) : (
                   col.leads.map((lead) => (
-                    <SortableLeadCard key={lead.id} lead={lead} onOpen={onOpen} />
+                    <DraggableLeadCard
+                      key={lead.id}
+                      lead={lead}
+                      stageKey={col.stage.key}
+                      stageName={col.stage.name}
+                      dragging={activeLead?.id === lead.id}
+                      onOpen={onOpen}
+                    />
                   ))
                 )}
-              </SortableContext>
-            </ColumnDropZone>
-          </div>
-        ))}
+              </ColumnDropZone>
+            </div>
+          );
+        })}
       </div>
-      <DragOverlay dropAnimation={null}>
-        {activeLead ? (
-          <div className="w-[264px] cursor-grabbing rounded-xl border border-primary/35 p-3 text-sm shadow-2xl ring-2 ring-primary/15 glass-strong">
-            <LeadCardBody lead={activeLead} />
-          </div>
-        ) : null}
-      </DragOverlay>
+
+      {/*
+        Portal to body: app-shell-main uses transform/contain, which makes
+        position:fixed relative to the shell — while dnd-kit measures in
+        viewport coords. Without a portal the overlay drifts far from the cursor.
+      */}
+      {createPortal(
+        <DragOverlay dropAnimation={null} zIndex={500}>
+          {activeLead ? (
+            <div className="pointer-events-none w-[256px] cursor-grabbing">
+              <div className="rounded-xl border border-primary/40 bg-card p-[var(--pad-card)] text-[length:var(--control-text)] shadow-2xl ring-2 ring-primary/25">
+                <LeadCardBody lead={activeLead} />
+              </div>
+              <div
+                className={cn(
+                  'mt-2 flex items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[length:var(--control-text-sm)] font-medium shadow-lg',
+                  willChangeStage && overStageName
+                    ? 'bg-primary text-primary-foreground'
+                    : 'border border-border/60 bg-card text-muted-foreground',
+                )}
+              >
+                {willChangeStage && overStageName ? (
+                  <>
+                    <span className="truncate opacity-90">{fromStageName}</span>
+                    <ArrowRight className="size-3.5 shrink-0 opacity-80" aria-hidden />
+                    <span className="truncate">{overStageName}</span>
+                  </>
+                ) : (
+                  <span>Drop on a stage column</span>
+                )}
+              </div>
+            </div>
+          ) : null}
+        </DragOverlay>,
+        document.body,
+      )}
     </DndContext>
   );
 }
 
 /** Legacy presentational exports kept for compatibility */
 export function KanbanBoard({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn('flex gap-3 overflow-x-auto pb-2', className)}>{children}</div>;
+  return (
+    <div className={cn('flex gap-[var(--gap-section)] overflow-x-auto pb-2', className)}>{children}</div>
+  );
 }
 
 export function KanbanColumn({
@@ -504,15 +605,15 @@ export function KanbanColumn({
   return (
     <div
       className={cn(
-        'min-w-[220px] flex-1 rounded-xl border border-border/60 p-3 glass-panel',
+        'min-w-[220px] flex-1 rounded-xl border border-border/60 p-[var(--pad-card)] glass-panel',
         className,
       )}
     >
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <strong className="text-sm">{title}</strong>
+      <div className="mb-[var(--field-gap)] flex items-center justify-between gap-[var(--field-gap)]">
+        <strong className="text-[length:var(--control-text)]">{title}</strong>
         {count}
       </div>
-      <div className="flex flex-col gap-2">{children}</div>
+      <div className="flex flex-col gap-[var(--field-gap)]">{children}</div>
     </div>
   );
 }

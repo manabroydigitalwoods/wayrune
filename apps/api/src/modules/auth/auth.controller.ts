@@ -1,5 +1,10 @@
-import { Body, Controller, Get, Post, Query, Req, Res } from '@nestjs/common';
-import { LoginSchema, RegisterSchema, SwitchOrganizationSchema } from '@wayrune/contracts';
+import { Body, Controller, Get, Patch, Post, Query, Req, Res } from '@nestjs/common';
+import {
+  LoginSchema,
+  RegisterSchema,
+  SwitchOrganizationSchema,
+  UpdateUserPreferencesSchema,
+} from '@wayrune/contracts';
 import { loadEnv } from '@wayrune/config';
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
@@ -64,6 +69,11 @@ export class AuthController {
   @Get('me')
   me(@CurrentUser() user: AuthUser) {
     return this.auth.me(user);
+  }
+
+  @Patch('me/preferences')
+  updatePreferences(@CurrentUser() user: AuthUser, @Body() body: unknown) {
+    return this.auth.updatePreferences(user, UpdateUserPreferencesSchema.parse(body ?? {}));
   }
 
   @Post('switch-organization')

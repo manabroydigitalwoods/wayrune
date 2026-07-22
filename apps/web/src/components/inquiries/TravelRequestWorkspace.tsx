@@ -5,22 +5,30 @@ import { Minus, Plus } from 'lucide-react';
 import { CreateTravelRequestSchema, parseWithFieldErrors } from '@wayrune/contracts';
 import {
   Button,
+  Combobox,
   ConfirmDialog,
   DatePicker,
   Input,
+  isPhoneBlank,
   isPhoneFormatOk,
+  localStorageKit,
   NATIONAL_PHONE_LENGTH,
   PhoneInput,
   RecordDialog,
   RecordSheet,
   SimpleFormField as FormField,
   splitPhone,
+  StorageKeys,
   toastError,
   toastSuccess,
   cn,
 } from '@wayrune/ui';
 import { api } from '../../api';
 import { formatDateInput, parseDateInput } from '../../lib/dateInput';
+import {
+  mergeEnquiryDestinationSuggestions,
+  readLeadDestinationText,
+} from '../../lib/destinationEnquirySuggestions';
 import { trackExperienceEvent } from '../../lib/progressiveComplexity';
 import type { PlaceRef } from '../../lib/placeRefs';
 import { PlaceMultiPicker } from '../places/PlacePicker';
@@ -78,7 +86,79 @@ const ACQUISITION_OPTIONS = [
   { value: 'skip', label: 'Skip' },
 ] as const;
 
-const POPULAR_DESTINATIONS = ['Sikkim', 'Darjeeling', 'Gangtok', 'Bhutan', 'Andaman', 'Goa', 'Manali', 'Kerala'];
+const ACQUISITION_PILL_LIMIT = 6;
+
+type AcquisitionOption = { value: string; label: string };
+type AcquisitionUsage = Record<string, { count: number; lastUsedAt: number }>;
+
+function readAcquisitionUsage(): AcquisitionUsage {
+  const stored = localStorageKit.getJson<AcquisitionUsage>(StorageKeys.leads.acquisitionSourceUsage, {
+    version: 1,
+  });
+  if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return {};
+  const next: AcquisitionUsage = {};
+  for (const [key, raw] of Object.entries(stored)) {
+    if (!raw || typeof raw !== 'object') continue;
+    const count = Number((raw as { count?: unknown }).count);
+    const lastUsedAt = Number((raw as { lastUsedAt?: unknown }).lastUsedAt);
+    if (!Number.isFinite(count) || count <= 0) continue;
+    next[key] = {
+      count: Math.min(9999, Math.floor(count)),
+      lastUsedAt: Number.isFinite(lastUsedAt) ? lastUsedAt : 0,
+    };
+  }
+  return next;
+}
+
+function recordAcquisitionUsage(key: string) {
+  if (!key || key === 'skip') return;
+  const usage = readAcquisitionUsage();
+  const prev = usage[key];
+  usage[key] = {
+    count: (prev?.count ?? 0) + 1,
+    lastUsedAt: Date.now(),
+  };
+  localStorageKit.setJson(StorageKeys.leads.acquisitionSourceUsage, usage, { version: 1 });
+}
+
+/** Prefer frequent taps; fall back to default order, then A–Z for custom sources. */
+function rankAcquisitionOptions(
+  options: ReadonlyArray<AcquisitionOption>,
+  usage: AcquisitionUsage,
+): AcquisitionOption[] {
+  const defaultOrder = new Map<string, number>(
+    ACQUISITION_OPTIONS.map((opt, index) => [opt.value, index]),
+  );
+  const isTerminal = (value: string) => value === 'skip' || value === 'unknown';
+  const primary = options.filter((opt) => !isTerminal(opt.value));
+  const terminal = options.filter((opt) => isTerminal(opt.value));
+  const hasUsage = primary.some((opt) => (usage[opt.value]?.count ?? 0) > 0);
+
+  primary.sort((a, b) => {
+    if (hasUsage) {
+      const au = usage[a.value];
+      const bu = usage[b.value];
+      const ac = au?.count ?? 0;
+      const bc = bu?.count ?? 0;
+      if (bc !== ac) return bc - ac;
+      const at = au?.lastUsedAt ?? 0;
+      const bt = bu?.lastUsedAt ?? 0;
+      if (bt !== at) return bt - at;
+    }
+    const ai = defaultOrder.get(a.value) ?? 999;
+    const bi = defaultOrder.get(b.value) ?? 999;
+    if (ai !== bi) return ai - bi;
+    return a.label.localeCompare(b.label);
+  });
+
+  terminal.sort((a, b) => {
+    if (a.value === 'unknown') return -1;
+    if (b.value === 'unknown') return 1;
+    return a.label.localeCompare(b.label);
+  });
+
+  return [...primary, ...terminal];
+}
 
 const BUDGET_OPTIONS = [
   { value: 'under25', label: 'Under ₹25K', amount: 20000 },
@@ -88,18 +168,66 @@ const BUDGET_OPTIONS = [
   { value: 'skip', label: 'Skip', amount: null },
 ] as const;
 
-const SPECIAL_OPTIONS = [
-  { value: 'vegetarian', label: 'Vegetarian' },
-  { value: 'honeymoon', label: 'Honeymoon' },
-  { value: 'family', label: 'Family' },
-  { value: 'senior', label: 'Senior citizen' },
-  { value: 'kids', label: 'Kids' },
-  { value: 'flight', label: 'Flight' },
-  { value: 'train', label: 'Train' },
-  { value: 'cab', label: 'Cab' },
-  { value: 'hotel', label: 'Hotel' },
-  { value: 'adventure', label: 'Adventure' },
+const SPECIAL_GROUPS = [
+  {
+    label: 'Food',
+    options: [
+      { value: 'vegetarian', label: 'Vegetarian' },
+      { value: 'jain', label: 'Jain' },
+      { value: 'vegan', label: 'Vegan' },
+    ],
+  },
+  {
+    label: 'Travellers',
+    options: [
+      { value: 'honeymoon', label: 'Honeymoon' },
+      { value: 'anniversary', label: 'Anniversary' },
+      { value: 'family', label: 'Family' },
+      { value: 'kids', label: 'Kids' },
+      { value: 'senior', label: 'Senior citizen' },
+      { value: 'friends', label: 'Friends / group' },
+      { value: 'corporate', label: 'Corporate' },
+    ],
+  },
+  {
+    label: 'Trip style',
+    options: [
+      { value: 'pilgrimage', label: 'Pilgrimage' },
+      { value: 'adventure', label: 'Adventure' },
+      { value: 'beach', label: 'Beach' },
+      { value: 'hills', label: 'Hills' },
+      { value: 'wildlife', label: 'Wildlife' },
+    ],
+  },
+  {
+    label: 'Travel & stay',
+    options: [
+      { value: 'flight', label: 'Flight' },
+      { value: 'train', label: 'Train' },
+      { value: 'cab', label: 'Cab' },
+      { value: 'hotel', label: 'Hotel' },
+      { value: 'resort', label: 'Resort' },
+      { value: 'homestay', label: 'Homestay' },
+      { value: 'wheelchair', label: 'Wheelchair access' },
+    ],
+  },
 ] as const;
+
+const SPECIAL_OPTIONS = SPECIAL_GROUPS.flatMap((g) => g.options);
+
+/** Chips that map to structured fields — not free-text “interests”. */
+const SPECIAL_STRUCTURED = new Set([
+  'vegetarian',
+  'jain',
+  'vegan',
+  'flight',
+  'train',
+  'cab',
+  'hotel',
+  'resort',
+  'homestay',
+  'wheelchair',
+]);
 
 const emptyForm = {
   partyId: '',
@@ -170,26 +298,28 @@ function Stepper({
   onChange: (n: number) => void;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 px-4 py-3">
-      <span className="text-sm font-medium">{label}</span>
-      <div className="flex items-center gap-3">
+    <div className="flex items-center justify-between gap-[var(--gap-section)] rounded-xl border border-border/60 px-[var(--control-px)] py-[var(--field-gap)]">
+      <span className="text-[length:var(--control-text)] font-medium">{label}</span>
+      <div className="flex items-center gap-[var(--field-gap)]">
         <Button
           type="button"
           variant="outline"
           size="icon"
-          className="size-9"
+          className="shrink-0"
           disabled={value <= min}
           onClick={() => onChange(Math.max(min, value - 1))}
           aria-label={`Decrease ${label}`}
         >
           <Minus className="size-4" />
         </Button>
-        <span className="w-6 text-center text-lg font-semibold tabular-nums">{value}</span>
+        <span className="w-6 text-center text-[length:var(--control-text)] font-semibold tabular-nums">
+          {value}
+        </span>
         <Button
           type="button"
           variant="outline"
           size="icon"
-          className="size-9"
+          className="shrink-0"
           onClick={() => onChange(value + 1)}
           aria-label={`Increase ${label}`}
         >
@@ -214,7 +344,7 @@ function ChoiceChip({
       type="button"
       onClick={onClick}
       className={cn(
-        'rounded-xl border px-3 py-2.5 text-left text-sm font-medium transition-colors',
+        'rounded-lg border px-2.5 py-1.5 text-left text-xs font-medium transition-colors',
         selected
           ? 'border-primary bg-primary text-primary-foreground'
           : 'border-border/70 bg-muted/30 text-foreground hover:border-primary/40 hover:bg-primary/5',
@@ -242,11 +372,16 @@ export function TravelRequestWorkspace({
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [form, setForm] = useState(emptyForm);
+  const [destinationText, setDestinationText] = useState<string | undefined>();
+  const [leadTags, setLeadTags] = useState<string[] | undefined>();
   const [saved, setSaved] = useState<CreatedTravelRequest | null>(null);
   const [partyMatch, setPartyMatch] = useState<PartyMatch | null>(null);
   const [discardOpen, setDiscardOpen] = useState(false);
   const [acquisitionOptions, setAcquisitionOptions] = useState(
-    ACQUISITION_OPTIONS as ReadonlyArray<{ value: string; label: string }>,
+    ACQUISITION_OPTIONS as ReadonlyArray<AcquisitionOption>,
+  );
+  const [acquisitionUsage, setAcquisitionUsage] = useState<AcquisitionUsage>(() =>
+    readAcquisitionUsage(),
   );
   const matchRequestId = useRef(0);
   const startedAt = useMemo(() => Date.now(), [open]);
@@ -264,6 +399,41 @@ export function TravelRequestWorkspace({
       .catch(() => undefined);
   }, []);
 
+  const rankedAcquisitionOptions = useMemo(
+    () => rankAcquisitionOptions(acquisitionOptions, acquisitionUsage),
+    [acquisitionOptions, acquisitionUsage],
+  );
+  const acquisitionPillOptions = useMemo(() => {
+    const primary = rankedAcquisitionOptions.filter(
+      (opt) => opt.value !== 'skip' && opt.value !== 'unknown',
+    );
+    const terminal = rankedAcquisitionOptions.filter(
+      (opt) => opt.value === 'skip' || opt.value === 'unknown',
+    );
+    const hasUsage = primary.some((opt) => (acquisitionUsage[opt.value]?.count ?? 0) > 0);
+    const pillPrimary =
+      primary.length > ACQUISITION_PILL_LIMIT
+        ? primary.slice(0, ACQUISITION_PILL_LIMIT)
+        : primary;
+    const pillKeys = new Set(pillPrimary.map((opt) => opt.value));
+    const moreOptions = primary.filter((opt) => !pillKeys.has(opt.value));
+    return {
+      pills: [...pillPrimary, ...terminal],
+      moreOptions,
+      pillLabel: hasUsage ? 'Frequent' : 'Suggested',
+    };
+  }, [rankedAcquisitionOptions, acquisitionUsage]);
+
+  function pickAcquisition(acquisitionKey: string) {
+    if (acquisitionKey && acquisitionKey !== 'skip') {
+      recordAcquisitionUsage(acquisitionKey);
+      setAcquisitionUsage(readAcquisitionUsage());
+    }
+    setForm({ ...form, acquisitionKey });
+    const i = STEPS.indexOf('acquisition');
+    if (i < STEPS.length - 1) setStep(STEPS[i + 1]!);
+  }
+
   useEffect(() => {
     if (!open) return;
     setPhase('capture');
@@ -272,17 +442,71 @@ export function TravelRequestWorkspace({
     setErrors({});
     setPartyMatch(null);
     setDiscardOpen(false);
+    setDestinationText(defaults?.destinationText?.trim() || undefined);
+    setLeadTags(defaults?.tags);
     setForm({
       ...emptyForm,
       partyId: defaults?.partyId || '',
       partyLabel: defaults?.partyLabel || '',
-      contactName: defaults?.partyLabel || '',
+      contactName: defaults?.partyLabel || defaults?.contactName || '',
+      contactPhone: defaults?.phone || '',
+      destinations: defaults?.destinations?.length ? defaults.destinations : [],
     });
     trackExperienceEvent('travel_request_started', {
       source: defaults?.partyId ? 'party' : defaults?.interactionId ? 'inbox' : 'header',
       channel: defaults?.channelKey || 'phone',
     });
-  }, [open, defaults?.partyId, defaults?.partyLabel, defaults?.channelKey, defaults?.interactionId]);
+  }, [
+    open,
+    defaults?.partyId,
+    defaults?.partyLabel,
+    defaults?.contactName,
+    defaults?.phone,
+    defaults?.channelKey,
+    defaults?.interactionId,
+    defaults?.destinationText,
+    defaults?.destinations?.map((d) => d.placeId || d.name).join('\u0001'),
+    defaults?.tags?.join('\u0001'),
+  ]);
+
+  // When opened from a lead without destinationText, load Lead.customFieldsJson.
+  useEffect(() => {
+    if (!open || !defaults?.leadId) return;
+    if (defaults.destinationText !== undefined) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const lead = await api<{
+          tagsJson?: unknown;
+          customFieldsJson?: unknown;
+        }>(`/leads/${defaults.leadId}`);
+        if (cancelled) return;
+        const tags = Array.isArray(lead.tagsJson) ? (lead.tagsJson as string[]) : [];
+        setLeadTags((prev) => prev ?? tags);
+        setDestinationText((prev) => prev ?? readLeadDestinationText(lead.customFieldsJson));
+      } catch {
+        /* non-blocking */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, defaults?.leadId, defaults?.destinationText]);
+
+  const enquirySuggestions = useMemo(
+    () =>
+      mergeEnquiryDestinationSuggestions({
+        destinationText,
+        tags: leadTags ?? defaults?.tags,
+        selectedDestinations: form.destinations,
+      }),
+    [
+      destinationText,
+      leadTags?.join('\u0001'),
+      defaults?.tags?.join('\u0001'),
+      form.destinations.map((d) => `${d.placeId || ''}:${d.name}`).join('\u0001'),
+    ],
+  );
 
   const isDirty = useMemo(() => {
     return Boolean(
@@ -307,7 +531,7 @@ export function TravelRequestWorkspace({
       return;
     }
     const phone = form.contactPhone.trim();
-    if (!phone || !isPhoneFormatOk(phone)) {
+    if (isPhoneBlank(phone) || !isPhoneFormatOk(phone)) {
       setPartyMatch(null);
       return;
     }
@@ -369,28 +593,12 @@ export function TravelRequestWorkspace({
     }));
   }
 
-  function addPopularDestination(name: string) {
-    setForm((f) => {
-      const exists = f.destinations.some((d) => d.name.toLowerCase() === name.toLowerCase());
-      if (exists) {
-        return {
-          ...f,
-          destinations: f.destinations.filter((d) => d.name.toLowerCase() !== name.toLowerCase()),
-        };
-      }
-      return {
-        ...f,
-        destinations: [...f.destinations, { placeId: null, name }],
-      };
-    });
-  }
-
   function validateStep(current: CallStep): boolean {
     const local: Record<string, string> = {};
     if (current === 'customer') {
       if (!form.partyId && !form.contactName.trim()) local['contact.name'] = 'Enter the customer name';
       if (!form.partyId) {
-        if (!form.contactPhone.trim()) local['contact.phone'] = 'Enter a phone number';
+        if (isPhoneBlank(form.contactPhone)) local['contact.phone'] = 'Enter a phone number';
         else if (!isPhoneFormatOk(form.contactPhone)) local['contact.phone'] = 'Enter a valid phone number';
       }
     }
@@ -424,14 +632,24 @@ export function TravelRequestWorkspace({
     const startDate = resolveStartDate(form);
     const specials = new Set(form.specials);
     const interests = SPECIAL_OPTIONS.filter(
-      (o) =>
-        specials.has(o.value) &&
-        !['vegetarian', 'flight', 'cab', 'hotel', 'train'].includes(o.value),
+      (o) => specials.has(o.value) && !SPECIAL_STRUCTURED.has(o.value),
     ).map((o) => o.label);
     const specialBits: string[] = [];
     if (form.seniors > 0) specialBits.push(`${form.seniors} senior traveller(s)`);
     if (specials.has('train')) specialBits.push('Prefers train');
     if (specials.has('hotel')) specialBits.push('Needs hotel');
+    if (specials.has('resort')) specialBits.push('Prefers resort');
+    if (specials.has('homestay')) specialBits.push('Prefers homestay');
+    if (specials.has('wheelchair')) specialBits.push('Wheelchair / accessible rooms');
+    if (specials.has('anniversary')) specialBits.push('Anniversary trip');
+
+    const meals = specials.has('jain')
+      ? 'Jain'
+      : specials.has('vegan')
+        ? 'Vegan'
+        : specials.has('vegetarian')
+          ? 'Vegetarian'
+          : null;
 
     const parsed = parseWithFieldErrors(CreateTravelRequestSchema, {
       partyId: form.partyId || null,
@@ -441,11 +659,15 @@ export function TravelRequestWorkspace({
             name: form.contactName.trim(),
             phone: form.contactPhone || null,
           },
-      travelType: specials.has('honeymoon')
+      travelType: specials.has('honeymoon') || specials.has('anniversary')
         ? 'honeymoon'
-        : specials.has('family') || specials.has('kids')
-          ? 'family'
-          : 'leisure',
+        : specials.has('corporate')
+          ? 'business'
+          : specials.has('family') || specials.has('kids')
+            ? 'family'
+            : specials.has('friends')
+              ? 'group'
+              : 'leisure',
       destinations: form.destinations,
       adults: Math.max(1, form.adults),
       children: form.children,
@@ -453,7 +675,7 @@ export function TravelRequestWorkspace({
       budgetAmount,
       budgetCurrency: 'INR',
       startDate,
-      meals: specials.has('vegetarian') ? 'Vegetarian' : null,
+      meals,
       transportPref: specials.has('cab') ? 'Private cab' : null,
       flightsRequired: specials.has('flight'),
       interests: interests.length ? interests : undefined,
@@ -465,6 +687,7 @@ export function TravelRequestWorkspace({
       interactionId: defaults?.interactionId || null,
       conversationId: defaults?.conversationId || null,
       campaignId: defaults?.campaignId || null,
+      destinationText: destinationText || null,
     });
     if (!parsed.ok) {
       setErrors(parsed.errors);
@@ -614,8 +837,8 @@ export function TravelRequestWorkspace({
           </>
         }
       >
-        <div className="space-y-4">
-          <div className="flex gap-1.5" aria-hidden>
+        <div className="stack-form">
+          <div className="flex gap-1" aria-hidden>
             {STEPS.map((s, i) => (
               <div
                 key={s}
@@ -627,10 +850,10 @@ export function TravelRequestWorkspace({
             ))}
           </div>
 
-          <h3 className="font-display text-xl font-semibold tracking-tight">{copy.question}</h3>
+          <h3 className="font-display text-base font-semibold tracking-tight">{copy.question}</h3>
 
           {step === 'customer' ? (
-            <div className="space-y-4">
+            <div className="stack-form">
               <FormField label="Customer name" required error={errors['contact.name']}>
                 <Input
                   value={form.contactName}
@@ -648,7 +871,7 @@ export function TravelRequestWorkspace({
                 />
               </FormField>
               {form.partyId ? (
-                <div className="flex items-center justify-between gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm">
+                <div className="flex items-center justify-between gap-2 rounded-md border border-success/30 bg-success-soft/60 px-2.5 py-1.5 text-sm">
                   <span>
                     Linked to <span className="font-medium">{form.partyLabel}</span>
                   </span>
@@ -657,7 +880,7 @@ export function TravelRequestWorkspace({
                   </Button>
                 </div>
               ) : partyMatch ? (
-                <div className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-muted/40 px-3 py-2 text-sm">
+                <div className="flex items-center justify-between gap-2 rounded-md border border-border/60 bg-muted/40 px-2.5 py-1.5 text-sm">
                   <span>
                     Existing customer found:{' '}
                     <span className="font-medium">{partyMatch.displayName}</span>
@@ -676,53 +899,63 @@ export function TravelRequestWorkspace({
           ) : null}
 
           {step === 'acquisition' ? (
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {acquisitionOptions.map((opt) => (
-                  <ChoiceChip
-                    key={opt.value}
-                    selected={form.acquisitionKey === opt.value}
-                    onClick={() => {
-                      setForm({ ...form, acquisitionKey: opt.value });
-                      const i = STEPS.indexOf('acquisition');
-                      if (i < STEPS.length - 1) setStep(STEPS[i + 1]!);
-                    }}
-                  >
-                    {opt.label}
-                  </ChoiceChip>
-                ))}
+            <div className="stack-form">
+              <div>
+                <p className="mb-2 text-xs font-medium text-muted-foreground">
+                  {acquisitionPillOptions.pillLabel}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {acquisitionPillOptions.pills.map((opt) => (
+                    <ChoiceChip
+                      key={opt.value}
+                      selected={form.acquisitionKey === opt.value}
+                      onClick={() => pickAcquisition(opt.value)}
+                    >
+                      {opt.label}
+                    </ChoiceChip>
+                  ))}
+                </div>
               </div>
+              {acquisitionPillOptions.moreOptions.length > 0 ? (
+                <FormField label="Other source">
+                  <Combobox
+                    value={
+                      acquisitionPillOptions.moreOptions.some(
+                        (opt) => opt.value === form.acquisitionKey,
+                      )
+                        ? form.acquisitionKey
+                        : ''
+                    }
+                    onChange={pickAcquisition}
+                    placeholder="More sources…"
+                    options={acquisitionPillOptions.moreOptions.map((opt) => ({
+                      value: opt.value,
+                      label: opt.label,
+                    }))}
+                    searchable={acquisitionPillOptions.moreOptions.length > 6}
+                  />
+                </FormField>
+              ) : null}
             </div>
           ) : null}
 
           {step === 'destination' ? (
-            <div className="space-y-4">
+            <div className="stack-form">
               <PlaceMultiPicker
                 label="Destination"
+                purpose="destination"
                 value={form.destinations}
                 onChange={(destinations) => setForm({ ...form, destinations })}
-                placeholder="Search destinations…"
+                placeholder="Search city, region, state or country…"
+                showSuggestions
+                enquirySuggestions={enquirySuggestions}
+                enquiryDestinationText={destinationText}
               />
-              <div>
-                <p className="mb-2 text-xs font-medium text-muted-foreground">Popular</p>
-                <div className="flex flex-wrap gap-2">
-                  {POPULAR_DESTINATIONS.map((name) => {
-                    const on = form.destinations.some(
-                      (d) => d.name.toLowerCase() === name.toLowerCase(),
-                    );
-                    return (
-                      <ChoiceChip key={name} selected={on} onClick={() => addPopularDestination(name)}>
-                        {name}
-                      </ChoiceChip>
-                    );
-                  })}
-                </div>
-              </div>
             </div>
           ) : null}
 
           {step === 'people' ? (
-            <div className="space-y-3">
+            <div className="stack-form">
               <Stepper
                 label="Adults"
                 value={form.adults}
@@ -745,7 +978,7 @@ export function TravelRequestWorkspace({
           ) : null}
 
           {step === 'when' ? (
-            <div className="space-y-3">
+            <div className="stack-form">
               <div className="grid gap-2">
                 {(
                   [
@@ -768,6 +1001,7 @@ export function TravelRequestWorkspace({
                   <DatePicker
                     value={parseDateInput(form.startDate)}
                     onChange={(d) => setForm({ ...form, startDate: formatDateInput(d) })}
+                    disablePast
                   />
                 </FormField>
               ) : null}
@@ -789,15 +1023,24 @@ export function TravelRequestWorkspace({
           ) : null}
 
           {step === 'special' ? (
-            <div className="flex flex-wrap gap-2">
-              {SPECIAL_OPTIONS.map((opt) => (
-                <ChoiceChip
-                  key={opt.value}
-                  selected={form.specials.includes(opt.value)}
-                  onClick={() => toggleSpecial(opt.value)}
-                >
-                  {opt.label}
-                </ChoiceChip>
+            <div className="grid gap-4">
+              {SPECIAL_GROUPS.map((group) => (
+                <div key={group.label} className="grid gap-2">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    {group.label}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {group.options.map((opt) => (
+                      <ChoiceChip
+                        key={opt.value}
+                        selected={form.specials.includes(opt.value)}
+                        onClick={() => toggleSpecial(opt.value)}
+                      >
+                        {opt.label}
+                      </ChoiceChip>
+                    ))}
+                  </div>
+                </div>
               ))}
             </div>
           ) : null}

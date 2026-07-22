@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { BedDouble, Car, GripVertical, Sparkles, UserRoundX } from 'lucide-react';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
-import { StatusBadge, formatDate } from '@wayrune/ui';
+import { Skeleton, StatusBadge, formatDate } from '@wayrune/ui';
 
 export type MovementWeekFlag = {
   code: string;
@@ -384,8 +384,15 @@ export function MovementWeekView({
 
   if (loading && !rows.length) {
     return (
-      <div className="rounded-lg border border-border/60 px-4 py-10 text-center text-sm text-muted-foreground">
-        Loading calendar…
+      <div
+        className="space-y-3 rounded-lg border border-border/60 px-4 py-6"
+        role="status"
+        aria-busy="true"
+      >
+        <span className="sr-only">Loading</span>
+        <Skeleton className="h-8 w-full" />
+        <Skeleton className="h-24 w-full" />
+        <Skeleton className="h-24 w-full" />
       </div>
     );
   }

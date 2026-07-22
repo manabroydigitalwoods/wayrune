@@ -5,6 +5,7 @@ import {
   Button,
   Combobox,
   EmptyState,
+  Skeleton,
   cn,
   toastError,
   toastSuccess,
@@ -120,7 +121,12 @@ export function AssetsPanel({
       </div>
 
       {loading && !files.length ? (
-        <div className="py-10 text-center text-sm text-muted-foreground">Loading assets…</div>
+        <div className="space-y-2 py-6" role="status" aria-busy="true">
+          <span className="sr-only">Loading</span>
+          <Skeleton className="h-4 w-40" />
+          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-24 w-full" />
+        </div>
       ) : files.length ? (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
           {files.map((file) => {

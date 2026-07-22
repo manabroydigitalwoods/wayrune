@@ -12,13 +12,14 @@ function CalendarDayButton({ className, modifiers, day: _day, ...props }: DayBut
       type="button"
       {...props}
       className={cn(
-        'inline-flex size-8 cursor-pointer items-center justify-center rounded-lg text-sm transition-colors',
+        'inline-flex size-[var(--control-h-sm)] cursor-pointer items-center justify-center rounded-lg text-[length:var(--control-text-sm)] transition-colors',
         'hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         modifiers.selected &&
           'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground',
         modifiers.today && !modifiers.selected && 'border border-primary/50 text-primary',
-        modifiers.outside && 'opacity-40',
-        modifiers.disabled && 'pointer-events-none opacity-40',
+        modifiers.outside && 'text-muted-foreground/50 opacity-50',
+        modifiers.disabled &&
+          'pointer-events-none text-muted-foreground/40 line-through opacity-35 hover:bg-transparent',
         className,
       )}
     />
@@ -35,42 +36,43 @@ function Calendar({
   return (
     <DayPicker
       showOutsideDays={showOutsideDays}
-      className={cn('p-3 text-foreground', className)}
+      className={cn('p-[var(--field-gap)] text-foreground', className)}
       style={
         {
           '--rdp-accent-color': 'hsl(var(--primary))',
           '--rdp-accent-background-color': 'hsl(var(--primary) / 0.15)',
           '--rdp-today-color': 'hsl(var(--primary))',
-          '--rdp-day-height': '2.25rem',
-          '--rdp-day-width': '2.25rem',
-          '--rdp-day_button-height': '2rem',
-          '--rdp-day_button-width': '2rem',
+          '--rdp-day-height': 'var(--control-h)',
+          '--rdp-day-width': 'var(--control-h)',
+          '--rdp-day_button-height': 'var(--control-h-sm)',
+          '--rdp-day_button-width': 'var(--control-h-sm)',
           '--rdp-day_button-border-radius': '0.5rem',
-          '--rdp-nav_button-height': '2rem',
-          '--rdp-nav_button-width': '2rem',
+          '--rdp-nav_button-height': 'var(--control-h-sm)',
+          '--rdp-nav_button-width': 'var(--control-h-sm)',
           '--rdp-selected-border': '2px solid transparent',
         } as React.CSSProperties
       }
       classNames={{
         root: 'rdp-root',
         months: 'relative flex flex-col',
-        month: 'space-y-3',
+        month: 'space-y-[var(--gap-section)]',
         // Caption sits under nav visually; ignore pointer events so month arrows receive clicks.
-        month_caption: 'relative flex h-9 items-center justify-center px-9 pointer-events-none',
-        caption_label: 'text-sm font-semibold tracking-tight',
+        month_caption:
+          'relative flex h-[var(--control-h)] items-center justify-center px-9 pointer-events-none',
+        caption_label: 'text-[length:var(--control-text)] font-semibold tracking-tight',
         nav: 'absolute inset-x-0 top-0 z-10 flex items-center justify-between px-1',
         button_previous: cn(
           buttonVariants({ variant: 'ghost', size: 'icon' }),
-          'size-8 pointer-events-auto text-foreground hover:bg-primary/15 hover:text-foreground',
+          'size-[var(--control-h-sm)] pointer-events-auto text-foreground hover:bg-primary/15 hover:text-foreground',
         ),
         button_next: cn(
           buttonVariants({ variant: 'ghost', size: 'icon' }),
-          'size-8 pointer-events-auto text-foreground hover:bg-primary/15 hover:text-foreground',
+          'size-[var(--control-h-sm)] pointer-events-auto text-foreground hover:bg-primary/15 hover:text-foreground',
         ),
         month_grid: 'w-full border-collapse',
         weekdays: 'flex',
         weekday:
-          'flex size-8 items-center justify-center text-[11px] font-medium uppercase tracking-wide text-muted-foreground',
+          'flex size-[var(--control-h-sm)] items-center justify-center text-[length:var(--control-text-sm)] font-medium uppercase tracking-wide text-muted-foreground',
         week: 'mt-1 flex w-full',
         day: 'relative p-0 text-center',
         day_button: '',

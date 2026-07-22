@@ -15,7 +15,7 @@ const SelectNative = React.forwardRef<HTMLSelectElement, React.ComponentProps<'s
     return (
       <select
         className={cn(
-          'flex h-9 w-full cursor-pointer rounded-lg border border-border/80 bg-card/85 px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50',
+          'flex h-[var(--control-h)] w-full cursor-pointer rounded-lg border border-border/80 bg-card/85 px-[var(--control-px)] py-1 text-[length:var(--control-text)] shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50',
           className,
         )}
         ref={ref}

@@ -67,6 +67,21 @@ describe('fitQuoteProgress', () => {
     expect(progress.steps[1]?.fixTargetLineId).toBe('h1');
     expect(progress.steps[1]?.action).toBe('open_line');
     expect(progress.steps[1]?.hint).toBe('1 need Match');
+    expect(progress.steps[2]?.status).toBe('upcoming');
+    expect(progress.steps[3]?.status).toBe('upcoming');
+  });
+
+  it('keeps Margin upcoming until Match is done', () => {
+    const progress = buildFitQuoteProgress({
+      itemCount: 2,
+      attentionRows: [{ id: 'h1', reasons: ['no_rate'] }],
+      marginGateCount: 0,
+      canViewCost: true,
+      canSend: false,
+    });
+    expect(progress.currentStepId).toBe('lines_matched');
+    expect(progress.steps[2]?.status).toBe('upcoming');
+    expect(progress.steps[2]?.ctaLabel).toBeNull();
   });
 
   it('soft-hints Hotels → Transfers → Activities on Match step', () => {

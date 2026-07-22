@@ -1,5 +1,5 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
-import { CreateTaskSchema } from '@wayrune/contracts';
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { CreateTaskSchema, UpdateTaskSchema } from '@wayrune/contracts';
 import {
   CurrentUser,
   RequireAgencyOrg,
@@ -28,8 +28,25 @@ export class TasksController {
     @Query('due') due?: string,
     @Query('entityType') entityType?: string,
     @Query('entityId') entityId?: string,
+    @Query('dueFrom') dueFrom?: string,
+    @Query('dueTo') dueTo?: string,
   ) {
-    return this.tasks.list(user.organizationId, status, q, due, entityType, entityId);
+    return this.tasks.list(
+      user.organizationId,
+      status,
+      q,
+      due,
+      entityType,
+      entityId,
+      dueFrom?.trim() || null,
+      dueTo?.trim() || null,
+    );
+  }
+
+  @Patch(':id')
+  @RequirePermissions('task.write')
+  update(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: unknown) {
+    return this.tasks.update(user.organizationId, user.sub, id, UpdateTaskSchema.parse(body));
   }
 
   @Post(':id/complete')

@@ -12,19 +12,24 @@ import {
   type DragOverEvent,
   type DragStartEvent,
 } from '@dnd-kit/core';
-import { ArrowUpRight, CalendarDays, List, Map, X } from 'lucide-react';
+import { ArrowUpRight, CalendarDays, List, Search, X } from 'lucide-react';
 import {
   Button,
   DataTable,
-  ListPageShell,
-  PageHeader,
+  DateRangeFilter,
+  Input,
+  Skeleton,
   StatusBadge,
   StorageKeys,
+  cn,
   formatDate,
+  localStorageKit,
+  resolveDateRangePreset,
   toastError,
   toastSuccess,
   toastWarning,
-  usePersistentState,
+  usePageChrome,
+  type DateRangeValue,
 } from '@wayrune/ui';
 import { api } from '../api';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
@@ -38,12 +43,25 @@ import {
   MovementDriverChip,
   MovementWeekView,
 } from '../components/agency/MovementWeekView';
-import {
-  applyMovementBoardFilters,
-  movementBoardHasActiveFilters,
-  parseMovementBoardFilters,
-} from '../lib/movementBoardFilters';
+import { applyMovementBoardFilters } from '../lib/movementBoardFilters';
 import { rescheduleBookingDates } from '../lib/movementReschedule';
+import {
+  MOVEMENT_STATUS_OPTIONS,
+  movementQueryHasFilters,
+  parseMovementQueryState,
+  patchMovementQueryParams,
+  type MovementBoardStatus,
+  type MovementBoardView,
+  type MovementQueryState,
+} from '../lib/queue';
+import {
+  ActiveFilterChips,
+  AttentionPresets,
+  FilterMenu,
+  QUEUE_PAGE_SEARCH_CLASS,
+  QueuePageChrome,
+  QueueViewToggle,
+} from '../components/queue';
 
 type MovementFlag = {
   code: string;
@@ -82,8 +100,6 @@ type MovementBoard = {
   };
 };
 
-type BoardView = 'table' | 'week';
-
 type SupplierRow = {
   id: string;
   name: string;
@@ -109,6 +125,17 @@ function severityTone(
   if (severity === 'danger') return 'danger';
   if (severity === 'warn') return 'warn';
   return 'info';
+}
+
+function readMovementView(): MovementBoardView {
+  const stored = localStorageKit.getJson<MovementBoardView>(StorageKeys.movementBoard.view, {
+    version: 1,
+  });
+  return stored === 'week' ? 'week' : 'table';
+}
+
+function writeMovementView(view: MovementBoardView) {
+  localStorageKit.setJson(StorageKeys.movementBoard.view, view, { version: 1 });
 }
 
 function DraggableDriverChip({
@@ -138,29 +165,64 @@ function DraggableDriverChip({
   );
 }
 
+/** Resolve the board's working window (forward-pack preset, explicit range, or legacy `?days=`). */
+function rangeFromQuery(query: MovementQueryState): DateRangeValue {
+  if (query.from && query.to) {
+    return { from: query.from, to: query.to, presetId: query.period || 'custom' };
+  }
+  if (query.days === 7) {
+    return { ...resolveDateRangePreset('next_7', 'forward'), presetId: 'next_7' };
+  }
+  // Legacy default was 14 days — map to next_30 for the forward pack.
+  return { ...resolveDateRangePreset('next_30', 'forward'), presetId: 'next_30' };
+}
+
 export function MovementBoardPage() {
   useDocumentTitle('Movement board');
   const { toOrgPath } = useOrgNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
   const { hasAny } = usePermissions();
   const canAssign = hasAny(CAP.tripWrite);
   const [data, setData] = useState<MovementBoard | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const filters = useMemo(
-    () => parseMovementBoardFilters(searchParams),
+  const [searchParams, setSearchParams] = useSearchParams();
+  const query = useMemo(
+    () => parseMovementQueryState(searchParams, readMovementView()),
     [searchParams],
   );
-  const daysFromUrl = Number(searchParams.get('days') || 0);
-  const [days, setDays] = useState(() =>
-    daysFromUrl === 7 || daysFromUrl === 14 || daysFromUrl === 30
-      ? daysFromUrl
-      : 14,
-  );
-  const [view, setView] = usePersistentState<BoardView>(
-    StorageKeys.movementBoard.view,
-    'table',
-  );
+  const [searchDraft, setSearchDraft] = useState(query.q ?? '');
+
+  function applyQuery(patch: Parameters<typeof patchMovementQueryParams>[1]) {
+    setSearchParams(patchMovementQueryParams(searchParams, patch), { replace: true });
+  }
+
+  function changeView(next: MovementBoardView) {
+    writeMovementView(next);
+    applyQuery({ view: next });
+  }
+
+  /** Seed `?view=` when missing so deep-links stay stable. */
+  useEffect(() => {
+    if (searchParams.get('view') === 'table' || searchParams.get('view') === 'week') return;
+    applyQuery({ view: query.view });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot hydrate
+  }, []);
+
+  useEffect(() => {
+    setSearchDraft(query.q ?? '');
+  }, [query.q]);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      const next = searchDraft.trim();
+      if ((query.q ?? '') === next) return;
+      applyQuery({ q: next || undefined });
+    }, 300);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce draft only
+  }, [searchDraft]);
+
+  const range = rangeFromQuery(query);
   const [drivers, setDrivers] = useState<SupplierRow[]>([]);
   const [assigningBookingId, setAssigningBookingId] = useState<string | null>(
     null,
@@ -172,56 +234,38 @@ export function MovementBoardPage() {
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
   );
 
-  useEffect(() => {
-    if (daysFromUrl === 7 || daysFromUrl === 14 || daysFromUrl === 30) {
-      setDays(daysFromUrl);
+  function boardQuery(r: DateRangeValue): string {
+    const params = new URLSearchParams();
+    if (r.from && r.to) {
+      params.set('from', r.from);
+      params.set('to', r.to);
+    } else {
+      params.set('days', '30');
     }
-  }, [daysFromUrl]);
+    return params.toString();
+  }
 
-  function patchBoardParams(patch: {
-    type?: 'hotel' | 'transfer' | 'activity' | null;
-    flagged?: boolean | null;
-    overduePay?: boolean | null;
-    voucherPending?: boolean | null;
-    days?: number;
-    clear?: boolean;
-  }) {
-    const next = new URLSearchParams(searchParams);
-    if (patch.clear) {
-      next.delete('type');
-      next.delete('flagged');
-      next.delete('overduePay');
-      next.delete('voucherPending');
-    }
-    if (patch.type === null) next.delete('type');
-    else if (patch.type) next.set('type', patch.type);
-    if (patch.flagged === false || patch.flagged === null) next.delete('flagged');
-    else if (patch.flagged) next.set('flagged', '1');
-    if (patch.overduePay === false || patch.overduePay === null) {
-      next.delete('overduePay');
-    } else if (patch.overduePay) next.set('overduePay', '1');
-    if (patch.voucherPending === false || patch.voucherPending === null) {
-      next.delete('voucherPending');
-    } else if (patch.voucherPending) next.set('voucherPending', '1');
-    if (patch.days === 7 || patch.days === 14 || patch.days === 30) {
-      if (patch.days === 14) next.delete('days');
-      else next.set('days', String(patch.days));
-    }
-    setSearchParams(next, { replace: true });
+  function onRangeChange(next: DateRangeValue) {
+    applyQuery({
+      from: next.from,
+      to: next.to,
+      period: next.presetId,
+    });
   }
 
   const reloadBoard = useCallback(async () => {
     const board = await api<MovementBoard>(
-      `/operations/movement-board?days=${days}`,
+      `/operations/movement-board?${boardQuery(range)}`,
     );
     setData(board);
-  }, [days]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- boardQuery is a pure helper
+  }, [range.from, range.to]);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    api<MovementBoard>(`/operations/movement-board?days=${days}`)
+    api<MovementBoard>(`/operations/movement-board?${boardQuery(range)}`)
       .then((board) => {
         if (!cancelled) setData(board);
       })
@@ -236,10 +280,11 @@ export function MovementBoardPage() {
     return () => {
       cancelled = true;
     };
-  }, [days]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- boardQuery is a pure helper
+  }, [range.from, range.to]);
 
   useEffect(() => {
-    if (view !== 'week' || !canAssign) return;
+    if (query.view !== 'week' || !canAssign) return;
     let cancelled = false;
     api<SupplierRow[]>('/suppliers')
       .then((list) => {
@@ -257,7 +302,7 @@ export function MovementBoardPage() {
     return () => {
       cancelled = true;
     };
-  }, [view, canAssign]);
+  }, [query.view, canAssign]);
 
   async function assignDriver(
     row: MovementRow,
@@ -509,18 +554,135 @@ export function MovementBoardPage() {
   );
 
   const summary = data?.summary;
-  const filteredRows = useMemo(
-    () => applyMovementBoardFilters(data?.rows ?? [], filters),
-    [data?.rows, filters],
-  );
-  const filtersActive = movementBoardHasActiveFilters(filters);
+  const filtersActive = movementQueryHasFilters(query);
+  const filteredRows = useMemo(() => {
+    let rows = applyMovementBoardFilters(data?.rows ?? [], query);
+    if (query.status) {
+      rows = rows.filter((r) => r.status === query.status);
+    }
+    const q = query.q?.trim().toLowerCase();
+    if (q) {
+      rows = rows.filter((r) =>
+        [r.title, r.tripNumber, r.tripTitle, r.supplierName]
+          .filter(Boolean)
+          .some((v) => (v as string).toLowerCase().includes(q)),
+      );
+    }
+    return rows;
+  }, [data?.rows, query]);
   const subtitle = data
     ? `${formatDate(data.window.from)} → ${formatDate(data.window.to)} · ${data.window.days} days${
-        filtersActive
+        filtersActive || query.q
           ? ` · showing ${filteredRows.length} of ${data.rows.length}`
           : ''
       }`
     : 'Upcoming hotel check-ins, transfers, and activities across trips';
+
+  usePageChrome({ title: 'Movement board', subtitle });
+
+  function clearMovementFilters() {
+    applyQuery({ clearFilters: true });
+  }
+
+  function clearMovementFiltersAndSearch() {
+    setSearchDraft('');
+    applyQuery({ clearFilters: true, q: '' });
+  }
+
+  const filterDefs = [
+    {
+      id: 'type',
+      label: 'Type',
+      value: query.type ?? null,
+      options: [
+        { value: 'hotel', label: 'Hotel', countLabel: summary ? String(summary.hotels) : undefined },
+        {
+          value: 'transfer',
+          label: 'Transfer',
+          countLabel: summary ? String(summary.transfers) : undefined,
+        },
+        {
+          value: 'activity',
+          label: 'Activity',
+          countLabel: summary ? String(summary.activities) : undefined,
+        },
+      ],
+      onSelect: (value: string | null) =>
+        applyQuery({ type: (value as 'hotel' | 'transfer' | 'activity' | null) || null }),
+    },
+    {
+      id: 'status',
+      label: 'Status',
+      value: query.status ?? null,
+      options: MOVEMENT_STATUS_OPTIONS.map((value) => ({
+        value,
+        label: value.charAt(0).toUpperCase() + value.slice(1),
+      })),
+      onSelect: (value: string | null) =>
+        applyQuery({ status: (value as MovementBoardStatus | null) || undefined }),
+    },
+  ];
+
+  const attentionPresets = [
+    {
+      id: 'flagged',
+      label: 'flagged',
+      count: summary?.flagged ?? 0,
+      active: query.flagged,
+      tone: 'danger' as const,
+      onClick: () => applyQuery({ flagged: !query.flagged }),
+    },
+    {
+      id: 'overduePay',
+      label: 'overdue pay',
+      count: summary?.overduePayTrips ?? 0,
+      active: query.overduePay,
+      tone: 'danger' as const,
+      onClick: () => applyQuery({ overduePay: !query.overduePay }),
+    },
+    {
+      id: 'voucherPending',
+      label: 'voucher pending',
+      count: summary?.voucherPending ?? 0,
+      active: query.voucherPending,
+      tone: 'warn' as const,
+      onClick: () => applyQuery({ voucherPending: !query.voucherPending }),
+    },
+  ];
+
+  const filterChips = [
+    query.type
+      ? {
+          id: 'type',
+          label: `Type: ${query.type === 'hotel' ? 'Hotel' : query.type === 'transfer' ? 'Transfer' : 'Activity'}`,
+          onRemove: () => applyQuery({ type: null }),
+        }
+      : null,
+    query.status
+      ? {
+          id: 'status',
+          label: `Status: ${query.status.charAt(0).toUpperCase()}${query.status.slice(1)}`,
+          onRemove: () => applyQuery({ status: undefined }),
+        }
+      : null,
+    query.flagged
+      ? { id: 'flagged', label: 'Flagged', onRemove: () => applyQuery({ flagged: false }) }
+      : null,
+    query.overduePay
+      ? {
+          id: 'overduePay',
+          label: 'Overdue pay',
+          onRemove: () => applyQuery({ overduePay: false }),
+        }
+      : null,
+    query.voucherPending
+      ? {
+          id: 'voucherPending',
+          label: 'Voucher pending',
+          onRemove: () => applyQuery({ voucherPending: false }),
+        }
+      : null,
+  ].filter(Boolean) as Array<{ id: string; label: string; onRemove: () => void }>;
 
   const calendar = data?.window ? (
     <MovementWeekView
@@ -536,200 +698,93 @@ export function MovementBoardPage() {
       }
       activeTargetDay={activeTargetDay}
     />
+  ) : loading ? (
+    <div
+      className="space-y-3 rounded-lg border border-border/60 px-4 py-6"
+      role="status"
+      aria-busy="true"
+    >
+      <span className="sr-only">Loading</span>
+      <Skeleton className="h-8 w-full" />
+      <Skeleton className="h-24 w-full" />
+      <Skeleton className="h-24 w-full" />
+    </div>
   ) : (
     <div className="rounded-lg border border-border/60 px-4 py-10 text-center text-sm text-muted-foreground">
-      {loading ? 'Loading calendar…' : error || 'No movements in this window'}
+      {error || 'No movements in this window'}
+    </div>
+  );
+
+  const queueToolbar = (
+    <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+      <div className="relative min-w-[12rem] flex-1 basis-[14rem]">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 size-[0.875em] -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={searchDraft}
+          onChange={(e) => setSearchDraft(e.target.value)}
+          placeholder="Search service or trip…"
+          className={cn(QUEUE_PAGE_SEARCH_CLASS, searchDraft.trim() && 'pr-8')}
+          aria-label="Search movements"
+        />
+        {searchDraft.trim() ? (
+          <button
+            type="button"
+            className="absolute right-1.5 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+            aria-label="Clear search"
+            onClick={() => {
+              setSearchDraft('');
+              applyQuery({ q: '' });
+            }}
+          >
+            <X className="size-3.5" />
+          </button>
+        ) : null}
+      </div>
+      <div className="flex flex-wrap items-center gap-1">
+        <DateRangeFilter
+          pack="forward"
+          dimensionLabel="Movement"
+          value={range}
+          onChange={onRangeChange}
+          allowClear={false}
+          emptyLabel="Next 30 days"
+          data-testid="movement-date-range"
+        />
+        <FilterMenu filters={filterDefs} />
+      </div>
     </div>
   );
 
   return (
-    <ListPageShell>
-      <PageHeader
-        icon={Map}
-        title="Movement board"
-        subtitle={subtitle}
-        className="mb-4 shrink-0"
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="inline-flex rounded-md border border-border/60 p-0.5">
-              <Button
-                size="sm"
-                variant={view === 'table' ? 'secondary' : 'ghost'}
-                className="h-8 gap-1.5 px-2.5"
-                onClick={() => setView('table')}
-              >
-                <List className="size-3.5" />
-                Table
-              </Button>
-              <Button
-                size="sm"
-                variant={view === 'week' ? 'secondary' : 'ghost'}
-                className="h-8 gap-1.5 px-2.5"
-                onClick={() => setView('week')}
-              >
-                <CalendarDays className="size-3.5" />
-                Calendar
-              </Button>
-            </div>
-            <select
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-              value={days}
-              onChange={(e) => {
-                const next = Number(e.target.value);
-                setDays(next);
-                patchBoardParams({ days: next });
-              }}
-              aria-label="Lookahead days"
-            >
-              <option value={7}>Next 7 days</option>
-              <option value={14}>Next 14 days</option>
-              <option value={30}>Next 30 days</option>
-            </select>
-            {filtersActive ? (
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 gap-1 px-2"
-                onClick={() => patchBoardParams({ clear: true })}
-              >
-                <X className="size-3.5" />
-                Clear filters
-              </Button>
-            ) : null}
-          </div>
-        }
-      />
-
-      {summary ? (
-        <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-          <button
-            type="button"
-            className={`rounded-lg border px-3 py-2 text-left transition-colors ${
-              filters.type === 'hotel'
-                ? 'border-primary/50 bg-primary/5'
-                : 'border-border/60 hover:bg-muted/40'
-            }`}
-            onClick={() =>
-              patchBoardParams({
-                type: filters.type === 'hotel' ? null : 'hotel',
-                flagged: false,
-                overduePay: false,
-                voucherPending: false,
-              })
-            }
-          >
-            <div className="text-xs text-muted-foreground">Hotels</div>
-            <div className="text-lg font-semibold tabular-nums">{summary.hotels}</div>
-          </button>
-          <button
-            type="button"
-            className={`rounded-lg border px-3 py-2 text-left transition-colors ${
-              filters.type === 'transfer'
-                ? 'border-primary/50 bg-primary/5'
-                : 'border-border/60 hover:bg-muted/40'
-            }`}
-            onClick={() =>
-              patchBoardParams({
-                type: filters.type === 'transfer' ? null : 'transfer',
-                flagged: false,
-                overduePay: false,
-                voucherPending: false,
-              })
-            }
-          >
-            <div className="text-xs text-muted-foreground">Transfers</div>
-            <div className="text-lg font-semibold tabular-nums">
-              {summary.transfers}
-            </div>
-          </button>
-          <button
-            type="button"
-            className={`rounded-lg border px-3 py-2 text-left transition-colors ${
-              filters.type === 'activity'
-                ? 'border-primary/50 bg-primary/5'
-                : 'border-border/60 hover:bg-muted/40'
-            }`}
-            onClick={() =>
-              patchBoardParams({
-                type: filters.type === 'activity' ? null : 'activity',
-                flagged: false,
-                overduePay: false,
-                voucherPending: false,
-              })
-            }
-          >
-            <div className="text-xs text-muted-foreground">Activities</div>
-            <div className="text-lg font-semibold tabular-nums">
-              {summary.activities}
-            </div>
-          </button>
-          <button
-            type="button"
-            className={`rounded-lg border px-3 py-2 text-left transition-colors ${
-              filters.voucherPending
-                ? 'border-primary/50 bg-primary/5'
-                : 'border-border/60 hover:bg-muted/40'
-            }`}
-            onClick={() =>
-              patchBoardParams({
-                voucherPending: !filters.voucherPending,
-                type: null,
-                flagged: false,
-                overduePay: false,
-              })
-            }
-          >
-            <div className="text-xs text-muted-foreground">Voucher pending</div>
-            <div className="text-lg font-semibold tabular-nums">
-              {summary.voucherPending}
-            </div>
-          </button>
-          <button
-            type="button"
-            className={`rounded-lg border px-3 py-2 text-left transition-colors ${
-              filters.flagged
-                ? 'border-primary/50 bg-primary/5'
-                : 'border-border/60 hover:bg-muted/40'
-            }`}
-            onClick={() =>
-              patchBoardParams({
-                flagged: !filters.flagged,
-                type: null,
-                overduePay: false,
-                voucherPending: false,
-              })
-            }
-          >
-            <div className="text-xs text-muted-foreground">Flagged</div>
-            <div className="text-lg font-semibold tabular-nums">
-              {summary.flagged}
-            </div>
-          </button>
-          <button
-            type="button"
-            className={`rounded-lg border px-3 py-2 text-left transition-colors ${
-              filters.overduePay
-                ? 'border-primary/50 bg-primary/5'
-                : 'border-border/60 hover:bg-muted/40'
-            }`}
-            onClick={() =>
-              patchBoardParams({
-                overduePay: !filters.overduePay,
-                type: null,
-                flagged: false,
-                voucherPending: false,
-              })
-            }
-          >
-            <div className="text-xs text-muted-foreground">Overdue pay trips</div>
-            <div className="text-lg font-semibold tabular-nums">
-              {summary.overduePayTrips}
-            </div>
-          </button>
-        </div>
-      ) : null}
-
-      {view === 'week' ? (
+    <QueuePageChrome
+      viewToggle={
+        <QueueViewToggle
+          value={query.view}
+          onChange={(id) => changeView(id as MovementBoardView)}
+          options={[
+            {
+              id: 'table',
+              label: 'Table',
+              icon: <List className="size-[0.875em]" />,
+            },
+            {
+              id: 'week',
+              label: 'Calendar',
+              icon: <CalendarDays className="size-[0.875em]" />,
+            },
+          ]}
+        />
+      }
+      attention={<AttentionPresets presets={attentionPresets} />}
+      toolbar={queueToolbar}
+      chips={
+        <ActiveFilterChips
+          chips={filterChips}
+          onClear={filtersActive ? clearMovementFilters : undefined}
+        />
+      }
+    >
+      {query.view === 'week' ? (
         canAssign ? (
           <DndContext
             sensors={sensors}
@@ -781,44 +836,21 @@ export function MovementBoardPage() {
           loading={loading}
           error={error ?? undefined}
           pageSize={25}
-          searchKey="title"
-          searchPlaceholder="Search service or trip…"
+          showSearch={false}
+          showColumnsMenu={false}
           columnVisibilityKey={StorageKeys.movementBoard.columns}
-          facets={[
-            {
-              id: 'type',
-              columnId: 'type',
-              label: 'Type',
-              options: [
-                { value: 'hotel', label: 'Hotel' },
-                { value: 'transfer', label: 'Transfer' },
-                { value: 'activity', label: 'Activity' },
-              ],
-            },
-            {
-              id: 'status',
-              columnId: 'status',
-              label: 'Status',
-              options: [
-                { value: 'requested', label: 'Requested' },
-                { value: 'confirmed', label: 'Confirmed' },
-                { value: 'held', label: 'Held' },
-                { value: 'pending', label: 'Pending' },
-              ],
-            },
-          ]}
           emptyTitle={
-            filtersActive ? 'No movements match this filter' : 'No movements in this window'
+            filtersActive || query.q ? 'No movements match this filter' : 'No movements in this window'
           }
           emptyDescription={
-            filtersActive
+            filtersActive || query.q
               ? 'Clear filters or widen the lookahead window.'
               : 'Hotel check-ins, transfers, and activities with dates in range will appear here.'
           }
-          emptyIcon={Map}
+          emptyIcon={CalendarDays}
           emptyAction={
-            filtersActive ? (
-              <Button size="sm" variant="outline" onClick={() => patchBoardParams({ clear: true })}>
+            filtersActive || query.q ? (
+              <Button size="sm" variant="outline" onClick={clearMovementFiltersAndSearch}>
                 Clear filters
               </Button>
             ) : (
@@ -832,6 +864,6 @@ export function MovementBoardPage() {
           }
         />
       )}
-    </ListPageShell>
+    </QueuePageChrome>
   );
 }

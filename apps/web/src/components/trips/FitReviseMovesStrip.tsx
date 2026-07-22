@@ -42,6 +42,7 @@ export function FitReviseMovesStrip({
           variant={action.primary ? 'default' : 'secondary'}
           className={cn('h-7', !action.primary && 'bg-background/70')}
           title={action.hint}
+          data-testid={`fit-revise-${action.id}`}
           onClick={() => onAction(action.id)}
         >
           {action.label}

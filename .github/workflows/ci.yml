@@ -60,3 +60,79 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm --filter @wayrune/api test:integration
+
+  e2e-ux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: travel_erp
+          MYSQL_USER: travel
+          MYSQL_PASSWORD: travel
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval="5s"
+          --health-timeout="5s"
+          --health-retries="20"
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval="5s"
+          --health-timeout="3s"
+          --health-retries="20"
+
+    env:
+      APP_ENV: local
+      DATABASE_URL: mysql://travel:travel@127.0.0.1:3306/travel_erp
+      REDIS_URL: redis://127.0.0.1:6379
+      JWT_ACCESS_SECRET: ci-access-secret-change-me-32chars!!
+      JWT_REFRESH_SECRET: ci-refresh-secret-change-me-32chars!
+      API_PORT: 3001
+      API_PUBLIC_URL: http://127.0.0.1:3001
+      WEB_ORIGIN: http://127.0.0.1:5173
+      WEB_PORT: 5173
+      VITE_APP_ENV: local
+      VITE_API_BASE_URL: /api/v1
+      FILE_STORAGE: local
+      UPLOAD_DIR: .data/uploads
+      S3_ENDPOINT: http://127.0.0.1:9000
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      S3_BUCKET: travel-erp
+      CI: true
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install
+      - run: pnpm db:generate
+      - run: npx prisma migrate deploy --schema=prisma/schema.prisma
+      - run: pnpm db:seed
+      - run: pnpm build
+      - run: pnpm --filter @wayrune/web-e2e exec playwright install --with-deps chromium
+      - name: UX dogfood Playwright
+        run: pnpm test:e2e
+      - name: Upload UX metrics + traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-ux-artifacts
+          path: |
+            apps/web-e2e/e2e-results/
+            apps/web-e2e/test-results/
+            apps/web-e2e/playwright-report/
+          if-no-files-found: ignore

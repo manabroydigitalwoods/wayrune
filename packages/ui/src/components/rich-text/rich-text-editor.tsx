@@ -8,10 +8,13 @@ import {
   Bold,
   Italic,
   Underline as UnderlineIcon,
+  Strikethrough,
   List,
   ListOrdered,
   Link2,
   Paperclip,
+  Redo2,
+  Undo2,
   X,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
@@ -32,6 +35,17 @@ export type RichTextEditorProps = {
   disabled?: boolean;
   /** Tighter toolbar + shorter editor for inline timeline edits */
   compact?: boolean;
+  /**
+   * Editor surface height. `composer` ≈ 160–220px default for activity logs;
+   * `compact` stays short for inline edits.
+   */
+  size?: 'default' | 'composer' | 'compact';
+  /**
+   * `basic` — bold/italic/underline/strike, lists, link, undo/redo.
+   * `full` — same basics (reserved for future extras).
+   * `minimal` — alias of `basic` (back-compat).
+   */
+  toolbar?: 'full' | 'basic' | 'minimal';
   /** Upload inline image (paste / drop / optional); return content URL for img src */
   onUploadImage?: (file: File) => Promise<UploadedImage>;
   /** Paperclip attachments (not inlined) */
@@ -58,16 +72,29 @@ function ToolbarButton({
   return (
     <Button
       type="button"
-      size="icon"
+      size="icon-sm"
       variant="ghost"
-      className={cn('size-7 rounded-md', active && 'bg-primary/10 text-primary')}
+      className={cn(
+        'size-6 shrink-0 text-muted-foreground hover:bg-accent/80 hover:text-foreground [&_svg]:size-3.5',
+        active && 'bg-primary/15 text-primary hover:bg-primary/20 hover:text-primary',
+      )}
       onClick={onClick}
       disabled={disabled}
       aria-label={label}
       title={label}
+      aria-pressed={active}
     >
       {children}
     </Button>
+  );
+}
+
+function ToolbarDivider() {
+  return (
+    <span
+      aria-hidden
+      className="mx-0.5 h-4 w-px shrink-0 self-center bg-border/70"
+    />
   );
 }
 
@@ -78,6 +105,8 @@ export function RichTextEditor({
   className,
   disabled,
   compact,
+  size,
+  toolbar: _toolbar = 'full',
   onUploadImage,
   attachments = [],
   onAttachmentsChange,
@@ -89,6 +118,14 @@ export function RichTextEditor({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const suppressSync = useRef(false);
   const editorRef = useRef<Editor | null>(null);
+  const surface =
+    size ?? (compact ? 'compact' : 'default');
+  const editorHeightClass =
+    surface === 'composer'
+      ? 'min-h-[180px] max-h-[280px] px-3'
+      : surface === 'compact'
+        ? 'min-h-[88px] max-h-[220px]'
+        : 'min-h-[120px] max-h-[280px] px-3';
 
   const pushInlineId = useCallback(
     (id: string) => {
@@ -143,7 +180,7 @@ export function RichTextEditor({
       attributes: {
         class: cn(
           'overflow-y-auto px-2.5 py-2 text-sm outline-none',
-          compact ? 'min-h-[88px] max-h-[220px]' : 'min-h-[120px] max-h-[280px] px-3',
+          editorHeightClass,
           'prose prose-sm max-w-none [&_p]:my-1.5 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5',
           '[&_img]:my-2 [&_img]:max-h-48 [&_img]:rounded-md',
         ),
@@ -262,15 +299,34 @@ export function RichTextEditor({
   };
 
   return (
-    <div className={cn('overflow-hidden rounded-xl border glass', className)}>
-      <div className="flex flex-wrap items-center gap-0 border-b border-white/40 px-1 py-0.5 dark:border-white/10">
+    <div className={cn('overflow-hidden rounded-xl border border-border/60 glass', className)}>
+      <div
+        role="toolbar"
+        aria-label="Formatting"
+        className="flex flex-wrap items-center gap-px border-b border-border/60 bg-muted/25 px-0.5 py-0.5 dark:bg-muted/15"
+      >
+        <ToolbarButton
+          label="Undo"
+          disabled={disabled || !editor?.can().undo()}
+          onClick={() => editor?.chain().focus().undo().run()}
+        >
+          <Undo2 />
+        </ToolbarButton>
+        <ToolbarButton
+          label="Redo"
+          disabled={disabled || !editor?.can().redo()}
+          onClick={() => editor?.chain().focus().redo().run()}
+        >
+          <Redo2 />
+        </ToolbarButton>
+        <ToolbarDivider />
         <ToolbarButton
           label="Bold"
           disabled={disabled || !editor}
           active={editor?.isActive('bold')}
           onClick={() => editor?.chain().focus().toggleBold().run()}
         >
-          <Bold className="size-3.5" />
+          <Bold />
         </ToolbarButton>
         <ToolbarButton
           label="Italic"
@@ -278,7 +334,7 @@ export function RichTextEditor({
           active={editor?.isActive('italic')}
           onClick={() => editor?.chain().focus().toggleItalic().run()}
         >
-          <Italic className="size-3.5" />
+          <Italic />
         </ToolbarButton>
         <ToolbarButton
           label="Underline"
@@ -286,15 +342,24 @@ export function RichTextEditor({
           active={editor?.isActive('underline')}
           onClick={() => editor?.chain().focus().toggleUnderline().run()}
         >
-          <UnderlineIcon className="size-3.5" />
+          <UnderlineIcon />
         </ToolbarButton>
+        <ToolbarButton
+          label="Strikethrough"
+          disabled={disabled || !editor}
+          active={editor?.isActive('strike')}
+          onClick={() => editor?.chain().focus().toggleStrike().run()}
+        >
+          <Strikethrough />
+        </ToolbarButton>
+        <ToolbarDivider />
         <ToolbarButton
           label="Bullet list"
           disabled={disabled || !editor}
           active={editor?.isActive('bulletList')}
           onClick={() => editor?.chain().focus().toggleBulletList().run()}
         >
-          <List className="size-3.5" />
+          <List />
         </ToolbarButton>
         <ToolbarButton
           label="Numbered list"
@@ -302,19 +367,26 @@ export function RichTextEditor({
           active={editor?.isActive('orderedList')}
           onClick={() => editor?.chain().focus().toggleOrderedList().run()}
         >
-          <ListOrdered className="size-3.5" />
+          <ListOrdered />
         </ToolbarButton>
-        <ToolbarButton label="Link" disabled={disabled || !editor} onClick={setLink}>
-          <Link2 className="size-3.5" />
+        <ToolbarDivider />
+        <ToolbarButton
+          label="Link"
+          disabled={disabled || !editor}
+          active={editor?.isActive('link')}
+          onClick={setLink}
+        >
+          <Link2 />
         </ToolbarButton>
         {onAttachmentsChange ? (
           <>
+            <ToolbarDivider />
             <ToolbarButton
               label="Attach files"
               disabled={disabled || attachments.length >= maxAttachments}
               onClick={() => fileInputRef.current?.click()}
             >
-              <Paperclip className="size-3.5" />
+              <Paperclip />
             </ToolbarButton>
             <input
               ref={fileInputRef}
@@ -326,18 +398,20 @@ export function RichTextEditor({
           </>
         ) : null}
         {uploading ? (
-          <span className="ml-1.5 text-[11px] text-muted-foreground">Uploading…</span>
+          <span className="ml-1.5 text-[length:var(--control-text-sm)] text-muted-foreground">
+            Uploading…
+          </span>
         ) : null}
       </div>
       <EditorContent editor={editor} />
       {attachments.length > 0 ? (
-        <ul className="flex flex-wrap gap-1.5 border-t border-white/40 px-2 py-1.5 dark:border-white/10">
+        <ul className="flex flex-wrap gap-1.5 border-t border-border/60 px-2 py-1.5">
           {attachments.map((file, i) => (
             <li
               key={`${file.name}-${i}`}
-              className="inline-flex items-center gap-1 rounded-md bg-muted/60 px-1.5 py-0.5 text-[11px]"
+              className="inline-flex items-center gap-1 rounded-md border border-border/50 bg-muted/60 px-1.5 py-0.5 text-[length:var(--control-text-sm)] text-foreground"
             >
-              <Paperclip className="size-3" />
+              <Paperclip className="size-3 text-muted-foreground" />
               <span className="max-w-[120px] truncate">{file.name}</span>
               <button
                 type="button"

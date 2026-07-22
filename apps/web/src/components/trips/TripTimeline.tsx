@@ -7,7 +7,7 @@ import {
   RefreshCw,
   Wallet,
 } from 'lucide-react';
-import { Card, CardContent, EmptyState, StatusBadge, formatDateTime } from '@wayrune/ui';
+import { Card, CardContent, EmptyState, Skeleton, StatusBadge, formatDateTime } from '@wayrune/ui';
 import { api } from '../../api';
 import { reportError } from '../../lib/errors';
 
@@ -126,7 +126,14 @@ export function TripTimeline({ tripId }: { tripId: string }) {
   }, [load]);
 
   if (loading) {
-    return <p className="text-sm text-muted-foreground">Loading timeline…</p>;
+    return (
+      <div className="space-y-2" role="status" aria-busy="true">
+        <span className="sr-only">Loading</span>
+        <Skeleton className="h-4 w-40" />
+        <Skeleton className="h-8 w-full" />
+        <Skeleton className="h-8 w-full" />
+      </div>
+    );
   }
 
   if (!items.length) {

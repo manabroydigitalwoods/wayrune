@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { DoorOpen, LogIn, LogOut, Users } from 'lucide-react';
-import { Button, Card, CardContent, StatusBadge, toastError, toastSuccess } from '@wayrune/ui';
+import { Button, Card, CardContent, Skeleton, StatusBadge, toastError, toastSuccess } from '@wayrune/ui';
 import { api } from '../../api';
 import { CAP } from '../../lib/capabilities';
 import { reportError } from '../../lib/errors';
@@ -94,7 +94,14 @@ export function StayFrontDeskPanel({ assetId }: { assetId: string }) {
   }
 
   if (!data) {
-    return <p className="text-sm text-muted-foreground">Loading front desk…</p>;
+    return (
+      <div className="space-y-2" role="status" aria-busy="true">
+        <span className="sr-only">Loading</span>
+        <Skeleton className="h-4 w-40" />
+        <Skeleton className="h-8 w-full" />
+        <Skeleton className="h-8 w-full" />
+      </div>
+    );
   }
 
   const hasKnownShape = Array.isArray(data.arrivals) || Array.isArray(data.departures) || Array.isArray(data.inHouse);

@@ -274,7 +274,6 @@ export function ThemePackageUploadDialog({
             <div>
               <div className="mb-1 font-medium text-foreground">If keys already exist</div>
               <Combobox
-                className="h-8"
                 value={onConflict}
                 disabled={busy}
                 onChange={(value) => setOnConflict(value === 'suffix' ? 'suffix' : 'overwrite')}

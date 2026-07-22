@@ -19,20 +19,24 @@ export function PageHeader({
   return (
     <div
       className={cn(
-        'mb-4 shrink-0 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between',
+        'flex shrink-0 flex-col gap-[var(--gap-section)] sm:flex-row sm:items-start sm:justify-between',
         className,
       )}
     >
-      <div className="flex min-w-0 items-start gap-3">
+      <div className="flex min-w-0 items-start gap-[var(--gap-section)]">
         {icon ? <SoftIcon icon={icon} tone="primary" /> : null}
         <div className="min-w-0">
-          <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">{title}</h1>
+          <h1 className="font-display text-xl font-semibold tracking-tight text-foreground">{title}</h1>
           {subtitle ? (
-            <div className="mt-1.5 text-sm text-muted-foreground">{subtitle}</div>
+            <div className="mt-[var(--field-gap)] text-[length:var(--control-text)] text-muted-foreground">
+              {subtitle}
+            </div>
           ) : null}
         </div>
       </div>
-      {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
+      {actions ? (
+        <div className="flex shrink-0 flex-wrap items-center gap-[var(--field-gap)]">{actions}</div>
+      ) : null}
     </div>
   );
 }

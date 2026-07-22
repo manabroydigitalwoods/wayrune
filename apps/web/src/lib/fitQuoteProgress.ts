@@ -20,6 +20,8 @@ export type FitQuoteProgressStep = {
   label: string;
   status: FitQuoteProgressStatus;
   hint: string;
+  /** Short next-action shown beside the current step. */
+  ctaLabel: string | null;
   action: FitQuoteProgressAction | null;
   fixTargetLineId: string | null;
 };
@@ -130,8 +132,9 @@ export function buildFitQuoteProgress(
   );
   const packageDone = input.itemCount > 0;
   const linesMatchedDone = packageDone && matchBlockCount === 0;
+  // Do not mark Margin done while Match is still open — avoids dual “OK” + “Next: Match”.
   const marginOkDone =
-    packageDone && (!input.canViewCost || input.marginGateCount === 0);
+    linesMatchedDone && (!input.canViewCost || input.marginGateCount === 0);
   const readyDone = input.canSend;
 
   let currentAssigned = false;
@@ -147,6 +150,7 @@ export function buildFitQuoteProgress(
       hint: packageDone
         ? `${input.itemCount} service${input.itemCount === 1 ? '' : 's'}`
         : 'Use a template or add services',
+      ctaLabel: status === 'current' ? 'Use template' : null,
       action: packageDone ? null : 'use_template',
       fixTargetLineId: null,
     });
@@ -171,6 +175,7 @@ export function buildFitQuoteProgress(
           : kindCue
             ? `${matchBlockCount} need Match · ${kindCue}`
             : `${matchBlockCount} need Match`,
+      ctaLabel: status === 'current' ? 'Match rates' : null,
       action: linesMatchedDone || !packageDone ? null : 'open_line',
       fixTargetLineId: fixId,
     });
@@ -191,6 +196,7 @@ export function buildFitQuoteProgress(
           : marginOkDone
             ? 'Policy met'
             : `${input.marginGateCount} below floor`,
+      ctaLabel: status === 'current' ? 'Fix margin' : null,
       action:
         !input.canViewCost || marginOkDone || !packageDone ? null : 'margin',
       fixTargetLineId: input.canViewCost ? fixId : null,
@@ -207,6 +213,7 @@ export function buildFitQuoteProgress(
       hint: readyDone
         ? 'Send when the client is ready'
         : 'Validity, travellers, or remaining gates',
+      ctaLabel: status === 'current' ? 'Fix Send gates' : null,
       action: readyDone ? null : 'send_readiness',
       fixTargetLineId: null,
     });

@@ -5,6 +5,10 @@ import {
   pickSeasonalKnowledgeBody,
   tripClimateSeason,
   tripWindowHeadline,
+  destinationDisplayLabel,
+  destinationRefFromDay,
+  locationDisplayLabel,
+  locationRefFromItem,
 } from '@wayrune/contracts';
 
 export type ContentDay = {
@@ -12,6 +16,8 @@ export type ContentDay = {
   dayNumber?: number;
   title?: string;
   date?: string | null;
+  destinationRef?: unknown;
+  destinationLabel?: unknown;
   destination?: unknown;
   items?: Array<{
     id?: string;
@@ -20,6 +26,8 @@ export type ContentDay = {
     description?: string | null;
     startTime?: string | null;
     endTime?: string | null;
+    locationRef?: unknown;
+    locationLabel?: unknown;
     location?: unknown;
     notes?: string | null;
     internalNotes?: string | null;
@@ -544,29 +552,35 @@ export function customerItineraryDays(contentJson: unknown) {
   const raw = contentJson as { days?: ContentDay[] } | ContentDay[] | null;
   const days = Array.isArray(raw) ? raw : Array.isArray(raw?.days) ? raw.days : [];
   return days
-    .map((day, index) => ({
-      dayNumber: day.dayNumber ?? index + 1,
-      title: day.title || `Day ${day.dayNumber ?? index + 1}`,
-      date: day.date ?? null,
-      destination: placeLabel(day.destination),
-      destinationPlaceId: placeIdOf(day.destination),
-      items: (day.items || [])
-        .filter((item) => item.customerVisible !== false)
-        .map((item) => ({
-          type: item.type || 'note',
-          title: item.title || 'Item',
-          description:
-            typeof item.description === 'string' && item.description.trim()
-              ? item.description.trim()
-              : null,
-          startTime: item.startTime ?? null,
-          endTime: item.endTime ?? null,
-          location: placeLabel(item.location),
-          locationPlaceId: placeIdOf(item.location),
-          notes: item.notes ?? null,
-          details: customerSafeDetails(item.details),
-        })),
-    }))
+    .map((day, index) => {
+      const destRef = destinationRefFromDay(day);
+      return {
+        dayNumber: day.dayNumber ?? index + 1,
+        title: day.title || `Day ${day.dayNumber ?? index + 1}`,
+        date: day.date ?? null,
+        destination: destinationDisplayLabel(day),
+        destinationPlaceId: destRef?.placeId ?? null,
+        items: (day.items || [])
+          .filter((item) => item.customerVisible !== false)
+          .map((item) => {
+            const locRef = locationRefFromItem(item);
+            return {
+              type: item.type || 'note',
+              title: item.title || 'Item',
+              description:
+                typeof item.description === 'string' && item.description.trim()
+                  ? item.description.trim()
+                  : null,
+              startTime: item.startTime ?? null,
+              endTime: item.endTime ?? null,
+              location: locationDisplayLabel(item),
+              locationPlaceId: locRef?.placeId ?? null,
+              notes: item.notes ?? null,
+              details: customerSafeDetails(item.details),
+            };
+          }),
+      };
+    })
     .filter((day) => day.items.length > 0 || Boolean(day.title?.trim()));
 }
 
@@ -576,10 +590,10 @@ export function collectContentPlaceIds(contentJson: unknown): string[] {
   const days = Array.isArray(raw) ? raw : Array.isArray(raw?.days) ? raw.days : [];
   const ids = new Set<string>();
   for (const day of days) {
-    const destId = placeIdOf(day.destination);
+    const destId = destinationRefFromDay(day)?.placeId;
     if (destId) ids.add(destId);
     for (const item of day.items || []) {
-      const locId = placeIdOf(item.location);
+      const locId = locationRefFromItem(item)?.placeId;
       if (locId) ids.add(locId);
       const catalogId = item.details?.catalogPlaceId;
       if (typeof catalogId === 'string' && catalogId.trim()) ids.add(catalogId.trim());

@@ -7,6 +7,7 @@ import {
 } from '../../lib/releaseNotes';
 import { ClaimGatesPanel } from './ClaimGatesPanel';
 import { DemoOperateReplacePanel } from './DemoOperateReplacePanel';
+import { PilotReadinessPanel } from './PilotReadinessPanel';
 
 /** Settings → About: claim-safe release notes (no Save). Also used on public /changelog. */
 export function AboutReleaseNotesPanel({
@@ -18,6 +19,7 @@ export function AboutReleaseNotesPanel({
 
   return (
     <div className="space-y-6">
+      <PilotReadinessPanel />
       <ClaimGatesPanel />
       <DemoOperateReplacePanel />
       <div className="space-y-1">

@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Search } from 'lucide-react';
-import { Input } from '@wayrune/ui';
+import { Input, cn } from '@wayrune/ui';
 import { api } from '../api';
 
 type SearchHit = {
@@ -39,6 +39,16 @@ const TYPE_LABEL: Record<string, string> = {
   asset: 'Asset',
 };
 
+function useModKeyLabel() {
+  return useMemo(() => {
+    if (typeof navigator === 'undefined') return '⌘';
+    const platform = navigator.platform || '';
+    const ua = navigator.userAgent || '';
+    const isApple = /Mac|iPhone|iPad|iPod/.test(platform) || /Mac OS X/.test(ua);
+    return isApple ? '⌘' : 'Ctrl';
+  }, []);
+}
+
 export function GlobalSearch({ onNavigate }: { onNavigate: (to: string) => void }) {
   const [q, setQ] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
@@ -46,6 +56,8 @@ export function GlobalSearch({ onNavigate }: { onNavigate: (to: string) => void 
   const [facets, setFacets] = useState<Record<string, number>>({});
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const modKey = useModKeyLabel();
 
   useEffect(() => {
     if (q.trim().length < 2) {
@@ -78,19 +90,52 @@ export function GlobalSearch({ onNavigate }: { onNavigate: (to: string) => void 
     return () => document.removeEventListener('mousedown', onDoc);
   }, []);
 
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'k') return;
+      if (e.defaultPrevented) return;
+      // Digital Presence owns ⌘K for its command palette while that page is mounted.
+      if (document.querySelector('[data-presence-command-palette]')) return;
+      e.preventDefault();
+      const input = inputRef.current;
+      if (!input) return;
+      input.focus();
+      input.select();
+      if (q.trim().length >= 2) setOpen(true);
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [q]);
+
   const totalFacets = Object.values(facets).reduce((a, b) => a + b, 0);
+  const shortcutLabel = `${modKey}K`;
 
   return (
-    <div ref={wrapRef} className="relative w-full max-w-sm">
+    <div ref={wrapRef} className="relative w-[min(100%,11.5rem)] shrink-0 sm:w-[13rem]">
       <div className="relative">
-        <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+        <Search className="pointer-events-none absolute left-2 top-1/2 size-3 -translate-y-1/2 text-muted-foreground/55" />
         <Input
+          ref={inputRef}
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onFocus={() => (results.length || totalFacets > 0) && setOpen(true)}
-          placeholder="Search parties, trips, leads…"
-          className="h-9 pl-8 text-sm"
+          placeholder="Search Wayrune…"
+          aria-label="Search Wayrune"
+          aria-keyshortcuts="Meta+K Control+K"
+          className={cn(
+            'h-[var(--control-h-sm)] border-border/40 bg-muted/25 pl-7 pr-10',
+            'text-[length:var(--control-text-sm)] text-muted-foreground shadow-none',
+            'placeholder:text-muted-foreground/50',
+            'hover:border-border/55 hover:bg-muted/35',
+            'focus-visible:border-border/70 focus-visible:bg-background/80 focus-visible:text-foreground focus-visible:ring-1 focus-visible:ring-ring/40',
+          )}
         />
+        <kbd
+          className="pointer-events-none absolute right-1.5 top-1/2 hidden -translate-y-1/2 select-none items-center rounded border border-border/45 bg-background/40 px-1 py-px font-sans text-[10px] font-medium leading-none text-muted-foreground/55 sm:inline-flex"
+          aria-hidden
+        >
+          {shortcutLabel}
+        </kbd>
       </div>
       {open && q.trim().length >= 2 ? (
         <div className="absolute right-0 z-50 mt-1 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-border/70 bg-card shadow-lg">

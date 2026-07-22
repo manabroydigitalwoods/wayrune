@@ -49,22 +49,25 @@ export function PresenceCommandPalette({ orgId }: { orgId: string }) {
   }, [q, open]);
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-lg">
-        <DialogHeader className="sr-only">
-          <DialogTitle>Search Digital Presence</DialogTitle>
-        </DialogHeader>
-        <div className="flex items-center gap-2 border-b px-3 py-2">
-          <Search className="size-4 text-muted-foreground" />
-          <Input
-            autoFocus
-            className="border-0 shadow-none focus-visible:ring-0"
-            placeholder="Search pages, themes, components, forms, collections…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-          />
-          <kbd className="rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground">⌘K</kbd>
-        </div>
+    <>
+      {/* Always mounted so global ⌘K yields to Presence while this page is active. */}
+      <span data-presence-command-palette hidden aria-hidden />
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-lg">
+          <DialogHeader className="sr-only">
+            <DialogTitle>Search Digital Presence</DialogTitle>
+          </DialogHeader>
+          <div className="flex items-center gap-2 border-b px-3 py-2">
+            <Search className="size-4 text-muted-foreground" />
+            <Input
+              autoFocus
+              className="border-0 shadow-none focus-visible:ring-0"
+              placeholder="Search pages, themes, components, forms, collections…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+            <kbd className="rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground">⌘K</kbd>
+          </div>
         <div className="max-h-80 overflow-y-auto p-2">
           {loading ? (
             <p className="px-2 py-3 text-xs text-muted-foreground">Searching…</p>
@@ -108,5 +111,6 @@ export function PresenceCommandPalette({ orgId }: { orgId: string }) {
         </div>
       </DialogContent>
     </Dialog>
+    </>
   );
 }

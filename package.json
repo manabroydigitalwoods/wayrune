@@ -17,6 +17,8 @@
     "typecheck": "turbo run typecheck",
     "test": "APP_ENV=local turbo run test",
     "test:integration": "APP_ENV=local turbo run test:integration",
+    "test:e2e": "pnpm --filter @wayrune/web-e2e test:e2e",
+    "test:e2e:ui": "pnpm --filter @wayrune/web-e2e test:e2e:ui",
     "db:generate": "prisma generate --schema=prisma/schema.prisma",
     "db:check-migrations": "node scripts/check-mysql-migrations.mjs",
     "db:migrate": "node scripts/db-migrate-deploy.mjs",
@@ -25,6 +27,7 @@
     "db:migrate:repair": "node scripts/repair-migration-checksums.mjs",
     "db:migrate:dev": "prisma migrate dev --schema=prisma/schema.prisma",
     "db:seed": "node --import tsx prisma/seed/seed.ts",
+    "db:seed:scenarios": "node --import tsx prisma/seed/scenario-bulk-seed.ts",
     "db:studio": "prisma studio --schema=prisma/schema.prisma",
     "presence:catalog:backup": "node --import tsx scripts/presence-catalog/cli.ts backup",
     "presence:catalog:reset": "node --import tsx scripts/presence-catalog/cli.ts reset",
@@ -35,7 +38,9 @@
     "wr:catalog:reset": "node --import tsx scripts/presence-catalog/cli.ts reset",
     "wr:catalog:seed": "node --import tsx scripts/presence-catalog/cli.ts seed",
     "wr:catalog:validate": "node --import tsx scripts/presence-catalog/cli.ts validate",
-    "wr:catalog:smoke": "node --import tsx scripts/presence-catalog/cli.ts smoke"
+    "wr:catalog:smoke": "node --import tsx scripts/presence-catalog/cli.ts smoke",
+    "places:ingest": "node --import tsx scripts/places-ingest/cli.ts",
+    "places:ingest:test": "pnpm --filter @wayrune/web exec vitest run --config ../../scripts/places-ingest/vitest.config.ts --dir ../../scripts/places-ingest"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

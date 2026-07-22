@@ -18,7 +18,16 @@ import {
   ROLE_PERMISSION_MAP,
 } from '@wayrune/config';
 import { ORG_KINDS, permissionAllowedForOrgKind } from '@wayrune/rbac';
-import type { LoginInput, RegisterInput } from '@wayrune/contracts';
+import {
+  UpdateUserPreferencesSchema,
+  UserAppearancePreferencesSchema,
+  parseOrgAppearanceDefaults,
+  orgAppearanceHasValues,
+  type LoginInput,
+  type RegisterInput,
+  type UpdateUserPreferencesInput,
+  type UserPreferences,
+} from '@wayrune/contracts';
 import { createLogger } from '@wayrune/observability';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -28,6 +37,15 @@ import type { AuthUser } from '../../common/helpers';
 import { invalidateMembershipAuthCache } from './auth.guard';
 
 const log = createLogger('auth');
+
+function parseUserPreferences(raw: unknown): UserPreferences {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const parsed = UpdateUserPreferencesSchema.safeParse(raw);
+  if (!parsed.success) return {};
+  return {
+    appearance: UserAppearancePreferencesSchema.parse(parsed.data.appearance ?? {}),
+  };
+}
 
 @Injectable()
 export class AuthService {
@@ -227,10 +245,13 @@ export class AuthService {
         : 'd_mmm_yyyy';
     const timeFormat =
       display.timeFormat === 'h12' || display.timeFormat === 'h24' ? display.timeFormat : 'h24';
+    const appearance = parseUserPreferences(dbUser.preferencesJson).appearance ?? {};
+    const appearanceDefaults = parseOrgAppearanceDefaults(settings.appearance);
     return {
       id: dbUser.id,
       email: dbUser.email,
       fullName: dbUser.fullName,
+      preferences: { appearance },
       organization: {
         id: org.id,
         name: org.name,
@@ -243,6 +264,9 @@ export class AuthService {
         currency: org.currency,
         dateFormat,
         timeFormat,
+        appearanceDefaults: orgAppearanceHasValues(appearanceDefaults)
+          ? appearanceDefaults
+          : undefined,
       },
       memberships: membershipRows.map((m) => ({
         organizationId: m.organization.id,
@@ -255,6 +279,33 @@ export class AuthService {
       })),
       roles: activeMembership?.roles.map((mr) => mr.role.key) ?? [],
       permissions: user.permissions,
+    };
+  }
+
+  async updatePreferences(user: AuthUser, input: UpdateUserPreferencesInput) {
+    const current = await this.prisma.user.findUniqueOrThrow({
+      where: { id: user.sub },
+      select: { preferencesJson: true },
+    });
+    const currentAppearance = parseUserPreferences(current.preferencesJson).appearance ?? {};
+    const nextAppearance =
+      input.appearance === null
+        ? {}
+        : UserAppearancePreferencesSchema.parse({
+            ...currentAppearance,
+            ...(input.appearance ?? {}),
+          });
+    const updated = await this.prisma.user.update({
+      where: { id: user.sub },
+      data: {
+        preferencesJson: { appearance: nextAppearance } as Prisma.InputJsonValue,
+      },
+      select: { preferencesJson: true },
+    });
+    return {
+      preferences: {
+        appearance: parseUserPreferences(updated.preferencesJson).appearance ?? {},
+      },
     };
   }
 

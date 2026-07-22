@@ -60,16 +60,16 @@ export function RecordDialog({
           <DialogTitle>{title}</DialogTitle>
           {description ? <DialogDescription>{description}</DialogDescription> : null}
         </DialogHeader>
-        <DialogBody>{children}</DialogBody>
+        <DialogBody className="stack-form">{children}</DialogBody>
         {hideFooter ? null : footer ? (
           <DialogFooter>{footer}</DialogFooter>
         ) : (
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            <Button type="button" variant="outline" size="sm" onClick={() => onOpenChange(false)}>
               {cancelLabel}
             </Button>
             {onSubmit ? (
-              <Button type="button" onClick={onSubmit} disabled={submitting || submitDisabled}>
+              <Button type="button" size="sm" onClick={onSubmit} disabled={submitting || submitDisabled}>
                 {submitting ? 'Saving…' : submitLabel}
               </Button>
             ) : null}

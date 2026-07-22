@@ -1,6 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
-import type { ColumnDef } from '@tanstack/react-table';
+import type { ColumnDef, VisibilityState } from '@tanstack/react-table';
 import {
   Download,
   ExternalLink,
@@ -18,11 +18,13 @@ import {
   Plus,
   Puzzle,
   Rocket,
+  Search,
   Settings2,
   Store,
   Trash2,
   Upload,
   WandSparkles,
+  X,
 } from 'lucide-react';
 import {
   Button,
@@ -39,20 +41,29 @@ import {
   Input,
   Label,
   ListPageShell,
-  PageHeader,
+  PageSkeleton,
   RecordSheet,
+  Skeleton,
   StatusBadge,
   StorageKeys,
   SuggestionChips,
   Textarea,
   cn,
   formatDateTime,
+  localStorageKit,
   toastError,
   toastSuccess,
+  usePageChrome,
 } from '@wayrune/ui';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { Can } from '../components/Can';
+import {
+  ActiveFilterChips,
+  DisplayMenu,
+  FilterMenu,
+  QUEUE_PAGE_SEARCH_CLASS,
+} from '../components/queue';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import {
   presenceMarketplacePath,
@@ -69,6 +80,11 @@ import {
 } from '../lib/agencyRoutes';
 import { CAP } from '../lib/capabilities';
 import { usePermissions } from '../lib/permissions';
+import {
+  parsePresencePagesQueryState,
+  patchPresencePagesQueryParams,
+  presencePagesQueryHasFilters,
+} from '../lib/queue';
 import { PresencePageBuilder } from './presence/builder/PresencePageBuilder';
 import {
   previewRendererUrl,
@@ -188,8 +204,17 @@ type MarketplaceListing = {
   sourceAssetVersion?: { id: string; assetType: string; version: number } | null;
 };
 
+function readPresencePagesColumnVisibility(): VisibilityState {
+  const defaults: VisibilityState = { searchText: false, template: false };
+  const stored = localStorageKit.getJson<VisibilityState>(StorageKeys.presence.columns, {
+    version: 1,
+  });
+  if (!stored || typeof stored !== 'object') return defaults;
+  return { ...defaults, ...stored };
+}
+
 export function DigitalPresencePage() {
-  useDocumentTitle('Websites');
+  useDocumentTitle('Website');
   const { me } = useAuth();
   const { hasAny } = usePermissions();
   const canWrite = hasAny(CAP.orgSettingsWrite);
@@ -209,6 +234,58 @@ export function DigitalPresencePage() {
   const isSite = location.pathname.includes('/sites/');
   const pageView =
     (new URLSearchParams(location.search).get('view') as PageView) || 'all';
+
+  const isPagesIndex =
+    !isThemes &&
+    !isModules &&
+    !isForms &&
+    !isWidgets &&
+    !isDomains &&
+    !isAssets &&
+    !isCollections &&
+    !isMarketplace &&
+    !isSite &&
+    !isBuilder;
+
+  const pageTitle = isForms
+    ? 'Forms'
+    : isWidgets
+      ? 'Widgets'
+    : isDomains
+      ? 'Domains'
+      : isAssets
+        ? 'Assets'
+        : isCollections
+          ? 'Collections'
+          : isThemes
+            ? 'Themes'
+            : isModules
+              ? 'Components'
+              : isMarketplace
+                ? 'Marketplace'
+                : 'Website';
+
+  const pageSubtitle = isPagesIndex
+    ? 'Your websites first — then pages within each site.'
+    : isThemes
+      ? 'Theme catalog and custom brand themes.'
+      : isModules
+        ? 'Component library for page sections.'
+        : isForms
+          ? 'Lead-capture forms → CRM inquiries. Edit fields and ingest mode here.'
+          : isWidgets
+            ? 'Chat widgets for Presence sites and external embeds. Inbox shows which widget sent each message.'
+          : isDomains
+            ? 'Platform hosts and custom domains for each website.'
+            : isAssets
+              ? 'Upload images for websites; use them from the builder media picker.'
+              : isCollections
+                ? 'CMS content as data sources and auto listing/detail routes.'
+                : isMarketplace
+                  ? 'Discover and install themes and components shared across organizations.'
+                  : 'Your websites first — then pages within each site.';
+
+  usePageChrome({ title: pageTitle, subtitle: pageSubtitle });
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -555,12 +632,140 @@ export function DigitalPresencePage() {
     );
   }, [tableRows, pageView]);
 
-  const defaultStatusFacet =
-    pageView === 'drafts'
-      ? { status: 'draft' }
-      : pageView === 'published'
-        ? { status: 'published' }
-        : undefined;
+  const pagesQuery = useMemo(
+    () => parsePresencePagesQueryState(new URLSearchParams(location.search)),
+    [location.search],
+  );
+  const [pagesSearchDraft, setPagesSearchDraft] = useState(pagesQuery.q ?? '');
+  const [pagesColumnVisibility, setPagesColumnVisibility] = useState<VisibilityState>(() =>
+    readPresencePagesColumnVisibility(),
+  );
+
+  function applyPagesQuery(patch: Parameters<typeof patchPresencePagesQueryParams>[1]) {
+    if (!orgId) return;
+    const qs = patchPresencePagesQueryParams(new URLSearchParams(location.search), patch);
+    navigate(`${presencePagesPath(orgId)}?${qs.toString()}`, { replace: true });
+  }
+
+  useEffect(() => {
+    setPagesSearchDraft(pagesQuery.q ?? '');
+  }, [pagesQuery.q]);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      const next = pagesSearchDraft.trim();
+      if ((pagesQuery.q ?? '') === next) return;
+      applyPagesQuery({ q: next || undefined });
+    }, 300);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce draft only
+  }, [pagesSearchDraft]);
+
+  function togglePagesColumn(id: string, visible: boolean) {
+    setPagesColumnVisibility((prev) => {
+      const next = { ...prev, [id]: visible };
+      localStorageKit.setJson(StorageKeys.presence.columns, next, { version: 1 });
+      return next;
+    });
+  }
+
+  const presentTemplateOptions = useMemo(() => {
+    const present = new Set(tableRows.map((page) => page.template?.name || 'Blank'));
+    return Array.from(present)
+      .sort((a, b) => a.localeCompare(b))
+      .map((name) => ({ value: name, label: name }));
+  }, [tableRows]);
+
+  const filteredTableData = useMemo(() => {
+    let list = tableData;
+    if (pagesQuery.template) {
+      list = list.filter((page) => (page.template?.name || 'Blank') === pagesQuery.template);
+    }
+    const q = pagesQuery.q?.trim().toLowerCase();
+    if (q) {
+      list = list.filter((page) => (page.searchText || '').includes(q));
+    }
+    return list;
+  }, [tableData, pagesQuery.template, pagesQuery.q]);
+
+  const pagesFilterDefs =
+    presentTemplateOptions.length > 1
+      ? [
+          {
+            id: 'template',
+            label: 'Template',
+            icon: LayoutTemplate,
+            value: pagesQuery.template ?? null,
+            options: presentTemplateOptions,
+            onSelect: (value: string | null) => applyPagesQuery({ template: value || undefined }),
+          },
+        ]
+      : [];
+
+  const pagesFilterChips = [
+    pagesQuery.template
+      ? {
+          id: 'template',
+          label: `Template: ${pagesQuery.template}`,
+          onRemove: () => applyPagesQuery({ template: undefined }),
+        }
+      : null,
+  ].filter(Boolean) as Array<{ id: string; label: string; onRemove: () => void }>;
+
+  const pagesDisplayColumns = [
+    { id: 'modules', label: 'Sections', visible: pagesColumnVisibility.modules !== false },
+    {
+      id: 'template',
+      label: 'Template',
+      visible: pagesColumnVisibility.template !== false,
+      icon: LayoutTemplate,
+    },
+    { id: 'status', label: 'Status', visible: pagesColumnVisibility.status !== false },
+    { id: 'updatedAt', label: 'Updated', visible: pagesColumnVisibility.updatedAt !== false },
+  ];
+
+  const hasPagesExtraFilters = presencePagesQueryHasFilters(pagesQuery) || Boolean(pagesQuery.q);
+
+  function clearPagesFilters() {
+    applyPagesQuery({ clearFilters: true });
+  }
+
+  function clearPagesFiltersAndSearch() {
+    setPagesSearchDraft('');
+    applyPagesQuery({ clearFilters: true, q: '' });
+  }
+
+  const pagesQueueToolbar = (
+    <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+      <div className="relative min-w-[12rem] flex-1 basis-[14rem]">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 size-[0.875em] -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={pagesSearchDraft}
+          onChange={(e) => setPagesSearchDraft(e.target.value)}
+          placeholder="Search pages in this site…"
+          className={cn(QUEUE_PAGE_SEARCH_CLASS, pagesSearchDraft.trim() && 'pr-8')}
+          aria-label="Search pages"
+        />
+        {pagesSearchDraft.trim() ? (
+          <button
+            type="button"
+            className="absolute right-1.5 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+            aria-label="Clear search"
+            onClick={() => {
+              setPagesSearchDraft('');
+              applyPagesQuery({ q: '' });
+            }}
+          >
+            <X className="size-3.5" />
+          </button>
+        ) : null}
+      </div>
+      <div className="flex flex-wrap items-center gap-1">
+        <FilterMenu filters={pagesFilterDefs} />
+        <DisplayMenu columns={pagesDisplayColumns} onToggleColumn={togglePagesColumn} />
+      </div>
+    </div>
+  );
 
   const setPageView = (view: PageView) => {
     if (!orgId) return;
@@ -1181,103 +1386,48 @@ export function DigitalPresencePage() {
     sites[0]?.id ||
     null;
 
-  const isPagesIndex =
-    !isThemes &&
-    !isModules &&
-    !isForms &&
-    !isWidgets &&
-    !isDomains &&
-    !isAssets &&
-    !isCollections &&
-    !isMarketplace &&
-    !isSite;
   const publicHomeUrl = publicPageUrl(identity, '/');
   const previewHomeUrl = previewRendererUrl(identity, '/');
-
-  const pageTitle = isForms
-    ? 'Forms'
-    : isWidgets
-      ? 'Widgets'
-    : isDomains
-      ? 'Domains'
-      : isAssets
-        ? 'Assets'
-        : isCollections
-          ? 'Collections'
-          : isThemes
-            ? 'Themes'
-            : isModules
-              ? 'Components'
-              : isMarketplace
-                ? 'Marketplace'
-                : 'Websites';
-
-  const pageSubtitle = isPagesIndex
-    ? 'Your websites first — then pages within each site.'
-    : isThemes
-      ? 'Theme catalog and custom brand themes.'
-      : isModules
-        ? 'Component library for page sections.'
-        : isForms
-          ? 'Lead-capture forms → CRM inquiries. Edit fields and ingest mode here.'
-          : isWidgets
-            ? 'Chat widgets for Presence sites and external embeds. Inbox shows which widget sent each message.'
-          : isDomains
-            ? 'Platform hosts and custom domains for each website.'
-            : isAssets
-              ? 'Upload images for websites; use them from the builder media picker.'
-              : isCollections
-                ? 'CMS content as data sources and auto listing/detail routes.'
-                : isMarketplace
-                  ? 'Discover and install themes and components shared across organizations.'
-                  : 'Your websites first — then pages within each site.';
 
   return (
       <ListPageShell>
         <PresenceCommandPalette orgId={orgId} />
-        <PageHeader
-          title={pageTitle}
-          subtitle={pageSubtitle}
-          icon={Globe}
-          actions={
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="flex items-center gap-1 rounded-xl border p-1 glass-strong">
-                {navItems.map((item) => {
-                  const active =
-                    (item.key === 'pages' && isPagesIndex) ||
-                    (item.key === 'themes' && isThemes) ||
-                    (item.key === 'modules' && isModules) ||
-                    (item.key === 'forms' && isForms) ||
-                    (item.key === 'widgets' && isWidgets) ||
-                    (item.key === 'collections' && isCollections) ||
-                    (item.key === 'domains' && isDomains) ||
-                    (item.key === 'assets' && isAssets) ||
-                    (item.key === 'marketplace' && isMarketplace);
-                  return (
-                    <Button
-                      key={item.key}
-                      size="sm"
-                      variant={active ? 'secondary' : 'ghost'}
-                      onClick={() => navigate(item.href)}
-                    >
-                      <item.icon className="mr-1.5 size-3.5" />
-                      {item.label}
-                    </Button>
-                  );
-                })}
-              </div>
-              <Can anyOf={CAP.orgSettingsWrite}>
-                {!sites.length && isPagesIndex ? (
-                  <Button onClick={() => openCreateWizard('site')}>
-                    <Plus className="mr-2 size-4" />
-                    Create website
-                  </Button>
-                ) : null}
-              </Can>
-            </div>
-          }
-        />
-        {loading ? <div className="text-sm text-muted-foreground">Loading presence workspace...</div> : null}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1 rounded-xl border p-1 glass-strong">
+            {navItems.map((item) => {
+              const active =
+                (item.key === 'pages' && isPagesIndex) ||
+                (item.key === 'themes' && isThemes) ||
+                (item.key === 'modules' && isModules) ||
+                (item.key === 'forms' && isForms) ||
+                (item.key === 'widgets' && isWidgets) ||
+                (item.key === 'collections' && isCollections) ||
+                (item.key === 'domains' && isDomains) ||
+                (item.key === 'assets' && isAssets) ||
+                (item.key === 'marketplace' && isMarketplace);
+              return (
+                <Button
+                  key={item.key}
+                  size="sm"
+                  variant={active ? 'secondary' : 'ghost'}
+                  onClick={() => navigate(item.href)}
+                >
+                  <item.icon className="mr-1.5 size-3.5" />
+                  {item.label}
+                </Button>
+              );
+            })}
+          </div>
+          <Can anyOf={CAP.orgSettingsWrite}>
+            {!sites.length && isPagesIndex ? (
+              <Button onClick={() => openCreateWizard('site')}>
+                <Plus className="mr-2 size-4" />
+                Create website
+              </Button>
+            ) : null}
+          </Can>
+        </div>
+        {loading ? <PageSkeleton variant="workspace" /> : null}
         {error ? <EmptyState title="Presence workspace" description={error} /> : null}
 
         {!loading && !error && isPagesIndex ? (
@@ -1432,43 +1582,51 @@ export function DigitalPresencePage() {
                           { value: 'recent', label: `Recent (${recentCount})` },
                         ]}
                       />
+                      {pagesQueueToolbar}
+                      <ActiveFilterChips
+                        chips={pagesFilterChips}
+                        onClear={
+                          presencePagesQueryHasFilters(pagesQuery) ? clearPagesFilters : undefined
+                        }
+                      />
                       <DataTable
-                        key={`presence-pages-${selectedSite.id}-${pageView}`}
+                        key={`presence-pages-${selectedSite.id}-${pageView}-${JSON.stringify(pagesColumnVisibility)}`}
                         columns={pageColumns}
-                        data={tableData}
+                        data={filteredTableData}
                         loading={loading}
                         error={error || undefined}
                         pageSize={25}
-                        searchKey="searchText"
-                        searchPlaceholder="Search pages in this site…"
+                        showSearch={false}
+                        showColumnsMenu={false}
+                        defaultColumnVisibility={pagesColumnVisibility}
                         columnVisibilityKey={StorageKeys.presence.columns}
-                        defaultColumnVisibility={{ searchText: false, template: false }}
-                        defaultFacetValues={defaultStatusFacet}
-                        facets={[
-                          {
-                            id: 'status',
-                            columnId: 'status',
-                            label: 'Status',
-                            options: [
-                              { value: 'draft', label: 'Draft' },
-                              { value: 'published', label: 'Published' },
-                            ],
-                          },
-                        ]}
-                        emptyTitle="No pages in this site"
+                        emptyTitle={hasPagesExtraFilters ? 'No matching pages' : 'No pages in this site'}
                         emptyDescription={
-                          pageView === 'drafts'
-                            ? 'Draft pages will show up here as you create them.'
-                            : 'Add a page to this website from a starter layout.'
+                          hasPagesExtraFilters
+                            ? 'Try clearing filters or search.'
+                            : pageView === 'drafts'
+                              ? 'Draft pages will show up here as you create them.'
+                              : 'Add a page to this website from a starter layout.'
                         }
                         emptyIcon={FileText}
                         emptyAction={
-                          <Can anyOf={CAP.orgSettingsWrite}>
-                            <Button onClick={() => openCreateWizard('page')}>
-                              <Plus className="size-4" />
-                              New page
+                          hasPagesExtraFilters ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={clearPagesFiltersAndSearch}
+                            >
+                              Clear filters
                             </Button>
-                          </Can>
+                          ) : (
+                            <Can anyOf={CAP.orgSettingsWrite}>
+                              <Button onClick={() => openCreateWizard('page')}>
+                                <Plus className="size-4" />
+                                New page
+                              </Button>
+                            </Can>
+                          )
                         }
                       />
                     </section>
@@ -1612,7 +1770,6 @@ export function DigitalPresencePage() {
                     <div className="space-y-1">
                       <Label className="text-xs">Theme</Label>
                       <Combobox
-                        className="h-8"
                         value={versionsAssetId}
                         onChange={setVersionsAssetId}
                         options={ownedThemes.map((theme) => ({
@@ -1654,7 +1811,12 @@ export function DigitalPresencePage() {
                   </div>
                   <div className="max-h-36 space-y-1 overflow-auto">
                     {versionsLoading ? (
-                      <div className="text-xs text-muted-foreground">Loading…</div>
+                      <div role="status" aria-busy="true" className="space-y-1.5 py-1">
+                        <span className="sr-only">Loading</span>
+                        <Skeleton className="h-7 w-full" />
+                        <Skeleton className="h-7 w-full" />
+                        <Skeleton className="h-7 w-4/5" />
+                      </div>
                     ) : versions.length ? (
                       versions.map((v) => (
                         <div
@@ -1807,7 +1969,12 @@ export function DigitalPresencePage() {
                     </div>
                     <div className="space-y-1.5 pt-1">
                       {moduleVersionsLoading ? (
-                        <div className="text-xs text-muted-foreground">Loading versions…</div>
+                        <div role="status" aria-busy="true" className="space-y-1.5 py-1">
+                          <span className="sr-only">Loading</span>
+                          <Skeleton className="h-7 w-full" />
+                          <Skeleton className="h-7 w-full" />
+                          <Skeleton className="h-7 w-4/5" />
+                        </div>
                       ) : moduleVersions.length ? (
                         moduleVersions.map((v) => (
                           <div
@@ -1966,7 +2133,12 @@ export function DigitalPresencePage() {
               </Button>
             </div>
             {marketplaceLoading ? (
-              <div className="text-sm text-muted-foreground">Loading marketplace…</div>
+              <div className="space-y-2" role="status" aria-busy="true">
+                <span className="sr-only">Loading</span>
+                <Skeleton className="h-4 w-40" />
+                <Skeleton className="h-24 w-full" />
+                <Skeleton className="h-24 w-full" />
+              </div>
             ) : marketplaceListings.length ? (
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {marketplaceListings.map((listing) => {

@@ -234,6 +234,19 @@ function metaChangeRows(
       current: truncateDisplay(active.destinationHint || ''),
     });
   }
+  if (wanted.has('destination identity')) {
+    const fmt = (c: QuoteTemplateContent) => {
+      const id = (c.destinationPlaceId || '').trim();
+      const hint = (c.destinationHint || '').trim();
+      if (!id) return 'Unlinked';
+      return hint ? `Linked · ${truncateDisplay(hint)}` : 'Linked catalog record';
+    };
+    rows.push({
+      field: 'Destination identity',
+      thisTip: fmt(prior),
+      current: fmt(active),
+    });
+  }
   if (wanted.has('currency')) {
     rows.push({
       field: 'Currency',
@@ -351,7 +364,10 @@ export function diffQuoteTemplateContent(
   const metaChanges: string[] = [];
   const priorDest = (prior.destinationHint || '').trim();
   const activeDest = (active.destinationHint || '').trim();
+  const priorDestId = (prior.destinationPlaceId || '').trim();
+  const activeDestId = (active.destinationPlaceId || '').trim();
   if (priorDest !== activeDest) metaChanges.push('destination');
+  else if (priorDestId !== activeDestId) metaChanges.push('destination identity');
 
   if ((prior.currency || '').toUpperCase() !== (active.currency || '').toUpperCase()) {
     metaChanges.push('currency');

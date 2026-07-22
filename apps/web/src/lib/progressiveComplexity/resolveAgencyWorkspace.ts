@@ -32,7 +32,7 @@ const WORKSPACE_PRIORITY_INDEX = new Map(
 
 /** Human label for workspace switcher / shell chrome. */
 export const WORKSPACE_LABELS: Record<AgencyWorkspace, string> = {
-  owner: 'Business overview',
+  owner: 'Dashboard',
   sales_manager: 'Sales management',
   sales_executive: 'Sales',
   travel_consultant: 'Planning',

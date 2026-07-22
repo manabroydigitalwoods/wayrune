@@ -105,6 +105,47 @@ export function movementWindow(days: number, now = new Date()): {
   return { from, to, days: n };
 }
 
+/** Parse YYYY-MM-DD as UTC calendar day start. */
+export function parseUtcYmd(ymd: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd.trim())) return null;
+  const [y, m, d] = ymd.trim().split('-').map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(Date.UTC(y, m - 1, d));
+}
+
+/**
+ * Inclusive calendar from/to (YYYY-MM-DD) → exclusive end Date for window filters.
+ * Aligns with UI DateRangeFilter day strings; compares as UTC calendar days.
+ */
+export function movementWindowFromRange(
+  fromYmd: string,
+  toYmd: string,
+): { from: Date; to: Date; days: number } | null {
+  const from = parseUtcYmd(fromYmd);
+  const toInclusive = parseUtcYmd(toYmd);
+  if (!from || !toInclusive) return null;
+  if (toInclusive.getTime() < from.getTime()) return null;
+  const to = addUtcDays(toInclusive, 1);
+  const days = Math.max(
+    1,
+    Math.round((to.getTime() - from.getTime()) / (24 * 60 * 60 * 1000)),
+  );
+  return { from, to, days: Math.min(366, days) };
+}
+
+export function resolveMovementWindow(opts: {
+  days?: number;
+  from?: string | null;
+  to?: string | null;
+  now?: Date;
+}): { from: Date; to: Date; days: number } {
+  if (opts.from && opts.to) {
+    const ranged = movementWindowFromRange(opts.from, opts.to);
+    if (ranged) return ranged;
+  }
+  return movementWindow(opts.days ?? 14, opts.now);
+}
+
 export function effectiveMovementDate(
   booking: Pick<MovementBoardBooking, 'startAt' | 'tripStartDate'>,
 ): Date | null {
@@ -297,6 +338,8 @@ export function buildMovementBoard(opts: {
   bookings: MovementBoardBooking[];
   financeByTrip: Map<string, MovementBoardTripFinance>;
   days?: number;
+  from?: string | null;
+  to?: string | null;
   now?: Date;
 }): {
   window: { from: string; to: string; days: number };
@@ -304,7 +347,12 @@ export function buildMovementBoard(opts: {
   summary: MovementBoardSummary;
 } {
   const now = opts.now ?? new Date();
-  const win = movementWindow(opts.days ?? 14, now);
+  const win = resolveMovementWindow({
+    days: opts.days,
+    from: opts.from,
+    to: opts.to,
+    now,
+  });
   const inWindow = opts.bookings.filter((b) =>
     bookingInMovementWindow(b, win.from, win.to),
   );

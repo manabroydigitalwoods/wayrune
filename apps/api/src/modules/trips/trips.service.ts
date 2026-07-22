@@ -556,12 +556,31 @@ export class TripsService {
     q?: string,
     status?: string,
     partyId?: string,
+    travelFrom?: string | null,
+    travelTo?: string | null,
   ) {
+    const startDateFilter: Prisma.DateTimeNullableFilter | undefined = (() => {
+      const gte =
+        travelFrom && /^\d{4}-\d{2}-\d{2}$/.test(travelFrom)
+          ? new Date(`${travelFrom}T00:00:00.000Z`)
+          : undefined;
+      const lte =
+        travelTo && /^\d{4}-\d{2}-\d{2}$/.test(travelTo)
+          ? new Date(`${travelTo}T23:59:59.999Z`)
+          : undefined;
+      if (!gte && !lte) return undefined;
+      return {
+        ...(gte ? { gte } : {}),
+        ...(lte ? { lte } : {}),
+      };
+    })();
+
     const where: Prisma.TripWhereInput = {
       organizationId,
       deletedAt: null,
       ...(status ? { status } : {}),
       ...(partyId ? { partyId } : {}),
+      ...(startDateFilter ? { startDate: startDateFilter } : {}),
       ...(q
         ? {
             OR: [
@@ -618,7 +637,7 @@ export class TripsService {
     const trip = await this.prisma.trip.findFirst({
       where: { id, organizationId: user.organizationId, deletedAt: null },
       include: {
-        organization: { select: { currency: true, settingsJson: true, kind: true, taxLabel: true } },
+        organization: { select: { currency: true, settingsJson: true, kind: true, taxLabel: true, timezone: true } },
         party: true,
         inquiry: true,
         travellers: { include: { traveller: true } },

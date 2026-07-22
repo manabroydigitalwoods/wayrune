@@ -19,10 +19,34 @@ describe('validateTransferV1', () => {
     const result = validateTransferV1({ vehicles: 1 });
     expect(result.ok).toBe(true);
     expect(result.matchBlockedReasons).toEqual([
-      'select From place',
-      'select To place',
+      'Select both pickup and drop locations to match transfer rates',
       'select vehicle',
       'select service date',
+    ]);
+  });
+
+  it('warns when pickup and drop are the same place', () => {
+    const result = validateTransferV1({
+      fromPlaceId: 'same',
+      toPlaceId: 'same',
+      vehicleTypeId: 'veh-1',
+      serviceDate: '2026-12-01',
+      vehicles: 1,
+    });
+    expect(result.matchBlockedReasons).toEqual([]);
+    expect(result.warnings).toContain('Pickup and drop are the same place.');
+  });
+
+  it('blocks match for name-only legacy endpoints (no Place IDs)', () => {
+    const result = validateTransferV1({
+      fromPlaceName: 'Bagdogra Airport',
+      toPlaceName: 'Darjeeling',
+      vehicleTypeId: 'veh-1',
+      serviceDate: '2026-12-01',
+      vehicles: 1,
+    });
+    expect(result.matchBlockedReasons).toEqual([
+      'Select both pickup and drop locations to match transfer rates',
     ]);
   });
 

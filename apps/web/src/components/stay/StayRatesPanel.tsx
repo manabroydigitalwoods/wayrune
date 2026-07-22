@@ -9,6 +9,7 @@ import {
   DatePicker,
   FormGrid,
   Input,
+  NumberField,
   PriceField,
   SimpleFormField as FormField,
   formatCurrency,
@@ -291,11 +292,11 @@ export function StayRatesPanel({ assetId }: { assetId: string }) {
               />
             </FormField>
             <FormField label="Meal cutoff (hours)">
-              <Input
-                type="number"
+              <NumberField
+                min={0}
                 value={homestayForm.mealCutoffHours}
-                onChange={(e) =>
-                  setHomestayForm((f) => ({ ...f, mealCutoffHours: e.target.value }))
+                onChange={(mealCutoffHours) =>
+                  setHomestayForm((f) => ({ ...f, mealCutoffHours }))
                 }
                 placeholder="e.g. 12"
               />

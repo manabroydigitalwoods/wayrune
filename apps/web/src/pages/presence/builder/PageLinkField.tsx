@@ -124,7 +124,7 @@ export function PageLinkField({
           }
         }}
         options={[
-          { value: '', label: loading ? 'Loading pages…' : 'Select a page…' },
+          { value: '', label: 'Select a page…' },
           ...pages.map((page) => ({
             value: page.id,
             label: page.title,

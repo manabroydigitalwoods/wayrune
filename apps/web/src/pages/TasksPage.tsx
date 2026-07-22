@@ -1,13 +1,25 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { useOrgNavigate } from '../hooks/useOrgNavigate';
-import type { ColumnDef } from '@tanstack/react-table';
-import { ArrowUpRight, Check, CheckSquare, MoreHorizontal, Plus } from 'lucide-react';
+import type { ColumnDef, VisibilityState } from '@tanstack/react-table';
+import {
+  AlarmClock,
+  ArrowUpRight,
+  CalendarClock,
+  Check,
+  CheckSquare,
+  Flag,
+  MoreHorizontal,
+  Plus,
+  Search,
+  X,
+} from 'lucide-react';
 import {
   Button,
   Combobox,
   DataTable,
   DatePicker,
+  DateRangeFilter,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -16,27 +28,45 @@ import {
   DropdownMenuTrigger,
   EntityCombobox,
   FormGrid,
-  humanizeEntityType,
   Input,
-  ListPageShell,
-  PageHeader,
   RecordSheet,
   SimpleFormField as FormField,
   StatusBadge,
   StorageKeys,
+  cn,
   formatDate,
+  humanizeEntityType,
+  localStorageKit,
   toastError,
   toastSuccess,
+  usePageChrome,
   type ComboboxOption,
+  type DateRangeValue,
 } from '@wayrune/ui';
 import { api } from '../api';
 import { Can } from '../components/Can';
+import { useAuth } from '../auth';
 import { CAP } from '../lib/capabilities';
 import { usePermissions } from '../lib/permissions';
 import { TASKS_PAGE_COPY, useTasksPageVariant } from '../lib/agencyPageVariants';
 import { AGENCY_ROUTES } from '../lib/agencyRoutes';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { rateTipActivationTaskHref } from '../lib/rateTipActivationTaskHref';
+import {
+  parseTasksQueryState,
+  patchTasksQueryParams,
+  tasksApiQueryFromState,
+  tasksQueryHasFilters,
+  type TasksDuePreset,
+} from '../lib/queue';
+import {
+  ActiveFilterChips,
+  AttentionPresets,
+  DisplayMenu,
+  FilterMenu,
+  QUEUE_PAGE_SEARCH_CLASS,
+  QueuePageChrome,
+} from '../components/queue';
 
 type Task = {
   id: string;
@@ -45,6 +75,7 @@ type Task = {
   status: string;
   priority: string;
   dueAt?: string | null;
+  assigneeId?: string | null;
   entityType?: string | null;
   entityId?: string | null;
 };
@@ -63,6 +94,17 @@ function isOverdue(task: Task) {
   return new Date(task.dueAt).getTime() < Date.now();
 }
 
+function isDueToday(task: Task) {
+  if (!task.dueAt || task.status === 'done') return false;
+  const due = new Date(task.dueAt);
+  const now = new Date();
+  return (
+    due.getFullYear() === now.getFullYear() &&
+    due.getMonth() === now.getMonth() &&
+    due.getDate() === now.getDate()
+  );
+}
+
 function entityPath(
   type?: string | null,
   id?: string | null,
@@ -75,15 +117,29 @@ function entityPath(
   return rateTipActivationTaskHref(type, description);
 }
 
+function readTasksColumnVisibility(): VisibilityState {
+  const defaults: VisibilityState = {};
+  const stored = localStorageKit.getJson<VisibilityState>(StorageKeys.tasks.columns, {
+    version: 1,
+  });
+  if (!stored || typeof stored !== 'object') return defaults;
+  return { ...defaults, ...stored };
+}
+
 export function TasksPage() {
   const variant = useTasksPageVariant();
   const copy = TASKS_PAGE_COPY[variant];
   const { toOrgPath } = useOrgNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   useDocumentTitle(copy.documentTitle);
+  const { me } = useAuth();
   const { hasAny } = usePermissions();
   const canWrite = hasAny(CAP.taskWrite);
-  const dueFilter = variant === 'follow-ups' ? 'overdue' : null;
+  const query = useMemo(() => parseTasksQueryState(searchParams), [searchParams]);
+  const [searchDraft, setSearchDraft] = useState(query.q ?? '');
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(() =>
+    readTasksColumnVisibility(),
+  );
   const [items, setItems] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -91,10 +147,49 @@ export function TasksPage() {
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState(emptyForm);
 
+  function applyQuery(patch: Parameters<typeof patchTasksQueryParams>[1]) {
+    setSearchParams(patchTasksQueryParams(searchParams, patch), { replace: true });
+  }
+
+  // Follow-ups is an overdue-scoped smart list by default; `due=all` opts out explicitly.
+  const impliedOverdue = variant === 'follow-ups' && !query.due && !query.dueFrom && !query.dueTo;
+  const effectiveDue: TasksDuePreset | undefined =
+    query.due === 'all' ? undefined : query.due ?? (impliedOverdue ? 'overdue' : undefined);
+
+  const dueRange: DateRangeValue = {
+    from: query.dueFrom ?? null,
+    to: query.dueTo ?? null,
+    presetId: query.duePeriod ?? null,
+  };
+
+  function onDueRangeChange(next: DateRangeValue) {
+    applyQuery({
+      due: undefined,
+      dueFrom: next.from,
+      dueTo: next.to,
+      duePeriod: next.presetId,
+    });
+  }
+
+  useEffect(() => {
+    setSearchDraft(query.q ?? '');
+  }, [query.q]);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      const next = searchDraft.trim();
+      if ((query.q ?? '') === next) return;
+      applyQuery({ q: next || undefined });
+    }, 300);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce draft only
+  }, [searchDraft]);
+
   async function load() {
     setLoading(true);
     try {
-      setItems(await api<Task[]>('/tasks'));
+      const qs = tasksApiQueryFromState({ ...query, due: effectiveDue });
+      setItems(await api<Task[]>(`/tasks${qs ? `?${qs}` : ''}`));
       setError('');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed');
@@ -104,8 +199,9 @@ export function TasksPage() {
   }
 
   useEffect(() => {
-    load();
-  }, []);
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when queue URL changes
+  }, [variant, effectiveDue, query.dueFrom, query.dueTo]);
 
   async function searchEntities(q: string): Promise<ComboboxOption[]> {
     if (form.entityType === 'lead') {
@@ -172,6 +268,34 @@ export function TasksPage() {
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Could not complete task');
     }
+  }
+
+  const tableRows = useMemo(() => {
+    const q = query.q?.trim().toLowerCase();
+    return items.filter((task) => {
+      if (query.status && task.status !== query.status) return false;
+      if (query.priority && task.priority !== query.priority) return false;
+      if (query.mine && task.assigneeId !== me?.id) return false;
+      if (!q) return true;
+      return task.title.toLowerCase().includes(q);
+    });
+  }, [items, query.status, query.priority, query.mine, query.q, me?.id]);
+
+  function toggleColumn(id: string, visible: boolean) {
+    setColumnVisibility((prev) => {
+      const next = { ...prev, [id]: visible };
+      localStorageKit.setJson(StorageKeys.tasks.columns, next, { version: 1 });
+      return next;
+    });
+  }
+
+  function clearTaskFilters() {
+    applyQuery({ clearFilters: true });
+  }
+
+  function clearTaskFiltersAndSearch() {
+    setSearchDraft('');
+    applyQuery({ clearFilters: true, q: '' });
   }
 
   const columns = useMemo<ColumnDef<Task>[]>(
@@ -312,79 +436,208 @@ export function TasksPage() {
     return <Navigate to={toOrgPath(AGENCY_ROUTES.workFollowUps)} replace />;
   }
 
+  const overdueCount = items.filter(isOverdue).length;
+  const dueTodayCount = items.filter(isDueToday).length;
+  const mineCount = items.filter((t) => t.assigneeId === me?.id && t.status !== 'done').length;
+
+  const attentionPresets = [
+    {
+      id: 'overdue',
+      label: 'overdue',
+      count: overdueCount,
+      active: effectiveDue === 'overdue',
+      tone: 'danger' as const,
+      onClick: () =>
+        applyQuery({
+          due: effectiveDue === 'overdue' ? (variant === 'follow-ups' ? 'all' : undefined) : 'overdue',
+        }),
+    },
+    {
+      id: 'today',
+      label: 'due today',
+      count: dueTodayCount,
+      active: effectiveDue === 'today',
+      tone: 'warn' as const,
+      onClick: () => applyQuery({ due: effectiveDue === 'today' ? undefined : 'today' }),
+    },
+    {
+      id: 'mine',
+      label: 'mine',
+      count: mineCount,
+      active: Boolean(query.mine),
+      tone: 'info' as const,
+      onClick: () => applyQuery({ mine: query.mine ? undefined : true }),
+    },
+  ];
+
+  const filterDefs = [
+    {
+      id: 'status',
+      label: 'Status',
+      value: query.status ?? null,
+      options: [
+        { value: 'open', label: 'Open' },
+        { value: 'pending', label: 'Pending' },
+        { value: 'done', label: 'Done' },
+      ],
+      onSelect: (value: string | null) => applyQuery({ status: value || undefined }),
+    },
+    {
+      id: 'priority',
+      label: 'Priority',
+      icon: Flag,
+      value: query.priority ?? null,
+      options: [
+        { value: 'low', label: 'Low' },
+        { value: 'normal', label: 'Normal' },
+        { value: 'high', label: 'High' },
+      ],
+      onSelect: (value: string | null) => applyQuery({ priority: value || undefined }),
+    },
+  ];
+
+  const displayColumns = [
+    { id: 'status', label: 'Status', visible: columnVisibility.status !== false },
+    { id: 'priority', label: 'Priority', visible: columnVisibility.priority !== false, icon: Flag },
+    { id: 'due', label: 'Due', visible: columnVisibility.due !== false, icon: CalendarClock },
+    { id: 'link', label: 'Linked', visible: columnVisibility.link !== false },
+  ];
+
+  const filterChips = [
+    effectiveDue === 'overdue'
+      ? { id: 'due-overdue', label: 'Overdue', onRemove: () => applyQuery({ due: variant === 'follow-ups' ? 'all' : undefined }) }
+      : null,
+    effectiveDue === 'today'
+      ? { id: 'due-today', label: 'Due today', onRemove: () => applyQuery({ due: undefined }) }
+      : null,
+    query.mine
+      ? { id: 'mine', label: 'Mine', onRemove: () => applyQuery({ mine: undefined }) }
+      : null,
+    query.status
+      ? {
+          id: 'status',
+          label: `Status: ${filterDefs[0]!.options.find((o) => o.value === query.status)?.label ?? query.status}`,
+          onRemove: () => applyQuery({ status: undefined }),
+        }
+      : null,
+    query.priority
+      ? {
+          id: 'priority',
+          label: `Priority: ${filterDefs[1]!.options.find((o) => o.value === query.priority)?.label ?? query.priority}`,
+          onRemove: () => applyQuery({ priority: undefined }),
+        }
+      : null,
+    query.dueFrom || query.dueTo
+      ? {
+          id: 'due-range',
+          label: 'Due range',
+          onRemove: () => applyQuery({ dueFrom: null, dueTo: null, duePeriod: null }),
+        }
+      : null,
+  ].filter(Boolean) as Array<{ id: string; label: string; onRemove: () => void }>;
+
+  const pageSubtitle = query.mine
+    ? effectiveDue === 'overdue'
+      ? 'Your overdue tasks and follow-ups.'
+      : 'Tasks assigned to you.'
+    : effectiveDue === 'today'
+      ? 'Tasks due today.'
+      : copy.subtitle;
+
+  usePageChrome({ title: copy.title, subtitle: pageSubtitle });
+
+  const queueToolbar = (
+    <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+      <div className="relative min-w-[12rem] flex-1 basis-[14rem]">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 size-[0.875em] -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={searchDraft}
+          onChange={(e) => setSearchDraft(e.target.value)}
+          placeholder="Search tasks…"
+          className={cn(QUEUE_PAGE_SEARCH_CLASS, searchDraft.trim() && 'pr-8')}
+          aria-label="Search tasks"
+        />
+        {searchDraft.trim() ? (
+          <button
+            type="button"
+            className="absolute right-1.5 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+            aria-label="Clear search"
+            onClick={() => {
+              setSearchDraft('');
+              applyQuery({ q: '' });
+            }}
+          >
+            <X className="size-3.5" />
+          </button>
+        ) : null}
+      </div>
+      <div className="flex flex-wrap items-center gap-1">
+        <DateRangeFilter
+          pack="forward"
+          dimensionLabel="Due"
+          value={dueRange}
+          onChange={onDueRangeChange}
+          emptyLabel={variant === 'follow-ups' ? 'Overdue only' : 'Any due date'}
+          data-testid="tasks-due-range"
+        />
+        <FilterMenu filters={filterDefs} />
+        <DisplayMenu columns={displayColumns} onToggleColumn={toggleColumn} />
+      </div>
+    </div>
+  );
+
   return (
-    <ListPageShell>
-      <PageHeader
-        icon={CheckSquare}
-        title={copy.title}
-        subtitle={copy.subtitle}
-        className="mb-4 shrink-0"
-        actions={
-          <Can anyOf={CAP.taskWrite}>
-            <Button onClick={() => setOpen(true)}>
-              <Plus className="size-4" />
-              New task
-            </Button>
-          </Can>
-        }
-      />
+    <QueuePageChrome
+      attention={<AttentionPresets presets={attentionPresets} />}
+      primaryActions={
+        <Can anyOf={CAP.taskWrite}>
+          <Button size="sm" onClick={() => setOpen(true)}>
+            <Plus className="size-[0.875em]" />
+            New task
+          </Button>
+        </Can>
+      }
+      error={error ? <p className="text-sm text-destructive">{error}</p> : null}
+      toolbar={queueToolbar}
+      chips={
+        <ActiveFilterChips
+          chips={filterChips}
+          onClear={tasksQueryHasFilters(query) ? clearTaskFilters : undefined}
+        />
+      }
+    >
       <DataTable
-        key={dueFilter === 'overdue' ? 'due-overdue' : 'due-all'}
+        key={`cols-${JSON.stringify(columnVisibility)}`}
         columns={columns}
-        data={items}
+        data={tableRows}
         loading={loading}
-        error={error}
         pageSize={25}
-        searchKey="title"
-        searchPlaceholder="Search tasks…"
+        showSearch={false}
+        showColumnsMenu={false}
         columnVisibilityKey={StorageKeys.tasks.columns}
-        defaultFacetValues={dueFilter === 'overdue' ? { due: 'overdue' } : undefined}
-        facets={[
-          {
-            id: 'status',
-            columnId: 'status',
-            label: 'Status',
-            options: [
-              { value: 'open', label: 'Open' },
-              { value: 'done', label: 'Done' },
-              { value: 'pending', label: 'Pending' },
-            ],
-          },
-          {
-            id: 'priority',
-            columnId: 'priority',
-            label: 'Priority',
-            options: [
-              { value: 'low', label: 'Low' },
-              { value: 'normal', label: 'Normal' },
-              { value: 'high', label: 'High' },
-            ],
-          },
-          {
-            id: 'due',
-            columnId: 'due',
-            label: 'Due',
-            options: [
-              { value: 'overdue', label: 'Overdue' },
-              { value: 'upcoming', label: 'Upcoming' },
-              { value: 'none', label: 'No due date' },
-            ],
-          },
-        ]}
-        emptyTitle={dueFilter === 'overdue' ? 'No overdue tasks' : 'No tasks'}
+        defaultColumnVisibility={columnVisibility}
+        emptyTitle={tasksQueryHasFilters(query) || query.q ? 'No matching tasks' : 'No tasks'}
         emptyDescription={
-          dueFilter === 'overdue'
-            ? 'You are caught up on follow-ups.'
-            : 'Add a follow-up so nothing slips.'
+          tasksQueryHasFilters(query) || query.q
+            ? 'Try clearing filters or search.'
+            : variant === 'follow-ups'
+              ? 'You are caught up on follow-ups.'
+              : 'Add a follow-up so nothing slips.'
         }
-        emptyIcon={CheckSquare}
+        emptyIcon={variant === 'follow-ups' ? AlarmClock : CheckSquare}
         emptyAction={
-          <Can anyOf={CAP.taskWrite}>
-            <Button onClick={() => setOpen(true)}>
-              <Plus className="size-4" />
-              New task
+          tasksQueryHasFilters(query) || query.q ? (
+            <Button type="button" size="sm" variant="outline" onClick={clearTaskFiltersAndSearch}>
+              Clear filters
             </Button>
-          </Can>
+          ) : (
+            <Can anyOf={CAP.taskWrite}>
+              <Button onClick={() => setOpen(true)}>
+                <Plus className="size-4" />
+                New task
+              </Button>
+            </Can>
+          )
         }
       />
 
@@ -417,7 +670,7 @@ export function TasksPage() {
             <Input
               value={form.title}
               onChange={(e) => setForm({ ...form, title: e.target.value })}
-              placeholder="e.g. Call client about dates"
+              placeholder="e.g. Call customer about dates"
               required
             />
           </FormField>
@@ -479,6 +732,6 @@ export function TasksPage() {
           ) : null}
         </form>
       </RecordSheet>
-    </ListPageShell>
+    </QueuePageChrome>
   );
 }

@@ -11,6 +11,7 @@ import {
   PriceField,
   RecordSheet,
   SimpleFormField as FormField,
+  Skeleton,
   StatusBadge,
   formatCurrency,
   toastError,
@@ -747,7 +748,12 @@ export function StayReservationsPanel({ assetId }: { assetId: string }) {
         wide
       >
         {folioLoading ? (
-          <p className="text-sm text-muted-foreground">Loading folio…</p>
+          <div className="space-y-2" role="status" aria-busy="true">
+            <span className="sr-only">Loading</span>
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-full" />
+          </div>
         ) : folio ? (
           <div className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-3">

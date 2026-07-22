@@ -127,6 +127,7 @@ export function TimePicker({
   className,
   minuteStep = 5,
   id,
+  size = 'default',
 }: {
   value?: string | null;
   onChange: (value: string) => void;
@@ -136,6 +137,8 @@ export function TimePicker({
   /** Minute increments in the picker (existing off-step values stay selectable). */
   minuteStep?: number;
   id?: string;
+  /** Match Combobox / DatePicker density — `sm` uses `--control-h-sm`. */
+  size?: 'default' | 'sm';
 }) {
   const [open, setOpen] = React.useState(false);
   const parsed = parseValue(value);
@@ -157,6 +160,7 @@ export function TimePicker({
 
   const minutes = minuteOptions(minuteStep, draft.minute);
   const display = formatDisplay(value);
+  const compact = size === 'sm';
 
   function commit(next: Parts) {
     setDraft(next);
@@ -175,6 +179,7 @@ export function TimePicker({
           id={id}
           type="button"
           variant="outline"
+          size={compact ? 'sm' : 'default'}
           disabled={disabled}
           className={cn(
             'w-full justify-start font-normal tabular-nums',
@@ -182,7 +187,9 @@ export function TimePicker({
             className,
           )}
         >
-          <Clock3 className="size-4 shrink-0 opacity-70" />
+          <Clock3
+            className={cn('shrink-0 opacity-70', compact ? 'size-3.5' : 'size-4')}
+          />
           <span className="truncate">{display || placeholder}</span>
         </Button>
       </PopoverTrigger>

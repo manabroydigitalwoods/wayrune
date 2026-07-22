@@ -15,6 +15,7 @@ const PopoverContent = React.forwardRef<
       ref={ref}
       align={align}
       sideOffset={sideOffset}
+      data-wayrune-portaled-overlay=""
       className={cn(
         'z-[250] w-72 rounded-xl border border-border/60 p-4 text-popover-foreground shadow-lg outline-none pointer-events-auto glass-strong popup-content-animate',
         className,

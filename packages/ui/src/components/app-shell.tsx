@@ -1,7 +1,5 @@
 import {
   Check,
-  Moon,
-  Sun,
   Menu,
   PanelLeft,
   PanelLeftClose,
@@ -31,10 +29,13 @@ import {
   TooltipProvider,
   BrandTooltip,
 } from './ui/tooltip';
-import { useTheme } from '../theme/theme-provider';
+import { useUiPrefs } from '../theme/ui-prefs';
 import { localStorageKit } from '../storage/create-storage';
 import { StorageKeys } from '../storage/keys';
 import { cn } from '../lib/utils';
+import { PageChromeProvider, usePageChromeState } from './page-chrome';
+import { Breadcrumbs } from './breadcrumbs';
+import { SoftIcon } from './icon';
 
 export type AppShellNavItem = {
   /** Stable id for bookmarks — falls back to `to` when omitted. */
@@ -62,16 +63,23 @@ type NavSection = {
 /** Canonical sidebar group order — unknown groups sort last. */
 const NAV_SECTION_ORDER = [
   'bookmarks',
-  'work',
-  'business',
-  'planning',
-  'operations',
-  'finance',
+  'home',
   'sales',
+  'trips & operations',
+  'products & suppliers',
+  'finance',
+  'growth',
+  'administration',
+  'planning',
+  'audit',
+  // Legacy / fallback groups
+  'work',
+  'customer engagement',
+  'business',
+  'operations',
   'dmc',
   'acquire',
   'partners',
-  'audit',
   'more',
   'manage',
   'system',
@@ -171,11 +179,11 @@ export function AppShell({
   headerActions?: ReactNode;
   children: ReactNode;
 }) {
-  const { resolved, toggle } = useTheme();
+  const { prefs, setSidebarCollapsedDefault } = useUiPrefs();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(() => {
     const stored = localStorageKit.getJson<boolean>(StorageKeys.ui.sidebarCollapsed, { version: 1 });
-    return stored ?? false;
+    return stored ?? prefs.sidebarCollapsedDefault;
   });
   const setCollapsedPersistent = useCallback((next: boolean | ((prev: boolean) => boolean)) => {
     setCollapsed((prev) => {
@@ -184,6 +192,13 @@ export function AppShell({
       return resolved;
     });
   }, []);
+  const sidebarDefaultBaselineRef = useRef(prefs.sidebarCollapsedDefault);
+  useEffect(() => {
+    // Apply Settings → Appearance “start collapsed” immediately (not only on next cold start).
+    if (sidebarDefaultBaselineRef.current === prefs.sidebarCollapsedDefault) return;
+    sidebarDefaultBaselineRef.current = prefs.sidebarCollapsedDefault;
+    setCollapsedPersistent(prefs.sidebarCollapsedDefault);
+  }, [prefs.sidebarCollapsedDefault, setCollapsedPersistent]);
   const [bookmarks, setBookmarks] = useState<string[]>(() => {
     const stored = localStorageKit.getJson<string[]>(StorageKeys.ui.navBookmarks, { version: 1 });
     return stored ?? [];
@@ -195,7 +210,6 @@ export function AppShell({
       return resolved;
     });
   }, []);
-  const dark = resolved === 'dark';
   const activeWorkspace =
     workspaces?.find((w) => w.id === activeWorkspaceId) || workspaces?.[0];
   const canSwitch = Boolean(workspaces?.length && onSwitchWorkspace);
@@ -233,11 +247,49 @@ export function AppShell({
     [navById, setBookmarksPersistent],
   );
 
+  const [deepPins, setDeepPins] = useState<Array<{ id: string; label: string; to: string }>>(
+    () => {
+      const stored = localStorageKit.getJson<Array<{ id: string; label: string; to: string }>>(
+        StorageKeys.ui.navDeepPins,
+        { version: 1 },
+      );
+      return Array.isArray(stored) ? stored.slice(0, 7) : [];
+    },
+  );
+
+  useEffect(() => {
+    const sync = () => {
+      const stored = localStorageKit.getJson<Array<{ id: string; label: string; to: string }>>(
+        StorageKeys.ui.navDeepPins,
+        { version: 1 },
+      );
+      setDeepPins(Array.isArray(stored) ? stored.slice(0, 7) : []);
+    };
+    window.addEventListener('wayrune:nav-deep-pins', sync);
+    window.addEventListener('storage', sync);
+    return () => {
+      window.removeEventListener('wayrune:nav-deep-pins', sync);
+      window.removeEventListener('storage', sync);
+    };
+  }, []);
+
+  const deepPinItems: AppShellNavItem[] = useMemo(
+    () =>
+      deepPins.map((p) => ({
+        id: p.id,
+        to: p.to,
+        label: p.label,
+        section: 'Pinned',
+      })),
+    [deepPins],
+  );
+
   const sections = useMemo(() => {
     const grouped = groupNav(nav);
-    if (bookmarkItems.length === 0) return grouped;
-    return [{ key: 'bookmarks', label: 'Bookmarks', items: bookmarkItems }, ...grouped];
-  }, [bookmarkItems, nav]);
+    const pinnedItems = [...deepPinItems, ...bookmarkItems];
+    if (pinnedItems.length === 0) return grouped;
+    return [{ key: 'bookmarks', label: 'Pinned', items: pinnedItems }, ...grouped];
+  }, [bookmarkItems, deepPinItems, nav]);
 
   const desktopScroll = useSidebarScroll(StorageKeys.ui.sidebarScrollTop);
   const mobileScroll = useSidebarScroll(`${StorageKeys.ui.sidebarScrollTop}.mobile`);
@@ -247,15 +299,19 @@ export function AppShell({
     compact,
     onPick,
     showBookmarkToggle = true,
+    onTogglePin,
   }: {
     item: AppShellNavItem;
     compact?: boolean;
     onPick?: () => void;
     showBookmarkToggle?: boolean;
+    /** When set, star removes a deep-link pin instead of nav bookmark. */
+    onTogglePin?: () => void;
   }) => {
     const ItemIcon = item.icon;
     const id = navItemId(item);
     const bookmarked = validBookmarks.includes(id);
+    const pinned = Boolean(onTogglePin);
 
     const button = (
       <div className="group/nav relative">
@@ -270,11 +326,11 @@ export function AppShell({
             onPick?.();
           }}
           className={cn(
-            'flex items-center rounded-xl text-left text-sm font-medium transition-colors',
+            'flex items-center rounded-xl text-left text-[length:var(--control-text)] font-medium transition-colors',
             compact
-              ? 'mx-auto size-10 justify-center p-0'
-              : 'w-full gap-3 px-3 py-2.5',
-            showBookmarkToggle && !compact ? 'pr-9' : '',
+              ? 'mx-auto size-[var(--sidebar-nav-h)] justify-center p-0'
+              : 'h-[var(--sidebar-nav-h)] w-full gap-2.5 px-2.5',
+            (showBookmarkToggle || pinned) && !compact ? 'pr-9' : '',
             item.active
               ? 'bg-primary/15 text-primary'
               : 'text-foreground/75 hover:bg-primary/5 hover:text-foreground',
@@ -282,28 +338,34 @@ export function AppShell({
         >
           {ItemIcon ? (
             <ItemIcon
-              className={cn('size-[18px] shrink-0', item.active ? 'text-primary' : 'opacity-80')}
+              className={cn(
+                'size-[var(--control-icon)] shrink-0',
+                item.active ? 'text-primary' : 'opacity-80',
+              )}
             />
           ) : null}
           {!compact ? <span className="truncate">{item.label}</span> : null}
         </button>
-        {showBookmarkToggle && !compact ? (
+        {(showBookmarkToggle || pinned) && !compact ? (
           <button
             type="button"
-            aria-label={bookmarked ? 'Remove bookmark' : 'Bookmark this page'}
-            title={bookmarked ? 'Remove bookmark' : 'Bookmark'}
+            aria-label={
+              pinned ? 'Remove pin' : bookmarked ? 'Remove bookmark' : 'Bookmark this page'
+            }
+            title={pinned ? 'Remove pin' : bookmarked ? 'Remove bookmark' : 'Bookmark'}
             onClick={(e) => {
               e.stopPropagation();
-              toggleBookmark(id);
+              if (onTogglePin) onTogglePin();
+              else toggleBookmark(id);
             }}
             className={cn(
               'absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground hover:bg-muted/60 hover:text-foreground',
-              bookmarked
+              bookmarked || pinned
                 ? 'text-amber-500 opacity-100 hover:text-amber-500'
                 : 'pointer-events-none opacity-0 group-hover/nav:pointer-events-auto group-hover/nav:opacity-100',
             )}
           >
-            <Star className={cn('size-3.5', bookmarked && 'fill-current')} />
+            <Star className={cn('size-3.5', (bookmarked || pinned) && 'fill-current')} />
           </button>
         ) : null}
       </div>
@@ -326,11 +388,17 @@ export function AppShell({
         type="button"
         aria-label={label}
         aria-expanded={!compact}
-        onClick={() => setCollapsedPersistent((prev) => !prev)}
+        onClick={() =>
+          setCollapsedPersistent((prev) => {
+            const next = !prev;
+            setSidebarCollapsedDefault(next);
+            return next;
+          })
+        }
         className={cn(
           'flex items-center rounded-xl text-sm font-medium text-foreground/70 transition-colors',
           'hover:bg-primary/5 hover:text-foreground',
-          compact ? 'mx-auto size-10 justify-center p-0' : 'w-full gap-3 px-3 py-2',
+          compact ? 'mx-auto size-[var(--control-h-lg)] justify-center p-0' : 'w-full gap-3 px-3 py-2',
         )}
       >
         <Icon className="size-[18px] shrink-0 opacity-80" />
@@ -347,66 +415,11 @@ export function AppShell({
     );
   };
 
-  const ThemeToggle = ({ compact }: { compact?: boolean }) => {
-    const label = dark ? 'Switch to light mode' : 'Switch to dark mode';
-    if (compact) {
-      const button = (
-        <button
-          type="button"
-          role="switch"
-          aria-checked={dark}
-          aria-label={label}
-          onClick={toggle}
-          className={cn(
-            'mx-auto flex size-10 items-center justify-center rounded-xl transition-colors',
-            dark
-              ? 'bg-primary/15 text-primary'
-              : 'text-foreground/75 hover:bg-primary/5 hover:text-foreground',
-          )}
-        >
-          {dark ? <Sun className="size-[18px]" /> : <Moon className="size-[18px] opacity-80" />}
-        </button>
-      );
-      return (
-        <BrandTooltip label={label} side="right" sideOffset={10} delayDuration={150}>
-          {button}
-        </BrandTooltip>
-      );
-    }
-
-    return (
-      <div className="flex items-center justify-between gap-2 rounded-xl px-3 py-2">
-        <span className="flex items-center gap-3 text-sm font-medium text-foreground/75">
-          <Moon className="size-[18px] opacity-80" />
-          Dark mode
-        </span>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={dark}
-          aria-label={label}
-          onClick={toggle}
-          className={cn(
-            'relative h-6 w-11 shrink-0 rounded-full transition-colors',
-            dark ? 'bg-primary' : 'bg-muted',
-          )}
-        >
-          <span
-            className={cn(
-              'absolute top-0.5 size-5 rounded-full bg-card shadow transition-transform',
-              dark ? 'left-[22px]' : 'left-0.5',
-            )}
-          />
-        </button>
-      </div>
-    );
-  };
-
   const UserMenu = ({ compact }: { compact?: boolean }) => {
     if (!user) return null;
 
     const avatar = (
-      <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary">
+      <div className="flex size-[var(--avatar-size)] shrink-0 items-center justify-center rounded-full bg-primary/15 text-[length:var(--control-text-sm)] font-semibold text-primary">
         {(user.name || '?').slice(0, 1).toUpperCase()}
       </div>
     );
@@ -414,7 +427,7 @@ export function AppShell({
     const trigger = compact ? (
       <button
         type="button"
-        className="mx-auto flex size-10 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground ring-offset-background hover:ring-2 hover:ring-primary/40"
+        className="mx-auto flex size-[var(--control-h-lg)] items-center justify-center rounded-full bg-primary text-[length:var(--control-text-sm)] font-semibold text-primary-foreground ring-offset-background hover:ring-2 hover:ring-primary/40"
         aria-label="Account menu"
       >
         {(user.name || '?').slice(0, 1).toUpperCase()}
@@ -455,7 +468,7 @@ export function AppShell({
           {canSwitch ? (
             <>
               <DropdownMenuSeparator />
-              <DropdownMenuLabel className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              <DropdownMenuLabel className="text-[length:var(--control-text-sm)] uppercase tracking-wide text-muted-foreground">
                 Switch workspace
               </DropdownMenuLabel>
               {workspaces!.map((w) => (
@@ -521,15 +534,17 @@ export function AppShell({
           compact ? 'flex-col items-center' : 'items-center gap-2.5',
         )}
       >
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">
+        <div className="flex size-[var(--avatar-size)] shrink-0 items-center justify-center rounded-full bg-primary text-[length:var(--control-text)] font-bold text-primary-foreground">
           {brandTitle.slice(0, 1)}
         </div>
         {!compact ? (
           <div className="min-w-0 flex-1">
-            <div className="truncate font-display text-lg font-bold tracking-tight text-foreground">
+            <div className="truncate font-display text-base font-bold tracking-tight text-foreground sm:text-lg">
               {brandTitle}
             </div>
-            <div className="truncate text-[11px] text-muted-foreground">{brandSubtitle}</div>
+            <div className="truncate text-[length:var(--control-text-sm)] text-muted-foreground">
+              {brandSubtitle}
+            </div>
           </div>
         ) : null}
       </div>
@@ -539,11 +554,10 @@ export function AppShell({
         onScroll={onScroll}
         className={cn(
           'sidebar-nav-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain',
-          compact ? 'space-y-2' : 'space-y-4',
+          compact ? 'space-y-2' : 'space-y-[var(--sidebar-section-gap)]',
         )}
       >
         {sections.map((section, sectionIndex) => {
-          const isSystem = section.key === 'system';
           const isBookmarks = section.key === 'bookmarks';
           return (
             <div
@@ -552,7 +566,7 @@ export function AppShell({
                 sectionIndex > 0 &&
                   (compact
                     ? 'border-t border-border/40 pt-2'
-                    : 'border-t border-border/50 pt-4'),
+                    : 'border-t border-border/50 pt-[var(--sidebar-section-gap)]'),
                 isBookmarks &&
                   !compact &&
                   'rounded-xl border border-amber-500/20 bg-amber-500/5 p-2 pt-3',
@@ -561,37 +575,41 @@ export function AppShell({
               {!compact ? (
                 <div
                   className={cn(
-                    'mb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.14em]',
+                    'mb-[var(--field-gap)] px-3 text-[length:var(--control-text-sm)] font-bold uppercase tracking-[0.14em]',
                     isBookmarks ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground',
                   )}
                 >
                   {section.label}
                 </div>
               ) : null}
-              <div className={cn('grid', compact ? 'gap-1' : 'gap-0.5')}>
+              <div className={cn('grid', compact ? 'gap-1' : 'gap-[var(--sidebar-item-gap)]')}>
                 {section.items.map((item) => (
                   <NavItemButton
                     key={navItemId(item)}
                     item={item}
                     compact={compact}
                     onPick={onPick}
+                    showBookmarkToggle={
+                      !(section.key === 'bookmarks' && deepPins.some((p) => p.id === navItemId(item)))
+                    }
+                    onTogglePin={
+                      deepPins.some((p) => p.id === navItemId(item))
+                        ? () => {
+                            const next = deepPins.filter((p) => p.id !== navItemId(item));
+                            localStorageKit.setJson(StorageKeys.ui.navDeepPins, next, {
+                              version: 1,
+                            });
+                            setDeepPins(next);
+                            window.dispatchEvent(new Event('wayrune:nav-deep-pins'));
+                          }
+                        : undefined
+                    }
                   />
                 ))}
-                {isSystem ? <ThemeToggle compact={compact} /> : null}
               </div>
             </div>
           );
         })}
-        {!sections.some((s) => s.key === 'system') ? (
-          <div className={cn(compact ? 'border-t border-border/40 pt-2' : 'border-t border-border/50 pt-4')}>
-            {!compact ? (
-              <div className="mb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-                System
-              </div>
-            ) : null}
-            <ThemeToggle compact={compact} />
-          </div>
-        ) : null}
       </div>
 
       <div
@@ -608,54 +626,150 @@ export function AppShell({
   };
 
   return (
-    <TooltipProvider>
-      <div className="relative flex h-svh overflow-hidden bg-transparent">
-        <aside
-          className={cn(
-            'relative z-10 hidden h-svh min-h-0 shrink-0 flex-col overflow-hidden border-r text-foreground transition-[width] duration-200 ease-out md:flex glass-panel',
-            collapsed ? 'w-[64px] px-1.5 py-3' : 'w-[260px] px-4 py-5',
-          )}
-        >
-          <SidebarChrome compact={collapsed} scroll={desktopScroll} />
-        </aside>
-
-        <div className="relative z-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-transparent">
-          <Button
-            type="button"
-            size="icon"
-            variant="outline"
-            className="absolute left-3 top-3 z-30 border-border/60 glass md:hidden"
-            onClick={() => setMobileOpen(true)}
-            aria-label="Open menu"
-          >
-            <Menu className="size-4" />
-          </Button>
-
-          {headerActions ? (
-            <div className="relative z-20 flex shrink-0 items-center justify-end gap-2 border-b border-border/50 px-4 pb-2 pt-14 md:px-7 md:pt-4">
-              {headerActions}
-            </div>
-          ) : null}
-
-          <main
+    <PageChromeProvider>
+      <TooltipProvider>
+        <div className="relative flex h-svh overflow-hidden bg-transparent">
+          <aside
             className={cn(
-              'app-main-scroll min-h-0 min-w-0 flex-1 overflow-x-hidden p-4 pb-10 md:p-7 md:pb-12',
-              headerActions ? 'pt-4 md:pt-5' : 'pt-14 md:pt-7',
+              'app-shell-sidebar relative z-10 hidden h-svh min-h-0 shrink-0 flex-col overflow-hidden border-r text-foreground transition-[width] duration-200 ease-out md:flex glass-panel',
+              collapsed
+                ? 'w-[64px] px-1.5 py-[var(--gap-section)]'
+                : 'w-[260px] px-4 py-[var(--gap-section)]',
             )}
           >
-            {children}
-          </main>
-        </div>
+            <SidebarChrome compact={collapsed} scroll={desktopScroll} />
+          </aside>
 
-        <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-          <SheetContent side="left" className="w-[280px] border-0 p-5 text-foreground sm:max-w-[280px]">
-            <SheetHeader className="sr-only border-0 p-0">
-              <SheetTitle>Navigation</SheetTitle>
-            </SheetHeader>
-            <SidebarChrome onPick={() => setMobileOpen(false)} scroll={mobileScroll} />
-          </SheetContent>
-        </Sheet>
-      </div>
-    </TooltipProvider>
+          <div className="app-shell-main relative z-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-transparent">
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              className="absolute left-3 top-3 z-30 border-border/60 glass md:hidden"
+              onClick={() => setMobileOpen(true)}
+              aria-label="Open menu"
+            >
+              <Menu className="size-4" />
+            </Button>
+
+            <AppShellTopBar headerActions={headerActions} />
+
+            {/*
+              Block scrollport (not flex): padding-bottom is included in scroll
+              overflow, so detail/dashboard pages keep space after the last card.
+              ListPageShell fill uses h-full against this content box so lists
+              do not gain an extra empty scroll gap.
+            */}
+            <AppShellMain headerActions={headerActions}>{children}</AppShellMain>
+          </div>
+
+          <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+            <SheetContent side="left" className="w-[280px] border-0 p-5 text-foreground sm:max-w-[280px]">
+              <SheetHeader className="sr-only border-0 p-0">
+                <SheetTitle>Navigation</SheetTitle>
+              </SheetHeader>
+              <SidebarChrome onPick={() => setMobileOpen(false)} scroll={mobileScroll} />
+            </SheetContent>
+          </Sheet>
+        </div>
+      </TooltipProvider>
+    </PageChromeProvider>
+  );
+}
+
+function AppShellTopBar({ headerActions }: { headerActions?: ReactNode }) {
+  const pageChrome = usePageChromeState();
+  const hasBreadcrumbs = Boolean(pageChrome.breadcrumbs?.length);
+  const hasTitle = Boolean(pageChrome.title);
+  const hasPageChrome = hasTitle || hasBreadcrumbs;
+  if (!hasPageChrome && !headerActions) return null;
+
+  const Icon = pageChrome.icon;
+
+  return (
+    <div
+      className={cn(
+        'app-shell-topbar relative z-20 flex shrink-0 items-center gap-3 border-b border-border/50',
+        'px-[var(--pad-main)] pb-[var(--pad-topbar-bottom)] pt-14',
+        'md:px-[var(--pad-main-md)] md:pt-[var(--pad-topbar-bottom)]',
+        hasPageChrome ? 'justify-between' : 'justify-end',
+      )}
+    >
+      {hasPageChrome ? (
+        <div className="flex min-w-0 flex-1 items-start gap-2 pr-2">
+          {Icon ? (
+            <SoftIcon
+              icon={Icon}
+              tone="primary"
+              className="mt-0.5 size-6 shrink-0 [&_svg]:size-3.5"
+            />
+          ) : null}
+          <div className="min-w-0 flex-1">
+            {hasTitle ? (
+              <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <h1
+                  className={cn(
+                    'truncate font-display font-semibold leading-tight tracking-tight text-foreground',
+                    Icon || hasBreadcrumbs ? 'text-sm md:text-base' : 'text-base md:text-lg',
+                  )}
+                >
+                  {pageChrome.title}
+                </h1>
+                {pageChrome.titleMeta ? (
+                  <span className="truncate text-[length:var(--control-text-sm)] text-muted-foreground">
+                    {pageChrome.titleMeta}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+            {hasBreadcrumbs ? (
+              <Breadcrumbs
+                items={pageChrome.breadcrumbs!}
+                className={cn(
+                  'mb-0 text-[length:var(--control-text-sm)]',
+                  hasTitle && 'mt-0.5',
+                )}
+              />
+            ) : pageChrome.subtitle ? (
+              <div className="mt-0.5 truncate text-[length:var(--control-text-sm)] text-muted-foreground">
+                {pageChrome.subtitle}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+      {headerActions ? (
+        <div className="flex shrink-0 items-center justify-end gap-2">{headerActions}</div>
+      ) : null}
+    </div>
+  );
+}
+
+function AppShellMain({
+  headerActions,
+  children,
+}: {
+  headerActions?: ReactNode;
+  children: ReactNode;
+}) {
+  const pageChrome = usePageChromeState();
+  const showTopBar =
+    Boolean(pageChrome.title) ||
+    Boolean(pageChrome.breadcrumbs?.length) ||
+    Boolean(headerActions);
+
+  return (
+    <main
+      className={cn(
+        'app-main-scroll min-h-0 min-w-0 flex-1 overflow-x-hidden',
+        'px-[var(--pad-main)] pb-[calc(var(--pad-main-bottom)+env(safe-area-inset-bottom,0px))]',
+        'md:px-[var(--pad-main-md)] md:pb-[calc(var(--pad-main-bottom-md)+env(safe-area-inset-bottom,0px))]',
+        showTopBar
+          ? 'pt-[var(--pad-after-topbar)]'
+          : 'pt-[var(--pad-main-top)] md:pt-[var(--pad-main-top-md)]',
+      )}
+    >
+      {children}
+    </main>
   );
 }

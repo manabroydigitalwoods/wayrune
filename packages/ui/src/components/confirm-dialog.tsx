@@ -21,6 +21,7 @@ export function ConfirmDialog({
   destructive,
   loading,
   children,
+  confirmTestId,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -32,6 +33,7 @@ export function ConfirmDialog({
   destructive?: boolean;
   loading?: boolean;
   children?: ReactNode;
+  confirmTestId?: string;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -50,6 +52,7 @@ export function ConfirmDialog({
             variant={destructive ? 'destructive' : 'default'}
             onClick={onConfirm}
             disabled={loading}
+            data-testid={confirmTestId}
           >
             {loading ? 'Working…' : confirmLabel}
           </Button>

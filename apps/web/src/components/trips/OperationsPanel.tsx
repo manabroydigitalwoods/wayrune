@@ -8,12 +8,14 @@ import {
   Checkbox,
   Combobox,
   ConfirmDialog,
+  DatePicker,
   FormGrid,
   Input,
   PriceField,
   NumberField,
   RecordSheet,
   SimpleFormField as FormField,
+  Skeleton,
   StatusBadge,
   SuggestionChips,
   cn,
@@ -23,6 +25,7 @@ import {
   toastWarning,
 } from '@wayrune/ui';
 import { api, apiBlob } from '../../api';
+import { formatDateInput, parseDateInput } from '../../lib/dateInput';
 import { Can } from '../Can';
 import { CAP } from '../../lib/capabilities';
 import { reportError } from '../../lib/errors';
@@ -1842,17 +1845,19 @@ export function OperationsPanel({
         {form.type === 'transfer' ? (
           <>
             <FormField label="Movement date">
-              <Input
-                type="date"
-                value={form.startAt}
-                onChange={(e) => setForm((f) => ({ ...f, startAt: e.target.value }))}
+              <DatePicker
+                value={parseDateInput(form.startAt)}
+                onChange={(d) =>
+                  setForm((f) => ({ ...f, startAt: formatDateInput(d) }))
+                }
               />
             </FormField>
             <FormField label="End date (optional)">
-              <Input
-                type="date"
-                value={form.endAt}
-                onChange={(e) => setForm((f) => ({ ...f, endAt: e.target.value }))}
+              <DatePicker
+                value={parseDateInput(form.endAt)}
+                onChange={(d) =>
+                  setForm((f) => ({ ...f, endAt: formatDateInput(d) }))
+                }
               />
             </FormField>
             <FormField label="Assigned driver / fleet">
@@ -2044,17 +2049,19 @@ export function OperationsPanel({
           <>
             <FormGrid>
               <FormField label="Movement date">
-                <Input
-                  type="date"
-                  value={form.startAt}
-                  onChange={(e) => setForm((f) => ({ ...f, startAt: e.target.value }))}
+                <DatePicker
+                  value={parseDateInput(form.startAt)}
+                  onChange={(d) =>
+                    setForm((f) => ({ ...f, startAt: formatDateInput(d) }))
+                  }
                 />
               </FormField>
               <FormField label="End date (optional)">
-                <Input
-                  type="date"
-                  value={form.endAt}
-                  onChange={(e) => setForm((f) => ({ ...f, endAt: e.target.value }))}
+                <DatePicker
+                  value={parseDateInput(form.endAt)}
+                  onChange={(d) =>
+                    setForm((f) => ({ ...f, endAt: formatDateInput(d) }))
+                  }
                 />
               </FormField>
             </FormGrid>
@@ -2130,7 +2137,11 @@ export function OperationsPanel({
           description="Files the supplier attached when confirming inbound (agency copy)."
         >
           {partnerConfirmDocsLoading ? (
-            <p className="text-xs text-muted-foreground">Loading…</p>
+            <div className="space-y-1.5" role="status" aria-busy="true">
+              <span className="sr-only">Loading</span>
+              <Skeleton className="h-8 w-full rounded-lg" />
+              <Skeleton className="h-8 w-5/6 rounded-lg" />
+            </div>
           ) : partnerConfirmDocs.length ? (
             <ul className="space-y-1.5">
               {partnerConfirmDocs.map((doc) => (
@@ -2181,7 +2192,12 @@ export function OperationsPanel({
         size="wide"
       >
         {cancelPreviewLoading ? (
-          <p className="text-sm text-muted-foreground">Loading policy preview…</p>
+          <div className="space-y-2" role="status" aria-busy="true">
+            <span className="sr-only">Loading</span>
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-full" />
+          </div>
         ) : cancelPreview ? (
           <div className="space-y-4">
             <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5 text-sm">

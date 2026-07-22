@@ -15,11 +15,29 @@ import {
 export type ComboboxOption = {
   value: string;
   label: string;
+  /** Shorter label for the closed trigger (e.g. dial code only). */
+  shortLabel?: string;
   description?: string;
   icon?: React.ComponentType<{ className?: string }>;
   /** Optional style for the option label (e.g. fontFamily preview). */
   labelStyle?: React.CSSProperties;
 };
+
+/** Async search may return resolved empty-state suggestions (e.g. Place typo assists). */
+export type EntitySearchResult = {
+  options: ComboboxOption[];
+  emptySuggestions?: ComboboxOption[];
+};
+
+export type EntitySearchResponse = ComboboxOption[] | EntitySearchResult;
+
+function normalizeEntitySearchResult(result: EntitySearchResponse): EntitySearchResult {
+  if (Array.isArray(result)) return { options: result };
+  return {
+    options: result.options ?? [],
+    emptySuggestions: result.emptySuggestions,
+  };
+}
 
 export function Combobox({
   options,
@@ -34,6 +52,8 @@ export function Combobox({
   contentClassName,
   searchable,
   size = 'default',
+  contentMatchTrigger = true,
+  'aria-label': ariaLabel,
 }: {
   options: ComboboxOption[];
   value?: string;
@@ -49,6 +69,9 @@ export function Combobox({
   searchable?: boolean;
   /** `sm` fits dense panels (inspectors); `default` is the standard form control. */
   size?: 'default' | 'sm';
+  /** When false, the menu can be wider than the trigger (use contentClassName). */
+  contentMatchTrigger?: boolean;
+  'aria-label'?: string;
 }) {
   const [open, setOpen] = React.useState(false);
   const [query, setQuery] = React.useState('');
@@ -98,13 +121,16 @@ export function Combobox({
           variant="outline"
           role="combobox"
           aria-expanded={open}
+          aria-label={ariaLabel}
           disabled={disabled}
           size={compact ? 'sm' : 'default'}
           className={cn(
             // Match Input field chrome so forms stay visually consistent.
             'w-full justify-between gap-2 border-input bg-card/85 font-normal shadow-sm',
             'hover:bg-card hover:text-foreground dark:hover:bg-card/90',
-            compact ? 'h-8 rounded-md px-2.5 text-xs' : 'h-9 rounded-md px-3 text-sm',
+            compact
+              ? 'h-[var(--control-h-sm)] rounded-md px-[var(--control-px-sm)] text-[length:var(--control-text-sm)]'
+              : 'h-[var(--control-h)] rounded-md px-[var(--control-px)] text-[length:var(--control-text)]',
             !selected && 'text-muted-foreground',
             className,
           )}
@@ -120,10 +146,13 @@ export function Combobox({
               />
             ) : null}
             <span
-              className={cn('truncate', compact ? 'text-xs' : 'text-sm')}
+              className={cn(
+                'truncate',
+                compact ? 'text-[length:var(--control-text-sm)]' : 'text-[length:var(--control-text)]',
+              )}
               style={selected?.labelStyle}
             >
-              {selected?.label ?? placeholder}
+              {selected?.shortLabel ?? selected?.label ?? placeholder}
             </span>
           </span>
           {loading ? (
@@ -146,16 +175,27 @@ export function Combobox({
       </PopoverTrigger>
       <PopoverContent
         className={cn(
-          'max-w-[var(--radix-popover-trigger-width)] overflow-hidden border-input bg-card p-0 shadow-md',
-          'w-[var(--radix-popover-trigger-width)] min-w-0 rounded-md',
+          'overflow-hidden border-input bg-card p-0 shadow-md rounded-md',
+          contentMatchTrigger
+            ? 'max-w-[var(--radix-popover-trigger-width)] w-[var(--radix-popover-trigger-width)] min-w-0'
+            : 'min-w-[var(--radix-popover-trigger-width)] w-auto max-w-none',
           contentClassName,
         )}
-        style={{
-          width: 'var(--radix-popover-trigger-width)',
-          minWidth: 'var(--radix-popover-trigger-width)',
-          maxWidth: 'var(--radix-popover-trigger-width)',
-        }}
+        style={
+          contentMatchTrigger
+            ? {
+                width: 'var(--radix-popover-trigger-width)',
+                minWidth: 'var(--radix-popover-trigger-width)',
+                maxWidth: 'var(--radix-popover-trigger-width)',
+              }
+            : undefined
+        }
         align="start"
+        onCloseAutoFocus={(e) => e.preventDefault()}
+        onOpenAutoFocus={(e) => {
+          // Keep focus usable inside nested dialogs; searchable menus still focus the input.
+          if (!showSearch) e.preventDefault();
+        }}
       >
         {/* Manual filter — cmdk auto-filter can leave visual gaps between scored items. */}
         <Command
@@ -168,7 +208,11 @@ export function Combobox({
               placeholder={searchPlaceholder}
               value={query}
               onValueChange={setQuery}
-              className={compact ? 'h-8 py-1.5 text-xs' : undefined}
+              className={
+                compact
+                  ? 'h-[var(--control-h-sm)] py-[var(--field-gap-compact)] text-[length:var(--control-text-sm)]'
+                  : undefined
+              }
             />
           ) : null}
           <CommandList
@@ -178,11 +222,17 @@ export function Combobox({
             }}
           >
             {showSearch && filtered.length === 0 ? (
-              <CommandEmpty className={compact ? 'py-4 text-xs' : undefined}>
+              <CommandEmpty
+                className={
+                  compact ? 'py-[var(--gap-page)] text-[length:var(--control-text-sm)]' : undefined
+                }
+              >
                 {emptyText}
               </CommandEmpty>
             ) : null}
-            <CommandGroup className={compact ? 'p-1 [&_[cmdk-group-items]]:gap-0.5' : undefined}>
+              <CommandGroup
+                className={compact ? 'p-[var(--field-gap)] [&_[cmdk-group-items]]:gap-[var(--field-gap-compact)]' : undefined}
+              >
               {filtered.map((option) => {
                 const Icon = option.icon;
                 const isSelected = value === option.value;
@@ -196,7 +246,9 @@ export function Combobox({
                     }}
                     className={cn(
                       'cursor-pointer',
-                      compact ? 'gap-1.5 rounded-md px-2 py-1.5' : undefined,
+                      compact
+                        ? 'gap-1.5 rounded-md px-[var(--menu-item-px)] py-[var(--field-gap)]'
+                        : 'gap-2 py-[var(--menu-item-py)]',
                       isSelected && 'bg-primary/10 text-foreground',
                     )}
                   >
@@ -214,7 +266,9 @@ export function Combobox({
                       <div
                         className={cn(
                           'truncate font-medium leading-snug',
-                          compact ? 'text-xs' : 'text-[15px]',
+                          compact
+                            ? 'text-[length:var(--control-text-sm)]'
+                            : 'text-[length:var(--control-text)]',
                         )}
                         style={option.labelStyle}
                       >
@@ -224,7 +278,9 @@ export function Combobox({
                         <div
                           className={cn(
                             'mt-0.5 truncate text-muted-foreground',
-                            compact ? 'text-[10px]' : 'text-xs',
+                            compact
+                              ? 'text-[length:var(--control-text-sm)]'
+                              : 'text-[length:var(--control-text)]',
                           )}
                         >
                           {option.description}
@@ -261,10 +317,11 @@ export function EntityCombobox({
   onCreateNew,
   createNewLabel = 'Create new',
   clearable,
+  size = 'default',
 }: {
   value?: string;
   onChange: (value: string, option?: ComboboxOption) => void;
-  onSearch: (query: string) => Promise<ComboboxOption[]>;
+  onSearch: (query: string) => Promise<EntitySearchResponse>;
   placeholder?: string;
   emptyText?: string;
   disabled?: boolean;
@@ -273,13 +330,17 @@ export function EntityCombobox({
   onCreateNew?: (query: string) => void;
   createNewLabel?: string;
   clearable?: boolean;
+  /** Match Combobox / DatePicker density — `sm` uses `--control-h-sm`. */
+  size?: 'default' | 'sm';
 }) {
   const [open, setOpen] = React.useState(false);
   const [query, setQuery] = React.useState('');
   const [options, setOptions] = React.useState<ComboboxOption[]>([]);
+  const [emptySuggestions, setEmptySuggestions] = React.useState<ComboboxOption[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [label, setLabel] = React.useState(selectedLabel ?? '');
   const [highlight, setHighlight] = React.useState('');
+  const compact = size === 'sm';
 
   React.useEffect(() => {
     if (selectedLabel) setLabel(selectedLabel);
@@ -301,7 +362,10 @@ export function EntityCombobox({
       setLoading(true);
       onSearch(query)
         .then((items) => {
-          if (!cancelled) setOptions(items);
+          if (cancelled) return;
+          const normalized = normalizeEntitySearchResult(items);
+          setOptions(normalized.options);
+          setEmptySuggestions(normalized.emptySuggestions ?? []);
         })
         .finally(() => {
           if (!cancelled) setLoading(false);
@@ -325,8 +389,17 @@ export function EntityCombobox({
     setLabel('');
   }
 
+  function pickSuggestion(option: ComboboxOption) {
+    onChange(option.value, option);
+    setLabel(option.label);
+    setOpen(false);
+  }
+
   const createLabel =
     query.trim().length > 0 ? `${createNewLabel}: “${query.trim()}”` : createNewLabel;
+
+  const resolvedEmptyText =
+    query.trim().length > 0 ? `No matches for “${query.trim()}”` : emptyText;
 
   return (
     <Popover modal open={open} onOpenChange={setOpen}>
@@ -335,15 +408,19 @@ export function EntityCombobox({
           type="button"
           variant="outline"
           role="combobox"
+          size={compact ? 'sm' : 'default'}
           disabled={disabled}
           className={cn(
-            'h-9 w-full justify-between gap-2 rounded-xl px-3 font-normal glass',
+            'w-full justify-between gap-2 rounded-md border-input bg-card/85 font-normal shadow-sm',
             'hover:bg-card hover:text-foreground dark:hover:bg-card/90',
+            compact
+              ? 'h-[var(--control-h-sm)] px-[var(--control-px-sm)] text-[length:var(--control-text-sm)]'
+              : 'h-[var(--control-h)] px-[var(--control-px)] text-[length:var(--control-text)]',
             !label && 'text-muted-foreground',
             className,
           )}
         >
-          <span className="truncate text-sm">{label || placeholder}</span>
+          <span className="truncate">{label || placeholder}</span>
           <span className="flex shrink-0 items-center gap-1">
             {clearable && label ? (
               <span
@@ -379,17 +456,52 @@ export function EntityCombobox({
         className="max-w-none overflow-hidden p-0 glass-strong"
         style={{ width: 'var(--radix-popover-trigger-width)' }}
         align="start"
+        collisionPadding={16}
       >
         <Command shouldFilter={false} value={highlight} onValueChange={setHighlight}>
           <CommandInput placeholder={placeholder} value={query} onValueChange={setQuery} />
           <CommandList
+            className="max-h-[min(22rem,50vh)]"
             onMouseLeave={() => {
               setHighlight(value || '');
             }}
           >
             {!loading && options.length === 0 ? (
-              <div className="px-3 py-5 text-center text-sm text-muted-foreground">
-                <p>{emptyText}</p>
+              <div className="px-3 py-5 text-center text-[length:var(--control-text)] text-muted-foreground">
+                <p>{emptySuggestions.length > 0 ? resolvedEmptyText : emptyText}</p>
+                {emptySuggestions.length > 0 ? (
+                  <div className="mt-3 space-y-2 text-left">
+                    <p className="text-center text-sm font-semibold text-foreground">
+                      Did you mean?
+                    </p>
+                    <div className="flex flex-col gap-1.5">
+                      {emptySuggestions.map((opt, index) => (
+                        <Button
+                          key={opt.value}
+                          type="button"
+                          variant={index === 0 ? 'default' : 'outline'}
+                          size="sm"
+                          className="h-auto w-full justify-start whitespace-normal px-3 py-2.5 text-left"
+                          onClick={() => pickSuggestion(opt)}
+                        >
+                          <span className="min-w-0">
+                            <span className="block text-sm font-semibold">{opt.label}</span>
+                            {opt.description ? (
+                              <span
+                                className={cn(
+                                  'mt-0.5 block text-[11px]',
+                                  index === 0 ? 'text-primary-foreground/80' : 'text-muted-foreground',
+                                )}
+                              >
+                                {opt.description}
+                              </span>
+                            ) : null}
+                          </span>
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 {onCreateNew ? (
                   <Button
                     type="button"
@@ -419,9 +531,11 @@ export function EntityCombobox({
                     className={cn('cursor-pointer', isSelected && 'bg-primary/10')}
                   >
                     <div className="min-w-0 flex-1">
-                      <div className="whitespace-normal text-sm font-medium">{option.label}</div>
+                      <div className="whitespace-normal text-[length:var(--control-text)] font-medium">
+                        {option.label}
+                      </div>
                       {option.description ? (
-                        <div className="mt-0.5 whitespace-normal text-xs text-muted-foreground">
+                        <div className="mt-0.5 whitespace-normal text-[length:var(--control-text-sm)] text-muted-foreground">
                           {option.description}
                         </div>
                       ) : null}

@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { useState, type ComponentType } from 'react';
+import { BadgeCheck, ChevronDown, CircleDashed, XCircle } from 'lucide-react';
 import {
   Button,
   DropdownMenu,
@@ -13,6 +13,7 @@ import {
   toastSuccess,
 } from '@wayrune/ui';
 import { api } from '../../api';
+import { QUEUE_MENU_ITEM_CLASS } from '../queue';
 import { inquiryStatusLabel } from '../../lib/agencyStatusLabels';
 
 /** Mirrors `InquiriesService.STATUS_TRANSITIONS` on the backend — kept in
@@ -22,6 +23,12 @@ const STATUS_TRANSITIONS: Record<string, string[]> = {
   open: ['qualified', 'lost'],
   qualified: ['open', 'lost'],
   lost: ['open'],
+};
+
+const STATUS_ICONS: Record<string, ComponentType<{ className?: string }>> = {
+  open: CircleDashed,
+  qualified: BadgeCheck,
+  lost: XCircle,
 };
 
 type StatusInquiry = { id: string; status: string };
@@ -75,15 +82,23 @@ export function InquiryStatusMenu<T extends StatusInquiry>({
         <DropdownMenuTrigger asChild>
           <Button size={size} variant="outline" disabled={saving}>
             Change status
-            <ChevronDown className="size-3.5" />
+            <ChevronDown className="size-[0.875em]" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          {next.map((status) => (
-            <DropdownMenuItem key={status} onClick={() => select(status)}>
-              Mark {inquiryStatusLabel(status) || status}
-            </DropdownMenuItem>
-          ))}
+        <DropdownMenuContent align="end" className="w-44 p-1">
+          {next.map((status) => {
+            const Icon = STATUS_ICONS[status];
+            return (
+              <DropdownMenuItem
+                key={status}
+                className={QUEUE_MENU_ITEM_CLASS}
+                onClick={() => select(status)}
+              >
+                {Icon ? <Icon /> : null}
+                Mark {inquiryStatusLabel(status) || status}
+              </DropdownMenuItem>
+            );
+          })}
         </DropdownMenuContent>
       </DropdownMenu>
 
@@ -98,6 +113,7 @@ export function InquiryStatusMenu<T extends StatusInquiry>({
       >
         <FormField label="Reason" required>
           <Input
+            inputSize="sm"
             value={lostReason}
             onChange={(e) => setLostReason(e.target.value)}
             placeholder="e.g. Budget too low, chose competitor…"

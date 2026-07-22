@@ -99,17 +99,31 @@ function linesFromItemsJson(itemsJson: unknown): QuoteLineForTotals[] {
 /**
  * Prefer recomputing from itemsJson (parity with live draft).
  * Fall back to persisted cost/sell/margin when items are unavailable.
+ * When cost is redacted for the role (`costHidden`), still build a sell/tax
+ * snapshot so revision Δ is visible to sales without quote.view_cost.
  */
 export function commercialTotalsFromVersion(
   version: RevisionBaselineVersion | null | undefined,
 ): QuoteCommercialSnapshot | null {
-  if (!version || version.costHidden) return null;
+  if (!version) return null;
   const fromItems = linesFromItemsJson(version.itemsJson);
   if (fromItems.length > 0) {
     return commercialTotalsFromLines(fromItems);
   }
-  const costTotal = num(version.costTotal);
   const sellTotal = num(version.sellTotal);
+  if (version.costHidden) {
+    if (sellTotal == null) return null;
+    // Margin/cost unknown — sell-side comparison only.
+    return {
+      costTotal: 0,
+      sellExTax: sellTotal,
+      sellTotal,
+      marginAmount: 0,
+      marginPercent: 0,
+      incomplete: true,
+    };
+  }
+  const costTotal = num(version.costTotal);
   const marginAmount = num(version.marginAmount);
   const marginPercent = num(version.marginPercent);
   if (costTotal == null || sellTotal == null) return null;
@@ -188,6 +202,8 @@ export type RevisionMarginDelta = {
   source: RevisionBaselineSource;
   baselineLabel: string;
   changedLineSummaries: string[];
+  /** False when staff lacks quote.view_cost — hide cost/margin cells. */
+  showCost: boolean;
   visible: boolean;
 };
 
@@ -251,11 +267,12 @@ export function buildRevisionMarginDelta(input: {
   after: QuoteCommercialSnapshot | null;
   source: RevisionBaselineSource | null;
   baselineLabel?: string;
+  /** When false, strip still shows sell/tax Δ but hides cost/margin. */
   canViewCost: boolean;
   beforeLines?: RevisionLineSnapshot[];
   afterLines?: RevisionLineSnapshot[];
 }): RevisionMarginDelta | null {
-  if (!input.canViewCost || !input.before || !input.after || !input.source) {
+  if (!input.before || !input.after || !input.source) {
     return null;
   }
   const beforeTax = input.before.sellTotal - input.before.sellExTax;
@@ -275,6 +292,7 @@ export function buildRevisionMarginDelta(input: {
       input.beforeLines || [],
       input.afterLines || [],
     ),
+    showCost: input.canViewCost,
     visible: true,
   };
 }

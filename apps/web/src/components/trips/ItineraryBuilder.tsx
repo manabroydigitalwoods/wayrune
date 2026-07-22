@@ -32,9 +32,11 @@ import {
   FormGrid,
   humanizeItemType,
   Input,
+  NumberField,
   RecordDialog,
   RecordSheet,
   SimpleFormField as FormField,
+  Skeleton,
   StatusBadge,
   SuggestionChips,
   TimePicker,
@@ -60,6 +62,8 @@ import {
   PlaceSinglePicker,
   type PlaceApiItem,
 } from '../places/PlacePicker';
+import { TransferEndpointPicker } from './TransferEndpointPicker';
+import { transferSameEndpointWarning } from '../../lib/transferEndpointRefs';
 import {
   snapshotFromPlaceProfile,
   snapshotRefreshFields,
@@ -70,6 +74,12 @@ import {
   toPlaceRef,
   type PlaceRef,
 } from '../../lib/placeRefs';
+import {
+  destinationRefFromDay,
+  locationRefFromItem,
+  normalizeItineraryDaysForRead,
+  withCanonicalDayDestination,
+} from '@wayrune/contracts';
 import {
   seedStoryFromDays,
   storyEssentialsScore,
@@ -163,6 +173,11 @@ export type ItineraryItem = {
   description?: string | null;
   startTime?: string | null;
   endTime?: string | null;
+  /** Canonical place (preferred). */
+  locationRef?: PlaceRef | null;
+  /** Custom display override — does not redefine place identity. */
+  locationLabel?: string | null;
+  /** @deprecated Read/UI mirror — omit on API write (server normalizes). */
   location?: PlaceRef | string | null;
   notes?: string | null;
   internalNotes?: string | null;
@@ -175,7 +190,10 @@ export type ItineraryDay = {
   dayNumber: number;
   title: string;
   date?: string | null;
-  /** Primary place for this day (multi-stop trips). */
+  /** Canonical primary place for this day. */
+  destinationRef?: PlaceRef | null;
+  destinationLabel?: string | null;
+  /** @deprecated Read/UI mirror — omit on API write (server normalizes). */
   destination?: PlaceRef | string | null;
   items: ItineraryItem[];
 };
@@ -719,7 +737,7 @@ function buildItinerarySkeleton(opts: {
       dayNumber: i + 1,
       title,
       date: tripStartDate ? addDaysIso(tripStartDate, i) : null,
-      destination: dest,
+      ...withCanonicalDayDestination({}, dest),
       items:
         i === 0 && dest
           ? [
@@ -728,6 +746,7 @@ function buildItinerarySkeleton(opts: {
                 id: `i${Date.now()}-ci`,
                 title: 'Check-in',
                 location: dest,
+                locationRef: dest,
               },
             ]
           : ([] as ItineraryItem[]),
@@ -737,7 +756,11 @@ function buildItinerarySkeleton(opts: {
 
 function daysHaveWork(days: ItineraryDay[]): boolean {
   const itemCount = days.reduce((n, d) => n + d.items.length, 0);
-  return days.length > 1 || itemCount > 1 || Boolean(days[0]?.destination);
+  return (
+    days.length > 1 ||
+    itemCount > 1 ||
+    Boolean(destinationRefFromDay(days[0] || {}))
+  );
 }
 
 function blockHasDays(block: ItineraryBlockRow): boolean {
@@ -748,14 +771,14 @@ function blockHasDays(block: ItineraryBlockRow): boolean {
 function toTemplateContentJson(days: ItineraryDay[]) {
   return {
     days: days.map((day) => {
-      const dest = toPlaceRef(day.destination);
+      const dest = destinationRefFromDay(day) || toPlaceRef(day.destination);
       return {
         dayNumber: day.dayNumber,
         title: day.title,
         destinationPlaceId: dest?.placeId || undefined,
-        destination: dest || undefined,
+        destinationRef: dest || undefined,
         items: day.items.map((item) => {
-          const loc = toPlaceRef(item.location);
+          const loc = locationRefFromItem(item) || toPlaceRef(item.location);
           const catalogPlaceId =
             item.details?.catalogPlaceId || loc?.placeId || undefined;
           return {
@@ -766,7 +789,7 @@ function toTemplateContentJson(days: ItineraryDay[]) {
             endTime: item.endTime || undefined,
             catalogPlaceId,
             customerVisible: item.customerVisible !== false,
-            location: loc || undefined,
+            locationRef: loc || undefined,
             details: {
               ...(catalogPlaceId ? { catalogPlaceId } : {}),
               ...(item.details?.nights != null ? { nights: item.details.nights } : {}),
@@ -803,6 +826,7 @@ function applyPlaceSnapshotToDraft(draft: ItineraryItem, place: PlaceApiItem): I
     title: snap.title || draft.title,
     description: snap.description ?? draft.description,
     location: placeRef,
+    locationRef: placeRef,
     details: {
       ...draft.details,
       catalogPlaceId: snap.catalogPlaceId,
@@ -1074,24 +1098,34 @@ function normalizeDays(
           },
         ];
 
-  return source.map((day, index) => {
+  // In-memory only — does not dirty-save. Fill Refs from legacy; mirror for existing UI.
+  const readNormalized = normalizeItineraryDaysForRead(source) as ItineraryDay[];
+
+  return readNormalized.map((day, index) => {
     const dayNumber = day.dayNumber || index + 1;
     const date =
       day.date ||
       (tripStartDate ? addDaysIso(tripStartDate, dayNumber - 1) : null);
+    const destRef = destinationRefFromDay(day) as PlaceRef | null;
     return {
       ...day,
       id: day.id || `d${dayNumber}`,
       dayNumber,
       title: day.title || `Day ${dayNumber}`,
       date,
-      destination: day.destination || null,
-      items: (day.items || []).map((item) => ({
-        ...item,
-        type: item.type === 'activity' ? 'sightseeing' : item.type,
-        customerVisible: item.customerVisible !== false,
-        details: item.details || {},
-      })),
+      destinationRef: destRef,
+      destination: destRef,
+      items: (day.items || []).map((item) => {
+        const locRef = locationRefFromItem(item) as PlaceRef | null;
+        return {
+          ...item,
+          type: item.type === 'activity' ? 'sightseeing' : item.type,
+          customerVisible: item.customerVisible !== false,
+          details: item.details || {},
+          locationRef: locRef,
+          location: locRef,
+        };
+      }),
     };
   });
 }
@@ -1542,7 +1576,33 @@ export function ItineraryBuilder({
   }
 
   function updateDay(dayId: string, patch: Partial<ItineraryDay>) {
-    commit(normalized.map((d) => (d.id === dayId ? { ...d, ...patch } : d)));
+    commit(
+      normalized.map((d) => {
+        if (d.id !== dayId) return d;
+        const touchesDest =
+          'destination' in patch ||
+          'destinationRef' in patch ||
+          'destinationLabel' in patch;
+        if (!touchesDest) return { ...d, ...patch };
+
+        const merged = { ...d, ...patch } as ItineraryDay;
+        const ref =
+          'destinationRef' in patch
+            ? ((patch.destinationRef as PlaceRef | null | undefined) ?? null)
+            : destinationRefFromDay(merged);
+        const label =
+          'destinationLabel' in patch
+            ? patch.destinationLabel
+            : merged.destinationLabel;
+        const {
+          destination: _dropDest,
+          destinationRef: _dropRef,
+          destinationLabel: _dropLabel,
+          ...rest
+        } = merged;
+        return withCanonicalDayDestination(rest, ref, label) as ItineraryDay;
+      }),
+    );
   }
 
   function updateItem(
@@ -2068,18 +2128,21 @@ function openAdd(dayId: string, type = 'sightseeing') {
     const id = `d${Date.now()}`;
     const date = tripStartDate ? addDaysIso(tripStartDate, dayNumber - 1) : null;
     const unusedPlace = destinationRefs.find(
-      (dest) => !normalized.some((d) => samePlace(d.destination, dest)),
+      (dest) =>
+        !normalized.some((d) => samePlace(destinationRefFromDay(d), dest)),
     );
     const next = [
       ...normalized,
-      {
-        id,
-        dayNumber,
-        title: unusedPlace ? unusedPlace.name : `Day ${dayNumber}`,
-        date,
-        destination: unusedPlace || null,
-        items: [] as ItineraryItem[],
-      },
+      withCanonicalDayDestination(
+        {
+          id,
+          dayNumber,
+          title: unusedPlace ? unusedPlace.name : `Day ${dayNumber}`,
+          date,
+          items: [] as ItineraryItem[],
+        },
+        unusedPlace || null,
+      ) as ItineraryDay,
     ];
     commit(next);
     setSelectedDayId(id);
@@ -2594,7 +2657,11 @@ function openAdd(dayId: string, type = 'sightseeing') {
               Package templates
             </div>
             {blocksLoading ? (
-              <p className="text-xs text-muted-foreground">Loading templates…</p>
+              <div className="space-y-1.5" role="status" aria-busy="true">
+                <span className="sr-only">Loading</span>
+                <Skeleton className="h-3 w-32" />
+                <Skeleton className="h-8 w-40" />
+              </div>
             ) : (
               <div className="flex flex-wrap gap-2">
                 {packageBlocks.map((block) => {
@@ -2609,7 +2676,7 @@ function openAdd(dayId: string, type = 'sightseeing') {
                           disabled={applyingBlockId === block.id}
                         >
                           {applyingBlockId === block.id
-                            ? 'Loading…'
+                            ? 'Working…'
                             : `${block.name}${dayCount ? ` · ${dayCount}d` : ''}`}
                           <ChevronDown className="size-3.5 opacity-70" />
                         </Button>
@@ -2724,18 +2791,23 @@ function openAdd(dayId: string, type = 'sightseeing') {
                     <div className="max-w-md">
                       <PlaceSinglePicker
                         label="Day destination"
-                        value={focusedDay.destination}
-                        onChange={(place) =>
-                          updateDay(focusedDay.id, {
-                            destination: place,
-                            title:
-                              !focusedDay.title.trim() ||
-                              focusedDay.title === `Day ${focusedDay.dayNumber}`
-                                ? place?.name || focusedDay.title
-                                : focusedDay.title,
-                          })
-                        }
-                        placeholder="City for this day…"
+                        purpose="destination"
+                        value={destinationRefFromDay(focusedDay)}
+                        onChange={(place) => {
+                          const title =
+                            !focusedDay.title.trim() ||
+                            focusedDay.title === `Day ${focusedDay.dayNumber}`
+                              ? place?.name || focusedDay.title
+                              : focusedDay.title;
+                          updateDay(
+                            focusedDay.id,
+                            withCanonicalDayDestination(
+                              { ...focusedDay, title },
+                              place,
+                            ) as Partial<ItineraryDay>,
+                          );
+                        }}
+                        placeholder="City or destination for this day…"
                       />
                     </div>
                   </div>
@@ -3158,65 +3230,74 @@ function openAdd(dayId: string, type = 'sightseeing') {
             {draft.type === 'transfer' ? (
               <div className="space-y-3">
                 <FormGrid>
-                  <PlaceField
-                    label="From"
-                    value={
-                      details.fromPlaceId
-                        ? { placeId: details.fromPlaceId, name: details.from || '' }
-                        : details.from || null
-                    }
-                    onChange={(place) =>
+                  <TransferEndpointPicker
+                    endpoint="pickup"
+                    label="Pickup"
+                    placeId={details.fromPlaceId}
+                    placeName={details.from}
+                    onChange={(next) =>
                       setEditing((ed) => {
                         if (!ed) return ed;
                         const patched: ItineraryItem = {
                           ...ed.draft,
                           details: {
                             ...ed.draft.details,
-                            from: place?.name || undefined,
-                            fromPlaceId: place?.placeId || undefined,
+                            from: next.name || undefined,
+                            fromPlaceId: next.placeId || undefined,
                           },
                           location: ed.draft.details?.toPlaceId
                             ? ed.draft.location
-                            : place,
+                            : next.placeId
+                              ? { placeId: next.placeId, name: next.name || '' }
+                              : ed.draft.location,
                         };
                         return {
-                      ...ed,
-                      draft: retitleIfNeeded(ed.draft, patched, sheetMealContext),
-                    };
+                          ...ed,
+                          draft: retitleIfNeeded(ed.draft, patched, sheetMealContext),
+                        };
                       })
                     }
-                    placeholder="Pickup place"
-                    onCreateNew={(q) => openCreatePlace(q)}
                   />
-                  <PlaceField
-                    label="To"
-                    value={
-                      details.toPlaceId
-                        ? { placeId: details.toPlaceId, name: details.to || '' }
-                        : details.to || null
-                    }
-                    onChange={(place) =>
+                  <TransferEndpointPicker
+                    endpoint="drop"
+                    label="Drop"
+                    placeId={details.toPlaceId}
+                    placeName={details.to}
+                    onChange={(next) =>
                       setEditing((ed) => {
                         if (!ed) return ed;
                         const patched: ItineraryItem = {
                           ...ed.draft,
-                          location: place || ed.draft.location,
+                          location: next.placeId
+                            ? { placeId: next.placeId, name: next.name || '' }
+                            : ed.draft.location,
                           details: {
                             ...ed.draft.details,
-                            to: place?.name || undefined,
-                            toPlaceId: place?.placeId || undefined,
+                            to: next.name || undefined,
+                            toPlaceId: next.placeId || undefined,
                           },
                         };
                         return {
-                      ...ed,
-                      draft: retitleIfNeeded(ed.draft, patched, sheetMealContext),
-                    };
+                          ...ed,
+                          draft: retitleIfNeeded(ed.draft, patched, sheetMealContext),
+                        };
                       })
                     }
-                    placeholder="Drop-off place"
-                    onCreateNew={(q) => openCreatePlace(q)}
                   />
                 </FormGrid>
+                {transferSameEndpointWarning(details.fromPlaceId, details.toPlaceId) ? (
+                  <p className="text-sm text-amber-800 dark:text-amber-200">
+                    {transferSameEndpointWarning(details.fromPlaceId, details.toPlaceId)}
+                  </p>
+                ) : null}
+                {!details.fromPlaceId || !details.toPlaceId ? (
+                  <p
+                    className="text-[11px] text-muted-foreground"
+                    data-testid="transfer-match-ready-hint"
+                  >
+                    Select both pickup and drop locations to match transfer rates.
+                  </p>
+                ) : null}
                 <FormGrid>
                   <FormField label="Pickup">
                     <TimePicker
@@ -3573,11 +3654,10 @@ function openAdd(dayId: string, type = 'sightseeing') {
               <div className="space-y-3">
                 <FormGrid>
                   <FormField label="Nights">
-                    <Input
-                      type="number"
+                    <NumberField
                       min={1}
                       value={details.nights ?? ''}
-                      onChange={(e) =>
+                      onChange={(raw) =>
                         setEditing((ed) =>
                           ed
                             ? {
@@ -3586,7 +3666,7 @@ function openAdd(dayId: string, type = 'sightseeing') {
                                   ...ed.draft,
                                   details: {
                                     ...ed.draft.details,
-                                    nights: e.target.value ? Number(e.target.value) : undefined,
+                                    nights: raw === '' ? undefined : Number(raw),
                                   },
                                 },
                               }
@@ -3594,6 +3674,7 @@ function openAdd(dayId: string, type = 'sightseeing') {
                         )
                       }
                       placeholder="1"
+                      quickPicks={[1, 2, 3, 4]}
                     />
                   </FormField>
                   <RoomTypeField
@@ -3895,36 +3976,36 @@ function openAdd(dayId: string, type = 'sightseeing') {
             label="Hotel category (★)"
             description="Official class — e.g. 3★ hotel, not Google score."
           >
-            <Input
-              type="number"
+            <NumberField
               min={1}
               max={5}
               value={hotelForm.stars}
-              onChange={(e) => setHotelForm({ ...hotelForm, stars: e.target.value })}
+              onChange={(stars) => setHotelForm({ ...hotelForm, stars })}
               placeholder="3"
+              quickPicks={[3, 4, 5]}
             />
           </FormField>
           <FormField
             label="Google score"
             description="Guest average out of 5 (e.g. 4.4)."
           >
-            <Input
-              type="number"
-              step="0.1"
+            <NumberField
+              integer={false}
               min={0}
               max={5}
               value={hotelForm.googleRating}
-              onChange={(e) => setHotelForm({ ...hotelForm, googleRating: e.target.value })}
+              onChange={(googleRating) =>
+                setHotelForm({ ...hotelForm, googleRating })
+              }
               placeholder="4.5"
             />
           </FormField>
           <FormField label="Google review count">
-            <Input
-              type="number"
+            <NumberField
               min={0}
               value={hotelForm.googleReviewCount}
-              onChange={(e) =>
-                setHotelForm({ ...hotelForm, googleReviewCount: e.target.value })
+              onChange={(googleReviewCount) =>
+                setHotelForm({ ...hotelForm, googleReviewCount })
               }
               placeholder="1287"
             />
@@ -3990,12 +4071,12 @@ function openAdd(dayId: string, type = 'sightseeing') {
           />
         </FormField>
         <FormField label="Seats" error={vehicleTypeErrors.seats}>
-          <Input
-            type="number"
+          <NumberField
             min={1}
             value={vehicleTypeForm.seats}
-            onChange={(e) => setVehicleTypeForm({ ...vehicleTypeForm, seats: e.target.value })}
+            onChange={(seats) => setVehicleTypeForm({ ...vehicleTypeForm, seats })}
             placeholder="6"
+            quickPicks={[4, 6, 7, 12]}
           />
         </FormField>
         <FormField label="Description" error={vehicleTypeErrors.description}>
@@ -4122,14 +4203,15 @@ function openAdd(dayId: string, type = 'sightseeing') {
             </p>
           ) : null}
           <FormField label="Nights">
-            <Input
-              type="number"
+            <NumberField
               min={1}
               max={29}
               value={buildNights}
-              onChange={(e) =>
-                setBuildNights(Math.max(1, Number(e.target.value) || 1))
-              }
+              onChange={(raw) => {
+                if (raw === '') return;
+                setBuildNights(Math.max(1, Number(raw) || 1));
+              }}
+              quickPicks={[3, 5, 7, 10]}
             />
             <p className="mt-1 text-[11px] text-muted-foreground">
               Creates {buildNights + 1} days
@@ -4614,7 +4696,7 @@ function ProposalStoryPanel({
                   value={story.headline || ''}
                   onChange={(e) => patch({ headline: e.target.value || undefined })}
                   placeholder="Discover the serenity of Kurseong"
-                  className="h-9 border-border/60 bg-background/85 px-3 text-sm font-medium"
+                  className="border-border/60 bg-background/85 px-3 text-sm font-medium"
                 />
               </FormField>
               <FormField label="Supporting line" className="!mb-0">
@@ -4863,27 +4945,26 @@ function ProposalStoryPanel({
                                 patch({ paymentSchedule });
                               }}
                               placeholder="Label"
-                              className="h-9 bg-background/80"
+                              className="bg-background/80"
                             />
-                            <Input
-                              type="number"
+                            <NumberField
                               min={0}
                               max={100}
                               value={step.percent ?? ''}
-                              onChange={(e) => {
+                              onChange={(raw) => {
                                 const paymentSchedule = [...(story.paymentSchedule || [])];
-                                const n = Number(e.target.value);
+                                const n = Number(raw);
                                 paymentSchedule[idx] = {
                                   ...paymentSchedule[idx],
                                   percent:
-                                    e.target.value === '' || !Number.isFinite(n)
+                                    raw === '' || !Number.isFinite(n)
                                       ? undefined
                                       : n,
                                 };
                                 patch({ paymentSchedule });
                               }}
                               placeholder="%"
-                              className="h-9 bg-background/80"
+                                                            quickPicks={[25, 40, 50, 60]}
                             />
                             <Input
                               value={step.amountHint || ''}
@@ -4896,13 +4977,13 @@ function ProposalStoryPanel({
                                 patch({ paymentSchedule });
                               }}
                               placeholder="Amount hint"
-                              className="h-9 bg-background/80"
+                              className="bg-background/80"
                             />
                             <Button
                               type="button"
                               size="icon"
                               variant="ghost"
-                              className="h-9 w-9 shrink-0"
+                              className="shrink-0"
                               onClick={() =>
                                 patch({
                                   paymentSchedule: (story.paymentSchedule || []).filter(
@@ -4979,7 +5060,7 @@ function ProposalStoryPanel({
                                 patch({ faqs });
                               }}
                               placeholder="Question"
-                              className="h-9 bg-background/80"
+                              className="bg-background/80"
                             />
                             <Input
                               value={faq.answer}
@@ -4989,13 +5070,13 @@ function ProposalStoryPanel({
                                 patch({ faqs });
                               }}
                               placeholder="Answer"
-                              className="h-9 bg-background/80"
+                              className="bg-background/80"
                             />
                             <Button
                               type="button"
                               size="icon"
                               variant="ghost"
-                              className="h-9 w-9 shrink-0"
+                              className="shrink-0"
                               onClick={() =>
                                 patch({
                                   faqs: (story.faqs || []).filter((_, i) => i !== idx),

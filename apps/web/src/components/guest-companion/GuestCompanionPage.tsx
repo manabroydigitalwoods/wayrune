@@ -17,7 +17,7 @@ import {
   WifiOff,
   X,
 } from 'lucide-react';
-import { toastError, toastSuccess } from '@wayrune/ui';
+import { PublicPageSkeleton, toastError, toastSuccess } from '@wayrune/ui';
 import { api } from '../../api';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 import {
@@ -1218,11 +1218,7 @@ export function GuestCompanionPage() {
   }
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-[#f6f0e6] px-4 py-16 text-center text-sm text-[#5c4a3a]">
-        Opening your guest companion…
-      </div>
-    );
+    return <PublicPageSkeleton />;
   }
   if (error || !data) {
     return (

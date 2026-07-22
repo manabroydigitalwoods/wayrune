@@ -7,9 +7,11 @@ import {
   DatePicker,
   FormGrid,
   Input,
+  NumberField,
   QuickPicks,
   RecordSheet,
   SimpleFormField as FormField,
+  Skeleton,
   StatusBadge,
   SuggestionChips,
   toastError,
@@ -651,7 +653,13 @@ export function SupplierContractsPanel({
       </div>
 
       {loading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <div role="status" aria-busy="true" className="space-y-2 py-1">
+          <span className="sr-only">Loading</span>
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-5/6" />
+          <Skeleton className="h-10 w-full" />
+        </div>
       ) : contracts.length ? (
         <ul className="divide-y divide-border/50 overflow-hidden rounded-xl border border-border/60">
           {contracts.map((c) => {
@@ -827,24 +835,27 @@ export function SupplierContractsPanel({
               {form.cancelTiers.map((tier, idx) => (
                 <FormGrid key={idx}>
                   <FormField label={idx === 0 ? 'Within (days)' : ' '}>
-                    <Input
-                      inputMode="numeric"
+                    <NumberField
+                      min={1}
+                      max={365}
                       value={tier.beforeDays}
-                      onChange={(e) => {
+                      onChange={(beforeDays) => {
                         const next = [...form.cancelTiers];
-                        next[idx] = { ...tier, beforeDays: e.target.value };
+                        next[idx] = { ...tier, beforeDays };
                         setForm((f) => ({ ...f, cancelTiers: next }));
                       }}
                       placeholder={idx === 0 ? '7' : idx === 1 ? '3' : '1'}
                     />
                   </FormField>
                   <FormField label={idx === 0 ? 'Charge %' : ' '}>
-                    <Input
-                      inputMode="numeric"
+                    <NumberField
+                      integer={false}
+                      min={0}
+                      max={100}
                       value={tier.chargePercent}
-                      onChange={(e) => {
+                      onChange={(chargePercent) => {
                         const next = [...form.cancelTiers];
-                        next[idx] = { ...tier, chargePercent: e.target.value };
+                        next[idx] = { ...tier, chargePercent };
                         setForm((f) => ({ ...f, cancelTiers: next }));
                       }}
                       placeholder={idx === 0 ? '0' : idx === 1 ? '50' : '100'}
@@ -854,11 +865,13 @@ export function SupplierContractsPanel({
               ))}
               <FormGrid>
                 <FormField label="No-show %">
-                  <Input
-                    inputMode="numeric"
+                  <NumberField
+                    integer={false}
+                    min={0}
+                    max={100}
                     value={form.noShowPercent}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, noShowPercent: e.target.value }))
+                    onChange={(noShowPercent) =>
+                      setForm((f) => ({ ...f, noShowPercent }))
                     }
                     placeholder="100"
                   />

@@ -1,0 +1,44 @@
+---
+description: UX dogfood for Beat-Sembark + Sembark-wedge agency journeys — Playwright metrics, a11y, evidence before redesign
+globs: apps/web/**/*.{tsx,ts},apps/web-e2e/**/*
+alwaysApply: false
+---
+
+# UX dogfood (Beat-Sembark · Agency Competitive Validation)
+
+Goal: Can an agency complete the same commercial outcome with **less effort and fewer escapes** than Sembark + Excel? **Test Wayrune** — score beat edges in `docs/ux/scenarios/beat-sembark-scorecard.md` and dimensions in `docs/ux/sembark-wedge-comparison.md` before proposing “make it more like Sembark” UI.
+
+## Dogfood-first (beat edges)
+
+1. Connected spine — quote → accept → confirm → voucher → collect
+2. Revision comfort — tax/margin Δ, changed lines, Resend, hotel swap keeps dates
+3. Match keep-markup — Use vs Use (keep markup) + alt chips
+4. Self-serve Replace demo — soft-archive demo → real CSV → Match without `[Demo]`
+
+Wedge breadth (FIT-01…08, collection, departures-7d, owner) is secondary until beat edges are scored.
+
+**Not dogfood-first:** dense rate workbook · full GL · Digital Presence · Travel Exchange · partner network · advanced fleet. “Make it more like Sembark grids” requires ≥3 same-pattern escapes.
+
+## For every critical journey change
+
+1. Run Playwright: `pnpm test:e2e` (`standard-fit-quote` + `family-fit-revise-book-voucher` + `beat-*`).
+2. Collect screenshots under `apps/web-e2e/e2e-results/screenshots/`.
+3. Visual baselines only when `E2E_VISUAL=1`.
+4. Count clicks / transitions / validation from `e2e-results/*.json`.
+5. Axe soft by default; `E2E_AXE_STRICT=1` to fail.
+6. Review failed traces in `apps/web-e2e/test-results/`.
+7. **Do not propose redesigns without evidence** (metrics regression, friction-log escape, beat scorecard, or pilot think-aloud).
+8. Write findings to `docs/ux/ux-dogfood-report.md`.
+
+## Budgets (initial)
+
+- `standard-fit-quote`: ≤ 180s · ≤ 25 clicks · ≤ 5 transitions · 0 validation errors
+- `family-fit-revise-book-voucher`: ≤ 300s · ≤ 45 clicks · 0 validation errors
+- `beat-revision-comfort`: ≤ 120s · ≤ 20 clicks · 0 validation errors
+- `beat-match-keep-markup`: ≤ 90s · ≤ 15 clicks · 0 validation errors
+- `beat-replace-demo-proof`: ≤ 180s
+- Demo/seed timings never flip public FIT Proven
+
+## Human-only
+
+Hesitation, terminology, price trust, Excel preference, Match comfort, post-accept understanding — friction log + think-aloud + beat scorecard. ≥3 same-pattern escapes gate P5–P8.

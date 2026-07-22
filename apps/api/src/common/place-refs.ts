@@ -1,4 +1,5 @@
 import type { PlaceRef } from '@wayrune/contracts';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 export type PlaceRefLike = string | PlaceRef | null | undefined;
@@ -70,6 +71,36 @@ export async function resolveOnePlaceRef(
 ): Promise<PlaceRef | null> {
   const list = await resolvePlaceRefs(prisma, organizationId, raw == null ? [] : [raw]);
   return list[0] ?? null;
+}
+
+/** Prefer canonical originJson; fall back to deprecated origin + originPlaceId. */
+export function originRefFromInquiry(row: {
+  originJson?: unknown;
+  origin?: string | null;
+  originPlaceId?: string | null;
+}): PlaceRef | null {
+  const fromJson = coercePlaceRef(row.originJson as PlaceRefLike);
+  if (fromJson) return fromJson;
+  if (typeof row.origin === 'string' && row.origin.trim()) {
+    return {
+      placeId: row.originPlaceId ?? null,
+      name: row.origin.trim(),
+    };
+  }
+  return null;
+}
+
+/** New writes: PlaceRef only — clear deprecated dual columns. */
+export function inquiryOriginWriteData(ref: PlaceRef | null): {
+  originJson: Prisma.InputJsonValue | typeof Prisma.JsonNull;
+  origin: null;
+  originPlaceId: null;
+} {
+  return {
+    originJson: ref ? (ref as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
+    origin: null,
+    originPlaceId: null,
+  };
 }
 
 /**

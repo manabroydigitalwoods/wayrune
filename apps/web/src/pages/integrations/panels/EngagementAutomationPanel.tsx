@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button, Input, toastError, toastSuccess } from '@wayrune/ui';
+import { Button, Combobox, Input, toastError, toastSuccess } from '@wayrune/ui';
 import { api } from '../../../api';
 
 type Rule = {
@@ -98,16 +98,17 @@ export function EngagementAutomationPanel() {
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
-        <select
-          className="h-9 min-w-[12rem] rounded-md border border-input bg-background px-2 text-sm"
+        <Combobox
+          className="min-w-[12rem]"
           value={trigger}
-          onChange={(e) => setTrigger(e.target.value as TriggerKind)}
-          aria-label="Trigger"
-        >
-          <option value="conversation.unread_sla">Unread aging (SLA)</option>
-          <option value="interaction.ingested">Interaction ingested</option>
-          <option value="conversation.waiting">Set to waiting</option>
-        </select>
+          onChange={(value) => setTrigger(value as TriggerKind)}
+          options={[
+            { value: 'conversation.unread_sla', label: 'Unread aging (SLA)' },
+            { value: 'interaction.ingested', label: 'Interaction ingested' },
+            { value: 'conversation.waiting', label: 'Set to waiting' },
+          ]}
+          placeholder="Trigger"
+        />
         <Input
           className="min-w-[8rem] flex-1"
           placeholder="Tag (optional)"

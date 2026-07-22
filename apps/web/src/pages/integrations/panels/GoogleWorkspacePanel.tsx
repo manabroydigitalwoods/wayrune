@@ -4,6 +4,7 @@ import {
   FormSection,
   Input,
   Label,
+  Skeleton,
   SimpleFormField as FormField,
   StatusBadge,
   toastError,
@@ -253,7 +254,13 @@ export function GoogleWorkspacePanel({
   const ingestPath = `${ingestBaseUrl()}/integrations/google/ingest/${organizationId}`;
 
   if (loading && !status) {
-    return <p className="text-sm text-muted-foreground">Loading Google…</p>;
+    return (
+      <div className="space-y-2" role="status" aria-busy="true">
+        <span className="sr-only">Loading</span>
+        <Skeleton className="h-4 w-40" />
+        <Skeleton className="h-8 w-full" />
+      </div>
+    );
   }
 
   return (

@@ -11,9 +11,11 @@ import {
   DatePicker,
   FormGrid,
   Input,
+  NumberField,
   PriceField,
   RecordSheet,
   SimpleFormField as FormField,
+  Skeleton,
   StatusBadge,
   SuggestionChips,
   toastError,
@@ -800,7 +802,12 @@ export function FinancePanel({
                   ) : null}
                 </>
               ) : null}
-              <Button size="sm" variant="secondary" onClick={() => void markPaid(p.id)}>
+              <Button
+                size="sm"
+                variant="secondary"
+                data-testid="payment-mark-paid"
+                onClick={() => void markPaid(p.id)}
+              >
                 Mark paid
               </Button>
               <Button size="sm" variant="ghost" onClick={() => void cancelPayment(p.id)}>
@@ -833,7 +840,14 @@ export function FinancePanel({
   }
 
   if (loading && !data) {
-    return <p className="text-sm text-muted-foreground">Loading finance…</p>;
+    return (
+      <div className="space-y-2" role="status" aria-busy="true">
+        <span className="sr-only">Loading</span>
+        <Skeleton className="h-4 w-40" />
+        <Skeleton className="h-8 w-full" />
+        <Skeleton className="h-8 w-full" />
+      </div>
+    );
   }
 
   const summary = data?.summary;
@@ -1007,10 +1021,11 @@ export function FinancePanel({
                 <Button
                   size="sm"
                   variant="secondary"
+                  data-testid="finance-schedule-from-terms-btn"
                   onClick={() => void openScheduleFromTerms()}
                   disabled={schedulePreviewLoading}
                 >
-                  {schedulePreviewLoading ? 'Loading…' : 'Schedule from terms'}
+                  {schedulePreviewLoading ? 'Working…' : 'Schedule from terms'}
                 </Button>
                 <Button size="sm" onClick={() => openNewPayment('customer')}>
                   Add receivable
@@ -1134,13 +1149,12 @@ export function FinancePanel({
           </p>
           <FormGrid>
             <FormField label="Score">
-              <Input
+              <NumberField
                 className="w-full"
-                type="number"
                 min={0}
                 max={10}
                 value={feedbackScore}
-                onChange={(e) => setFeedbackScore(e.target.value)}
+                onChange={setFeedbackScore}
                 placeholder="0–10"
               />
             </FormField>
@@ -1441,6 +1455,7 @@ export function FinancePanel({
         confirmLabel={
           schedulePreview?.canSchedule ? 'Create schedule' : 'Close'
         }
+        confirmTestId="finance-schedule-confirm"
         loading={scheduleSubmitting || schedulePreviewLoading}
         onConfirm={() => {
           if (schedulePreview?.canSchedule) {

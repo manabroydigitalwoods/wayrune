@@ -9,6 +9,11 @@ import {
 import { fitClaimOpsChecklist, publicScaleOpsChecklist } from './claim-gates';
 import { buildParityDogfoodKit } from './parity-dogfood-kit';
 import {
+  buildPilotReadinessPayload,
+  parsePilotProgramSettings,
+} from './pilot-readiness';
+import { isDemoOperateSupplier } from '../organizations/demo-operate-pack';
+import {
   buildPublicScaleProtocol,
   PUBLIC_SCALE_WINDOW_DAYS,
   snapshotFromProtocol,
@@ -100,15 +105,105 @@ export class DashboardService {
     const organizationId = user.organizationId;
     const now = new Date();
     const last30Start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    const fitBuildAudits = await this.prisma.auditEvent.findMany({
-      where: {
-        organizationId,
-        action: 'quote.fit_build',
-        createdAt: { gte: last30Start },
-      },
-      select: { metadataJson: true },
-      take: 500,
-    });
+    const [
+      fitBuildAudits,
+      org,
+      memberships,
+      travellerCount,
+      inquiryWithPax,
+      quoteTemplateCount,
+      quotationCount,
+      proposalCount,
+      suppliers,
+      hotelRateActive,
+      transferRateActive,
+      activityRateActive,
+      enquiryCount,
+      confirmCount,
+      payableCount,
+      voucherCount,
+    ] = await Promise.all([
+      this.prisma.auditEvent.findMany({
+        where: {
+          organizationId,
+          action: 'quote.fit_build',
+          createdAt: { gte: last30Start },
+        },
+        select: { metadataJson: true },
+        take: 500,
+      }),
+      this.prisma.organization.findUniqueOrThrow({
+        where: { id: organizationId },
+        select: {
+          slug: true,
+          name: true,
+          brandingJson: true,
+          settingsJson: true,
+        },
+      }),
+      this.prisma.organizationMembership.findMany({
+        where: { organizationId, deletedAt: null },
+        select: {
+          roles: { select: { role: { select: { key: true } } } },
+        },
+      }),
+      this.prisma.tripTraveller.count({
+        where: { trip: { organizationId } },
+      }),
+      this.prisma.inquiry.count({
+        where: {
+          organizationId,
+          deletedAt: null,
+          adults: { gt: 0 },
+        },
+      }),
+      this.prisma.quoteTemplate.count({ where: { organizationId } }),
+      this.prisma.quotation.count({ where: { organizationId } }),
+      this.prisma.quotationVersion.count({
+        where: {
+          quotation: { organizationId },
+          status: { in: ['sent', 'accepted'] },
+        },
+      }),
+      this.prisma.supplier.findMany({
+        where: { organizationId, deletedAt: null },
+        select: {
+          type: true,
+          name: true,
+          email: true,
+          phone: true,
+          profileJson: true,
+        },
+      }),
+      this.prisma.supplierHotelRate.count({
+        where: { organizationId, isActive: true, deletedAt: null },
+      }),
+      this.prisma.transferFare.count({
+        where: { organizationId, isActive: true, deletedAt: null },
+      }),
+      this.prisma.supplierActivityRate.count({
+        where: { organizationId, isActive: true, deletedAt: null },
+      }),
+      this.prisma.bookingComponent.count({
+        where: {
+          organizationId,
+          status: {
+            in: ['requested', 'sent', 'acknowledged', 'held', 'confirmed'],
+          },
+        },
+      }),
+      this.prisma.bookingComponent.count({
+        where: { organizationId, status: 'confirmed' },
+      }),
+      this.prisma.supplierInvoice.count({ where: { organizationId } }),
+      this.prisma.bookingComponent.count({
+        where: {
+          organizationId,
+          NOT: { voucherNote: null },
+        },
+      }),
+    ]);
+
     const fitBuildRows = fitBuildAudits.map((row) => {
       const meta =
         row.metadataJson && typeof row.metadataJson === 'object'
@@ -123,21 +218,137 @@ export class DashboardService {
       };
     });
     const fitClaimProtocol = buildFitClaimProtocolFromRows(fitBuildRows);
+
+    const branding = asJsonRecord(org.brandingJson);
+    const settings = asJsonRecord(org.settingsJson);
+    const business = asJsonRecord(settings.business);
+    const demoPack = asJsonRecord(settings.demoOperatePack);
+    const demoOperatePackActive = Object.keys(demoPack).length > 0;
+
+    const hotelTypes = new Set(['hotel', 'homestay', 'farmstay']);
+    const transferTypes = new Set([
+      'car_rental',
+      'driver',
+      'transfer',
+      'transport',
+    ]);
+    const activityTypes = new Set(['activity', 'guide']);
+    const contactOk = (types: Set<string>) =>
+      suppliers.some(
+        (s) =>
+          types.has(s.type) &&
+          Boolean(s.name?.trim()) &&
+          Boolean(s.email?.trim() || s.phone?.trim()),
+      );
+
+    const hasNonDemoSupplier = suppliers.some(
+      (s) =>
+        !isDemoOperateSupplier(s.name) &&
+        !isDemoOperateSupplier(asJsonRecord(s.profileJson)),
+    );
+
+    const salesKeys = new Set([
+      'owner',
+      'admin',
+      'sales_executive',
+      'sales_manager',
+      'agency_admin',
+    ]);
+    const hasSalesUser = memberships.some((m) =>
+      m.roles.some(
+        (r) => salesKeys.has(r.role.key) || r.role.key.includes('sales'),
+      ),
+    );
+
+    const hasBranding =
+      (typeof branding.logoUrl === 'string' &&
+        Boolean(branding.logoUrl.trim())) ||
+      (typeof branding.primaryColor === 'string' &&
+        Boolean(branding.primaryColor.trim()) &&
+        branding.primaryColor.trim().toLowerCase() !== '#0f6e56');
+
+    const hasOrgProfile =
+      Boolean(String(business.legalName ?? '').trim()) ||
+      Boolean(String(business.gstin ?? '').trim()) ||
+      Boolean(String(org.name ?? '').trim());
+
+    const hasMarkupOrTaxConfigured =
+      typeof settings.defaultTaxPercent === 'number' ||
+      typeof settings.defaultMarkupPercent === 'number';
+
+    const pilotSettings = parsePilotProgramSettings(org.settingsJson);
+    const pilotReadiness = buildPilotReadinessPayload(
+      {
+        orgSlug: org.slug,
+        isSharedDemoSeed: org.slug === 'demo-travel',
+        hasOrgProfile,
+        hasBranding,
+        hasSalesUser,
+        hasTravellerIntake: travellerCount > 0 || inquiryWithPax > 0,
+        hasQuotePath: quoteTemplateCount > 0 || quotationCount > 0,
+        hasMarkupOrTaxConfigured,
+        hasProposalPreview: proposalCount > 0,
+        hasSuppliers: suppliers.length > 0,
+        hotelSupplierContactOk: contactOk(hotelTypes),
+        transferSupplierContactOk: contactOk(transferTypes),
+        activitySupplierContactOk: contactOk(activityTypes),
+        hotelRateActive: hotelRateActive > 0,
+        transferRateActive: transferRateActive > 0,
+        activityRateActive: activityRateActive > 0,
+        hasSupplierEnquiry: enquiryCount > 0,
+        hasSupplierConfirm: confirmCount > 0,
+        hasPayable: payableCount > 0,
+        hasVoucher: voucherCount > 0,
+        demoOperatePackActive,
+        hasNonDemoSupplier,
+        hasTestRoles: memberships.length >= 1 && hasSalesUser,
+        fitDemoSamplesExcludedUnderstood: true,
+      },
+      pilotSettings,
+    );
+
     return {
       fitClaimProtocol,
       fitOpsChecklist: fitClaimOpsChecklist(fitClaimProtocol),
       /** Claim registry remains Testing until explicit product sign-off. */
       registryStatus: 'testing' as const,
       parityDogfoodKit: buildParityDogfoodKit(),
+      pilotReadiness,
     };
   }
 
-  async sales(user: AuthUser) {
+  async sales(
+    user: AuthUser,
+    opts: { from?: string | null; to?: string | null; windowDays?: number } = {},
+  ) {
     const organizationId = user.organizationId;
     const now = new Date();
     const day = 24 * 60 * 60 * 1000;
-    const last30Start = new Date(now.getTime() - 30 * day);
-    const prior30Start = new Date(now.getTime() - 60 * day);
+
+    let windowEnd = now;
+    let last30Start: Date;
+    let prior30Start: Date;
+    let windowDays: number;
+
+    if (
+      opts.from &&
+      opts.to &&
+      /^\d{4}-\d{2}-\d{2}$/.test(opts.from) &&
+      /^\d{4}-\d{2}-\d{2}$/.test(opts.to)
+    ) {
+      last30Start = new Date(`${opts.from}T00:00:00.000Z`);
+      windowEnd = new Date(`${opts.to}T23:59:59.999Z`);
+      windowDays = Math.max(
+        1,
+        Math.round((windowEnd.getTime() - last30Start.getTime()) / day) + 1,
+      );
+      prior30Start = new Date(last30Start.getTime() - windowDays * day);
+    } else {
+      windowDays = Math.min(365, Math.max(1, Math.floor(opts.windowDays ?? 30) || 30));
+      last30Start = new Date(now.getTime() - windowDays * day);
+      prior30Start = new Date(now.getTime() - windowDays * 2 * day);
+    }
+
     const staleCutoff = new Date(now.getTime() - 14 * day);
     const permissionSet = new Set(user.permissions);
     const includeManagerMetrics =
@@ -222,7 +433,7 @@ export class DashboardService {
         where: {
           organizationId,
           status: 'confirmed',
-          createdAt: { gte: last30Start },
+          createdAt: { gte: last30Start, lte: windowEnd },
         },
       }),
       this.prisma.bookingComponent.count({
@@ -236,7 +447,7 @@ export class DashboardService {
         where: {
           quotation: { organizationId },
           status: { in: ['sent', 'accepted', 'superseded'] },
-          createdAt: { gte: last30Start },
+          createdAt: { gte: last30Start, lte: windowEnd },
         },
       }),
       this.prisma.commercialDocument.findMany({
@@ -288,7 +499,7 @@ export class DashboardService {
         where: {
           organizationId,
           deletedAt: null,
-          createdAt: { gte: last30Start },
+          createdAt: { gte: last30Start, lte: windowEnd },
         },
         select: {
           createdAt: true,
@@ -334,7 +545,7 @@ export class DashboardService {
         where: {
           organizationId,
           action: 'quote.fit_build',
-          createdAt: { gte: last30Start },
+          createdAt: { gte: last30Start, lte: windowEnd },
         },
         select: { metadataJson: true },
         take: 500,
@@ -465,6 +676,17 @@ export class DashboardService {
       inboxUnreadThreads: inboxSla.unreadThreads,
       inboxAgingUnreadThreads: inboxSla.agingUnreadThreads,
       inboxAgingHours: inboxSla.agingHours,
+      window: {
+        from: last30Start.toISOString().slice(0, 10),
+        to: windowEnd.toISOString().slice(0, 10),
+        days: windowDays,
+      },
     };
   }
+}
+
+function asJsonRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }

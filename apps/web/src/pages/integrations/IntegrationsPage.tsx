@@ -7,13 +7,14 @@ import {
   Card,
   CardContent,
   EmptyState,
-  PageHeader,
+  PageSkeleton,
   RecordSheet,
   SoftIcon,
   StatusBadge,
   SuggestionChips,
   toastError,
   toastSuccess,
+  usePageChrome,
 } from '@wayrune/ui';
 import { api } from '../../api';
 import { Can } from '../../components/Can';
@@ -43,6 +44,10 @@ import {
 
 export function IntegrationsPage() {
   useDocumentTitle('Integrations');
+  usePageChrome({
+    title: 'Integrations',
+    subtitle: 'CRM, messaging, and inbound webhooks for your agency.',
+  });
   const { toOrgPath } = useOrgNavigate();
   const { hasAny } = usePermissions();
   const canWrite = hasAny(CAP.orgSettingsWrite);
@@ -147,25 +152,11 @@ export function IntegrationsPage() {
   }
 
   if (loadError) return <p className="text-sm text-destructive">{loadError}</p>;
-  if (loading) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  if (loading) return <PageSkeleton variant="settings" />;
 
   return (
     <div>
-      <PageHeader
-        icon={Plug}
-        title="Integrations"
-        subtitle="CRM, messaging, and inbound webhooks for your agency."
-        actions={
-          <Button asChild variant="outline" size="sm">
-            <Link to={toOrgPath(AGENCY_ROUTES.settingsIntegrationHelp)}>
-              <BookOpen className="mr-1.5 h-4 w-4" />
-              How-to guide
-            </Link>
-          </Button>
-        }
-      />
-
-      <div className="mt-4 space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <SuggestionChips
           aria-label="Integration filters"
           allowDeselect={false}
@@ -173,7 +164,15 @@ export function IntegrationsPage() {
           value={filter}
           onChange={setFilter}
         />
+        <Button asChild variant="outline" size="sm">
+          <Link to={toOrgPath(AGENCY_ROUTES.settingsIntegrationHelp)}>
+            <BookOpen className="mr-1.5 h-4 w-4" />
+            How-to guide
+          </Link>
+        </Button>
+      </div>
 
+      <div className="mt-4 space-y-4">
         {visible.length ? (
           <ul className="grid gap-3 md:grid-cols-2">
             {visible.map((item) => {

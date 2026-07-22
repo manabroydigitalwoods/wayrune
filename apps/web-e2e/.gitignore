@@ -1,0 +1,6 @@
+# Playwright / UX dogfood artifacts
+test-results/
+playwright-report/
+e2e-results/
+blob-report/
+playwright/.cache/

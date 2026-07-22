@@ -12,7 +12,7 @@ export function DataToolbar({
   className?: string;
 }) {
   return (
-    <div className={cn('mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between', className)}>
+    <div className={cn('mb-[var(--gap-page)] flex flex-col gap-[var(--gap-section)] sm:flex-row sm:items-center sm:justify-between', className)}>
       {children}
     </div>
   );
@@ -36,31 +36,31 @@ export function FormField({
   htmlFor?: string;
 }) {
   return (
-    <div className={cn('mb-4 flex flex-col gap-2 text-sm', className)}>
-      <div className="flex flex-col gap-1">
+    <div className={cn('flex flex-col gap-[var(--field-gap)] text-[length:var(--control-text)]', className)}>
+      <div className="flex flex-col gap-[var(--field-gap-compact)]">
         {htmlFor ? (
-          <label htmlFor={htmlFor} className="text-sm font-medium leading-5 text-foreground">
+          <label htmlFor={htmlFor} className="text-[length:var(--control-text-sm)] font-medium leading-snug text-foreground">
             {label}
             {required ? <span className="ml-0.5 text-destructive" aria-hidden>*</span> : null}
           </label>
         ) : (
-          <div className="text-sm font-medium leading-5 text-foreground">
+          <div className="text-[length:var(--control-text-sm)] font-medium leading-snug text-foreground">
             {label}
             {required ? <span className="ml-0.5 text-destructive" aria-hidden>*</span> : null}
           </div>
         )}
         {description ? (
-          <p className="text-xs leading-5 text-muted-foreground">{description}</p>
+          <p className="text-[length:var(--control-text-sm)] leading-5 text-muted-foreground">{description}</p>
         ) : null}
       </div>
       <div className="min-w-0">{children}</div>
-      {error ? <p className="text-xs font-medium text-destructive">{error}</p> : null}
+      {error ? <p className="text-[length:var(--control-text-sm)] font-medium text-destructive">{error}</p> : null}
     </div>
   );
 }
 
 export function FormGrid({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn('grid gap-x-5 gap-y-5 sm:grid-cols-2', className)}>{children}</div>;
+  return <div className={cn('grid gap-[var(--gap-section)] sm:grid-cols-2', className)}>{children}</div>;
 }
 
 export function FormSection({
@@ -75,13 +75,13 @@ export function FormSection({
   className?: string;
 }) {
   return (
-    <section className={cn('mb-8 space-y-4', className)}>
-      <div className="space-y-1">
+    <section className={cn('mb-[var(--gap-section)] space-y-[var(--gap-page)]', className)}>
+      <div className="space-y-[var(--field-gap)]">
         <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-        {description ? <p className="text-xs leading-5 text-muted-foreground">{description}</p> : null}
+        {description ? <p className="text-[length:var(--control-text-sm)] leading-5 text-muted-foreground">{description}</p> : null}
       </div>
       <Separator />
-      <div className="space-y-5">{children}</div>
+      <div className="stack-form">{children}</div>
     </section>
   );
 }

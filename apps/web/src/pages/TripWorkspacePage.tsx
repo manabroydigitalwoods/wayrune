@@ -18,10 +18,6 @@ import {
   UserPlus,
 } from 'lucide-react';
 import {
-  Breadcrumbs,
-  Button,
-  Card,
-  CardContent,
   Combobox,
   ConfirmDialog,
   Checkbox,
@@ -36,7 +32,14 @@ import {
   EmptyState,
   FormGrid,
   Input,
-  PageHeader,
+  NumberField,
+  Button,
+  Card,
+  CardContent,
+  PageSkeleton,
+  PageStack,
+  SectionStack,
+  Skeleton,
   PriceField,
   RecordDialog,
   RecordSheet,
@@ -59,6 +62,7 @@ import {
   formatDateRange,
   formatDateTime,
   formatTime,
+  usePageChrome,
 } from '@wayrune/ui';
 import {
   UpdateTripDatesSchema,
@@ -79,6 +83,7 @@ import {
   type TripWorkspaceTab,
 } from '../lib/tripWorkspaceTabs';
 import { DisclosureSection } from '../components/agency/DisclosureSection';
+import { DetailActionStrip } from '../components/detail';
 import {
   FirstQuoteWalkthrough,
   dismissFirstQuoteWalkthrough,
@@ -102,6 +107,10 @@ import {
   resolveRevisionBaseline,
   type RevisionBaselineVersion,
 } from '../lib/revisionMarginDelta';
+import {
+  quoteSendBlockedItems,
+  quoteSendBlockedReason,
+} from '../lib/quoteSendBlocked';
 import {
   resolveInquiryPaxForStamp,
   stampInquiryPaxOntoQuoteLines,
@@ -196,7 +205,7 @@ import {
   writeLastUsedMarkup,
   type LastUsedMarkup,
 } from '../lib/lastUsedMarkup';
-import { parseApplyChildAgesCsv, defaultRoomsFromAdults } from '../lib/createTripFromPackage';
+import { parseApplyChildAgesCsv, defaultRoomsFromAdults, templateDestinationMatchScore } from '../lib/createTripFromPackage';
 import {
   countMarginPolicyViolations,
   lineMarginPolicyViolation,
@@ -263,6 +272,8 @@ import {
   type ItineraryDay,
   type ItineraryStory,
 } from '../components/trips/ItineraryBuilder';
+import { ProposalSeedBanner } from '../components/trips/ProposalSeedBanner';
+import { parseTripProposalSeed } from '@wayrune/contracts';
 
 const EDITABLE_QUOTE_STATUSES = new Set(['draft', 'pending_approval']);
 /** Locked commercial versions that can be copied into a new draft via “Save as new version”. */
@@ -588,99 +599,7 @@ function quoteLinesMissingSell(
   return items.filter((i) => i.unitSell == null).length;
 }
 
-/** Human-readable reason Send must stay disabled (empty = ready). */
-function quoteSendBlockedReason(input: {
-  itemCount: number;
-  missingSellCount: number;
-  missingCostCount: number;
-  marginGateCount: number;
-  rateDriftCount?: number;
-  allotmentBlockCount?: number;
-  capacityBlockCount?: number;
-  minStayBlockCount?: number;
-  maxStayBlockCount?: number;
-  stopSaleBlockCount?: number;
-  fxMissing?: boolean;
-  quoteCurrency?: string;
-  orgCurrency?: string;
-  minMarginPercent: number;
-  canViewCost: boolean;
-  hasValidUntil: boolean;
-  validUntilExpired?: boolean;
-  /** Expired outside post-expiry grace — hard-block Send. */
-  validUntilBlocksSend?: boolean;
-  travellerCount: number;
-  statusAllowsSend: boolean;
-}): string {
-  if (!input.statusAllowsSend) {
-    return 'This version cannot be sent yet';
-  }
-  if (input.itemCount === 0) {
-    return 'Add at least one commercial service before sending';
-  }
-  const parts: string[] = [];
-  if (input.missingSellCount > 0) {
-    parts.push(
-      `${input.missingSellCount} service price${input.missingSellCount === 1 ? '' : 's'}`,
-    );
-  }
-  if (input.missingCostCount > 0) {
-    parts.push(
-      `${input.missingCostCount} buy rate${input.missingCostCount === 1 ? '' : 's'}`,
-    );
-  }
-  if (input.marginGateCount > 0) {
-    parts.push(
-      input.minMarginPercent > 0
-        ? `${input.marginGateCount} below-margin service${input.marginGateCount === 1 ? '' : 's'}`
-        : `${input.marginGateCount} negative-margin service${input.marginGateCount === 1 ? '' : 's'}`,
-    );
-  }
-  if ((input.rateDriftCount ?? 0) > 0) {
-    parts.push(
-      `${input.rateDriftCount} rate chart change${input.rateDriftCount === 1 ? '' : 's'} to rematch or acknowledge`,
-    );
-  }
-  if ((input.allotmentBlockCount ?? 0) > 0) {
-    parts.push(
-      `${input.allotmentBlockCount} allotment shortfall${input.allotmentBlockCount === 1 ? '' : 's'} (reduce rooms or change property)`,
-    );
-  }
-  if ((input.capacityBlockCount ?? 0) > 0) {
-    parts.push(
-      `${input.capacityBlockCount} capacity shortfall${input.capacityBlockCount === 1 ? '' : 's'} (add vehicles or reduce party)`,
-    );
-  }
-  if ((input.minStayBlockCount ?? 0) > 0) {
-    parts.push(
-      `${input.minStayBlockCount} min-stay shortfall${input.minStayBlockCount === 1 ? '' : 's'} (extend nights or acknowledge)`,
-    );
-  }
-  if ((input.maxStayBlockCount ?? 0) > 0) {
-    parts.push(
-      `${input.maxStayBlockCount} max-stay overage${input.maxStayBlockCount === 1 ? '' : 's'} (shorten nights or acknowledge)`,
-    );
-  }
-  if ((input.stopSaleBlockCount ?? 0) > 0) {
-    parts.push(
-      `${input.stopSaleBlockCount} stop-sale block${input.stopSaleBlockCount === 1 ? '' : 's'} (change dates or supplier)`,
-    );
-  }
-  if (input.fxMissing) {
-    parts.push(
-      `an FX lock for ${input.quoteCurrency || 'foreign currency'} (org books in ${input.orgCurrency || 'INR'})`,
-    );
-  }
-  if (!input.hasValidUntil) parts.push('a validity date');
-  else if (input.validUntilBlocksSend) {
-    parts.push('a fresh validity date (expired past grace)');
-  }
-  if (input.travellerCount <= 0) parts.push('at least one traveller');
-  if (!parts.length) return '';
-  if (parts.length === 1) return `Complete ${parts[0]} before sending`;
-  if (parts.length === 2) return `Complete ${parts[0]} and ${parts[1]} before sending`;
-  return `Complete ${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]} before sending`;
-}
+/** Human-readable reason Send must stay disabled — see lib/quoteSendBlocked.ts. */
 
 function quoteReadinessLabel(input: {
   itemCount: number;
@@ -796,6 +715,7 @@ export function TripWorkspacePage() {
     [lastUsedMarkupKey],
   );
   const [trip, setTrip] = useState<any>(null);
+  const [retryingProposalSeed, setRetryingProposalSeed] = useState(false);
   const [tripLoadError, setTripLoadError] = useState<string | null>(null);
   const [controlRefreshKey, setControlRefreshKey] = useState(0);
   const [tabAttention, setTabAttention] = useState<Partial<Record<string, number>>>({});
@@ -820,6 +740,7 @@ export function TripWorkspacePage() {
   const [travellerName, setTravellerName] = useState('');
   const [travellerType, setTravellerType] = useState('adult');
   const [travellerNationality, setTravellerNationality] = useState('');
+  const [travellerSaving, setTravellerSaving] = useState(false);
   const [editTravellerOpen, setEditTravellerOpen] = useState(false);
   const [editTravellerSaving, setEditTravellerSaving] = useState(false);
   const [editTravellerId, setEditTravellerId] = useState<string | null>(null);
@@ -878,6 +799,7 @@ export function TripWorkspacePage() {
         inclusions?: unknown;
         exclusions?: unknown;
         destinationHint?: string | null;
+        destinationPlaceId?: string | null;
         tags?: string[];
         folder?: string | null;
       };
@@ -975,6 +897,30 @@ export function TripWorkspacePage() {
   );
   const dmcWorkspace = me?.organization.kind === 'dmc';
   useDocumentTitle(trip ? `${trip.tripNumber} · ${trip.title}` : dmcWorkspace ? 'Package' : 'Trip');
+
+  const tripChromeMeta = trip
+    ? [
+        placeRefsFromJson(trip.destinationsJson)
+          .map((d) => d.name)
+          .join(', ') || null,
+        formatDateRange(trip.startDate, trip.endDate) || null,
+        trip.party?.displayName || null,
+      ]
+        .filter(Boolean)
+        .join(' · ') || undefined
+    : undefined;
+
+  usePageChrome({
+    title: trip ? `${trip.tripNumber} · ${trip.title}` : dmcWorkspace ? 'Package' : 'Trip',
+    titleMeta: tripChromeMeta,
+    icon: Plane,
+    breadcrumbs: trip
+      ? [
+          { label: dmcWorkspace ? 'Packages' : 'Trips', onClick: () => navigate('/trips') },
+          { label: trip.tripNumber },
+        ]
+      : [{ label: dmcWorkspace ? 'Packages' : 'Trips', onClick: () => navigate('/trips') }],
+  });
 
   function changeTab(
     next: string,
@@ -1804,6 +1750,15 @@ export function TripWorkspacePage() {
       }, 0),
     [quoteItems],
   );
+  const proposalSeed = useMemo(
+    () => parseTripProposalSeed(trip?.settingsJson),
+    [trip?.settingsJson],
+  );
+  const pricingNotStarted =
+    proposalSeed?.pricing?.pricingStatus === 'not_started' && quoteItems.length === 0;
+  const customerBudgetTarget = proposalSeed?.pricing?.customerBudgetTarget ?? null;
+  const customerBudgetCurrency =
+    proposalSeed?.pricing?.customerBudgetCurrency || trip?.organization?.currency || 'INR';
   const costTotal = quoteItems.reduce((s, i) => {
     if (i.unitCost == null) return s;
     return s + i.quantity * i.unitCost;
@@ -2073,6 +2028,34 @@ export function TripWorkspacePage() {
     travellerCount,
     statusAllowsSend: true,
   });
+  const sendBlockedChecklist = quoteSendBlockedItems({
+    itemCount: quoteItems.length,
+    missingSellCount,
+    missingCostCount: costGaps.missingCount,
+    marginGateCount,
+    rateDriftCount,
+    allotmentBlockCount: allotmentWarnCount,
+    capacityBlockCount: capacityWarnCount,
+    minStayBlockCount: minStayWarnCount,
+    maxStayBlockCount: maxStayWarnCount,
+    stopSaleBlockCount,
+    fxMissing,
+    quoteCurrency,
+    orgCurrency,
+    minMarginPercent: quoteMinMarginPercent,
+    canViewCost: Boolean(canViewCost),
+    hasValidUntil,
+    validUntilExpired,
+    validUntilBlocksSend,
+    travellerCount,
+    statusAllowsSend: Boolean(selectedQuoteVersion && quoteCan.has('send')),
+  });
+  const focusSendReadiness = () => {
+    setQuoteDetailLineId(null);
+    document
+      .getElementById('quote-send-readiness')
+      ?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  };
   const pricingBlockedIgnoringMargin = quoteSendBlockedReason({
     itemCount: quoteItems.length,
     missingSellCount,
@@ -2180,11 +2163,39 @@ export function TripWorkspacePage() {
       }),
     [trip?.inquiry?.adults, trip?.inquiry?.children],
   );
+  const hasRevisionBaseline = useMemo(() => {
+    if (quoteReadOnly || quoteItems.length === 0) return false;
+    const tripAcceptedVersions = (trip?.quotations || []).flatMap(
+      (q: { versions?: unknown[] }) =>
+        (Array.isArray(q.versions) ? q.versions : []).filter(
+          (v): v is RevisionBaselineVersion =>
+            !!v &&
+            typeof v === 'object' &&
+            (v as { status?: string }).status === 'accepted',
+        ),
+    );
+    return Boolean(
+      resolveRevisionBaseline({
+        versions: quoteVersions,
+        selectedVersionId: selectedQuoteVersion?.id ?? selectedQuoteVersionId,
+        tripAcceptedVersions,
+      }),
+    );
+  }, [
+    quoteReadOnly,
+    quoteItems.length,
+    trip?.quotations,
+    quoteVersions,
+    selectedQuoteVersion?.id,
+    selectedQuoteVersionId,
+  ]);
   const fitReviseMoves = useMemo(() => {
+    // Show Swap/Rematch when user just unlocked OR when draft already has a
+    // revision baseline (e.g. deep-link to from-accepted draft).
     const mode =
       quoteReadOnly && canReviseLockedVersion
         ? 'locked'
-        : reviseMovesCue && !quoteReadOnly
+        : (reviseMovesCue || hasRevisionBaseline) && !quoteReadOnly
           ? 'post_revise'
           : 'idle';
     return buildFitReviseMoves({
@@ -2202,6 +2213,7 @@ export function TripWorkspacePage() {
     quoteReadOnly,
     canReviseLockedVersion,
     reviseMovesCue,
+    hasRevisionBaseline,
     quoteItems,
     rateDriftCount,
     attentionLines,
@@ -2211,7 +2223,7 @@ export function TripWorkspacePage() {
     quoteStatus,
   ]);
   const revisionMarginDelta = useMemo(() => {
-    if (!canViewCost || quoteReadOnly || quoteItems.length === 0) return null;
+    if (quoteReadOnly || quoteItems.length === 0) return null;
     const tripAcceptedVersions = (trip?.quotations || []).flatMap(
       (q: { versions?: unknown[] }) =>
         (Array.isArray(q.versions) ? q.versions : []).filter(
@@ -2251,7 +2263,7 @@ export function TripWorkspacePage() {
       after,
       source: resolved.source,
       baselineLabel: quoteVersionOptionLabel(resolved.baseline),
-      canViewCost: true,
+      canViewCost: Boolean(canViewCost),
       beforeLines,
       afterLines: quoteItems.map((l) => ({
         id: l.id,
@@ -2276,12 +2288,6 @@ export function TripWorkspacePage() {
     (q.versions || []).some((v: any) => v.status === 'accepted'),
   );
   const latestQuote = selectedQuoteVersion || quoteVersions[0] || null;
-  const metaParts = [
-    destinationsLabel || null,
-    dateRange || (canTripWrite ? 'Set travel dates' : null),
-    trip?.party?.displayName ? `Client: ${trip.party.displayName}` : null,
-    trip?.inquiry?.inquiryNumber ? `Inquiry: ${trip.inquiry.inquiryNumber}` : null,
-  ].filter(Boolean);
 
   function selectQuoteVersion(version: (typeof quoteVersions)[0]) {
     quoteHydrated.current = false;
@@ -2322,14 +2328,21 @@ export function TripWorkspacePage() {
   }
 
   async function addTraveller() {
+    const fullName = travellerName.trim();
+    if (!fullName) {
+      toastError('Enter the traveller’s full name');
+      return;
+    }
+    setTravellerSaving(true);
     try {
       const nationality = normalizeHotelNationalityUi(travellerNationality) || null;
+      const isFirst = (trip?.travellers?.length ?? 0) === 0;
       await api(`/trips/${id}/travellers`, {
         method: 'POST',
         body: JSON.stringify({
-          fullName: travellerName,
+          fullName,
           type: travellerType,
-          isLead: true,
+          isLead: isFirst,
           ...(nationality ? { nationality } : {}),
         }),
       });
@@ -2341,6 +2354,8 @@ export function TripWorkspacePage() {
       await load();
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Could not add traveller');
+    } finally {
+      setTravellerSaving(false);
     }
   }
 
@@ -2906,6 +2921,7 @@ export function TripWorkspacePage() {
               exclusions: quoteMeta.exclusions || undefined,
               terms: quoteMeta.terms || null,
               destinationHint: destinations[0]?.name || undefined,
+              destinationPlaceId: destinations[0]?.placeId || undefined,
               ...(tags.length ? { tags } : {}),
               ...(folder ? { folder } : {}),
             },
@@ -3093,12 +3109,22 @@ export function TripWorkspacePage() {
 
   async function usePreviousTrip() {
     if (!id) return;
-    const startDate =
+    let startDate =
       templateApplyStartDate ||
       (trip?.startDate ? String(trip.startDate).slice(0, 10) : '');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
-      toastError('Set a travel start date before using a previous trip');
-      return;
+      const d = new Date();
+      d.setDate(d.getDate() + 45);
+      startDate = formatDateInput(d);
+      setTemplateApplyStartDate(startDate);
+      try {
+        await api(`/trips/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ startDate }),
+        });
+      } catch {
+        // Continue — from-previous still accepts startDate in body.
+      }
     }
     setUsingPreviousTrip(true);
     try {
@@ -3888,6 +3914,9 @@ export function TripWorkspacePage() {
   }
 
   function openSendFlow() {
+    // Match/line RecordSheet overlays the toolbar Send — dismiss it first so
+    // send dialog is reachable (progress strip + programmatic open too).
+    setQuoteDetailLineId(null);
     if (!selectedQuoteVersion || !quoteCan.has('send')) {
       toastError(sendBlockedReason || 'Complete pricing before sending');
       return;
@@ -3928,6 +3957,7 @@ export function TripWorkspacePage() {
 
   /** One-click resend for locked sent/accepted tips (reuses email/WA send sheet). */
   function openResendLatest() {
+    setQuoteDetailLineId(null);
     if (!selectedQuoteVersion || !quoteCan.has('send')) {
       toastError('Cannot resend this version');
       return;
@@ -4073,9 +4103,13 @@ export function TripWorkspacePage() {
         ids.has(line.id)
           ? {
               ...line,
-              unitCost: line.unitCost == null ? 0 : line.unitCost,
-              unitSell: line.unitSell == null ? 0 : line.unitSell,
+              // Match single-line Mark included: ₹0/₹0 so margin/send gates stay clear.
+              unitCost: 0,
+              unitSell: 0,
               rateUnmatched: false,
+              rateId: undefined,
+              rateProvenance: undefined,
+              rateBlockReason: undefined,
               includedMeta: {
                 at,
                 reason: 'Bulk marked as included — appears on proposal without increasing total',
@@ -4625,8 +4659,7 @@ export function TripWorkspacePage() {
               >
                 <div className="min-w-0">
                   <Input
-                    className="h-9"
-                    value={row.original.description}
+                                        value={row.original.description}
                     disabled={quoteReadOnly}
                     onChange={(e) =>
                       updateQuoteLine(row.original.id, { description: e.target.value })
@@ -4840,7 +4873,7 @@ export function TripWorkspacePage() {
 
   if (tripLoadError) {
     return (
-      <div className="space-y-4">
+      <SectionStack>
         <p className="text-sm text-muted-foreground">{tripLoadError}</p>
         <div className="flex gap-2">
           <Button type="button" variant="outline" onClick={() => navigate('/trips')}>
@@ -4850,10 +4883,10 @@ export function TripWorkspacePage() {
             Retry
           </Button>
         </div>
-      </div>
+      </SectionStack>
     );
   }
-  if (!trip) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  if (!trip) return <PageSkeleton variant="workspace" />;
 
   const quoteTableLeading =
     (trip.quotations?.length ?? 0) > 1 || quoteVersions.length > 1 ? (
@@ -4886,7 +4919,11 @@ export function TripWorkspacePage() {
             options={quoteVersions.map((v) => ({
               value: v.id,
               label: quoteVersionOptionLabel(v),
-              description: `${String(v.status).replace(/_/g, ' ')} · ${formatCurrency(v.sellTotal)}`,
+              description: `${String(v.status).replace(/_/g, ' ')} · ${
+                pricingNotStarted && Number(v.sellTotal) === 0
+                  ? 'Pricing not started'
+                  : formatCurrency(v.sellTotal)
+              }`,
             }))}
             placeholder="Version"
             searchable={quoteVersions.length > 6}
@@ -4896,79 +4933,93 @@ export function TripWorkspacePage() {
     ) : null;
 
   return (
-    <div>
-      <Breadcrumbs
-        items={[
-          { label: 'Trips', onClick: () => navigate('/trips') },
-          { label: trip.tripNumber },
-        ]}
-      />
-      <PageHeader
-        icon={Plane}
-        title={`${trip.tripNumber} · ${trip.title}`}
-        subtitle={
-          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            {metaParts.length ? (
-              metaParts.map((part, i) => (
-                <span key={`${part}-${i}`} className="inline-flex items-center gap-2">
-                  {i > 0 ? <span className="text-border">·</span> : null}
-                  {typeof part === 'string' && part.startsWith('Client:') && trip.party?.id ? (
-                    <Link className="text-primary hover:underline" to={`/parties/${trip.party.id}`}>
-                      {trip.party.displayName}
-                    </Link>
-                  ) : typeof part === 'string' && part.startsWith('Inquiry:') && trip.inquiry?.id ? (
-                    <Link className="text-primary hover:underline" to={`/inquiries/${trip.inquiry.id}`}>
-                      {trip.inquiry.inquiryNumber}
-                    </Link>
-                  ) : typeof part === 'string' &&
-                    (part === dateRange || part === 'Set travel dates') &&
-                    canTripWrite ? (
-                    <button
-                      type="button"
-                      className="text-primary hover:underline"
-                      onClick={() => openTravelDatesSheet()}
-                    >
-                      {part}
-                    </button>
-                  ) : (
-                    <span>{part?.replace(/^Client:\s*/, '').replace(/^Inquiry:\s*/, '')}</span>
-                  )}
-                </span>
-              ))
-            ) : (
-              <span>Destinations TBD</span>
-            )}
-          </span>
+    <PageStack>
+      {trip?.id && trip.inquiry?.id ? (
+        <ProposalSeedBanner
+          tripId={trip.id}
+          settingsJson={trip.settingsJson}
+          inquiry={trip.inquiry}
+          retrying={retryingProposalSeed}
+          onRetrySetup={() => {
+            void (async () => {
+              if (!trip.inquiry?.id) return;
+              setRetryingProposalSeed(true);
+              try {
+                await api(`/inquiries/${trip.inquiry.id}/convert-to-trip`, {
+                  method: 'POST',
+                });
+                toastSuccess('Proposal setup resumed');
+                await load();
+              } catch (e) {
+                toastError(e instanceof Error ? e.message : 'Could not retry setup');
+              } finally {
+                setRetryingProposalSeed(false);
+              }
+            })();
+          }}
+        />
+      ) : null}
+      <DetailActionStrip
+        leading={
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[length:var(--control-text-sm)] text-muted-foreground">
+            {trip.party?.id ? (
+              <Link className="text-primary hover:underline" to={`/parties/${trip.party.id}`}>
+                {trip.party.displayName}
+              </Link>
+            ) : null}
+            {trip.inquiry?.id ? (
+              <>
+                {trip.party?.id ? <span className="text-border">·</span> : null}
+                <Link
+                  className="text-primary hover:underline"
+                  to={`/inquiries/${trip.inquiry.id}`}
+                >
+                  {trip.inquiry.inquiryNumber}
+                </Link>
+              </>
+            ) : null}
+            {canTripWrite ? (
+              <>
+                {trip.party?.id || trip.inquiry?.id ? (
+                  <span className="text-border">·</span>
+                ) : null}
+                <button
+                  type="button"
+                  className="text-primary hover:underline"
+                  onClick={() => openTravelDatesSheet()}
+                >
+                  {dateRange || 'Set travel dates'}
+                </button>
+              </>
+            ) : dateRange ? (
+              <>
+                {trip.party?.id || trip.inquiry?.id ? (
+                  <span className="text-border">·</span>
+                ) : null}
+                <span>{dateRange}</span>
+              </>
+            ) : null}
+          </div>
         }
-        actions={
-          canTripWrite ? (
-            <div className="flex min-w-[14rem] flex-col gap-1">
-              <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                Trip stage
-              </span>
-              <Combobox
-                className="w-56"
-                value={trip.status}
-                onChange={(status) => void updateTripStatus(status)}
-                options={TRIP_STATUSES}
-                placeholder="Trip stage"
-              />
-            </div>
-          ) : (
-            <div className="flex flex-col items-end gap-1">
-              <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                Trip stage
-              </span>
-              <StatusBadge
-                value={trip.status}
-                label={tripStatusLabel(trip.status)}
-                showIcon
-                size="md"
-              />
-            </div>
-          )
-        }
-      />
+      >
+        {canTripWrite ? (
+          <Combobox
+            className="w-44"
+            size="sm"
+            value={trip.status}
+            onChange={(status) => void updateTripStatus(status)}
+            options={TRIP_STATUSES}
+            placeholder="Trip stage"
+          />
+        ) : (
+          <StatusBadge
+            value={trip.status}
+            label={tripStatusLabel(trip.status)}
+            showIcon
+            size="sm"
+          />
+        )}
+      </DetailActionStrip>
 
       <TripControlCentre
         tripId={trip.id}
@@ -5002,7 +5053,7 @@ export function TripWorkspacePage() {
         </TabsList>
 
         <TabsContent value="overview">
-          <div className="space-y-4">
+          <SectionStack>
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-sm text-muted-foreground">
                 {STATUS_GUIDANCE[trip.status] || 'Continue working this trip in the tabs below.'}
@@ -5025,7 +5076,7 @@ export function TripWorkspacePage() {
             />
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <Card>
-                <CardContent className="p-4">
+                <CardContent className="p-[var(--pad-card)]">
                   <div className="text-xs text-muted-foreground">Status</div>
                   <div className="mt-1.5">
                     <StatusBadge value={trip.status} label={tripStatusLabel(trip.status)} showIcon />
@@ -5033,13 +5084,13 @@ export function TripWorkspacePage() {
                 </CardContent>
               </Card>
               <Card>
-                <CardContent className="p-4">
+                <CardContent className="p-[var(--pad-card)]">
                   <div className="text-xs text-muted-foreground">Travellers</div>
                   <div className="mt-1 text-lg font-semibold tabular-nums">{travellerCount}</div>
                 </CardContent>
               </Card>
               <Card>
-                <CardContent className="p-4">
+                <CardContent className="p-[var(--pad-card)]">
                   <div className="text-xs text-muted-foreground">Latest quote</div>
                   <div className="mt-1.5">
                     {latestQuote ? (
@@ -5051,7 +5102,7 @@ export function TripWorkspacePage() {
                 </CardContent>
               </Card>
               <Card>
-                <CardContent className="space-y-3 p-4">
+                <CardContent className="space-y-3 p-[var(--pad-card)]">
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-2">
                       <div className="text-xs text-muted-foreground">Travel dates</div>
@@ -5072,7 +5123,7 @@ export function TripWorkspacePage() {
                 </CardContent>
               </Card>
               <Card>
-                <CardContent className="space-y-3 p-4">
+                <CardContent className="space-y-3 p-[var(--pad-card)]">
                   <div className="space-y-2">
                     <div className="text-xs text-muted-foreground">Destinations</div>
                     {canTripWrite ? (
@@ -5155,7 +5206,7 @@ export function TripWorkspacePage() {
               </Card>
             </div>
             <Card>
-              <CardContent className="flex flex-wrap gap-2 p-4">
+              <CardContent className="flex flex-wrap gap-2 p-[var(--pad-card)]">
                 {trip.party?.id ? (
                   <Button variant="secondary" size="sm" asChild>
                     <Link to={`/parties/${trip.party.id}`}>Open client</Link>
@@ -5174,7 +5225,7 @@ export function TripWorkspacePage() {
                 </Button>
               </CardContent>
             </Card>
-          </div>
+          </SectionStack>
         </TabsContent>
 
         <TabsContent value="travellers">
@@ -5185,7 +5236,7 @@ export function TripWorkspacePage() {
                 : 'Add the lead traveller to start.'}
             </p>
             {canTripWrite ? (
-              <Button onClick={() => setTravellerOpen(true)}>
+              <Button data-testid="add-traveller" onClick={() => setTravellerOpen(true)}>
                 <UserPlus className="size-4" />
                 Add traveller
               </Button>
@@ -5200,6 +5251,14 @@ export function TripWorkspacePage() {
             searchPlaceholder={travellerCount ? 'Search travellers…' : undefined}
             emptyTitle="No travellers"
             emptyDescription="Add the lead traveller to start."
+            emptyAction={
+              canTripWrite ? (
+                <Button data-testid="add-traveller-empty" onClick={() => setTravellerOpen(true)}>
+                  <UserPlus className="size-4" />
+                  Add traveller
+                </Button>
+              ) : undefined
+            }
           />
         </TabsContent>
 
@@ -5242,7 +5301,7 @@ export function TripWorkspacePage() {
         </TabsContent>
 
         <TabsContent value="quotations">
-          <div className="space-y-4">
+          <SectionStack>
             <div className="min-w-0 space-y-2">
               <div className="flex flex-wrap items-center gap-2">
                   <h2 className="text-base font-semibold tracking-tight">
@@ -5378,9 +5437,7 @@ export function TripWorkspacePage() {
                     return;
                   }
                   if (action === 'send_readiness') {
-                    document
-                      .getElementById('quote-send-readiness')
-                      ?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    focusSendReadiness();
                   }
                 }}
               />
@@ -5497,8 +5554,8 @@ export function TripWorkspacePage() {
             ) : null}
 
             {canQuoteWrite && !quoteReadOnly && needsAttentionCount > 0 ? (
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm">
-                <div className="flex flex-wrap items-center gap-2">
+              <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs">
+                <div className="flex flex-wrap items-center gap-1.5">
                   <button
                     type="button"
                     className="font-medium text-amber-900 dark:text-amber-100"
@@ -5506,15 +5563,15 @@ export function TripWorkspacePage() {
                     aria-expanded={attentionOpen}
                   >
                     {needsAttentionCount} service{needsAttentionCount === 1 ? '' : 's'} need
-                    attention
-                    <span className="ml-1 text-xs font-normal text-amber-800/80 dark:text-amber-200/80">
+                    Match / rates
+                    <span className="ml-1 text-[10px] font-normal text-amber-800/80 dark:text-amber-200/80">
                       {attentionOpen ? '▾' : '▸'}
                     </span>
                   </button>
                   <Button
                     size="sm"
                     variant="secondary"
-                    className="h-7"
+                    className="h-6 px-2 text-[11px]"
                     onClick={() => void refreshPricesFromRates()}
                   >
                     Resolve missing rates
@@ -5523,7 +5580,7 @@ export function TripWorkspacePage() {
                     <Button
                       size="sm"
                       variant="secondary"
-                      className="h-7"
+                      className="h-6 px-2 text-[11px]"
                       onClick={() => void refreshPricesFromRates(rateDriftIds)}
                     >
                       Rematch drifted ({rateDriftCount})
@@ -5531,8 +5588,8 @@ export function TripWorkspacePage() {
                   ) : null}
                   <Button
                     size="sm"
-                    variant="secondary"
-                    className="h-7"
+                    variant="ghost"
+                    className="h-6 px-2 text-[11px]"
                     onClick={() => applyDefaultMarkup()}
                   >
                     Apply default markup
@@ -5542,28 +5599,16 @@ export function TripWorkspacePage() {
                       key={preset.id}
                       size="sm"
                       variant="ghost"
-                      className="h-7"
+                      className="h-6 px-2 text-[11px]"
                       onClick={() => applyMarkupPreset(preset)}
                     >
                       {markupPresetSummary(preset)}
                     </Button>
                   ))}
-                  {quoteItems.some(
-                    (l) => !l.includedMeta && Number(l.taxPercent) === 0,
-                  ) ? (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      className="h-7"
-                      onClick={() => applyDefaultTax()}
-                    >
-                      Apply default tax
-                    </Button>
-                  ) : null}
                   <Button
                     size="sm"
                     variant="ghost"
-                    className="h-7"
+                    className="h-6 px-2 text-[11px]"
                     onClick={() => markUnpricedAsIncluded()}
                   >
                     Mark unpriced as included
@@ -5572,25 +5617,25 @@ export function TripWorkspacePage() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      className="h-7"
+                      className="h-6 px-2 text-[11px]"
                       onClick={() => openMarginOverrideDialog(null)}
                     >
                       Override margin policy…
                     </Button>
                   ) : null}
                   {marginGateCount > 0 && !canOverrideBelowMargin ? (
-                    <span className="text-xs text-amber-900/90 dark:text-amber-100/90">
+                    <span className="text-[11px] text-amber-900/90 dark:text-amber-100/90">
                       Below-margin services need a manager override
                     </span>
                   ) : null}
                 </div>
                 {attentionOpen ? (
-                  <ul className="mt-2 space-y-1">
+                  <ul className="mt-1.5 space-y-0.5 border-t border-amber-500/20 pt-1.5">
                     {attentionLines.map((row) => (
                       <li key={row.id}>
                         <button
                           type="button"
-                          className="flex w-full items-start gap-2 rounded-md px-1.5 py-1 text-left text-xs text-amber-900 transition-colors hover:bg-amber-500/15 dark:text-amber-100"
+                          className="flex w-full items-start gap-2 rounded-md px-1.5 py-0.5 text-left text-[11px] text-amber-900 transition-colors hover:bg-amber-500/15 dark:text-amber-100"
                           onClick={() => {
                             setQuoteDetailLineId(row.id);
                             setAttentionOpen(true);
@@ -5618,7 +5663,7 @@ export function TripWorkspacePage() {
                       </li>
                     ))}
                     {missingPricingCount > 0 || marginGateCount > 0 ? (
-                      <li className="px-1.5 pt-0.5 text-[11px] text-amber-800/80 dark:text-amber-200/80">
+                      <li className="px-1.5 pt-0.5 text-[10px] text-amber-800/80 dark:text-amber-200/80">
                         Click a line to open details
                         {quoteMinMarginPercent > 0 && marginGateCount > 0
                           ? ` · min margin ${quoteMinMarginPercent}%`
@@ -5632,6 +5677,61 @@ export function TripWorkspacePage() {
 
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_17rem] lg:items-start">
               <div className="min-w-0 space-y-3">
+                {canSendQuote || quoteHasServices || quoteReady.tone !== 'ok' ? (
+                  <div
+                    id="quote-send-readiness"
+                    data-testid={
+                      canQuoteWrite && !quoteReadOnly && !canClickSend && sendBlockedReason
+                        ? 'quote-send-blocked'
+                        : undefined
+                    }
+                    className="flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-md border border-border/60 bg-muted/20 px-2.5 py-1 text-xs"
+                    role="status"
+                  >
+                    <span className="shrink-0 font-medium uppercase tracking-wide text-muted-foreground">
+                      Send readiness
+                    </span>
+                    {canClickSend ? (
+                      <>
+                        <span className="text-muted-foreground">·</span>
+                        <span className="text-emerald-700 dark:text-emerald-300">
+                          Ready to send
+                        </span>
+                      </>
+                    ) : null}
+                    <ul className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-muted-foreground">
+                      {(canClickSend
+                        ? sendBlockedChecklist
+                        : sendBlockedChecklist.filter((i) => {
+                            if (i.ok) return false;
+                            // Attention strip already covers line Match/rate/markup —
+                            // keep Send readiness on trip-level gates only.
+                            if (
+                              needsAttentionCount > 0 &&
+                              (i.id === 'sell' || i.id === 'cost' || i.id === 'margin')
+                            ) {
+                              return false;
+                            }
+                            return true;
+                          })
+                      ).map((i) => (
+                        <li key={i.id} className="inline-flex items-center gap-1">
+                          <span
+                            className={
+                              i.ok
+                                ? 'text-emerald-600 dark:text-emerald-400'
+                                : 'text-amber-700 dark:text-amber-400'
+                            }
+                            aria-hidden
+                          >
+                            {i.ok ? '✓' : '✕'}
+                          </span>
+                          <span>{i.label}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
                 {quoteItems.length === 0 ? (
                   <>
                     {quoteTableLeading ? (
@@ -5658,7 +5758,10 @@ export function TripWorkspacePage() {
                         canQuoteWrite ? (
                           <div className="flex flex-wrap justify-center gap-2">
                             {quoteTemplates.length > 0 ? (
-                              <Button onClick={() => void openUseTemplateDialog()}>
+                              <Button
+                                data-testid="use-template"
+                                onClick={() => void openUseTemplateDialog()}
+                              >
                                 Use template
                               </Button>
                             ) : (
@@ -5674,6 +5777,7 @@ export function TripWorkspacePage() {
                             )}
                             <Button
                               variant="outline"
+                              data-testid="use-previous-trip"
                               disabled={usingPreviousTrip}
                               onClick={() => void usePreviousTrip()}
                             >
@@ -5711,7 +5815,7 @@ export function TripWorkspacePage() {
                         {canQuoteWrite ? (
                           <Button
                             size="sm"
-                            variant="secondary"
+                            variant="outline"
                             className="h-8"
                             disabled={!quoteCan.has('addLines') || quoteReadOnly}
                             onClick={() => addBlankQuoteLine()}
@@ -5723,20 +5827,29 @@ export function TripWorkspacePage() {
                         {canQuoteWrite ? (
                           <Button
                             size="sm"
-                            variant={canSendQuote ? 'default' : 'secondary'}
+                            variant={canClickSend ? 'default' : 'outline'}
+                            data-testid="quote-send"
                             className={
                               canClickSend
                                 ? 'h-8'
-                                : 'h-8 disabled:pointer-events-none disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100'
+                                : 'h-8 border-dashed text-muted-foreground'
                             }
-                            disabled={!canClickSend}
+                            disabled={false}
                             title={
-                              canSendViaMarginOverride && !canSendQuote
-                                ? 'Margin policy blocks send — override or adjust sell'
-                                : sendBlockedReason || 'Send proposal by email'
+                              canClickSend
+                                ? canSendViaMarginOverride && !canSendQuote
+                                  ? 'Margin policy blocks send — override or adjust sell'
+                                  : 'Send proposal by email'
+                                : sendBlockedReason || 'Complete Send readiness'
                             }
                             aria-disabled={!canClickSend}
-                            onClick={() => openSendFlow()}
+                            onClick={() => {
+                              if (canClickSend) {
+                                openSendFlow();
+                                return;
+                              }
+                              focusSendReadiness();
+                            }}
                           >
                             <Send className="size-3.5" />
                             Send
@@ -5893,6 +6006,32 @@ export function TripWorkspacePage() {
                 <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                   Pricing summary
                 </p>
+                {pricingNotStarted ? (
+                  <dl className="mt-3 space-y-2 text-sm">
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-muted-foreground">Customer budget target</dt>
+                      <dd className="tabular-nums">
+                        {customerBudgetTarget != null
+                          ? formatCurrency(customerBudgetTarget, {
+                              currency: customerBudgetCurrency,
+                              maximumFractionDigits: 0,
+                            })
+                          : 'Not set'}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-muted-foreground">Quoted selling price</dt>
+                      <dd>Not calculated</dd>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-muted-foreground">Estimated supplier cost</dt>
+                      <dd>Not calculated</dd>
+                    </div>
+                    <p className="pt-1 text-xs text-muted-foreground">
+                      Draft quotation — pricing not started
+                    </p>
+                  </dl>
+                ) : (
                 <dl className="mt-3 space-y-2 text-sm">
                   {partialSellOnly ? (
                     <>
@@ -6157,12 +6296,13 @@ export function TripWorkspacePage() {
                             />
                             {quoteCurrency !== orgCurrency ? (
                               <div className="flex flex-wrap items-center gap-2">
-                                <Input
-                                  className="h-8 w-28 tabular-nums"
-                                  inputMode="decimal"
+                                <NumberField
+                                  className="h-8 w-28"
+                                  integer={false}
+                                  min={0}
                                   placeholder={`${orgCurrency} per 1 ${quoteCurrency}`}
                                   value={fxRateInput}
-                                  onChange={(e) => setFxRateInput(e.target.value)}
+                                  onChange={setFxRateInput}
                                 />
                                 <Button
                                   type="button"
@@ -6219,187 +6359,9 @@ export function TripWorkspacePage() {
                     ) : null}
                   </div>
                 </dl>
+                )}
                 </aside>
 
-                {canSendQuote || quoteHasServices || quoteReady.tone !== 'ok' ? (
-                  <aside
-                    id="quote-send-readiness"
-                    className="rounded-xl border border-border/70 bg-card/40 p-4"
-                  >
-                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      Send readiness
-                    </p>
-                    <p className="mt-2 text-xs text-muted-foreground">{quoteReady.hint}</p>
-                    {canSendQuote ? (
-                      <ul className="mt-3 space-y-1.5 text-sm text-muted-foreground">
-                        <li className="flex items-start gap-2">
-                          <span className="mt-0.5 text-emerald-600 dark:text-emerald-400" aria-hidden>
-                            ✓
-                          </span>
-                          <span>
-                            {quoteItems.length} service{quoteItems.length === 1 ? '' : 's'} priced
-                          </span>
-                        </li>
-                        {canViewCost ? (
-                          <li className="flex items-start gap-2">
-                            <span
-                              className="mt-0.5 text-emerald-600 dark:text-emerald-400"
-                              aria-hidden
-                            >
-                              ✓
-                            </span>
-                            <span>Costs complete</span>
-                          </li>
-                        ) : null}
-                        <li className="flex items-start gap-2">
-                          <span className="mt-0.5 text-emerald-600 dark:text-emerald-400" aria-hidden>
-                            ✓
-                          </span>
-                          <span>
-                            Valid until{' '}
-                            {quoteMeta.validUntil
-                              ? new Date(`${quoteMeta.validUntil}T12:00:00`).toLocaleDateString(
-                                  undefined,
-                                  { day: 'numeric', month: 'short', year: 'numeric' },
-                                )
-                              : '—'}
-                          </span>
-                        </li>
-                        <li className="flex items-start gap-2">
-                          <span className="mt-0.5 text-emerald-600 dark:text-emerald-400" aria-hidden>
-                            ✓
-                          </span>
-                          <span>{travellerCount}-traveller pricing basis</span>
-                        </li>
-                      </ul>
-                    ) : (
-                      <ul className="mt-3 space-y-1.5 text-sm text-muted-foreground">
-                        {quoteHasServices ? (
-                          <li className="flex items-start gap-2">
-                            <span
-                              className={
-                                missingSellCount === 0
-                                  ? 'mt-0.5 text-emerald-600 dark:text-emerald-400'
-                                  : 'mt-0.5 text-amber-700 dark:text-amber-400'
-                              }
-                              aria-hidden
-                            >
-                              {missingSellCount === 0 ? '✓' : '✕'}
-                            </span>
-                            <span>
-                              {pricedServiceCount} of {quoteItems.length} services have sell prices
-                              {missingSellCount > 0
-                                ? ` · ${missingSellCount} sell price${missingSellCount === 1 ? '' : 's'} missing`
-                                : ''}
-                            </span>
-                          </li>
-                        ) : (
-                          <li className="flex items-start gap-2">
-                            <span className="mt-0.5 text-amber-700 dark:text-amber-400" aria-hidden>
-                              ✕
-                            </span>
-                            <span>Add at least one service</span>
-                          </li>
-                        )}
-                        {canViewCost && quoteHasServices ? (
-                          <li className="flex items-start gap-2">
-                            <span
-                              className={
-                                costGaps.incomplete
-                                  ? 'mt-0.5 text-amber-700 dark:text-amber-400'
-                                  : 'mt-0.5 text-emerald-600 dark:text-emerald-400'
-                              }
-                              aria-hidden
-                            >
-                              {costGaps.incomplete ? '✕' : '✓'}
-                            </span>
-                            <span>
-                              {quoteItems.length - costGaps.missingCount} of {quoteItems.length}{' '}
-                              services have costs
-                              {costGaps.incomplete
-                                ? ` · ${costGaps.missingCount} buy rate${costGaps.missingCount === 1 ? '' : 's'} missing`
-                                : ''}
-                            </span>
-                          </li>
-                        ) : null}
-                        {canViewCost && marginGateCount > 0 ? (
-                          <li className="flex items-start gap-2">
-                            <span className="mt-0.5 text-amber-700 dark:text-amber-400" aria-hidden>
-                              ✕
-                            </span>
-                            <span>
-                              {marginGateCount} service{marginGateCount === 1 ? '' : 's'}{' '}
-                              {marginGateCount === 1 ? 'breaches' : 'breach'} margin policy
-                              {quoteMinMarginPercent > 0
-                                ? ` (floor ${quoteMinMarginPercent}%)`
-                                : ' (negative margin)'}
-                            </span>
-                          </li>
-                        ) : canViewCost &&
-                          quoteHasServices &&
-                          !costGaps.incomplete &&
-                          sellComplete ? (
-                          <li className="flex items-start gap-2">
-                            <span
-                              className="mt-0.5 text-emerald-600 dark:text-emerald-400"
-                              aria-hidden
-                            >
-                              ✓
-                            </span>
-                            <span>
-                              Margin policy met
-                              {quoteMinMarginPercent > 0
-                                ? ` (≥ ${quoteMinMarginPercent}%)`
-                                : ''}
-                            </span>
-                          </li>
-                        ) : null}
-                        <li className="flex items-start gap-2">
-                          <span
-                            className={
-                              quoteMeta.validUntil?.trim() && !validUntilBlocksSend
-                                ? 'mt-0.5 text-emerald-600 dark:text-emerald-400'
-                                : 'mt-0.5 text-amber-700 dark:text-amber-400'
-                            }
-                            aria-hidden
-                          >
-                            {quoteMeta.validUntil?.trim() && !validUntilBlocksSend
-                              ? '✓'
-                              : '✕'}
-                          </span>
-                          <span>
-                            Validity date
-                            {!quoteMeta.validUntil?.trim()
-                              ? ' missing'
-                              : validUntilBlocksSend
-                                ? ' expired past grace — reset before send'
-                                : validUntilGraceCue
-                                  ? ' expired (grace — send keeps date)'
-                                  : ''}
-                          </span>
-                        </li>
-                        <li className="flex items-start gap-2">
-                          <span
-                            className={
-                              travellerCount > 0
-                                ? 'mt-0.5 text-emerald-600 dark:text-emerald-400'
-                                : 'mt-0.5 text-amber-700 dark:text-amber-400'
-                            }
-                            aria-hidden
-                          >
-                            {travellerCount > 0 ? '✓' : '✕'}
-                          </span>
-                          <span>
-                            Traveller pricing basis
-                            {travellerCount > 0
-                              ? ` · ${travellerCount} traveller${travellerCount === 1 ? '' : 's'}`
-                              : ' missing'}
-                          </span>
-                        </li>
-                      </ul>
-                    )}
-                  </aside>
-                ) : null}
               </div>
             </div>
 
@@ -6427,7 +6389,7 @@ export function TripWorkspacePage() {
                 }
               />
             </DisclosureSection>
-          </div>
+          </SectionStack>
         </TabsContent>
 
         <TabsContent value="operations">
@@ -6483,7 +6445,9 @@ export function TripWorkspacePage() {
         }}
         title="Add traveller"
         submitLabel="Add"
-        onSubmit={addTraveller}
+        submitTestId="add-traveller-submit"
+        submitting={travellerSaving}
+        onSubmit={() => void addTraveller()}
       >
         <FormField label="Full name" required>
           <Input
@@ -6766,6 +6730,7 @@ export function TripWorkspacePage() {
           quoteItems.filter((l) => l.unitCost != null && l.unitSell == null).length
         } service(s) that already have a cost? Manually entered sell prices will not be changed.`}
         confirmLabel="Apply markup"
+        confirmTestId="confirm-apply-markup"
         onConfirm={() =>
           markupApplyTarget.kind === 'preset'
             ? confirmApplyMarkupPreset(markupApplyTarget.preset)
@@ -6794,6 +6759,7 @@ export function TripWorkspacePage() {
           ).length
         } service(s) will appear on the proposal but will not increase the customer total (sell set to ₹0). This cannot silently hide real costs later — review the list before confirming.`}
         confirmLabel="Mark as included"
+        confirmTestId="confirm-mark-included"
         onConfirm={() => confirmMarkUnpricedAsIncluded()}
       />
 
@@ -7129,8 +7095,7 @@ export function TripWorkspacePage() {
       >
         <FormField label="Travel start" required>
           <DatePicker
-            className="h-9"
-            placeholder="Trip start date"
+                        placeholder="Trip start date"
             value={
               /^\d{4}-\d{2}-\d{2}$/.test(templateApplyStartDate)
                 ? new Date(`${templateApplyStartDate}T12:00:00`)
@@ -7152,51 +7117,45 @@ export function TripWorkspacePage() {
         ) : null}
         <div className="grid grid-cols-3 gap-3">
           <FormField label="Adults" required>
-            <Input
-              type="number"
+            <NumberField
               min={1}
               max={99}
-              className="h-9"
               value={templateApplyAdults}
-              onChange={(e) => {
-                const adults = Math.max(
-                  1,
-                  Math.min(99, Number(e.target.value) || 1),
-                );
+              onChange={(raw) => {
+                if (raw === '') return;
+                const adults = Math.max(1, Math.min(99, Number(raw) || 1));
                 setTemplateApplyAdults(adults);
                 setTemplateApplyRooms(Math.max(1, Math.ceil(adults / 2)));
               }}
+              quickPicks={[1, 2, 3, 4]}
             />
           </FormField>
           <FormField label="Rooms" required>
-            <Input
-              type="number"
+            <NumberField
               min={1}
               max={99}
-              className="h-9"
               value={templateApplyRooms}
-              onChange={(e) =>
+              onChange={(raw) => {
+                if (raw === '') return;
                 setTemplateApplyRooms(
-                  Math.max(1, Math.min(99, Number(e.target.value) || 1)),
-                )
-              }
+                  Math.max(1, Math.min(99, Number(raw) || 1)),
+                );
+              }}
+              quickPicks={[1, 2, 3, 4]}
             />
           </FormField>
           <FormField label="Children">
-            <Input
-              type="number"
+            <NumberField
               min={0}
               max={99}
-              className="h-9"
               value={templateApplyChildren}
-              onChange={(e) => {
-                const children = Math.max(
-                  0,
-                  Math.min(99, Number(e.target.value) || 0),
-                );
+              onChange={(raw) => {
+                const children =
+                  raw === '' ? 0 : Math.max(0, Math.min(99, Number(raw) || 0));
                 setTemplateApplyChildren(children);
                 setTemplateApplyChildrenWithoutBed((n) => Math.min(n, children));
               }}
+              quickPicks={[0, 1, 2]}
             />
           </FormField>
         </div>
@@ -7210,36 +7169,37 @@ export function TripWorkspacePage() {
               description="Comma-separated years (0–17). Missing ages default to 8 on apply."
             >
               <Input
-                className="h-9"
-                placeholder="e.g. 8, 11"
+                                placeholder="e.g. 8, 11"
                 value={templateApplyChildAgesCsv}
                 onChange={(e) => setTemplateApplyChildAgesCsv(e.target.value)}
               />
             </FormField>
             <FormField label="Children without bed">
-              <Input
-                type="number"
+              <NumberField
                 min={0}
                 max={templateApplyChildren}
-                className="h-9"
                 value={templateApplyChildrenWithoutBed}
-                onChange={(e) =>
+                onChange={(raw) =>
                   setTemplateApplyChildrenWithoutBed(
-                    Math.max(
-                      0,
-                      Math.min(
-                        templateApplyChildren,
-                        Number(e.target.value) || 0,
-                      ),
-                    ),
+                    raw === ''
+                      ? 0
+                      : Math.max(
+                          0,
+                          Math.min(templateApplyChildren, Number(raw) || 0),
+                        ),
                   )
                 }
+                quickPicks={[0, 1, 2]}
               />
             </FormField>
           </div>
         ) : null}
         {loadingTemplates ? (
-          <p className="text-sm text-muted-foreground">Loading templates…</p>
+          <div className="space-y-2" role="status" aria-busy="true">
+            <span className="sr-only">Loading</span>
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-8 w-full" />
+          </div>
         ) : quoteTemplates.length === 0 ? (
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
@@ -7262,16 +7222,14 @@ export function TripWorkspacePage() {
             <div className="grid grid-cols-2 gap-3">
               <FormField label="Filter by folder">
                 <Input
-                  className="h-9"
-                  value={templateFolderFilter}
+                                    value={templateFolderFilter}
                   onChange={(e) => setTemplateFolderFilter(e.target.value)}
                   placeholder="e.g. Hill stations/Darjeeling…"
                 />
               </FormField>
               <FormField label="Filter by tag">
                 <Input
-                  className="h-9"
-                  value={templateTagFilter}
+                                    value={templateTagFilter}
                   onChange={(e) => setTemplateTagFilter(e.target.value)}
                   placeholder="e.g. beach, hill…"
                 />
@@ -7288,13 +7246,17 @@ export function TripWorkspacePage() {
                 const hint = String(t.content?.destinationHint || '').trim();
                 const tags = Array.isArray(t.content?.tags) ? t.content.tags : [];
                 const folder = String(t.content?.folder || '').trim() || undefined;
-                const destNames = destinations.map((d) => d.name.toLowerCase());
-                const hintLower = hint.toLowerCase();
-                const matchesTrip =
-                  Boolean(hintLower) &&
-                  destNames.some(
-                    (name) => name.includes(hintLower) || hintLower.includes(name),
-                  );
+                const primary = destinations[0] || null;
+                const matchScore = templateDestinationMatchScore(
+                  {
+                    destinationHint: t.content?.destinationHint,
+                    destinationPlaceId: t.content?.destinationPlaceId,
+                  },
+                  primary
+                    ? { placeId: primary.placeId, name: primary.name }
+                    : null,
+                );
+                const matchesTrip = matchScore >= 30;
                 const matchesTag = templateMatchesTagFilter(tags, templateTagFilter);
                 const matchesFolder = templateMatchesFolderFilter(
                   folder,
@@ -7306,6 +7268,7 @@ export function TripWorkspacePage() {
                   hint,
                   tags,
                   folder,
+                  matchScore,
                   matchesTrip,
                   matchesTag,
                   matchesFolder,
@@ -7313,7 +7276,7 @@ export function TripWorkspacePage() {
               })
               .filter((row) => row.matchesTag && row.matchesFolder)
               .sort((a, b) => {
-                if (a.matchesTrip !== b.matchesTrip) return a.matchesTrip ? -1 : 1;
+                if (a.matchScore !== b.matchScore) return b.matchScore - a.matchScore;
                 if (a.lineCount !== b.lineCount) return b.lineCount - a.lineCount;
                 return a.t.name.localeCompare(b.t.name);
               });
@@ -7486,7 +7449,11 @@ export function TripWorkspacePage() {
                   {templateHistoryForId === t.id ? (
                     <div className="rounded-md bg-muted/40 px-2 py-2">
                       {loadingTemplateHistory ? (
-                        <p className="text-xs text-muted-foreground">Loading history…</p>
+                        <div className="space-y-1.5" role="status" aria-busy="true">
+                          <span className="sr-only">Loading</span>
+                          <Skeleton className="h-3 w-32" />
+                          <Skeleton className="h-6 w-full" />
+                        </div>
                       ) : templateHistoryItems.length === 0 ? (
                         <p className="text-xs text-muted-foreground">No versions found.</p>
                       ) : (
@@ -7667,6 +7634,6 @@ export function TripWorkspacePage() {
           />
         </FormField>
       </RecordDialog>
-    </div>
+    </PageStack>
   );
 }

@@ -4,6 +4,7 @@ import {
   Button,
   Input,
   PageHeader,
+  PageSkeleton,
   SimpleFormField as FormField,
   StatusBadge,
   Switch,
@@ -347,7 +348,7 @@ export function LeadSourcesPage() {
       />
 
       {loading ? (
-        <p className="mt-4 text-sm text-muted-foreground">Loading…</p>
+        <PageSkeleton variant="settings" className="mt-4" />
       ) : (
         <div className="mt-4 space-y-8">
           <section className="space-y-3">

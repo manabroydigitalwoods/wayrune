@@ -10,7 +10,7 @@ This memo revises the Sembark competitive analysis against the current codebase.
 
 ## Executive verdict
 
-**Wayrune has reached near parity with Sembark in end-to-end agency workflow coverage for INR FIT operations. Sembark still leads in guided quotation polish, complex contracting depth, accounting and reporting breadth, implementation support, and established market proof. Wayrune should now close adoption-critical gaps and improve experience — not copy Sembark screen by screen.**
+**Wayrune has reached near parity with Sembark in end-to-end agency workflow coverage for INR FIT operations.** Engineering is **internally proven (demo/staging)** on the connected spine, Replace honesty, guided FIT, onboarding checklist, and thin finance reporting. **Sembark still leads** in dense contracting polish, consultant onboarding depth, full ledger/reporting breadth, implementation support, and **established market proof**. Wayrune is **Pilot-ready** (scripts + evidence pack) but **not Market-proven** — the bottleneck is a named non-eng pilot week, not missing journey stages. Close adoption gaps from evidence; do not copy Sembark screen by screen.
 
 **Formal next phase:** [Agency Competitive Validation](#agency-competitive-validation-formal-next-phase--2026-07) — win and operate one real agency; build competitive depth only from evidence. Do **not** stop competing with Sembark; stop building speculative parity without evidence.
 
@@ -34,11 +34,31 @@ Use these labels **internally** — never upgrade “journey parity” into “w
 |-------------|--------------------------|
 | **Journey parity** | **Near parity** — lead → inquiry → quote → book → collect → ops → cancel/refund is connected |
 | **Capability-depth parity** | **Partial → near**, module by module (rates, FX, packages deep; full ledger / dense workbooks not) |
-| **Usability and market parity** | **Not proven yet** — guided ~60s feel, FIT claim, consultant onboarding, public scale, real agency adoption |
+| **Usability and market parity** | **Not proven yet** — internal dry-run ~8–9/10 on beat edges; **Pilot-ready** evidence pack open; named pilot **not run**; FIT claim Testing; not Market-proven |
 
 **Prod-ready** on the Agency OS feature map means Integrity+Channels+Proof ladders shipped for that outcome — **not** that Coverage+Depth+Ease+Reliability+Adoption+Proof are all acceptable (see Competitive Readiness Matrix below).
 
 **2026-07 re-score (after P0 ladders + Guided FIT UX + honesty wedges):** journey stages with I+C+P ladders **done** are **Prod-ready** as engineering outcomes (Match, FX, templates, rate depth, enquiry→voucher, movement, trip control, cancel/refund, CRM SLA, supplier directory/import, collect/chase, onboarding pack, Guided FIT rail/revise/margin/dogfood cues). Residual **Thin** = claim gates and unfinished adoption proof (FIT Testing, scale strip gated, unit board utilization, real-agency operate-through). Remaining Sembark leads are **usability depth, accounting breadth, onboarding, reporting, and market confidence** — not missing journey stages. Do not lead with multi-org or Presence until agency-experienced parity is undeniable.
+
+**2026-07-21 re-score (post Market proof enablement — full stack):**
+
+| Dimension | Verdict | Evidence |
+| --- | --- | --- |
+| Journey parity | **Held — near parity** | Lead→voucher→collect connected; sales_executive New lead; guided Send/Next; H/T/A enquiry→voucher |
+| Guided quote clarity | **Improved (internal ~8–9/10)** | Progress Next CTA; Send readiness checklist; attention de-dupe; A1 Match/Send + revision Δ |
+| Beat edges (eng / internal dry-run) | **Day 1 ≥3 + Day 2 Replace filled** | Spine+collect, revision, Match keep-markup, Replace→rates→no `[Demo]`; onboarding + thin finance beats green |
+| Honesty (demo vs real) | **Thin-closed on demo/fixture** | `beat-replace-demo-proof` + Operate checklist honesty cues — still not a named-agency migrate |
+| Onboarding / thin finance | **Eng stronger** | Dual Quote/Operate checklist; aging/portfolio/GSTR/report-packs; five money questions on thin path; **P8 closed** (0 ledger escapes) |
+| Usability / market parity | **Still not proven** | Named-pilot scorecard **blank**; evidence pack status **Not scheduled**; claim recommendation **Testing** |
+| FIT public speed | **Testing** | `publicClaimAllowed` gated; demo samples excluded; n≥20 real not claimed |
+| Where Sembark still leads | Unchanged class | Dense contracting; consultant onboarding; full ledger / report breadth; **trained speed unmeasured**; **market confidence / testimonials** |
+| Where Wayrune should claim internally | Effort / honesty / connected trip | Keep-markup; Replace path; revision immutability; dual readiness — **not** “we match Sembark” |
+
+**Positioning (unchanged for sales):** do not upgrade external language. Product label: **Quote-ready · Operate-ready (demo) · Internally proven (demo) · Pilot-ready (scripts + evidence pack) · not Market-proven**.
+
+**Bottleneck now:** recruiting and running one **named non-eng** pilot week — not missing journey stages, not another module. Depth (P5–P8) only after ≥3 same-pattern escapes.
+
+Earlier same-day slices (A1, Option A, spine+collect, guided Send, Match/revise, Replace honesty, accounting/onboarding) are subsumed by this table; see [sembark-competitive-current-state.md](../ux/sembark-competitive-current-state.md) §6 for slice log.
 
 ---
 
@@ -86,12 +106,13 @@ Maturity labels: **early** | **partial** | **mature** | **structural** (architec
 
 Do **not** treat every gap as equal priority. Full ledger may be large; ask whether target agencies reject Wayrune without in-product accounting. Prefer accountant-ready exports/integrations or enterprise-only GL unless the answer is “yes.” Quotation speed, rate accuracy, revision ease, and onboarding affect almost every agency and stay higher priority.
 
-1. **Quote speed & revision usability** — Guided FIT UX + Match alternatives shipped; public ≤3m claim **Testing** until real n≥20 / median ≤3m  
-2. **Rate & margin confidence in daily use** — thin path deep + Why this rate + priced Match alts; denser Sembark workbook comfort still open  
-3. **Real agency adoption proof** — Next Action + operate-through dogfood kit shipped; still need evidence real agencies finish the path **without developer intervention**  
-4. **Market credibility** — About + `/docs` + `/changelog` + **Bring your data** story; scale strip gated; testimonials still thin  
-5. **Tax / ledger depth** — compliance kickoff (NIC adapter + CD tax + GSTR export); full GL / in-app filing / live IRN **do not claim** — prioritize by segment, not by gap size  
-6. **Partner fleet OS** — unit board dogfood unlocked; utilization / org-wide deferred  
+1. **Named-agency market proof** — evidence pack + runbook ready; **pilot not scheduled**; flip criteria not met → **not Market-proven**  
+2. **Quote speed (public claim)** — Guided FIT UX shipped; ≤3m stays **Testing** until real n≥20 / median ≤3m on non-demo org  
+3. **Rate & margin confidence in daily use** — thin path deep + Why this rate + priced Match alts; denser Sembark workbook comfort still open (P5 gated)  
+4. **Departures / owner action queues** — scripts exist; product surfaces thin (P6/P7 gated on escapes)  
+5. **Market credibility** — About + `/docs` + `/changelog` + Bring your data; scale strip gated; testimonials still thin  
+6. **Tax / ledger depth** — GSTR export + display path; full GL / filing / live IRN **do not claim** — P8 only after ≥3 ledger escapes  
+7. **Partner fleet OS** — unit board dogfood unlocked; utilization / org-wide deferred  
 
 #### Deal-gate — Partner fleet unit board / utilization (**unlocked for dogfood wedge**)
 
@@ -156,6 +177,8 @@ Demo-win sprints (Operate-ready dual checklist · demo operate pack · supplier 
 > A real agency completes setup, quotation, booking, supplier confirmation, collection, and operation without developer intervention or returning to Excel.
 
 Until that happens, additional features may improve the product on paper without improving adoption.
+
+**Market proof ops:** [pilot-operations-pack.md](../ux/scenarios/pilot-operations-pack.md) · [market-proof-evidence-pack.md](../ux/scenarios/market-proof-evidence-pack.md) · [pilot-week-runbook.md](../ux/scenarios/pilot-week-runbook.md). Enablement + Day-0 in-product; claim stays **Testing** until named-pilot flip criteria are met. Proxy ≠ Market-proven.
 
 ### Success definition
 
@@ -223,6 +246,87 @@ Public claim stays **Testing** until n≥20 **real** samples clear the gate. Dem
 6. Real suppliers available in Match  
 7. Quote proceeds to confirmation + voucher  
 8. Demo data never appears in live documents  
+
+### UX dogfood automation (regression evidence)
+
+Automation detects whether the UX is **getting worse**. Real pilots + friction log answer whether it is **good**.
+
+| Cadence | Stack |
+|---------|--------|
+| Every PR | Playwright `standard-fit-quote` + `family-fit-revise-book-voucher` + beat specs (`beat-revision-comfort` · `beat-match-keep-markup` · `beat-replace-demo-proof`) · UX budgets · axe (soft; `E2E_AXE_STRICT=1` optional) · overflow @ 1280×720 — `@wayrune/web-e2e` · CI `e2e-ux` |
+| Opt-in visual | `E2E_VISUAL=1` Playwright screenshot baselines (short commercial allowlist) |
+| Named pilot | PostHog Session Replay behind `VITE_POSTHOG_KEY` (PII masked) — see `docs/ux/posthog-session-replay.md` |
+| Pilot weekly | Think-aloud · friction log · escape analysis · [Sembark-wedge comparison sheet](../../ux/sembark-wedge-comparison.md) |
+
+**UX budgets (initial — aspirational operate-through rows are not Proven):**
+
+| Journey | Target |
+|---------|-------:|
+| Standard FIT quote (qualified enquiry → shareable send controls) | ≤ 180s · ≤ 25 clicks · ≤ 5 page transitions · 0 validation errors |
+| Family FIT → revise → book → voucher (demo path) | ≤ 300s · ≤ 45 clicks · 0 validation errors |
+| New enquiry intake | ≤ 60 sec (aspirational) |
+| Apply reusable package | ≤ 30 sec (aspirational) |
+| Quote revision | ≤ 60 sec (aspirational) |
+| Accept → supplier enquiry | ≤ 2 min (aspirational) |
+| Confirm → voucher | ≤ 2 min (aspirational) |
+| Record customer payment | ≤ 30 sec (aspirational) |
+| Find risky departure | ≤ 20 sec (aspirational) |
+
+Demo/seed Playwright timings **never** flip the public FIT claim to Proven. Report: `docs/ux/ux-dogfood-report.md`. Rule: `.cursor/rules/ux-dogfood.mdc`.
+
+### Beat-Sembark dogfood (Wayrune advantages)
+
+Prove Wayrune wins on **connected agency effort**, not feature count:
+
+> Same commercial outcome as a Sembark-class agency expects, with **less effort and fewer escapes** (Excel / calculator / reconstructing WhatsApp status).
+
+Sembark remains the benchmark for *which jobs matter*. We do **not** test Sembark itself. Success = lower escape rate + higher trust on the connected journey vs “Sembark + Excel.”
+
+| Beat edge | Why we can win | Evidence |
+|-----------|----------------|----------|
+| Connected spine | Quote → ops → finance without spreadsheet | Golden e2e + pilot scorecard |
+| Revision comfort | Tax Δ, changed lines, Resend, hotel swap keeps dates | `beat-revision-comfort` e2e + think-aloud |
+| Match keep-markup | Use vs Use (keep markup) + alt chips | `beat-match-keep-markup` e2e |
+| Self-serve Replace demo | Soft-archive demo → real CSV → Match clean | `beat-replace-demo-proof` e2e + Day 2 pilot |
+
+**Not this cycle (parity/park):** dense rate workbook depth · full GL / journals · Digital Presence · Travel Exchange · partner network · advanced fleet. “Make it more like Sembark grids” requires ≥3 same-pattern escapes.
+
+Scorecard: `docs/ux/scenarios/beat-sembark-scorecard.md`. Automation never flips FIT Proven.
+
+### Sembark-wedge dogfood (test Wayrune)
+
+Goal: an agency user completes the same important work they expect from Sembark, with equal or less effort, without Excel, manual calculation, or developer help. **Test Wayrune** — Sembark is the benchmark for *which* tasks matter and *how to score* them. Prefer **beat edges** above over breadth of FIT-01…08 when time is short.
+
+**Out of scope this cycle:** Digital Presence · Travel Exchange · partner network · advanced fleet.
+
+#### Priority order (fixed)
+
+1. FIT quotation and revision (highest)
+2. Real supplier and rate import (+ Replace demo)
+3. Accepted quote → voucher
+4. Collection and supplier payment
+5. Upcoming departure operations (next-7d action queue evidence)
+6. Owner control and reporting
+
+#### Benchmark dimensions (every workflow)
+
+Outcome coverage · Time · Interaction cost · Clarity · Accuracy · Recovery · External escape · Trust — see `docs/ux/sembark-wedge-comparison.md`. Do not compare only feature presence.
+
+#### Golden scenario
+
+Family FIT → revision → booking → voucher (2A+1C): enquiry → package → Match → send → date change → hotel swap → resend → accept → enquiry/confirm → voucher → partial payment. Script: `docs/ux/scenarios/fit-family-golden.md`. Pilot week: `docs/ux/scenarios/pilot-week-runbook.md`.
+
+#### Eight FIT scenarios
+
+FIT-01 couple · FIT-02 family+child · FIT-03 multi-city · FIT-04 two hotel alts · FIT-05 date revision · FIT-06 pax/rooming · FIT-07 package reuse · FIT-08 stop-sale replacement — matrix: `docs/ux/scenarios/fit-matrix.md`.
+
+#### Automate vs observe
+
+| Automate | Observe with real users |
+|----------|-------------------------|
+| End-to-end completion · click/timing · wrong totals when assertable · missing statuses · broken nav · console/API errors · axe · overflow | Hesitation · confusion · terminology · price trust · Excel preference · Match comfort · post-accept understanding |
+
+Escapes feed P5–P8 (≥3 same pattern). Correctness defects fix immediately.
 
 ### Refined bottom line
 

@@ -1,7 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { CheckCircle2, Plane } from 'lucide-react';
-import { Button, SoftIcon, formatCurrency, toastError, toastSuccess } from '@wayrune/ui';
+import {
+  Button,
+  PublicPageSkeleton,
+  SoftIcon,
+  formatCurrency,
+  toastError,
+  toastSuccess,
+} from '@wayrune/ui';
 import { api } from '../api';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import {
@@ -102,6 +109,10 @@ export function PublicItineraryPage() {
   const quote = data?.quotation;
   const alreadyAccepted = quote?.status === 'accepted';
 
+  if (loading) {
+    return <PublicPageSkeleton />;
+  }
+
   return (
     <div className="light relative min-h-screen overflow-hidden text-foreground">
       <div className="pointer-events-none absolute inset-0 bg-[hsl(150_28%_94%)]" />
@@ -120,9 +131,7 @@ export function PublicItineraryPage() {
         <div className="mb-8 flex justify-center">
           <SoftIcon icon={Plane} />
         </div>
-        {loading ? (
-          <p className="text-center text-sm text-muted-foreground">Loading itinerary…</p>
-        ) : error ? (
+        {error ? (
           <div className="mx-auto max-w-md rounded-2xl border border-white/70 p-8 text-center glass-strong">
             <h1 className="font-display text-xl font-semibold">Link unavailable</h1>
             <p className="mt-2 text-sm text-muted-foreground">{error}</p>

@@ -4,7 +4,7 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '../../lib/utils';
 
 const buttonVariants = cva(
-  'inline-flex cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0',
+  'inline-flex cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-md font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-[var(--control-icon)] [&_svg]:shrink-0',
   {
     variants: {
       variant: {
@@ -19,10 +19,14 @@ const buttonVariants = cva(
         link: 'text-primary underline-offset-4 hover:underline',
       },
       size: {
-        default: 'h-9 px-4 py-2',
-        sm: 'h-8 rounded-md px-3 text-xs',
-        lg: 'h-10 rounded-md px-6',
-        icon: 'h-9 w-9',
+        default: 'h-[var(--control-h)] px-4 py-2 text-[length:var(--control-text)]',
+        sm: 'h-[var(--control-h-sm)] rounded-md px-3 text-[length:var(--control-text-sm)]',
+        /** Dense controls for side panels / inline editors — matches Combobox/DatePicker `sm`. */
+        xs: 'h-[var(--control-h-sm)] gap-1 rounded-md px-2.5 text-[length:var(--control-text-sm)]',
+        lg: 'h-[var(--control-h-lg)] rounded-md px-6 text-[length:var(--control-text)]',
+        // shrink-0: header flex + w-full search was crushing icon width into tall pills
+        icon: 'size-[var(--control-h)] shrink-0 p-0',
+        'icon-sm': 'size-[var(--control-h-sm)] shrink-0 p-0',
       },
     },
     defaultVariants: {
@@ -42,7 +46,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, asChild = false, ...props }, ref) => {
     const Comp = asChild ? Slot : 'button';
     return (
-      <Comp className={cn(buttonVariants({ variant, size, className }))} ref={ref} {...props} />
+      <Comp className={cn(buttonVariants({ variant, size }), className)} ref={ref} {...props} />
     );
   },
 );

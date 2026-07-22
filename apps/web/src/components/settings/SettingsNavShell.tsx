@@ -7,6 +7,7 @@ import {
   Building2,
   FileText,
   Inbox,
+  MonitorCog,
   Network,
   Paintbrush,
   Scale,
@@ -23,6 +24,7 @@ import { usePermissions } from '../../lib/permissions';
 
 export type SettingsNavId =
   | 'general'
+  | 'appearance'
   | 'workspaces'
   | 'organization'
   | 'branding'
@@ -45,6 +47,12 @@ const NAV_ITEMS: {
     label: 'General',
     description: 'Timezone, date/time format, currency, tax and itinerary defaults.',
     icon: Settings,
+  },
+  {
+    id: 'appearance',
+    label: 'Appearance',
+    description: 'Theme, color packs, contrast, density, motion, glass, and sidebar defaults.',
+    icon: MonitorCog,
   },
   {
     id: 'workspaces',
@@ -167,8 +175,8 @@ export function SettingsNavShell({
         subtitle="Configure your agency identity, compliance, security and integrations."
       />
 
-      <div className="grid gap-6 lg:grid-cols-[220px_minmax(0,1fr)]">
-        <nav className="h-fit space-y-1 rounded-2xl border p-2 glass-panel lg:sticky lg:top-4">
+      <div className="grid gap-[var(--gap-section)] lg:grid-cols-[220px_minmax(0,1fr)]">
+        <nav className="h-fit space-y-1 rounded-2xl border p-[var(--field-gap)] glass-panel lg:sticky lg:top-4">
           {visible.map((item) => {
             const Icon = item.icon;
             const active = item.id === activeId;
@@ -192,7 +200,7 @@ export function SettingsNavShell({
         </nav>
 
         <Card className={cn('min-w-0 max-w-4xl', contentClassName)}>
-          <CardContent className="space-y-5 p-5">
+          <CardContent className="space-y-[var(--gap-section)] p-[var(--pad-card)]">
             {backTo ? (
               <Button asChild variant="ghost" size="sm" className="-ml-2 h-8 gap-1.5 px-2 text-muted-foreground">
                 <Link to={backTo.href}>

@@ -32,8 +32,22 @@ export class TripsController {
   @RequirePermissions('trip.read')
   list(@CurrentUser() user: AuthUser, @Query() query: unknown) {
     const q = PaginationQuerySchema.parse(query);
-    const extra = query as { status?: string; partyId?: string };
-    return this.trips.list(user.organizationId, q.page, q.pageSize, q.q, extra.status, extra.partyId);
+    const extra = query as {
+      status?: string;
+      partyId?: string;
+      travelFrom?: string;
+      travelTo?: string;
+    };
+    return this.trips.list(
+      user.organizationId,
+      q.page,
+      q.pageSize,
+      q.q,
+      extra.status,
+      extra.partyId,
+      extra.travelFrom?.trim() || null,
+      extra.travelTo?.trim() || null,
+    );
   }
 
   @Get(':id')

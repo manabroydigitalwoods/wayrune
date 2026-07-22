@@ -767,7 +767,7 @@ export function MenuBuilder({
                     ) : null}
                   </div>
                   <Combobox
-                    className="h-8 w-[10rem] shrink-0"
+                    className="w-[11rem] shrink-0"
                     disabled={readOnly}
                     value={resolved.menuAssignmentsJson[loc.key] || ''}
                     onChange={(value) => {

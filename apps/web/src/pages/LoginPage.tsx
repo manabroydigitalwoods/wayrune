@@ -3,6 +3,7 @@ import { Navigate, useSearchParams } from 'react-router-dom';
 import { Plane } from 'lucide-react';
 import { LoginSchema, RegisterSchema, parseWithFieldErrors } from '@wayrune/contracts';
 import {
+  AuthGateSkeleton,
   Button,
   Card,
   CardContent,
@@ -208,7 +209,7 @@ function MicrosoftIcon({ className }: { className?: string }) {
 
 export function LoginPage() {
   useDocumentTitle('Sign in');
-  const { me, login, register } = useAuth();
+  const { me, login, register, loading: authLoading } = useAuth();
   const [searchParams] = useSearchParams();
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [error, setError] = useState('');
@@ -296,6 +297,7 @@ export function LoginPage() {
     }
     return '/';
   })();
+  if (authLoading) return <AuthGateSkeleton />;
   if (me) return <Navigate to={resolvedNext} replace />;
 
   async function onSubmit(e: FormEvent) {
@@ -548,7 +550,12 @@ export function LoginPage() {
               </p>
             ) : null}
 
-            <Button type="submit" className="h-11 w-full text-sm font-semibold" disabled={submitting}>
+            <Button
+              type="submit"
+              className="h-11 w-full text-sm font-semibold"
+              disabled={submitting}
+              data-testid="login-submit"
+            >
               {submitting
                 ? mode === 'login'
                   ? 'Signing in…'

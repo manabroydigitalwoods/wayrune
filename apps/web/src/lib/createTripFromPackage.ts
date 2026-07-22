@@ -173,25 +173,90 @@ export function formatCreateTripFromPackageToast(opts: {
   return `${base} · ${bits.join(' · ')}`;
 }
 
-/** Prefer destination-hint matches, then name. */
+/** Prefer destination matches (ID → exact name → substring), then name. */
+export type TemplateDestinationMatchContent = {
+  destinationHint?: string | null;
+  destinationPlaceId?: string | null;
+};
+
+export type TripPrimaryDestinationMatch = {
+  placeId?: string | null;
+  name?: string | null;
+};
+
+export function normalizeDestinationMatchText(
+  value: string | null | undefined,
+): string {
+  return (value || '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+/**
+ * Deterministic destination match score for package template pickers.
+ * Score 100 requires a visible template Place ID equal to the trip primary placeId.
+ * Inaccessible/stale IDs fall through to name scoring (hint remains portable).
+ */
+export function templateDestinationMatchScore(
+  template: TemplateDestinationMatchContent | null | undefined,
+  tripDestination: TripPrimaryDestinationMatch | null | undefined,
+  opts?: { templatePlaceIdVisible?: boolean },
+): number {
+  const templateId = template?.destinationPlaceId?.trim() || '';
+  const tripId = tripDestination?.placeId?.trim() || '';
+  const idVisible = opts?.templatePlaceIdVisible !== false;
+
+  if (templateId && tripId && idVisible && templateId === tripId) {
+    return 100;
+  }
+
+  const hint = normalizeDestinationMatchText(template?.destinationHint);
+  const name = normalizeDestinationMatchText(tripDestination?.name);
+  if (hint && name && hint === name) return 60;
+  if (hint && name && (hint.includes(name) || name.includes(hint))) return 30;
+  return 0;
+}
+
+function templatePlaceIdIsVisible(
+  placeId: string | null | undefined,
+  visiblePlaceIds?: Set<string> | null,
+): boolean {
+  const id = placeId?.trim();
+  if (!id) return false;
+  // No visibility set → same-org catalog assumed (client list).
+  if (!visiblePlaceIds) return true;
+  return visiblePlaceIds.has(id);
+}
+
+/** Prefer destination-score matches, then name. */
 export function sortQuoteTemplatesForPicker<
-  T extends { name: string; content?: { destinationHint?: string | null } | null },
->(templates: T[], destinationHint?: string | null): T[] {
-  const hint = (destinationHint || '').trim().toLowerCase();
+  T extends {
+    name: string;
+    content?: TemplateDestinationMatchContent | null;
+  },
+>(
+  templates: T[],
+  tripDestination?: TripPrimaryDestinationMatch | string | null,
+  opts?: { visiblePlaceIds?: Set<string> | null },
+): T[] {
+  const dest: TripPrimaryDestinationMatch | null =
+    typeof tripDestination === 'string'
+      ? { name: tripDestination }
+      : tripDestination || null;
+
   return [...templates].sort((a, b) => {
-    if (hint) {
-      const aHit = String(a.content?.destinationHint || '')
-        .toLowerCase()
-        .includes(hint)
-        ? 0
-        : 1;
-      const bHit = String(b.content?.destinationHint || '')
-        .toLowerCase()
-        .includes(hint)
-        ? 0
-        : 1;
-      if (aHit !== bHit) return aHit - bHit;
-    }
+    const aScore = templateDestinationMatchScore(a.content, dest, {
+      templatePlaceIdVisible: templatePlaceIdIsVisible(
+        a.content?.destinationPlaceId,
+        opts?.visiblePlaceIds,
+      ),
+    });
+    const bScore = templateDestinationMatchScore(b.content, dest, {
+      templatePlaceIdVisible: templatePlaceIdIsVisible(
+        b.content?.destinationPlaceId,
+        opts?.visiblePlaceIds,
+      ),
+    });
+    if (aScore !== bScore) return bScore - aScore;
     return a.name.localeCompare(b.name);
   });
 }
+

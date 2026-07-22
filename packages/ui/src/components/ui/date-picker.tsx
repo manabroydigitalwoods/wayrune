@@ -23,6 +23,8 @@ export type DatePickerProps = {
   placeholder?: string;
   disabled?: boolean;
   className?: string;
+  /** Stable selector for e2e / dogfood (e.g. hotel check-in). */
+  'data-testid'?: string;
   /**
    * Month to open on when there is no value, or when the current value falls
    * outside `preferredRange` (e.g. trip start when service date is off-trip).
@@ -40,6 +42,8 @@ export type DatePickerProps = {
   disableFuture?: boolean;
   /** Show Today / Tomorrow shortcuts (default true). */
   showQuickDates?: boolean;
+  /** Match Combobox / form density — `sm` uses `--control-h-sm`. */
+  size?: 'default' | 'sm';
 };
 
 type DrillView = 'days' | 'months' | 'years';
@@ -193,7 +197,10 @@ export function DatePicker({
   disablePast,
   disableFuture,
   showQuickDates = true,
+  size = 'default',
+  'data-testid': dataTestId,
 }: DatePickerProps) {
+  const compact = size === 'sm';
   const [open, setOpen] = React.useState(false);
   const [view, setView] = React.useState<DrillView>('days');
   const { min, max, today } = resolveBounds({
@@ -275,14 +282,18 @@ export function DatePicker({
         <Button
           type="button"
           variant="outline"
+          size={compact ? 'sm' : 'default'}
           disabled={disabled}
+          data-testid={dataTestId}
           className={cn(
             'w-full justify-start text-left font-normal',
             !value && 'text-muted-foreground',
             className,
           )}
         >
-          <CalendarIcon className="size-4 shrink-0 opacity-70" />
+          <CalendarIcon
+            className={cn('shrink-0 opacity-70', compact ? 'size-3.5' : 'size-4')}
+          />
           <span className="truncate">{value ? format(value, 'PPP') : placeholder}</span>
         </Button>
       </PopoverTrigger>

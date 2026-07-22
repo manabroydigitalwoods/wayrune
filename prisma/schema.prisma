@@ -15,6 +15,7 @@ model User {
   passwordHash String   @map("password_hash")
   fullName     String   @map("full_name")
   isActive     Boolean  @default(true) @map("is_active")
+  preferencesJson Json? @map("preferences_json")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
@@ -133,6 +134,8 @@ model OrganizationPartnerProfile {
   id               String   @id @default(cuid())
   organizationId   String   @unique @map("organization_id")
   discoverable     Boolean  @default(false)
+  /** Optional catalog HQ/base Place — snapshots in city/region/country when linked. */
+  placeId          String?  @map("place_id")
   city             String?
   region           String?
   country          String?  @default("India")
@@ -155,8 +158,10 @@ model OrganizationPartnerProfile {
   updatedAt        DateTime @updatedAt @map("updated_at")
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  place        Place?       @relation("OrgPartnerProfilePlace", fields: [placeId], references: [id], onDelete: SetNull)
 
   @@index([discoverable, city])
+  @@index([placeId])
   @@map("organization_partner_profiles")
 }
 
@@ -785,6 +790,7 @@ model AuditEvent {
   actor        User?         @relation("AuditActor", fields: [actorUserId], references: [id])
 
   @@index([organizationId, createdAt])
+  @@index([organizationId, action, createdAt])
   @@index([entityType, entityId])
   @@map("audit_events")
 }
@@ -879,6 +885,7 @@ model Task {
   assignee     User?        @relation("TaskAssignee", fields: [assigneeId], references: [id])
 
   @@index([organizationId, status, dueAt])
+  @@index([organizationId, assigneeId, status, dueAt])
   @@index([organizationId, entityType, entityId])
   @@map("tasks")
 }
@@ -1071,16 +1078,21 @@ model Place {
   contributions PlaceContribution[]
   knowledge    PlaceKnowledge[]
   suppliersNear Supplier[]   @relation("SupplierNearPlace")
+  suppliersServed SupplierServedPlace[]
   partnerAssets PartnerAsset[] @relation("PartnerAssetPlace")
+  partnerProfiles OrganizationPartnerProfile[] @relation("OrgPartnerProfilePlace")
   transferFaresFrom TransferFare[] @relation("TransferFareFrom")
   transferFaresTo   TransferFare[] @relation("TransferFareTo")
   hotelRates        SupplierHotelRate[]
   activityRates     SupplierActivityRate[]
 
   @@index([organizationId, isActive])
+  @@index([organizationId, isActive, kind])
   @@index([isSystem, isActive])
+  @@index([isSystem, isActive, kind])
   @@index([key])
   @@index([parentId])
+  @@index([parentId, isActive])
   @@index([kind, isActive])
   @@map("places")
 }
@@ -1339,6 +1351,9 @@ model Lead {
   @@unique([organizationId, idempotencyKey])
   @@index([organizationId, stageId])
   @@index([organizationId, ownerId])
+  @@index([organizationId, followUpAt])
+  @@index([organizationId, ownerId, followUpAt])
+  @@index([organizationId, updatedAt])
   @@index([organizationId, email])
   @@index([organizationId, phone])
   @@map("leads")
@@ -1373,6 +1388,8 @@ model Activity {
   lead Lead? @relation(fields: [leadId], references: [id], onDelete: Cascade)
 
   @@index([organizationId, leadId])
+  @@index([organizationId, inquiryId, createdAt])
+  @@index([organizationId, tripId, createdAt])
   @@map("activities")
 }
 
@@ -1478,6 +1495,7 @@ model Interaction {
   @@index([organizationId, occurredAt])
   @@index([organizationId, channel, occurredAt])
   @@index([organizationId, unread, occurredAt])
+  @@index([organizationId, staffUserId, occurredAt])
   @@index([partyId, occurredAt])
   @@index([conversationId, occurredAt])
   @@index([inquiryId])
@@ -1520,8 +1538,12 @@ model Inquiry {
   status             String    @default("open") // open | qualified | converted | lost | closed
   travelType         String?   @map("travel_type")
   domesticOrIntl     String?   @map("domestic_or_intl") // domestic | international
+  /** @deprecated Prefer originJson PlaceRef; kept for read fallback during migration. */
   origin             String?
+  /** @deprecated Prefer originJson PlaceRef; kept for read fallback during migration. */
   originPlaceId      String?   @map("origin_place_id")
+  /** Canonical origin PlaceRef `{ placeId, name, kind? }` — same shape as destinationsJson items. */
+  originJson         Json?     @map("origin_json")
   destinationsJson   Json?     @map("destinations_json")
   stopsJson          Json?     @map("stops_json")
   dateFlexible       Boolean   @default(false) @map("date_flexible")
@@ -1560,6 +1582,8 @@ model Inquiry {
 
   @@unique([organizationId, inquiryNumber])
   @@index([organizationId, status])
+  @@index([organizationId, status, updatedAt])
+  @@index([organizationId, updatedAt])
   @@index([organizationId, ownerId])
   @@index([engagementConversationId])
   @@map("inquiries")
@@ -1593,6 +1617,8 @@ model Trip {
   startDate      DateTime? @map("start_date")
   endDate        DateTime? @map("end_date")
   destinationsJson Json?   @map("destinations_json")
+  /** Trip-level settings (e.g. proposalSeed from inquiry convert). */
+  settingsJson   Json?     @map("settings_json")
   /** Trip override for GST display split destination POS (null = use org default). */
   destinationPlaceOfSupply String? @map("destination_place_of_supply")
   cancellationReason String? @map("cancellation_reason") @db.Text
@@ -1622,6 +1648,9 @@ model Trip {
 
   @@unique([organizationId, tripNumber])
   @@index([organizationId, status])
+  @@index([organizationId, inquiryId])
+  @@index([organizationId, updatedAt])
+  @@index([organizationId, startDate])
   @@map("trips")
 }
 
@@ -1837,6 +1866,9 @@ model QuotationVersion {
   quotation Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
 
   @@unique([quotationId, versionNumber])
+  @@index([status, updatedAt])
+  @@index([status, createdAt])
+  @@index([quotationId, status, updatedAt])
   @@map("quotation_versions")
 }
 
@@ -1876,8 +1908,13 @@ model Supplier {
   linkedOrganizationId String?   @map("linked_organization_id")
   /** Preferred Stage B link: specific partner property / vehicle / driver. */
   linkedAssetId        String?   @map("linked_asset_id")
-  /** Nearest city / area place for discovery. */
+  /** Nearest city / area place for discovery (base / HQ pin). */
   placeId              String?   @map("place_id")
+  /**
+   * When false, structured coverage is unset (API servedPlaceIds=null); legacy profile CSV may display.
+   * When true, SupplierServedPlace rows are authoritative (empty = no coverage).
+   */
+  servedCoverageConfigured Boolean @default(false) @map("served_coverage_configured")
   /** { imageUrl, imageUrls, amenities, roomHints, vehicleHints, capacityHint… } */
   profileJson          Json?     @map("profile_json")
   createdAt            DateTime  @default(now()) @map("created_at")
@@ -1888,6 +1925,7 @@ model Supplier {
   linkedOrganization Organization? @relation("SupplierLinkedOrg", fields: [linkedOrganizationId], references: [id])
   linkedAsset        PartnerAsset? @relation("SupplierLinkedAsset", fields: [linkedAssetId], references: [id], onDelete: SetNull)
   place              Place?        @relation("SupplierNearPlace", fields: [placeId], references: [id], onDelete: SetNull)
+  servedPlaces       SupplierServedPlace[]
   bookings           BookingComponent[]
   invoices           SupplierInvoice[]
   invites            SupplierInvite[]
@@ -1904,6 +1942,24 @@ model Supplier {
   @@index([placeId])
   @@unique([organizationId, linkedAssetId])
   @@map("suppliers")
+}
+
+/**
+ * Structured supplier service-area coverage (exact Place IDs only — no hierarchy expansion).
+ * Join table chosen over JSON for FK integrity and efficient destination filtering.
+ * Threshold to revisit: hot JSON membership / analytics needs beyond this M2M.
+ */
+model SupplierServedPlace {
+  supplierId String   @map("supplier_id")
+  placeId    String   @map("place_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  supplier Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  place    Place    @relation(fields: [placeId], references: [id], onDelete: Cascade)
+
+  @@id([supplierId, placeId])
+  @@index([placeId])
+  @@map("supplier_served_places")
 }
 
 /** Agency hotel tariff card — cost per room-night for a stay supplier. */
@@ -2147,6 +2203,7 @@ model BookingComponent {
   @@unique([tripId, quotationLineId])
   @@index([tripId, status])
   @@index([organizationId])
+  @@index([organizationId, status, createdAt])
   @@index([partnerAssetId])
   @@index([serviceRequestId])
   @@index([quotationLineId])
@@ -2215,6 +2272,7 @@ model TripPayment {
 
   @@index([tripId, direction, status])
   @@index([organizationId])
+  @@index([organizationId, status, dueAt])
   @@index([paymentLinkRazorpayOrderId])
   @@map("trip_payments")
 }

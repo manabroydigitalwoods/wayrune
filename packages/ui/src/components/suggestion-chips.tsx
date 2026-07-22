@@ -1,3 +1,4 @@
+import { Check } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 export type SuggestionOption = {
@@ -42,12 +43,13 @@ export function SuggestionChips({
               onChange(option.value);
             }}
             className={cn(
-              'rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors',
+              'inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-[length:var(--control-text-sm)] font-semibold transition-colors',
               selected
-                ? 'border-primary bg-primary text-primary-foreground'
+                ? 'border-primary/50 bg-primary/15 text-primary'
                 : 'border-white/50 bg-white/35 text-foreground backdrop-blur-md hover:border-primary/40 hover:bg-white/55 dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10',
             )}
           >
+            {selected ? <Check className="size-3 shrink-0" aria-hidden /> : null}
             {option.label}
           </button>
         );

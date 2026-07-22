@@ -54,6 +54,10 @@ export class LeadsController {
       priority?: string;
       followUp?: string;
       owner?: string;
+      followUpFrom?: string;
+      followUpTo?: string;
+      sourceKey?: string;
+      campaignId?: string;
     };
     return this.leads.list(
       user,
@@ -64,14 +68,67 @@ export class LeadsController {
       extra.priority,
       extra.followUp,
       extra.owner,
+      extra.followUpFrom?.trim() || null,
+      extra.followUpTo?.trim() || null,
+      extra.sourceKey?.trim() || undefined,
+      extra.campaignId?.trim() || undefined,
     );
   }
 
   @Get('board')
   @RequirePermissions('lead.read', 'lead.read.own')
-  board(@CurrentUser() user: AuthUser, @Query('pageSize') pageSize?: string) {
-    const size = Math.min(50, Math.max(5, Number(pageSize) || 10));
-    return this.leads.pipelineBoard(user, size);
+  board(@CurrentUser() user: AuthUser, @Query() query: unknown) {
+    const q = query as {
+      pageSize?: string;
+      stageKey?: string;
+      priority?: string;
+      followUp?: string;
+      owner?: string;
+      followUpFrom?: string;
+      followUpTo?: string;
+      sourceKey?: string;
+      campaignId?: string;
+      q?: string;
+    };
+    const size = Math.min(50, Math.max(5, Number(q.pageSize) || 10));
+    return this.leads.pipelineBoard(user, size, {
+      stageKey: q.stageKey?.trim() || undefined,
+      priority: q.priority?.trim() || undefined,
+      followUp: q.followUp?.trim() || undefined,
+      owner: q.owner?.trim() || undefined,
+      followUpFrom: q.followUpFrom?.trim() || null,
+      followUpTo: q.followUpTo?.trim() || null,
+      sourceKey: q.sourceKey?.trim() || undefined,
+      campaignId: q.campaignId?.trim() || undefined,
+      q: q.q?.trim() || undefined,
+    });
+  }
+
+  @Get('facets')
+  @RequirePermissions('lead.read', 'lead.read.own')
+  facets(@CurrentUser() user: AuthUser, @Query() query: unknown) {
+    const q = query as {
+      stageKey?: string;
+      priority?: string;
+      followUp?: string;
+      owner?: string;
+      followUpFrom?: string;
+      followUpTo?: string;
+      sourceKey?: string;
+      campaignId?: string;
+      q?: string;
+    };
+    return this.leads.facets(user, {
+      stageKey: q.stageKey?.trim() || undefined,
+      priority: q.priority?.trim() || undefined,
+      followUp: q.followUp?.trim() || undefined,
+      owner: q.owner?.trim() || undefined,
+      followUpFrom: q.followUpFrom?.trim() || null,
+      followUpTo: q.followUpTo?.trim() || null,
+      sourceKey: q.sourceKey?.trim() || undefined,
+      campaignId: q.campaignId?.trim() || undefined,
+      q: q.q?.trim() || undefined,
+    });
   }
 
   @Get('reports/summary')

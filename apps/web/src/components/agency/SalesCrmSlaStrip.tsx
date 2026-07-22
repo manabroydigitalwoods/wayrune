@@ -1,5 +1,4 @@
-import { AlertCircle, Inbox, MessageCircleWarning } from 'lucide-react';
-import { StatusBadge } from '@wayrune/ui';
+import { cn, Skeleton, StatusBadge } from '@wayrune/ui';
 import { useOrgNavigate } from '../../hooks/useOrgNavigate';
 import { useSalesCrmSla } from '../../hooks/useSalesCrmSla';
 import { AGENCY_ROUTES } from '../../lib/agencyRoutes';
@@ -9,15 +8,35 @@ import { inboxAgingFilterLabel } from '../../lib/inboxAgingLabel';
 export function SalesCrmSlaStrip({
   enabled = true,
   highlight,
+  className,
 }: {
   enabled?: boolean;
   /** Emphasize one metric on the current page. */
   highlight?: 'followUps' | 'inboxUnread' | 'inboxAging';
+  className?: string;
 }) {
   const { navigate } = useOrgNavigate();
   const { data, loading } = useSalesCrmSla(enabled);
 
-  if (!enabled || loading || !data) return null;
+  if (!enabled) return null;
+
+  if (loading) {
+    return (
+      <div
+        role="status"
+        aria-busy="true"
+        className={cn('flex flex-wrap items-center gap-1.5', className)}
+      >
+        <span className="sr-only">Loading</span>
+        <Skeleton className="h-3 w-16" />
+        <Skeleton className="h-6 w-24 rounded-md" />
+        <Skeleton className="h-6 w-20 rounded-md" />
+        <Skeleton className="h-6 w-28 rounded-md" />
+      </div>
+    );
+  }
+
+  if (!data) return null;
 
   const overdue = data.followUpsOverdue ?? 0;
   const unread = data.inboxUnreadThreads ?? 0;
@@ -28,29 +47,28 @@ export function SalesCrmSlaStrip({
   const agingLabel = inboxAgingFilterLabel(agingHours);
 
   return (
-    <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
-      <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-        Response SLA
+    <div className={cn('flex flex-wrap items-center gap-1', className)}>
+      <span className="mr-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        SLA
       </span>
       {overdue > 0 ? (
         <button
           type="button"
-          className="inline-flex items-center gap-1.5 rounded-md border border-border/50 bg-background/80 px-2 py-1 text-xs hover:bg-background"
+          className="inline-flex items-center rounded-md border border-destructive/30 bg-destructive/10 px-1.5 py-0.5 text-xs hover:bg-destructive/15"
           onClick={() => navigate(`${AGENCY_ROUTES.leads}?followUp=overdue`)}
         >
           <StatusBadge
             value="follow_up_overdue"
-            label={`${overdue} follow-up${overdue === 1 ? '' : 's'} overdue`}
+            label={`${overdue} overdue`}
             tone={highlight === 'followUps' ? 'danger' : 'warn'}
             showIcon
           />
-          <AlertCircle className="size-3.5 text-warning" aria-hidden />
         </button>
       ) : null}
       {unread > 0 ? (
         <button
           type="button"
-          className="inline-flex items-center gap-1.5 rounded-md border border-border/50 bg-background/80 px-2 py-1 text-xs hover:bg-background"
+          className="inline-flex items-center rounded-md border border-border/50 bg-background/70 px-1.5 py-0.5 text-xs hover:bg-background"
           onClick={() => navigate(`${AGENCY_ROUTES.inbox}?unread=1`)}
         >
           <StatusBadge
@@ -59,13 +77,12 @@ export function SalesCrmSlaStrip({
             tone={highlight === 'inboxUnread' ? 'warn' : 'info'}
             showIcon
           />
-          <Inbox className="size-3.5 text-muted-foreground" aria-hidden />
         </button>
       ) : null}
       {aging > 0 ? (
         <button
           type="button"
-          className="inline-flex items-center gap-1.5 rounded-md border border-border/50 bg-background/80 px-2 py-1 text-xs hover:bg-background"
+          className="inline-flex items-center rounded-md border border-border/50 bg-background/70 px-1.5 py-0.5 text-xs hover:bg-background"
           onClick={() => navigate(`${AGENCY_ROUTES.inbox}?unread=1&aging=1`)}
         >
           <StatusBadge
@@ -74,7 +91,6 @@ export function SalesCrmSlaStrip({
             tone={highlight === 'inboxAging' ? 'danger' : 'warn'}
             showIcon
           />
-          <MessageCircleWarning className="size-3.5 text-warning" aria-hidden />
         </button>
       ) : null}
     </div>

@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "react-day-picker/style.css";
+@import "./color-themes.css";
 
 @source "../../../../apps/web/src/**/*.{ts,tsx}";
 @source "../**/*.{ts,tsx}";
@@ -56,6 +57,45 @@
 
 /* CodePoetry teal — light */
 :root {
+  /* Compact ops density — chrome aligns with Table/FilterBar */
+  --pad-main: 0.75rem;
+  --pad-main-md: 1rem;
+  --pad-main-bottom: 1.75rem;
+  --pad-main-bottom-md: 2.25rem;
+  /* Fill list pages: small gap under table/board (detail pages use pad-main-bottom) */
+  --pad-list-bottom: 0.5rem;
+  /* Sidebar nav row — density-aware; keeps form --control-h independent */
+  --sidebar-nav-h: 2.25rem;
+  --sidebar-section-gap: 0.75rem;
+  --sidebar-item-gap: 0.125rem;
+  /* AppShell main top when no header-actions strip (mobile menu offset / desktop) */
+  --pad-main-top: 3.5rem;
+  --pad-main-top-md: 1.75rem;
+  /* Top nav bar bottom padding; page content gets a slight extra gap below */
+  --pad-topbar-bottom: 0.375rem;
+  --pad-after-topbar: calc(var(--pad-topbar-bottom) + 0.25rem);
+  --pad-card: 1rem;
+  --gap-page: 0.75rem;
+  --gap-section: 1rem;
+  --field-gap: 0.25rem;
+  --field-gap-compact: 0.25rem;
+  --control-h: 2.25rem;
+  --control-h-sm: 2rem;
+  --control-h-lg: 2.5rem;
+  --control-px: 0.75rem;
+  --control-px-sm: 0.625rem;
+  --control-text: 0.875rem;
+  --control-text-sm: 0.75rem;
+  --control-icon: 1rem;
+  --avatar-size: 2.25rem;
+  --table-row-h: 2.25rem;
+  --table-head-h: 2rem;
+  --sheet-pad: 1rem;
+  --dialog-pad-x: 1rem;
+  --dialog-pad-y: 0.75rem;
+  --menu-item-px: 0.625rem;
+  --menu-item-py: 0.5rem;
+  --font-scale: 1;
   --radius: 0.625rem;
   --background: 150 25% 96%;
   --foreground: 162 60% 11%;
@@ -95,6 +135,92 @@
   --danger-soft: 4 80% 94%;
   --info: 200 70% 40%;
   --info-soft: 200 60% 93%;
+}
+
+html[data-density='comfortable'] {
+  --pad-main: 1rem;
+  --pad-main-md: 1.25rem;
+  --pad-main-bottom: 2rem;
+  --pad-main-bottom-md: 2.5rem;
+  --pad-list-bottom: 0.625rem;
+  --sidebar-nav-h: 2.75rem;
+  --sidebar-section-gap: 1rem;
+  --sidebar-item-gap: 0.25rem;
+  --pad-main-top: 3.75rem;
+  --pad-main-top-md: 2rem;
+  --pad-topbar-bottom: 0.5rem;
+  --pad-after-topbar: calc(var(--pad-topbar-bottom) + 0.25rem);
+  --pad-card: 1.25rem;
+  --gap-page: 1rem;
+  --gap-section: 1.25rem;
+  --field-gap: 0.375rem;
+  --field-gap-compact: 0.3125rem;
+  --control-h: 2.5rem;
+  --control-h-sm: 2.25rem;
+  --control-h-lg: 2.75rem;
+  --control-px: 0.875rem;
+  --control-px-sm: 0.75rem;
+  --table-row-h: 2.5rem;
+  --table-head-h: 2.25rem;
+  --avatar-size: 2.5rem;
+  --sheet-pad: 1.25rem;
+  --dialog-pad-x: 1.25rem;
+  --dialog-pad-y: 0.875rem;
+  --menu-item-px: 0.75rem;
+  --menu-item-py: 0.625rem;
+}
+
+html[data-density='spacious'] {
+  --pad-main: 1.25rem;
+  --pad-main-md: 1.5rem;
+  --pad-main-bottom: 2.25rem;
+  --pad-main-bottom-md: 2.75rem;
+  --pad-list-bottom: 0.75rem;
+  --sidebar-nav-h: 3.25rem;
+  --sidebar-section-gap: 1.25rem;
+  --sidebar-item-gap: 0.375rem;
+  --pad-main-top: 4rem;
+  --pad-main-top-md: 2.25rem;
+  --pad-topbar-bottom: 0.625rem;
+  --pad-after-topbar: calc(var(--pad-topbar-bottom) + 0.25rem);
+  --pad-card: 1.5rem;
+  --gap-page: 1.25rem;
+  --gap-section: 1.5rem;
+  --field-gap: 0.5rem;
+  --field-gap-compact: 0.375rem;
+  --control-h: 2.75rem;
+  --control-h-sm: 2.5rem;
+  --control-h-lg: 3rem;
+  --control-px: 1rem;
+  --control-px-sm: 0.875rem;
+  --control-text: 1rem;
+  --control-text-sm: 0.875rem;
+  --control-icon: 1.125rem;
+  --table-row-h: 2.75rem;
+  --table-head-h: 2.5rem;
+  --avatar-size: 2.75rem;
+  --sheet-pad: 1.5rem;
+  --dialog-pad-x: 1.5rem;
+  --dialog-pad-y: 1rem;
+  --menu-item-px: 0.875rem;
+  --menu-item-py: 0.75rem;
+  --radius: 0.75rem;
+}
+
+html[data-font-scale='small'] {
+  --font-scale: 0.9375;
+}
+
+html[data-font-scale='default'] {
+  --font-scale: 1;
+}
+
+html[data-font-scale='large'] {
+  --font-scale: 1.125;
+}
+
+html[data-font-scale='xlarge'] {
+  --font-scale: 1.25;
 }
 
 /* CodePoetry teal — dark */
@@ -137,6 +263,12 @@
   --danger-soft: 4 40% 16%;
   --info: 200 60% 55%;
   --info-soft: 200 30% 16%;
+  --atmosphere-base: 162 30% 6.5%;
+  --atmosphere-a: 158 48% 28%;
+  --atmosphere-b: 198 38% 24%;
+  --atmosphere-c: 162 32% 18%;
+  --atmosphere-d: 160 20% 40%;
+  --atmosphere-e: 160 20% 40%;
 }
 
 /*
@@ -195,6 +327,7 @@
 
   html {
     @apply antialiased;
+    font-size: calc(16px * var(--font-scale));
   }
 
   /* Interactive affordance — Tailwind v4 / modern UA defaults often omit pointer on buttons. */
@@ -238,22 +371,24 @@
 
   body {
     @apply min-h-screen font-sans text-foreground;
-    /* Solid base kept light so translucent glass has color to sample */
-    background-color: hsl(150 28% 94%);
+    /* Soft atmospheric field for liquid-glass surfaces to sample */
+    background-color: hsl(var(--atmosphere-base));
     background-image:
-      radial-gradient(980px 640px at 12% -8%, hsl(152 55% 78% / 0.95) 0%, transparent 58%),
-      radial-gradient(820px 520px at 92% 4%, hsl(198 62% 82% / 0.85) 0%, transparent 52%),
-      radial-gradient(700px 480px at 70% 100%, hsl(168 45% 82% / 0.7) 0%, transparent 55%),
-      radial-gradient(560px 360px at 0% 70%, hsl(140 40% 86% / 0.65) 0%, transparent 50%);
+      radial-gradient(1100px 720px at 8% -12%, hsl(var(--atmosphere-a) / 0.95) 0%, transparent 56%),
+      radial-gradient(900px 580px at 96% 0%, hsl(var(--atmosphere-b) / 0.8) 0%, transparent 50%),
+      radial-gradient(760px 520px at 72% 108%, hsl(var(--atmosphere-c) / 0.72) 0%, transparent 54%),
+      radial-gradient(640px 420px at -4% 68%, hsl(var(--atmosphere-d) / 0.7) 0%, transparent 52%),
+      radial-gradient(520px 360px at 48% 42%, hsl(var(--atmosphere-e, 0 0% 100%) / 0.45) 0%, transparent 60%);
     background-attachment: fixed;
   }
 
   .dark body {
-    background-color: hsl(162 28% 7%);
+    background-color: hsl(var(--atmosphere-base));
     background-image:
-      radial-gradient(900px 560px at 0% 0%, hsl(158 45% 26% / 0.85) 0%, transparent 55%),
-      radial-gradient(800px 480px at 100% 0%, hsl(200 35% 22% / 0.65) 0%, transparent 48%),
-      radial-gradient(640px 420px at 45% 100%, hsl(162 30% 16% / 0.75) 0%, transparent 52%);
+      radial-gradient(980px 620px at -4% -6%, hsl(var(--atmosphere-a) / 0.9) 0%, transparent 54%),
+      radial-gradient(860px 540px at 104% 0%, hsl(var(--atmosphere-b) / 0.7) 0%, transparent 48%),
+      radial-gradient(700px 460px at 50% 108%, hsl(var(--atmosphere-c) / 0.8) 0%, transparent 52%),
+      radial-gradient(480px 320px at 40% 36%, hsl(var(--atmosphere-d) / 0.18) 0%, transparent 58%);
   }
 
   /* Compact scrollbars (WebKit / Chromium / Safari) — same on every page/panel */
@@ -282,14 +417,73 @@
   }
 
   /*
-   * Shell scrollports: reserve gutter so route / content swaps don't jump,
-   * without forcing a permanent empty scrollbar track (overflow-y: scroll).
+   * Shell scrollports: auto overflow without a permanent reserved gutter so
+   * main content left/right padding stay symmetric (--pad-main).
    */
   .app-main-scroll,
   .sidebar-nav-scroll {
     overflow-y: auto;
-    scrollbar-gutter: stable;
     overflow-anchor: none;
+  }
+
+  /*
+   * App shell: keep sidebar hover/repaints from invalidating main-canvas
+   * backdrop-filter layers (causes horizontal tear / “glitch” on glass cards).
+   * Sidebar sits beside content, so live blur is unnecessary chrome cost.
+   */
+  .app-shell-sidebar {
+    contain: paint;
+    transform: translateZ(0);
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    /* Opaque enough that hover washes don’t sample through to the page. */
+    background:
+      linear-gradient(
+        180deg,
+        hsl(var(--sidebar) / 0.97) 0%,
+        hsl(var(--sidebar) / 0.94) 100%
+      ),
+      var(--glass-fill-panel);
+  }
+
+  .app-shell-main {
+    isolation: isolate;
+    contain: layout paint;
+    transform: translateZ(0);
+  }
+
+  /*
+   * ListPageShell fill: reclaim most of AppShell’s bottom padding, but leave
+   * --pad-list-bottom so the table/board isn’t flush to the viewport edge.
+   */
+  .list-page-fill {
+    height: calc(
+      100% + var(--pad-main-bottom) + env(safe-area-inset-bottom, 0px) - var(--pad-list-bottom)
+    );
+    margin-bottom: calc(
+      -1 * (var(--pad-main-bottom) + env(safe-area-inset-bottom, 0px) - var(--pad-list-bottom))
+    );
+    min-height: 0;
+  }
+
+  @media (min-width: 768px) {
+    .list-page-fill {
+      height: calc(
+        100% + var(--pad-main-bottom-md) + env(safe-area-inset-bottom, 0px) - var(--pad-list-bottom)
+      );
+      margin-bottom: calc(
+        -1 * (var(--pad-main-bottom-md) + env(safe-area-inset-bottom, 0px) - var(--pad-list-bottom))
+      );
+    }
+  }
+
+  html[data-motion='reduce'] *,
+  html[data-motion='reduce'] *::before,
+  html[data-motion='reduce'] *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 
   h1,
@@ -301,6 +495,47 @@
 
   a {
     @apply text-inherit no-underline;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-motion='system'] *,
+  html[data-motion='system'] *::before,
+  html[data-motion='system'] *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@layer utilities {
+  .pad-panel {
+    padding: var(--pad-card);
+  }
+
+  .pad-panel-x {
+    padding-left: var(--pad-card);
+    padding-right: var(--pad-card);
+  }
+
+  .pad-panel-y {
+    padding-top: var(--pad-card);
+    padding-bottom: var(--pad-card);
+  }
+
+  .gap-page {
+    gap: var(--gap-page);
+  }
+
+  .gap-section {
+    gap: var(--gap-section);
+  }
+
+  .stack-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap-section);
   }
 }
 
@@ -319,153 +554,371 @@
 }
 
 /*
-  Frosted glass — unlayered so it isn't muted by Tailwind utility layers.
-  Requires a visible atmosphere behind the surface (transparent app shell).
+  Liquid-glass surfaces (inspired by modern OS translucent materials).
+  Unlayered so Tailwind utility layers do not mute backdrop-filter.
+  Specular rim + light-catch gradients approximate refraction without shaders.
 */
-.glass {
-  background-color: rgb(255 255 255 / 0.42);
-  border-color: rgb(255 255 255 / 0.55);
-  -webkit-backdrop-filter: blur(22px) saturate(1.6);
-  backdrop-filter: blur(22px) saturate(1.6);
-  box-shadow:
-    0 1px 2px rgb(15 50 35 / 0.04),
-    0 10px 28px rgb(15 50 35 / 0.06),
-    inset 0 1px 0 rgb(255 255 255 / 0.65);
+:root {
+  --glass-blur: 22px;
+  --glass-blur-panel: 28px;
+  --glass-blur-strong: 34px;
+  --glass-blur-row: 14px;
+  --glass-blur-well: 16px;
+  --glass-saturate: 1.9;
+  --glass-fill: linear-gradient(
+    155deg,
+    rgb(255 255 255 / 0.62) 0%,
+    rgb(255 255 255 / 0.22) 45%,
+    rgb(255 255 255 / 0.34) 100%
+  );
+  --glass-fill-panel: linear-gradient(
+    158deg,
+    rgb(255 255 255 / 0.68) 0%,
+    rgb(255 255 255 / 0.26) 48%,
+    rgb(255 255 255 / 0.4) 100%
+  );
+  --glass-fill-strong: linear-gradient(
+    152deg,
+    rgb(255 255 255 / 0.72) 0%,
+    rgb(255 255 255 / 0.32) 46%,
+    rgb(240 252 248 / 0.48) 100%
+  );
+  --glass-fill-row: linear-gradient(
+    180deg,
+    rgb(255 255 255 / 0.48) 0%,
+    rgb(255 255 255 / 0.16) 100%
+  );
+  --glass-fill-well: linear-gradient(
+    180deg,
+    rgb(255 255 255 / 0.4) 0%,
+    rgb(255 255 255 / 0.14) 100%
+  );
+  --glass-rim: rgb(255 255 255 / 0.7);
+  --glass-rim-soft: rgb(255 255 255 / 0.35);
+  --glass-edge: rgb(15 50 35 / 0.06);
+  --glass-ambient: 0 10px 32px rgb(15 50 35 / 0.07);
+  --glass-ambient-strong: 0 18px 48px rgb(15 50 35 / 0.11);
 }
 
-.dark .glass {
-  background-color: rgb(32 52 44 / 0.78);
-  border-color: rgb(255 255 255 / 0.16);
+.dark {
+  --glass-saturate: 1.75;
+  --glass-fill: linear-gradient(
+    155deg,
+    rgb(255 255 255 / 0.14) 0%,
+    rgb(28 48 40 / 0.62) 48%,
+    rgb(22 40 34 / 0.78) 100%
+  );
+  --glass-fill-panel: linear-gradient(
+    158deg,
+    rgb(255 255 255 / 0.12) 0%,
+    rgb(26 46 38 / 0.72) 50%,
+    rgb(20 38 32 / 0.86) 100%
+  );
+  --glass-fill-strong: linear-gradient(
+    152deg,
+    rgb(255 255 255 / 0.16) 0%,
+    rgb(24 42 36 / 0.8) 48%,
+    rgb(18 34 28 / 0.92) 100%
+  );
+  --glass-fill-row: linear-gradient(
+    180deg,
+    rgb(255 255 255 / 0.12) 0%,
+    rgb(255 255 255 / 0.04) 100%
+  );
+  --glass-fill-well: linear-gradient(
+    180deg,
+    rgb(255 255 255 / 0.1) 0%,
+    rgb(255 255 255 / 0.035) 100%
+  );
+  --glass-rim: rgb(255 255 255 / 0.22);
+  --glass-rim-soft: rgb(255 255 255 / 0.1);
+  --glass-edge: rgb(0 0 0 / 0.35);
+  --glass-ambient: 0 14px 36px rgb(0 0 0 / 0.38);
+  --glass-ambient-strong: 0 22px 52px rgb(0 0 0 / 0.48);
+}
+
+.glass,
+.glass-panel,
+.glass-strong,
+.glass-row,
+.glass-well {
+  isolation: isolate;
+  border-color: var(--glass-rim);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   box-shadow:
-    0 1px 2px rgb(0 0 0 / 0.35),
-    0 12px 32px rgb(0 0 0 / 0.28),
-    inset 0 1px 0 rgb(255 255 255 / 0.1);
+    0 0 0 0.5px var(--glass-rim-soft),
+    var(--glass-ambient),
+    inset 0 1px 0 rgb(255 255 255 / 0.72),
+    inset 0 -0.5px 0 var(--glass-edge),
+    inset 1px 0 0 rgb(255 255 255 / 0.18),
+    inset -1px 0 0 rgb(255 255 255 / 0.08);
+}
+
+.glass {
+  background: var(--glass-fill);
 }
 
 .glass-panel {
-  background-color: rgb(255 255 255 / 0.5);
-  border-color: rgb(255 255 255 / 0.6);
-  -webkit-backdrop-filter: blur(28px) saturate(1.65);
-  backdrop-filter: blur(28px) saturate(1.65);
-  box-shadow:
-    0 1px 2px rgb(15 50 35 / 0.05),
-    inset 0 1px 0 rgb(255 255 255 / 0.7);
-}
-
-.dark .glass-panel {
-  background-color: rgb(30 50 42 / 0.82);
-  border-color: rgb(255 255 255 / 0.16);
-  box-shadow:
-    0 1px 2px rgb(0 0 0 / 0.4),
-    inset 0 1px 0 rgb(255 255 255 / 0.1);
+  background: var(--glass-fill-panel);
+  -webkit-backdrop-filter: blur(var(--glass-blur-panel)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur-panel)) saturate(var(--glass-saturate));
 }
 
 .glass-strong {
-  background-color: rgb(255 255 255 / 0.62);
-  border-color: rgb(255 255 255 / 0.7);
-  -webkit-backdrop-filter: blur(30px) saturate(1.7);
-  backdrop-filter: blur(30px) saturate(1.7);
+  background: var(--glass-fill-strong);
+  -webkit-backdrop-filter: blur(var(--glass-blur-strong)) saturate(calc(var(--glass-saturate) + 0.05));
+  backdrop-filter: blur(var(--glass-blur-strong)) saturate(calc(var(--glass-saturate) + 0.05));
   box-shadow:
-    0 12px 40px rgb(15 50 35 / 0.1),
-    inset 0 1px 0 rgb(255 255 255 / 0.75);
-}
-
-.dark .glass-strong {
-  background-color: rgb(28 46 40 / 0.9);
-  border-color: rgb(255 255 255 / 0.18);
-  box-shadow:
-    0 14px 44px rgb(0 0 0 / 0.45),
-    inset 0 1px 0 rgb(255 255 255 / 0.12);
+    0 0 0 0.5px var(--glass-rim-soft),
+    var(--glass-ambient-strong),
+    inset 0 1.5px 0 rgb(255 255 255 / 0.82),
+    inset 0 -0.5px 0 var(--glass-edge),
+    inset 1px 0 0 rgb(255 255 255 / 0.22),
+    inset -1px 0 0 rgb(255 255 255 / 0.1);
 }
 
 .glass-row {
-  background-color: rgb(255 255 255 / 0.28);
-  border-color: rgb(255 255 255 / 0.45);
-  -webkit-backdrop-filter: blur(12px) saturate(1.35);
-  backdrop-filter: blur(12px) saturate(1.35);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.4);
-}
-
-.dark .glass-row {
-  background-color: rgb(255 255 255 / 0.09);
-  border-color: rgb(255 255 255 / 0.16);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08);
+  background: var(--glass-fill-row);
+  -webkit-backdrop-filter: blur(var(--glass-blur-row)) saturate(calc(var(--glass-saturate) - 0.15));
+  backdrop-filter: blur(var(--glass-blur-row)) saturate(calc(var(--glass-saturate) - 0.15));
+  box-shadow:
+    0 0 0 0.5px var(--glass-rim-soft),
+    inset 0 1px 0 rgb(255 255 255 / 0.55),
+    inset 0 -0.5px 0 var(--glass-edge);
 }
 
 .glass-well {
-  background-color: rgb(255 255 255 / 0.22);
-  border-color: rgb(255 255 255 / 0.4);
-  -webkit-backdrop-filter: blur(14px) saturate(1.4);
-  backdrop-filter: blur(14px) saturate(1.4);
-}
-
-.dark .glass-well {
-  background-color: rgb(255 255 255 / 0.07);
-  border-color: rgb(255 255 255 / 0.14);
-}
-
-/* Prefer light glass inside nested `.light` islands (overrides `.dark .glass`) */
-.light .glass,
-.light.glass {
-  background:
-    linear-gradient(165deg, rgb(255 255 255 / 0.55) 0%, rgb(255 255 255 / 0.28) 100%);
-  border-color: rgb(255 255 255 / 0.7);
-  -webkit-backdrop-filter: blur(18px) saturate(1.75);
-  backdrop-filter: blur(18px) saturate(1.75);
+  background: var(--glass-fill-well);
+  -webkit-backdrop-filter: blur(var(--glass-blur-well)) saturate(calc(var(--glass-saturate) - 0.1));
+  backdrop-filter: blur(var(--glass-blur-well)) saturate(calc(var(--glass-saturate) - 0.1));
   box-shadow:
-    0 1px 2px rgb(15 50 35 / 0.04),
-    0 8px 24px rgb(15 50 35 / 0.06),
-    inset 0 1px 0 rgb(255 255 255 / 0.85),
-    inset 0 -1px 0 rgb(15 50 35 / 0.04);
+    0 0 0 0.5px var(--glass-rim-soft),
+    inset 0 1px 0 rgb(255 255 255 / 0.45);
+}
+
+.dark .glass,
+.dark .glass-panel,
+.dark .glass-strong,
+.dark .glass-row,
+.dark .glass-well {
+  box-shadow:
+    0 0 0 0.5px var(--glass-rim-soft),
+    var(--glass-ambient),
+    inset 0 1px 0 rgb(255 255 255 / 0.14),
+    inset 0 -0.5px 0 rgb(0 0 0 / 0.45),
+    inset 1px 0 0 rgb(255 255 255 / 0.06),
+    inset -1px 0 0 rgb(0 0 0 / 0.2);
+}
+
+.dark .glass-strong {
+  box-shadow:
+    0 0 0 0.5px var(--glass-rim-soft),
+    var(--glass-ambient-strong),
+    inset 0 1.5px 0 rgb(255 255 255 / 0.18),
+    inset 0 -0.5px 0 rgb(0 0 0 / 0.5),
+    inset 1px 0 0 rgb(255 255 255 / 0.08),
+    inset -1px 0 0 rgb(0 0 0 / 0.25);
+}
+
+/* Nested light islands keep luminous glass even when the shell is dark */
+.light .glass,
+.light.glass,
+.light .glass-panel,
+.light.glass-panel,
+.light .glass-strong,
+.light.glass-strong,
+.light .glass-row,
+.light.glass-row,
+.light .glass-well,
+.light.glass-well {
+  --glass-saturate: 1.95;
+  --glass-fill: linear-gradient(
+    155deg,
+    rgb(255 255 255 / 0.66) 0%,
+    rgb(255 255 255 / 0.24) 45%,
+    rgb(255 255 255 / 0.38) 100%
+  );
+  --glass-fill-panel: linear-gradient(
+    158deg,
+    rgb(255 255 255 / 0.72) 0%,
+    rgb(255 255 255 / 0.28) 48%,
+    rgb(255 255 255 / 0.44) 100%
+  );
+  --glass-fill-strong: linear-gradient(
+    152deg,
+    rgb(255 255 255 / 0.78) 0%,
+    rgb(255 255 255 / 0.34) 46%,
+    rgb(240 252 248 / 0.5) 100%
+  );
+  --glass-fill-row: linear-gradient(
+    180deg,
+    rgb(255 255 255 / 0.52) 0%,
+    rgb(255 255 255 / 0.18) 100%
+  );
+  --glass-fill-well: linear-gradient(
+    180deg,
+    rgb(255 255 255 / 0.42) 0%,
+    rgb(255 255 255 / 0.16) 100%
+  );
+  --glass-rim: rgb(255 255 255 / 0.78);
+  --glass-rim-soft: rgb(255 255 255 / 0.42);
+  --glass-edge: rgb(15 50 35 / 0.05);
+  --glass-ambient: 0 10px 28px rgb(15 50 35 / 0.06);
+  --glass-ambient-strong: 0 20px 52px rgb(15 50 35 / 0.1);
+  background: var(--glass-fill);
+  border-color: var(--glass-rim);
+  box-shadow:
+    0 0 0 0.5px var(--glass-rim-soft),
+    var(--glass-ambient),
+    inset 0 1px 0 rgb(255 255 255 / 0.9),
+    inset 0 -0.5px 0 var(--glass-edge),
+    inset 1px 0 0 rgb(255 255 255 / 0.28),
+    inset -1px 0 0 rgb(255 255 255 / 0.12);
 }
 
 .light .glass-panel,
 .light.glass-panel {
-  background:
-    linear-gradient(165deg, rgb(255 255 255 / 0.6) 0%, rgb(255 255 255 / 0.32) 100%);
-  border-color: rgb(255 255 255 / 0.75);
-  -webkit-backdrop-filter: blur(24px) saturate(1.8);
-  backdrop-filter: blur(24px) saturate(1.8);
-  box-shadow:
-    0 1px 2px rgb(15 50 35 / 0.05),
-    0 10px 28px rgb(15 50 35 / 0.06),
-    inset 0 1px 0 rgb(255 255 255 / 0.9),
-    inset 0 -1px 0 rgb(15 50 35 / 0.04);
+  background: var(--glass-fill-panel);
 }
 
 .light .glass-strong,
 .light.glass-strong {
-  background:
-    linear-gradient(155deg, rgb(255 255 255 / 0.58) 0%, rgb(255 255 255 / 0.34) 48%, rgb(240 252 248 / 0.42) 100%);
-  border-color: rgb(255 255 255 / 0.82);
-  -webkit-backdrop-filter: blur(36px) saturate(1.85);
-  backdrop-filter: blur(36px) saturate(1.85);
+  background: var(--glass-fill-strong);
   box-shadow:
-    0 4px 6px rgb(15 50 35 / 0.04),
-    0 22px 56px rgb(15 50 35 / 0.12),
-    inset 0 1px 0 rgb(255 255 255 / 0.95),
-    inset 0 -1px 0 rgb(15 50 35 / 0.05);
+    0 0 0 0.5px var(--glass-rim-soft),
+    var(--glass-ambient-strong),
+    inset 0 1.5px 0 rgb(255 255 255 / 0.95),
+    inset 0 -0.5px 0 var(--glass-edge),
+    inset 1px 0 0 rgb(255 255 255 / 0.32),
+    inset -1px 0 0 rgb(255 255 255 / 0.14);
 }
 
 .light .glass-row,
 .light.glass-row {
-  background:
-    linear-gradient(180deg, rgb(255 255 255 / 0.5) 0%, rgb(255 255 255 / 0.22) 100%);
-  border-color: rgb(255 255 255 / 0.65);
-  -webkit-backdrop-filter: blur(14px) saturate(1.55);
-  backdrop-filter: blur(14px) saturate(1.55);
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.75),
-    0 1px 2px rgb(15 50 35 / 0.03);
+  background: var(--glass-fill-row);
 }
 
 .light .glass-well,
 .light.glass-well {
-  background:
-    linear-gradient(180deg, rgb(255 255 255 / 0.38) 0%, rgb(255 255 255 / 0.16) 100%);
-  border-color: rgb(255 255 255 / 0.55);
-  -webkit-backdrop-filter: blur(16px) saturate(1.5);
-  backdrop-filter: blur(16px) saturate(1.5);
+  background: var(--glass-fill-well);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --glass-blur: 10px;
+    --glass-blur-panel: 12px;
+    --glass-blur-strong: 14px;
+    --glass-blur-row: 8px;
+    --glass-blur-well: 8px;
+    --glass-saturate: 1.25;
+    --glass-fill: linear-gradient(180deg, rgb(255 255 255 / 0.88) 0%, rgb(255 255 255 / 0.82) 100%);
+    --glass-fill-panel: linear-gradient(180deg, rgb(255 255 255 / 0.9) 0%, rgb(255 255 255 / 0.86) 100%);
+    --glass-fill-strong: linear-gradient(180deg, rgb(255 255 255 / 0.94) 0%, rgb(255 255 255 / 0.9) 100%);
+    --glass-fill-row: linear-gradient(180deg, rgb(255 255 255 / 0.78) 0%, rgb(255 255 255 / 0.72) 100%);
+    --glass-fill-well: linear-gradient(180deg, rgb(255 255 255 / 0.74) 0%, rgb(255 255 255 / 0.68) 100%);
+  }
+
+  .dark {
+    --glass-fill: linear-gradient(180deg, rgb(34 52 44 / 0.94) 0%, rgb(28 44 38 / 0.96) 100%);
+    --glass-fill-panel: linear-gradient(180deg, rgb(32 50 42 / 0.95) 0%, rgb(26 42 36 / 0.97) 100%);
+    --glass-fill-strong: linear-gradient(180deg, rgb(30 48 40 / 0.97) 0%, rgb(24 40 34 / 0.98) 100%);
+    --glass-fill-row: linear-gradient(180deg, rgb(255 255 255 / 0.12) 0%, rgb(255 255 255 / 0.08) 100%);
+    --glass-fill-well: linear-gradient(180deg, rgb(255 255 255 / 0.1) 0%, rgb(255 255 255 / 0.06) 100%);
+  }
+}
+
+/* Solid surfaces — no blur (performance / calmer UI). */
+html[data-glass='solid'] .glass,
+html[data-glass='solid'] .glass-panel,
+html[data-glass='solid'] .glass-strong,
+html[data-glass='solid'] .glass-row,
+html[data-glass='solid'] .glass-well,
+html[data-glass='solid'] .light .glass,
+html[data-glass='solid'] .light.glass,
+html[data-glass='solid'] .light .glass-panel,
+html[data-glass='solid'] .light.glass-panel,
+html[data-glass='solid'] .light .glass-strong,
+html[data-glass='solid'] .light.glass-strong,
+html[data-glass='solid'] .light .glass-row,
+html[data-glass='solid'] .light.glass-row,
+html[data-glass='solid'] .light .glass-well,
+html[data-glass='solid'] .light.glass-well {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+html[data-glass='solid'] .glass,
+html[data-glass='solid'] .light .glass,
+html[data-glass='solid'] .light.glass {
+  background: hsl(var(--card));
+  border-color: hsl(var(--border) / 0.7);
+  box-shadow: 0 1px 2px rgb(15 50 35 / 0.04);
+}
+
+html[data-glass='solid'] .glass-panel,
+html[data-glass='solid'] .light .glass-panel,
+html[data-glass='solid'] .light.glass-panel {
+  background: hsl(var(--card));
+  border-color: hsl(var(--border) / 0.7);
+  box-shadow: 0 1px 2px rgb(15 50 35 / 0.05);
+}
+
+html[data-glass='solid'] .glass-strong,
+html[data-glass='solid'] .light .glass-strong,
+html[data-glass='solid'] .light.glass-strong {
+  background: hsl(var(--card));
+  border-color: hsl(var(--border) / 0.8);
+  box-shadow: 0 4px 16px rgb(15 50 35 / 0.06);
+}
+
+html[data-glass='solid'] .glass-row,
+html[data-glass='solid'] .light .glass-row,
+html[data-glass='solid'] .light.glass-row {
+  background: hsl(var(--muted) / 0.45);
+  border-color: hsl(var(--border) / 0.6);
+  box-shadow: none;
+}
+
+html[data-glass='solid'] .glass-well,
+html[data-glass='solid'] .light .glass-well,
+html[data-glass='solid'] .light.glass-well {
+  background: hsl(var(--muted) / 0.35);
+  border-color: hsl(var(--border) / 0.55);
+  box-shadow: none;
+}
+
+html[data-glass='solid'].dark .glass,
+html[data-glass='solid'] .dark .glass {
+  background: hsl(var(--card));
+  border-color: hsl(var(--border) / 0.8);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
+}
+
+html[data-glass='solid'].dark .glass-panel,
+html[data-glass='solid'] .dark .glass-panel {
+  background: hsl(var(--card));
+  border-color: hsl(var(--border) / 0.8);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.3);
+}
+
+html[data-glass='solid'].dark .glass-strong,
+html[data-glass='solid'] .dark .glass-strong {
+  background: hsl(var(--card));
+  border-color: hsl(var(--border) / 0.85);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
+}
+
+html[data-glass='solid'].dark .glass-row,
+html[data-glass='solid'] .dark .glass-row {
+  background: hsl(var(--muted) / 0.35);
+  border-color: hsl(var(--border) / 0.7);
+}
+
+html[data-glass='solid'].dark .glass-well,
+html[data-glass='solid'] .dark .glass-well {
+  background: hsl(var(--muted) / 0.28);
+  border-color: hsl(var(--border) / 0.65);
 }
 
 /* Soft aurora behind client proposal glass */
@@ -498,6 +951,23 @@
 
 .dark .overlay-scrim {
   background-color: rgb(0 0 0 / 0.55);
+}
+
+/* Solid glass — no frosted overlays / Tailwind blur utilities / toasts */
+html[data-glass='solid'] .overlay-scrim,
+html[data-glass='solid'] .appearance-transition-veil,
+html[data-glass='solid'] [class*='backdrop-blur'] {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+html[data-glass='solid'] .overlay-scrim {
+  background-color: rgb(12 28 22 / 0.55);
+}
+
+html[data-glass='solid'].dark .overlay-scrim,
+html[data-glass='solid'] .dark .overlay-scrim {
+  background-color: rgb(0 0 0 / 0.72);
 }
 
 /* ── Overlay motion (Radix data-state; CSS animations so exit can finish) ── */
@@ -712,12 +1182,101 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .overlay-animate,
-  .dialog-content-animate,
-  .sheet-content-animate,
-  .popup-content-animate,
-  .tooltip-content-animate {
+  html[data-motion='system'] .overlay-animate,
+  html[data-motion='system'] .dialog-content-animate,
+  html[data-motion='system'] .sheet-content-animate,
+  html[data-motion='system'] .popup-content-animate,
+  html[data-motion='system'] .tooltip-content-animate {
     animation-duration: 1ms !important;
   }
+
+  html[data-motion='system'] .skeleton-shimmer .animate-pulse {
+    animation: none;
+    opacity: 0.7;
+  }
+}
+
+html[data-motion='reduce'] .overlay-animate,
+html[data-motion='reduce'] .dialog-content-animate,
+html[data-motion='reduce'] .sheet-content-animate,
+html[data-motion='reduce'] .popup-content-animate,
+html[data-motion='reduce'] .tooltip-content-animate {
+  animation-duration: 1ms !important;
+}
+
+html[data-motion='reduce'] .skeleton-shimmer .animate-pulse {
+  animation: none;
+  opacity: 0.7;
+}
+
+/* Soft shimmer layer for page skeleton templates */
+.skeleton-shimmer {
+  position: relative;
+}
+
+.skeleton-shimmer::after {
+  content: '';
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 40%,
+    hsl(var(--foreground) / 0.04) 50%,
+    transparent 60%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer-move 1.6s ease-in-out infinite;
+  border-radius: inherit;
+}
+
+@keyframes skeleton-shimmer-move {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-motion='system'] .skeleton-shimmer::after {
+    animation: none;
+    display: none;
+  }
+}
+
+html[data-motion='reduce'] .skeleton-shimmer::after {
+  animation: none;
+  display: none;
+}
+
+@keyframes boot-mark-pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: scale(0.94);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-boot-mark {
+  animation: boot-mark-pulse 1.15s ease-in-out infinite;
+  transform-origin: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-motion='system'] .animate-boot-mark {
+    animation: none;
+    opacity: 0.85;
+  }
+}
+
+html[data-motion='reduce'] .animate-boot-mark {
+  animation: none;
+  opacity: 0.85;
 }
 

@@ -120,10 +120,19 @@ import {
 import { buildTransferVoucherPdf } from './transfer-voucher-pdf';
 import { buildActivityVoucherPdf } from './activity-voucher-pdf';
 import { buildTripControlSummary } from './trip-control';
+import { salesPlaceSecondaryLabel } from '@wayrune/contracts';
+import {
+  dualWriteCoverageNames,
+  isAllowedCoveragePlaceKind,
+  normalizeServedPlaceIds,
+  servedPlaceIdsFromRows,
+  SUPPLIER_PHYSICAL_PLACE_TYPES,
+  SUPPLIER_SERVED_PLACES_MAX,
+} from './supplier-served-places';
 import { mapSupplierListRow, supplierListInclude } from './supplier-list';
 import {
   buildMovementBoard,
-  movementWindow,
+  resolveMovementWindow,
   type MovementBoardBooking,
   type MovementBoardTripFinance,
 } from './movement-board';
@@ -444,19 +453,54 @@ export class OperationsService {
       ?.split(',')
       .map((t) => t.trim())
       .filter(Boolean);
+    const placeId = opts?.placeId?.trim() || undefined;
+    const typeFilter =
+      types?.length === 1
+        ? { type: types[0] }
+        : types?.length
+          ? { type: { in: types } }
+          : {};
+
+    // Exact Place ID only — no parent/child hierarchy expansion.
+    // Stay/restaurant: base placeId only. Coverage-aware types: placeId OR servedPlaces.
+    const placeWhere: Prisma.SupplierWhereInput | undefined = (() => {
+      if (!placeId) return undefined;
+      const onlyPhysical =
+        Boolean(types?.length) &&
+        types!.every((t) => SUPPLIER_PHYSICAL_PLACE_TYPES.has(t));
+      if (onlyPhysical) return { placeId };
+      return {
+        OR: [
+          { placeId },
+          {
+            servedCoverageConfigured: true,
+            servedPlaces: { some: { placeId } },
+            type: { notIn: [...SUPPLIER_PHYSICAL_PLACE_TYPES] },
+          },
+        ],
+      };
+    })();
+
     const rows = await this.prisma.supplier.findMany({
       where: {
         organizationId,
         deletedAt: null,
-        ...(types?.length === 1
-          ? { type: types[0] }
-          : types?.length
-            ? { type: { in: types } }
-            : {}),
-        ...(opts?.placeId ? { placeId: opts.placeId } : {}),
-        ...(q
+        ...typeFilter,
+        ...(placeWhere || q
           ? {
-              OR: [{ name: { contains: q } }, { email: { contains: q } }],
+              AND: [
+                ...(placeWhere ? [placeWhere] : []),
+                ...(q
+                  ? [
+                      {
+                        OR: [
+                          { name: { contains: q } },
+                          { email: { contains: q } },
+                        ],
+                      },
+                    ]
+                  : []),
+              ],
             }
           : {}),
       },
@@ -464,7 +508,9 @@ export class OperationsService {
       orderBy: { name: 'asc' },
       take: 50,
     });
-    return rows.map(mapSupplierListRow);
+    return rows.map((row) =>
+      mapSupplierListRow(this.attachServedPlaces(row)),
+    );
   }
 
   async getSupplier(organizationId: string, supplierId: string) {
@@ -481,11 +527,26 @@ export class OperationsService {
         linkedAsset: {
           select: { id: true, name: true, assetKind: true },
         },
-        place: { select: { id: true, name: true, kind: true, key: true } },
+        place: { select: { id: true, name: true, kind: true, key: true, country: true, region: true, parent: { select: { id: true, name: true, kind: true } } } },
+        servedPlaces: {
+          orderBy: { createdAt: 'asc' },
+          include: {
+            place: {
+              select: {
+                id: true,
+                name: true,
+                kind: true,
+                country: true,
+                region: true,
+                parent: { select: { id: true, name: true, kind: true } },
+              },
+            },
+          },
+        },
       },
     });
     if (!supplier) throw new NotFoundException('Supplier not found');
-    return supplier;
+    return this.attachServedPlaces(supplier);
   }
 
   async importSuppliersCsv(
@@ -583,24 +644,13 @@ export class OperationsService {
       phone?: string | null;
       notes?: string | null;
       placeId?: string | null;
+      servedPlaceIds?: string[];
       linkedAssetId?: string | null;
       profileJson?: Record<string, unknown>;
     },
   ) {
     if (input.placeId) {
-      const place = await this.prisma.place.findFirst({
-        where: {
-          id: input.placeId,
-          deletedAt: null,
-          isActive: true,
-          OR: [
-            { isSystem: true, organizationId: null },
-            { organizationId: user.organizationId },
-          ],
-        },
-        select: { id: true },
-      });
-      if (!place) throw new NotFoundException('Place not found');
+      await this.assertVisiblePlace(user.organizationId, input.placeId);
     }
     if (input.linkedAssetId) {
       const asset = await this.prisma.partnerAsset.findFirst({
@@ -612,6 +662,23 @@ export class OperationsService {
       });
       if (!asset) throw new NotFoundException('Partner asset not found');
     }
+
+    const coverage =
+      input.servedPlaceIds !== undefined
+        ? await this.resolveCoveragePlaces(user.organizationId, input.servedPlaceIds)
+        : null;
+
+    let profileJson = input.profileJson
+      ? ({ ...input.profileJson } as Record<string, unknown>)
+      : undefined;
+    if (coverage) {
+      profileJson = dualWriteCoverageNames(
+        profileJson,
+        input.type || 'other',
+        coverage.map((p) => p.name),
+      );
+    }
+
     const supplier = await this.prisma.supplier.create({
       data: {
         organizationId: user.organizationId,
@@ -622,9 +689,35 @@ export class OperationsService {
         notes: input.notes || null,
         placeId: input.placeId || null,
         linkedAssetId: input.linkedAssetId || null,
-        profileJson: input.profileJson
-          ? (input.profileJson as Prisma.InputJsonValue)
+        servedCoverageConfigured: coverage !== null,
+        profileJson: profileJson
+          ? (profileJson as Prisma.InputJsonValue)
           : undefined,
+        ...(coverage
+          ? {
+              servedPlaces: {
+                create: coverage.map((p) => ({ placeId: p.id })),
+              },
+            }
+          : {}),
+      },
+      include: {
+        place: { select: { id: true, name: true, kind: true, key: true } },
+        servedPlaces: {
+          orderBy: { createdAt: 'asc' },
+          include: {
+            place: {
+              select: {
+                id: true,
+                name: true,
+                kind: true,
+                country: true,
+                region: true,
+                parent: { select: { id: true, name: true, kind: true } },
+              },
+            },
+          },
+        },
       },
     });
     await this.audit.record({
@@ -634,7 +727,7 @@ export class OperationsService {
       entityType: 'supplier',
       entityId: supplier.id,
     });
-    return supplier;
+    return this.attachServedPlaces(supplier);
   }
 
   async updateSupplier(
@@ -647,6 +740,7 @@ export class OperationsService {
       phone?: string | null;
       notes?: string | null;
       placeId?: string | null;
+      servedPlaceIds?: string[];
       linkedAssetId?: string | null;
       profileJson?: Record<string, unknown>;
     },
@@ -661,19 +755,7 @@ export class OperationsService {
     if (!existing) throw new NotFoundException('Supplier not found');
 
     if (input.placeId) {
-      const place = await this.prisma.place.findFirst({
-        where: {
-          id: input.placeId,
-          deletedAt: null,
-          isActive: true,
-          OR: [
-            { isSystem: true, organizationId: null },
-            { organizationId: user.organizationId },
-          ],
-        },
-        select: { id: true },
-      });
-      if (!place) throw new NotFoundException('Place not found');
+      await this.assertVisiblePlace(user.organizationId, input.placeId);
     }
     if (input.linkedAssetId) {
       const asset = await this.prisma.partnerAsset.findFirst({
@@ -681,6 +763,36 @@ export class OperationsService {
         select: { id: true },
       });
       if (!asset) throw new NotFoundException('Partner asset not found');
+    }
+
+    const coverage =
+      input.servedPlaceIds !== undefined
+        ? await this.resolveCoveragePlaces(user.organizationId, input.servedPlaceIds)
+        : null;
+
+    const nextType = input.type !== undefined ? input.type : existing.type;
+    let profileJson: Record<string, unknown> | undefined =
+      input.profileJson !== undefined ? { ...input.profileJson } : undefined;
+    if (coverage) {
+      const baseProfile =
+        profileJson ??
+        ((existing.profileJson as Record<string, unknown> | null) ?? {});
+      profileJson = dualWriteCoverageNames(
+        baseProfile,
+        nextType,
+        coverage.map((p) => p.name),
+      );
+    }
+
+    if (coverage) {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.supplierServedPlace.deleteMany({ where: { supplierId } });
+        if (coverage.length) {
+          await tx.supplierServedPlace.createMany({
+            data: coverage.map((p) => ({ supplierId, placeId: p.id })),
+          });
+        }
+      });
     }
 
     const supplier = await this.prisma.supplier.update({
@@ -697,14 +809,30 @@ export class OperationsService {
         ...(input.linkedAssetId !== undefined
           ? { linkedAssetId: input.linkedAssetId || null }
           : {}),
-        ...(input.profileJson !== undefined
-          ? { profileJson: input.profileJson as Prisma.InputJsonValue }
+        ...(coverage ? { servedCoverageConfigured: true } : {}),
+        ...(profileJson !== undefined
+          ? { profileJson: profileJson as Prisma.InputJsonValue }
           : {}),
       },
       include: {
         linkedOrganization: { select: { id: true, name: true, kind: true } },
         linkedAsset: { select: { id: true, name: true, assetKind: true } },
         place: { select: { id: true, name: true, kind: true, key: true } },
+        servedPlaces: {
+          orderBy: { createdAt: 'asc' },
+          include: {
+            place: {
+              select: {
+                id: true,
+                name: true,
+                kind: true,
+                country: true,
+                region: true,
+                parent: { select: { id: true, name: true, kind: true } },
+              },
+            },
+          },
+        },
       },
     });
     await this.audit.record({
@@ -714,7 +842,118 @@ export class OperationsService {
       entityType: 'supplier',
       entityId: supplier.id,
     });
-    return supplier;
+    return this.attachServedPlaces(supplier);
+  }
+
+  private async assertVisiblePlace(organizationId: string, placeId: string) {
+    const place = await this.prisma.place.findFirst({
+      where: {
+        id: placeId,
+        deletedAt: null,
+        isActive: true,
+        OR: [
+          { isSystem: true, organizationId: null },
+          { organizationId },
+        ],
+      },
+      select: { id: true },
+    });
+    if (!place) throw new NotFoundException('Place not found');
+  }
+
+  private async resolveCoveragePlaces(
+    organizationId: string,
+    rawIds: string[],
+  ): Promise<Array<{ id: string; name: string; kind: string }>> {
+    const ids = normalizeServedPlaceIds(rawIds, SUPPLIER_SERVED_PLACES_MAX);
+    if (!ids.length) return [];
+    const places = await this.prisma.place.findMany({
+      where: {
+        id: { in: ids },
+        deletedAt: null,
+        isActive: true,
+        OR: [
+          { isSystem: true, organizationId: null },
+          { organizationId },
+        ],
+      },
+      select: { id: true, name: true, kind: true },
+    });
+    const byId = new Map(places.map((p) => [p.id, p]));
+    const resolved: Array<{ id: string; name: string; kind: string }> = [];
+    const missing: string[] = [];
+    const badKind: string[] = [];
+    for (const id of ids) {
+      const p = byId.get(id);
+      if (!p) {
+        missing.push(id);
+        continue;
+      }
+      if (!isAllowedCoveragePlaceKind(p.kind)) {
+        badKind.push(`${p.name} (${p.kind})`);
+        continue;
+      }
+      resolved.push(p);
+    }
+    if (missing.length) {
+      throw new BadRequestException(
+        `Unknown or inaccessible place for service areas: ${missing.slice(0, 5).join(', ')}`,
+      );
+    }
+    if (badKind.length) {
+      throw new BadRequestException(
+        `Service areas must be destinations (country/state/region/area/city), not: ${badKind.slice(0, 5).join(', ')}`,
+      );
+    }
+    return resolved;
+  }
+
+  private attachServedPlaces<
+    T extends {
+      servedCoverageConfigured?: boolean;
+      servedPlaces?: Array<{
+        placeId: string;
+        place?: {
+          id: string;
+          name: string;
+          kind: string;
+          country?: string | null;
+          region?: string | null;
+          parent?: { id: string; name: string; kind: string } | null;
+        } | null;
+      }>;
+    },
+  >(row: T) {
+    const configured = Boolean(row.servedCoverageConfigured);
+    const rows = row.servedPlaces ?? [];
+    const servedPlaces = rows
+      .map((sp) => {
+        const p = sp.place;
+        if (!p) return null;
+        return {
+          id: p.id,
+          name: p.name,
+          kind: p.kind,
+          secondaryLabel: salesPlaceSecondaryLabel({
+            name: p.name,
+            kind: p.kind,
+            country: p.country,
+            region: p.region,
+            parent: p.parent,
+          }),
+        };
+      })
+      .filter((p): p is NonNullable<typeof p> => Boolean(p));
+    const servedPlaceIds = servedPlaceIdsFromRows({
+      servedCoverageConfigured: configured,
+      placeIds: servedPlaces.map((p) => p.id),
+    });
+    const { servedPlaces: _raw, servedCoverageConfigured: _cfg, ...rest } = row;
+    return {
+      ...rest,
+      servedPlaceIds,
+      servedPlaces: servedPlaceIds === null ? null : servedPlaces,
+    };
   }
 
   async listBookings(user: AuthUser, tripId: string) {
@@ -5595,8 +5834,15 @@ export class OperationsService {
    * Conflict scan includes assigned transfers outside the display window
    * so overlaps are not false-negative.
    */
-  async getMovementBoard(user: AuthUser, days = 14) {
-    const win = movementWindow(days);
+  async getMovementBoard(
+    user: AuthUser,
+    opts: { days?: number; from?: string | null; to?: string | null } = {},
+  ) {
+    const win = resolveMovementWindow({
+      days: opts.days ?? 14,
+      from: opts.from,
+      to: opts.to,
+    });
     const orgId = user.organizationId;
 
     const candidates = await this.prisma.bookingComponent.findMany({
@@ -5622,6 +5868,8 @@ export class OperationsService {
         bookings: [],
         financeByTrip: new Map(),
         days: win.days,
+        from: opts.from,
+        to: opts.to,
       });
     }
 
@@ -5774,6 +6022,8 @@ export class OperationsService {
       bookings,
       financeByTrip,
       days: win.days,
+      from: opts.from,
+      to: opts.to,
     });
   }
 

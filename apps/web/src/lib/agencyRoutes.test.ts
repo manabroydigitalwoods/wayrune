@@ -35,4 +35,13 @@ describe('isAgencyNavActive — trip workspace tabs', () => {
       expect(isAgencyNavActive(AGENCY_ROUTES.finance, tripPath, search)).toBe(false);
     }
   });
+
+  it('highlights Operations for bookings filter deep-link', () => {
+    expect(
+      isAgencyNavActive(AGENCY_ROUTES.operations, AGENCY_ROUTES.operationsBookings, ''),
+    ).toBe(true);
+    expect(
+      isAgencyNavActive(AGENCY_ROUTES.trips, AGENCY_ROUTES.operationsBookings, ''),
+    ).toBe(false);
+  });
 });

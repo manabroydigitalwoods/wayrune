@@ -1,0 +1,19 @@
+{
+  "name": "@wayrune/web-e2e",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:update-snapshots": "playwright test --update-snapshots",
+    "report": "playwright show-report",
+    "playwright:install": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.10.1",
+    "@playwright/test": "^1.51.0",
+    "typescript": "^5.7.2"
+  }
+}

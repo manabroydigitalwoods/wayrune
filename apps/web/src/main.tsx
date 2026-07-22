@@ -6,6 +6,13 @@ import { App } from './App';
 import { AuthProvider } from './auth';
 import '@wayrune/ui/styles/globals.css';
 
+function dismissBootSplash() {
+  const splash = document.getElementById('boot-splash');
+  if (!splash) return;
+  splash.classList.add('boot-splash--done');
+  window.setTimeout(() => splash.remove(), 240);
+}
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ThemeProvider defaultTheme="light">
@@ -20,3 +27,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     </ThemeProvider>
   </React.StrictMode>,
 );
+
+// Keep the HTML splash until the first paint of the React tree, then fade out.
+// AuthGateSkeleton uses the same mark so reload → auth check feels continuous.
+requestAnimationFrame(() => {
+  requestAnimationFrame(dismissBootSplash);
+});

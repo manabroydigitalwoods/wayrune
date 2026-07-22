@@ -1,5 +1,30 @@
 export { cn } from './lib/utils';
-export { ThemeProvider, useTheme, type Theme } from './theme/theme-provider';
+export {
+  UiPrefsProvider,
+  ThemeProvider,
+  useUiPrefs,
+  useTheme,
+  useDensity,
+  useFontScale,
+  useMotionPreference,
+  useGlassPreference,
+  useColorTheme,
+  COLOR_THEME_OPTIONS,
+  hexToHslChannels,
+  isColorThemeId,
+  type Theme,
+  type Density,
+  type FontScale,
+  type MotionPreference,
+  type GlassPreference,
+  type ColorThemeId,
+  type ColorThemeMeta,
+  type UiAppearancePrefs,
+  hasDeviceAppearanceCache,
+  repairCorruptAppearanceStorage,
+  sanitizePrefs,
+} from './theme/ui-prefs';
+export { AppearanceTransitionOverlay } from './theme/appearance-transition';
 export {
   createStorage,
   localStorageKit,
@@ -51,6 +76,14 @@ export { Tabs, TabsList, TabsTrigger, TabsContent } from './components/ui/tabs';
 export { Separator } from './components/ui/separator';
 export { Skeleton } from './components/ui/skeleton';
 export {
+  AuthGateSkeleton,
+  PublicPageSkeleton,
+  PageSkeleton,
+  ListPageSkeleton,
+  type PageSkeletonVariant,
+} from './components/page-skeleton';
+export { PageBootMark } from './components/page-boot-mark';
+export {
   Dialog,
   DialogPortal,
   DialogOverlay,
@@ -69,6 +102,9 @@ export {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuCheckboxItem,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
   DropdownMenuSeparator,
   DropdownMenuLabel,
 } from './components/ui/dropdown-menu';
@@ -109,10 +145,25 @@ export {
   CommandItem,
   CommandSeparator,
 } from './components/ui/command';
-export { Combobox, EntityCombobox, type ComboboxOption } from './components/ui/combobox';
+export { Combobox, EntityCombobox, type ComboboxOption, type EntitySearchResult, type EntitySearchResponse } from './components/ui/combobox';
 export { MultiEntityCombobox } from './components/ui/multi-combobox';
 export { Calendar } from './components/ui/calendar';
 export { DatePicker, type DatePickerProps } from './components/ui/date-picker';
+export {
+  DateRangeFilter,
+  type DateRangeFilterProps,
+  type DateRangePack,
+  type DateRangeValue,
+} from './components/ui/date-range-filter';
+export {
+  dateRangePresetsForPack,
+  formatDateRangeTriggerLabel,
+  formatYmd,
+  isDateRangeEmpty,
+  parseYmd,
+  resolveDateRangePreset,
+  type DateRangeYmd,
+} from './lib/date-range-presets';
 export { TimePicker } from './components/ui/time-picker';
 export { Pagination } from './components/ui/pagination';
 export {
@@ -127,7 +178,9 @@ export {
 } from './components/ui/form';
 
 export { PageHeader } from './components/page-header';
+export { usePageChrome, type PageChromeState } from './components/page-chrome';
 export { ListPageShell } from './components/list-page-shell';
+export { PageStack, SectionStack } from './components/layout-stack';
 export { EmptyState } from './components/empty-state';
 export { StatCard } from './components/stat-card';
 export {
@@ -159,7 +212,16 @@ export { RecordDialog } from './components/record-dialog';
 export { Wizard, type WizardStep } from './components/wizard';
 export { SuggestionChips, type SuggestionOption } from './components/suggestion-chips';
 export { EmailInput, COMMON_EMAIL_DOMAINS } from './components/email-input';
-export { PhoneInput, COMMON_PHONE_CODES, splitPhone, joinPhone, NATIONAL_PHONE_LENGTH, isPhoneFormatOk } from './components/phone-input';
+export {
+  PhoneInput,
+  COMMON_PHONE_CODES,
+  splitPhone,
+  joinPhone,
+  NATIONAL_PHONE_LENGTH,
+  isPhoneFormatOk,
+  isPhoneBlank,
+} from './components/phone-input';
+export { isPortaledOverlayTarget } from './lib/portaled-overlay';
 export { PriceField, type PriceFieldProps } from './components/price-field';
 export {
   NumberField,

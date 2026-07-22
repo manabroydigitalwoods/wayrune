@@ -128,9 +128,9 @@ export function partnerHomeSubtitle(kind?: string | null): string {
 /** Dashboard / nav chrome copy for agency vs DMC. */
 export function agencyWorkspaceSubtitle(kind?: string | null): string {
   if (isDmcOrgKind(kind)) {
-    return 'B2B clients, net+sell packages, local supplier fulfilment, and settlements.';
+    return 'B2B clients, packages, local fulfilment, and settlements.';
   }
-  return 'Pipeline health, conversion, bookings, and AR aging.';
+  return 'What needs action — sales, ops, and collections.';
 }
 
 export function agencyClientsLabel(kind?: string | null): string {

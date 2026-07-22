@@ -524,6 +524,8 @@ export const OrganizationProfileSchema = z.object({
   website: z.preprocess(blankToNull, z.string().nullable()).optional(),
   addressLine1: z.preprocess(blankToNull, z.string().nullable()).optional(),
   addressLine2: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  /** Optional catalog HQ/base Place ID. Null clears linked location + snapshots. */
+  placeId: z.preprocess(blankToNull, z.string().nullable()).optional(),
   city: z.preprocess(blankToNull, z.string().nullable()).optional(),
   region: z.preprocess(blankToNull, z.string().nullable()).optional(),
   postalCode: z.preprocess(blankToNull, z.string().nullable()).optional(),

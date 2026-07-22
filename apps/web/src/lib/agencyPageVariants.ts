@@ -77,9 +77,9 @@ export const INQUIRIES_PAGE_COPY: Record<
     documentTitle: 'Inquiries',
   },
   requests: {
-    title: 'My requests',
-    subtitle: 'Active travel requests you are working on.',
-    documentTitle: 'My requests',
+    title: 'Travel requests',
+    subtitle: 'Active travel requests — yours or the team’s, depending on role.',
+    documentTitle: 'Travel requests',
   },
   planning: {
     title: 'Planning',
@@ -87,9 +87,9 @@ export const INQUIRIES_PAGE_COPY: Record<
     documentTitle: 'Planning',
   },
   sales: {
-    title: 'Sales',
+    title: 'Sales dashboard',
     subtitle: 'Travel requests across the team — status, completeness, and conversion readiness.',
-    documentTitle: 'Sales',
+    documentTitle: 'Sales dashboard',
   },
 };
 
@@ -99,14 +99,14 @@ export const TRIPS_PAGE_COPY: Record<
 > = {
   all: { title: 'Trips', subtitle: 'Plan, quote, confirm, and operate trips end to end.', documentTitle: 'Trips' },
   quotations: {
-    title: 'Quotations',
+    title: 'Quotes',
     subtitle: 'Trips with proposals out or awaiting customer decision.',
-    documentTitle: 'Quotations',
+    documentTitle: 'Quotes',
   },
   drafts: {
-    title: 'Quotation drafts',
+    title: 'Quote drafts',
     subtitle: 'Packages still being priced before sending.',
-    documentTitle: 'Quotation drafts',
+    documentTitle: 'Quote drafts',
   },
   operations: {
     title: 'Operations',
@@ -114,9 +114,9 @@ export const TRIPS_PAGE_COPY: Record<
     documentTitle: 'Operations',
   },
   'operations-bookings': {
-    title: 'Bookings',
-    subtitle: 'Unconfirmed and in-progress supplier bookings.',
-    documentTitle: 'Bookings',
+    title: 'Open bookings',
+    subtitle: 'Ops trips that still need supplier bookings confirmed — filtered from Operations.',
+    documentTitle: 'Open bookings',
   },
   'operations-suppliers': {
     title: 'Supplier requests',
@@ -124,14 +124,14 @@ export const TRIPS_PAGE_COPY: Record<
     documentTitle: 'Supplier requests',
   },
   'operations-incidents': {
-    title: 'Incidents',
+    title: 'Alerts & risks',
     subtitle: 'Trips needing operational intervention.',
-    documentTitle: 'Incidents',
+    documentTitle: 'Alerts & risks',
   },
   finance: {
-    title: 'Receivables',
+    title: 'Invoices & payments',
     subtitle: 'Open customer instalments aged by due date.',
-    documentTitle: 'Receivables',
+    documentTitle: 'Invoices & payments',
   },
   'finance-overdue': {
     title: 'Overdue',

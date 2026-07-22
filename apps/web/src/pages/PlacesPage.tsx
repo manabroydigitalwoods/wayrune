@@ -1,28 +1,39 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import type { ColumnDef, VisibilityState } from '@tanstack/react-table';
 import {
   Building2,
+  ClipboardList,
   FolderTree,
   Globe2,
   Landmark,
   Map,
   MapPin,
   Plane,
+  Search,
   Tags,
   TrainFront,
+  X,
+  type LucideIcon,
 } from 'lucide-react';
 import {
   Button,
-  Card,
-  CardContent,
   Combobox,
+  DataTable,
   Input,
-  PageHeader,
   RecordDialog,
   SimpleFormField as FormField,
   StatusBadge,
+  StorageKeys,
   SuggestionChips,
+  cn,
+  localStorageKit,
   toastError,
   toastSuccess,
+  usePageChrome,
+  Card,
+  CardContent,
+  Skeleton,
   type ComboboxOption,
 } from '@wayrune/ui';
 import { CreatePlaceSchema, parseWithFieldErrors } from '@wayrune/contracts';
@@ -30,6 +41,20 @@ import { api } from '../api';
 import { reportError } from '../lib/errors';
 import type { PlaceProfile } from '../lib/placeSnapshot';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import {
+  parsePlacesQueryState,
+  patchPlacesQueryParams,
+  placesQueryHasFilters,
+  type PlacesView,
+} from '../lib/queue';
+import {
+  ActiveFilterChips,
+  DisplayMenu,
+  FilterMenu,
+  QUEUE_PAGE_SEARCH_CLASS,
+  QueuePageChrome,
+  QueueViewToggle,
+} from '../components/queue';
 
 type PlaceRow = {
   id: string;
@@ -77,7 +102,7 @@ const PLACE_KINDS = [
   'railway_station',
 ] as const;
 
-const PLACE_KIND_ICONS: Record<string, ComboboxOption['icon']> = {
+const PLACE_KIND_ICONS: Record<string, LucideIcon> = {
   country: Globe2,
   region: Map,
   state: Map,
@@ -99,18 +124,17 @@ const PLACE_KIND_LABELS: Record<(typeof PLACE_KINDS)[number], string> = {
   railway_station: 'Railway station',
 };
 
-const PLACE_KIND_FILTER_OPTIONS: ComboboxOption[] = [
-  { value: '', label: 'All kinds', icon: Tags },
-  ...PLACE_KINDS.map((k) => ({
-    value: k,
-    label: PLACE_KIND_LABELS[k],
-    icon: PLACE_KIND_ICONS[k],
-  })),
-];
-
 const ADD_PLACE_KIND_OPTIONS = (
   ['city', 'region', 'state', 'area', 'landmark', 'airport', 'railway_station'] as const
 ).map((k) => ({ value: k, label: PLACE_KIND_LABELS[k] }));
+
+function readPlacesColumnVisibility(): VisibilityState {
+  const stored = localStorageKit.getJson<VisibilityState>(StorageKeys.places.columns, {
+    version: 1,
+  });
+  if (!stored || typeof stored !== 'object') return {};
+  return stored;
+}
 
 function formatDurationMin(min?: number): string | null {
   if (min == null || min <= 0) return null;
@@ -134,16 +158,23 @@ function placeProfileHint(profile?: PlaceProfile | null): string | null {
 }
 
 export function PlacesPage() {
-  useDocumentTitle('Places');
-  const [section, setSection] = useState<'catalog' | 'contributions'>('catalog');
+  useDocumentTitle('Destinations');
+  usePageChrome({
+    title: 'Destinations',
+    subtitle:
+      'Geographic catalog with regions, cities, airports, railway stations, and landmarks for multi-city trips.',
+  });
+  const [searchParams, setSearchParams] = useSearchParams();
+  const query = useMemo(() => parsePlacesQueryState(searchParams), [searchParams]);
+  const view = query.view;
+  const [searchDraft, setSearchDraft] = useState(query.q ?? '');
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(() =>
+    readPlacesColumnVisibility(),
+  );
   const [items, setItems] = useState<PlaceRow[]>([]);
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [contributions, setContributions] = useState<ContributionRow[]>([]);
   const [contributionsLoading, setContributionsLoading] = useState(false);
-  const [q, setQ] = useState('');
-  const [kind, setKind] = useState('');
-  const [parentId, setParentId] = useState('');
-  const [categoryId, setCategoryId] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [suggestOpen, setSuggestOpen] = useState(false);
@@ -162,14 +193,39 @@ export function PlacesPage() {
     domesticOrIntl: 'domestic',
   });
 
+  function applyQuery(patch: Parameters<typeof patchPlacesQueryParams>[1]) {
+    setSearchParams(patchPlacesQueryParams(searchParams, patch), { replace: true });
+  }
+
+  const setView = useCallback(
+    (next: PlacesView) => {
+      setSearchParams(patchPlacesQueryParams(searchParams, { view: next }), { replace: true });
+    },
+    [searchParams, setSearchParams],
+  );
+
+  useEffect(() => {
+    setSearchDraft(query.q ?? '');
+  }, [query.q]);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      const next = searchDraft.trim();
+      if ((query.q ?? '') === next) return;
+      applyQuery({ q: next || undefined });
+    }, 300);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce draft only
+  }, [searchDraft]);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (q.trim()) params.set('q', q.trim());
-      if (kind) params.set('kind', kind);
-      if (parentId) params.set('parentId', parentId);
-      if (categoryId) params.set('categoryId', categoryId);
+      if (query.q) params.set('q', query.q);
+      if (query.kind) params.set('kind', query.kind);
+      if (query.parentId) params.set('parentId', query.parentId);
+      if (query.categoryId) params.set('categoryId', query.categoryId);
       const [places, cats] = await Promise.all([
         api<{ items: PlaceRow[] }>(`/places?${params.toString()}`),
         api<{ items: CategoryRow[] }>('/places/categories'),
@@ -181,7 +237,7 @@ export function PlacesPage() {
     } finally {
       setLoading(false);
     }
-  }, [q, kind, parentId, categoryId]);
+  }, [query.q, query.kind, query.parentId, query.categoryId]);
 
   const loadContributions = useCallback(async () => {
     setContributionsLoading(true);
@@ -203,8 +259,8 @@ export function PlacesPage() {
   }, [load]);
 
   useEffect(() => {
-    if (section === 'contributions') void loadContributions();
-  }, [section, loadContributions]);
+    if (view === 'contributions') void loadContributions();
+  }, [view, loadContributions]);
 
   async function onCreate(e: FormEvent) {
     e.preventDefault();
@@ -257,7 +313,7 @@ export function PlacesPage() {
       toastSuccess('Suggestion submitted for review');
       setSuggestOpen(false);
       setSuggestForm({ name: '', kind: 'landmark', country: 'India', description: '' });
-      if (section === 'contributions') await loadContributions();
+      if (view === 'contributions') await loadContributions();
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Could not submit suggestion');
     } finally {
@@ -265,21 +321,26 @@ export function PlacesPage() {
     }
   }
 
+  function toggleColumn(id: string, visible: boolean) {
+    setColumnVisibility((prev) => {
+      const next = { ...prev, [id]: visible };
+      localStorageKit.setJson(StorageKeys.places.columns, next, { version: 1 });
+      return next;
+    });
+  }
+
+  function clearPlacesFilters() {
+    applyQuery({ clearFilters: true });
+  }
+
+  function clearPlacesFiltersAndSearch() {
+    setSearchDraft('');
+    applyQuery({ clearFilters: true, q: '' });
+  }
+
   const parentOptions = useMemo(
     () => items.filter((p) => ['country', 'region', 'state', 'city'].includes(p.kind)),
     [items],
-  );
-
-  const parentFilterOptions = useMemo<ComboboxOption[]>(
-    () => [
-      { value: '', label: 'Any parent', icon: FolderTree },
-      ...parentOptions.map((p) => ({
-        value: p.id,
-        label: `${p.name} (${p.kind})`,
-        icon: PLACE_KIND_ICONS[p.kind] || MapPin,
-      })),
-    ],
-    [parentOptions],
   );
 
   const parentFormOptions = useMemo<ComboboxOption[]>(
@@ -294,182 +355,323 @@ export function PlacesPage() {
     [parentOptions],
   );
 
-  const categoryOptions = useMemo<ComboboxOption[]>(
-    () => [
-      { value: '', label: 'All categories', icon: Tags },
-      ...categories.map((c) => ({
-        value: c.id,
-        label: c.name,
-        icon: Tags,
-      })),
-    ],
+  const categoryOptions = useMemo(
+    () => categories.map((c) => ({ value: c.id, label: c.name, icon: Tags })),
     [categories],
   );
 
-  return (
-    <div className="space-y-6">
-      <PageHeader
-        icon={MapPin}
-        title="Places"
-        subtitle="Geographic catalog with regions, cities, airports, railway stations, and landmarks for multi-city trips."
-        actions={
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={() => setSuggestOpen(true)}>
-              Suggest place
-            </Button>
-            <SuggestionChips
-              aria-label="Places section"
-              allowDeselect={false}
-              options={[
-                { value: 'catalog', label: 'Catalog' },
-                { value: 'contributions', label: 'Contributions' },
-              ]}
-              value={section}
-              onChange={(v) => setSection(v as 'catalog' | 'contributions')}
-            />
-          </div>
-        }
-      />
+  const columns = useMemo<ColumnDef<PlaceRow>[]>(
+    () => [
+      {
+        id: 'name',
+        header: 'Name',
+        meta: { label: 'Name' },
+        enableHiding: false,
+        size: 240,
+        minSize: 180,
+        accessorFn: (r) => r.name,
+        cell: ({ row }) => {
+          const p = row.original;
+          const thumb = p.profile?.imageUrls?.[0];
+          return (
+            <div className="flex min-w-0 items-center gap-2">
+              {thumb ? (
+                <img src={thumb} alt="" className="size-7 shrink-0 rounded-md object-cover" />
+              ) : (
+                <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                  <MapPin className="size-3.5" />
+                </div>
+              )}
+              <span className="truncate font-medium">{p.name}</span>
+              {p.isSystem ? null : (
+                <span className="shrink-0 text-[11px] text-muted-foreground">Agency</span>
+              )}
+            </div>
+          );
+        },
+      },
+      {
+        id: 'kind',
+        accessorFn: (r) => r.kind,
+        header: 'Kind',
+        meta: { label: 'Kind' },
+        size: 150,
+        minSize: 120,
+        cell: ({ row }) => (
+          <StatusBadge value={row.original.kind} label={row.original.kind} showIcon={false} />
+        ),
+      },
+      {
+        id: 'location',
+        accessorFn: (r) => r.breadcrumbLabel || r.country,
+        header: 'Location',
+        meta: { label: 'Location' },
+        size: 220,
+        minSize: 140,
+        cell: ({ row }) => (
+          <span className="truncate text-muted-foreground">
+            {row.original.breadcrumbLabel || row.original.country}
+          </span>
+        ),
+      },
+      {
+        id: 'details',
+        accessorFn: (r) => placeProfileHint(r.profile) || '',
+        header: 'Details',
+        meta: { label: 'Details' },
+        size: 220,
+        minSize: 140,
+        cell: ({ row }) => {
+          const hint = placeProfileHint(row.original.profile);
+          return <span className="truncate text-muted-foreground">{hint || '—'}</span>;
+        },
+      },
+      {
+        id: 'actions',
+        header: '',
+        size: 100,
+        minSize: 90,
+        enableSorting: false,
+        enableHiding: false,
+        cell: ({ row }) => (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={() => applyQuery({ parentId: row.original.id })}
+          >
+            Children
+          </Button>
+        ),
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
 
-      {section === 'catalog' ? (
-        <>
+  const filterDefs = [
+    {
+      id: 'kind',
+      label: 'Kind',
+      icon: Tags,
+      value: query.kind ?? null,
+      options: PLACE_KINDS.map((k) => ({
+        value: k,
+        label: PLACE_KIND_LABELS[k],
+        icon: PLACE_KIND_ICONS[k],
+      })),
+      onSelect: (value: string | null) => applyQuery({ kind: value || undefined }),
+    },
+    {
+      id: 'parentId',
+      label: 'Parent',
+      icon: FolderTree,
+      value: query.parentId ?? null,
+      options: parentOptions.map((p) => ({
+        value: p.id,
+        label: `${p.name} (${p.kind})`,
+        icon: PLACE_KIND_ICONS[p.kind] || MapPin,
+      })),
+      onSelect: (value: string | null) => applyQuery({ parentId: value || undefined }),
+    },
+    ...(categories.length
+      ? [
+          {
+            id: 'categoryId',
+            label: 'Category',
+            icon: Tags,
+            value: query.categoryId ?? null,
+            options: categoryOptions,
+            onSelect: (value: string | null) => applyQuery({ categoryId: value || undefined }),
+          },
+        ]
+      : []),
+  ];
+
+  const parentLabel = (id?: string) =>
+    parentOptions.find((p) => p.id === id)?.name || 'Parent';
+  const categoryLabel = (id?: string) =>
+    categories.find((c) => c.id === id)?.name || 'Category';
+
+  const filterChips = [
+    query.kind
+      ? {
+          id: 'kind',
+          label: `Kind: ${PLACE_KIND_LABELS[query.kind as (typeof PLACE_KINDS)[number]] || query.kind}`,
+          onRemove: () => applyQuery({ kind: undefined }),
+        }
+      : null,
+    query.parentId
+      ? {
+          id: 'parentId',
+          label: `Parent: ${parentLabel(query.parentId)}`,
+          onRemove: () => applyQuery({ parentId: undefined }),
+        }
+      : null,
+    query.categoryId
+      ? {
+          id: 'categoryId',
+          label: `Category: ${categoryLabel(query.categoryId)}`,
+          onRemove: () => applyQuery({ categoryId: undefined }),
+        }
+      : null,
+  ].filter(Boolean) as Array<{ id: string; label: string; onRemove: () => void }>;
+
+  const displayColumns = [
+    { id: 'kind', label: 'Kind', visible: columnVisibility.kind !== false, icon: Tags },
+    { id: 'location', label: 'Location', visible: columnVisibility.location !== false },
+    { id: 'details', label: 'Details', visible: columnVisibility.details !== false },
+  ];
+
+  const hasExtraFilters = placesQueryHasFilters(query) || Boolean(query.q);
+
+  const queueToolbar =
+    view === 'catalog' ? (
+      <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+        <div className="relative min-w-[12rem] flex-1 basis-[14rem]">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-[0.875em] -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={searchDraft}
+            onChange={(e) => setSearchDraft(e.target.value)}
+            placeholder="Search destinations…"
+            className={cn(QUEUE_PAGE_SEARCH_CLASS, searchDraft.trim() && 'pr-8')}
+            aria-label="Search destinations"
+          />
+          {searchDraft.trim() ? (
+            <button
+              type="button"
+              className="absolute right-1.5 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+              aria-label="Clear search"
+              onClick={() => {
+                setSearchDraft('');
+                applyQuery({ q: '' });
+              }}
+            >
+              <X className="size-3.5" />
+            </button>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap items-center gap-1">
+          <FilterMenu filters={filterDefs} />
+          <DisplayMenu columns={displayColumns} onToggleColumn={toggleColumn} />
+        </div>
+      </div>
+    ) : null;
+
+  return (
+    <QueuePageChrome
+      viewToggle={
+        <QueueViewToggle
+          value={view}
+          onChange={(id) => setView(id as PlacesView)}
+          options={[
+            { id: 'catalog', label: 'Catalog', icon: <Map className="size-[0.875em]" /> },
+            {
+              id: 'contributions',
+              label: 'Contributions',
+              icon: <ClipboardList className="size-[0.875em]" />,
+            },
+          ]}
+        />
+      }
+      primaryActions={
+        <Button variant="outline" size="sm" onClick={() => setSuggestOpen(true)}>
+          Suggest place
+        </Button>
+      }
+      toolbar={queueToolbar}
+      chips={
+        view === 'catalog' ? (
+          <ActiveFilterChips
+            chips={filterChips}
+            onClear={placesQueryHasFilters(query) ? clearPlacesFilters : undefined}
+          />
+        ) : null
+      }
+    >
+      {view === 'catalog' ? (
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <DataTable
+            key={`cols-${JSON.stringify(columnVisibility)}`}
+            columns={columns}
+            data={items}
+            loading={loading}
+            pageSize={25}
+            showSearch={false}
+            showColumnsMenu={false}
+            defaultColumnVisibility={columnVisibility}
+            columnVisibilityKey={StorageKeys.places.columns}
+            emptyTitle={hasExtraFilters ? 'No matching destinations' : 'No destinations yet'}
+            emptyDescription={
+              hasExtraFilters
+                ? 'Try clearing filters or search.'
+                : 'Create a destination with the form on the right.'
+            }
+            emptyIcon={MapPin}
+            emptyAction={
+              hasExtraFilters ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={clearPlacesFiltersAndSearch}
+                >
+                  Clear filters
+                </Button>
+              ) : undefined
+            }
+          />
+
           <Card>
             <CardContent className="space-y-3 p-4">
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <FormField label="Search">
-                  <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Name…" />
+              <h3 className="text-sm font-semibold">Add place</h3>
+              <form onSubmit={onCreate} className="space-y-3">
+                <FormField label="Name" required>
+                  <Input
+                    value={form.name}
+                    onChange={(e) => setForm({ ...form, name: e.target.value })}
+                    required
+                  />
                 </FormField>
                 <FormField label="Kind">
-                  <Combobox options={PLACE_KIND_FILTER_OPTIONS} value={kind} onChange={setKind} />
+                  <SuggestionChips
+                    allowDeselect={false}
+                    options={ADD_PLACE_KIND_OPTIONS}
+                    value={form.kind}
+                    onChange={(kind) => setForm({ ...form, kind })}
+                  />
                 </FormField>
                 <FormField label="Parent">
                   <Combobox
-                    options={parentFilterOptions}
-                    value={parentId}
-                    onChange={setParentId}
+                    options={parentFormOptions}
+                    value={form.parentId}
+                    onChange={(parentId) => setForm({ ...form, parentId })}
                     searchable
                     searchPlaceholder="Search parent…"
                   />
                 </FormField>
-                <FormField label="Category">
-                  <Combobox
-                    options={categoryOptions}
-                    value={categoryId}
-                    onChange={setCategoryId}
-                    searchable={categories.length > 6}
+                <FormField label="Country">
+                  <Input
+                    value={form.country}
+                    onChange={(e) => setForm({ ...form, country: e.target.value })}
                   />
                 </FormField>
-              </div>
+                <Button type="submit" disabled={saving} className="w-full">
+                  {saving ? 'Saving…' : 'Create place'}
+                </Button>
+              </form>
             </CardContent>
           </Card>
-
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-            <Card>
-              <CardContent className="p-0">
-                {loading ? (
-                  <p className="p-4 text-sm text-muted-foreground">Loading…</p>
-                ) : items.length === 0 ? (
-                  <p className="p-4 text-sm text-muted-foreground">No places match.</p>
-                ) : (
-                  <ul className="divide-y">
-                    {items.map((p) => {
-                      const thumb = p.profile?.imageUrls?.[0];
-                      const hint = placeProfileHint(p.profile);
-                      return (
-                        <li key={p.id} className="flex items-start justify-between gap-3 px-4 py-3">
-                          <div className="flex min-w-0 gap-3">
-                            {thumb ? (
-                              <img
-                                src={thumb}
-                                alt=""
-                                className="size-12 shrink-0 rounded-lg object-cover"
-                              />
-                            ) : (
-                              <div className="flex size-12 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-                                <MapPin className="size-4" />
-                              </div>
-                            )}
-                            <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span className="font-medium">{p.name}</span>
-                                <StatusBadge value={p.kind} label={p.kind} />
-                                {p.isSystem ? (
-                                  <span className="text-[11px] text-muted-foreground">System</span>
-                                ) : (
-                                  <span className="text-[11px] text-muted-foreground">Agency</span>
-                                )}
-                              </div>
-                              <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                                {p.breadcrumbLabel || p.country}
-                              </p>
-                              {hint ? (
-                                <p className="mt-0.5 text-xs text-foreground/75">{hint}</p>
-                              ) : null}
-                            </div>
-                          </div>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setParentId(p.id)}
-                          >
-                            Children
-                          </Button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="space-y-3 p-4">
-                <h3 className="text-sm font-semibold">Add place</h3>
-                <form onSubmit={onCreate} className="space-y-3">
-                  <FormField label="Name" required>
-                    <Input
-                      value={form.name}
-                      onChange={(e) => setForm({ ...form, name: e.target.value })}
-                      required
-                    />
-                  </FormField>
-                  <FormField label="Kind">
-                    <SuggestionChips
-                      allowDeselect={false}
-                      options={ADD_PLACE_KIND_OPTIONS}
-                      value={form.kind}
-                      onChange={(kind) => setForm({ ...form, kind })}
-                    />
-                  </FormField>
-                  <FormField label="Parent">
-                    <Combobox
-                      options={parentFormOptions}
-                      value={form.parentId}
-                      onChange={(parentId) => setForm({ ...form, parentId })}
-                      searchable
-                      searchPlaceholder="Search parent…"
-                    />
-                  </FormField>
-                  <FormField label="Country">
-                    <Input
-                      value={form.country}
-                      onChange={(e) => setForm({ ...form, country: e.target.value })}
-                    />
-                  </FormField>
-                  <Button type="submit" disabled={saving} className="w-full">
-                    {saving ? 'Saving…' : 'Create place'}
-                  </Button>
-                </form>
-              </CardContent>
-            </Card>
-          </div>
-        </>
+        </div>
       ) : (
         <Card>
           <CardContent className="p-0">
             {contributionsLoading ? (
-              <p className="p-4 text-sm text-muted-foreground">Loading pending contributions…</p>
+              <div className="space-y-2 p-4" role="status" aria-busy="true">
+                <span className="sr-only">Loading</span>
+                <Skeleton className="h-4 w-40" />
+                <Skeleton className="h-8 w-full" />
+              </div>
             ) : contributions.length === 0 ? (
               <p className="p-4 text-sm text-muted-foreground">
                 No pending contributions. Use &ldquo;Suggest place&rdquo; to propose a new catalog
@@ -554,6 +756,6 @@ export function PlacesPage() {
           />
         </FormField>
       </RecordDialog>
-    </div>
+    </QueuePageChrome>
   );
 }

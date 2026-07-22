@@ -1,7 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { CheckCircle2, CreditCard } from 'lucide-react';
-import { Button, formatCurrency, formatDate, toastError } from '@wayrune/ui';
+import {
+  Button,
+  PublicPageSkeleton,
+  formatCurrency,
+  formatDate,
+  toastError,
+} from '@wayrune/ui';
 import { api } from '../api';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import {
@@ -148,11 +154,7 @@ export function PublicTripPaymentPage() {
   }
 
   if (loading) {
-    return (
-      <div className="flex min-h-dvh items-center justify-center bg-slate-50 text-sm text-slate-600">
-        Loading payment…
-      </div>
-    );
+    return <PublicPageSkeleton />;
   }
 
   if (error || !data) {

@@ -18,6 +18,7 @@ import {
   DialogTitle,
   Input,
   Label,
+  Skeleton,
   StatusBadge,
   Switch,
   Textarea,
@@ -305,7 +306,12 @@ export function WidgetsPanel({
       </div>
 
       {loading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <div className="space-y-2" role="status" aria-busy="true">
+          <span className="sr-only">Loading</span>
+          <Skeleton className="h-4 w-40" />
+          <Skeleton className="h-8 w-full" />
+          <Skeleton className="h-8 w-full" />
+        </div>
       ) : rows.length === 0 ? (
         <div className="rounded-lg border border-dashed px-4 py-10 text-center">
           <MessageCircle className="mx-auto size-8 text-muted-foreground/60" />

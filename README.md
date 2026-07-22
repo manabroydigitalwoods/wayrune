@@ -39,6 +39,7 @@ Use **pnpm from the repo root** for day-to-day work.
 | `pnpm db:migrate:dev`            | Prisma `migrate dev` (optional; may reset if history/schema drift)     |
 | `pnpm db:check-migrations`       | Reject Postgres-dialect SQL (this repo is MySQL)                       |
 | `pnpm db:seed`                   | Seed demo data                                                         |
+| `pnpm db:seed:scenarios`         | Opt-in bulk scenario fixtures on demo-travel (date filters / ops / AR) |
 | `pnpm db:studio`                 | Prisma Studio                                                          |
 
 
@@ -63,11 +64,25 @@ pnpm test
 pnpm db:migrate               # apply pending migrations after pull
 pnpm db:migrate:create foo    # after editing prisma/schema.prisma
 pnpm db:seed                  # re-seed when needed
+pnpm db:seed:scenarios        # massive relative-dated dogfood data (after db:seed)
 ```
 
-Prefer `pnpm db:migrate` / `db:migrate:create` over `prisma migrate dev`. Early migrations were partly authored against a db-pushed schema; shadow replay used to fail on `finance_full` (now fixed) and can still ask to reset when hand-named indexes diverge from Prisma’s defaults.
+### Scenario bulk seed (opt-in)
 
-Demo password for all seeded users: `Password123!`
+Fills **demo-travel** with wipeable `scenario-bulk-v1` rows (parties, leads, inquiries, trips, bookings, payments, tasks, inbox) using **relative dates** so Travel / Due / Movement / Profitability / Dashboard filters stay non-empty. Not run by CI or `pnpm setup`.
+
+```bash
+pnpm db:seed                  # required first (org + suppliers + pipeline)
+pnpm db:seed:scenarios        # default: medium on demo-travel, wipe on
+```
+
+| Env | Default | Notes |
+| --- | --- | --- |
+| `SEED_SCENARIO_ORG` | `demo-travel` | Set `pilot-staging` only with `SEED_SCENARIO_ALLOW_PILOT=1` |
+| `SEED_SCENARIO_SCALE` | `medium` | `small` \| `medium` \| `large` |
+| `SEED_SCENARIO_WIPE` | `1` | Set `0` to append without deleting prior SCN rows |
+
+Re-run is safe: wipe deletes prior `TRP-SCN-*` / `INQ-SCN-*` / `scenario-bulk-v1:*` keys then regenerates.
 
 
 | Kind       | Email                                                                    |

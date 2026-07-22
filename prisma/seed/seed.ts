@@ -116,6 +116,59 @@ async function seedSystemPlaceCategories(prisma: PrismaClient) {
   return subByKey;
 }
 
+function profileLegacyKeys(profileJson: unknown): string[] {
+  if (!profileJson || typeof profileJson !== 'object' || Array.isArray(profileJson)) {
+    return [];
+  }
+  const raw = (profileJson as Record<string, unknown>).legacyKeys;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((k): k is string => typeof k === 'string' && Boolean(k.trim()));
+}
+
+/**
+ * Resolve an existing system Place after CSV ingest may have migrated keys to path style.
+ * Order: exact key → legacyKeys → path key ending with /shortKey → country/state/region name+kind.
+ */
+async function findExistingSystemPlaceForSeed(
+  prisma: PrismaClient,
+  d: { key: string; name: string; kind: string },
+) {
+  const byKey = await prisma.place.findFirst({
+    where: { isSystem: true, key: d.key, deletedAt: null },
+  });
+  if (byKey) return byKey;
+
+  const nameKindMatches = await prisma.place.findMany({
+    where: {
+      isSystem: true,
+      deletedAt: null,
+      kind: d.kind,
+      name: d.name,
+    },
+    take: 40,
+  });
+  const byLegacy = nameKindMatches.find((p) =>
+    profileLegacyKeys(p.profileJson).includes(d.key),
+  );
+  if (byLegacy) return byLegacy;
+
+  const byPathSuffix = await prisma.place.findFirst({
+    where: {
+      isSystem: true,
+      deletedAt: null,
+      kind: d.kind,
+      name: d.name,
+      key: { endsWith: `/${d.key}` },
+    },
+  });
+  if (byPathSuffix) return byPathSuffix;
+
+  if (d.kind === 'country' || d.kind === 'state' || d.kind === 'region') {
+    return nameKindMatches[0] ?? null;
+  }
+  return null;
+}
+
 async function seedSystemPlaces(prisma: PrismaClient) {
   const subByKey = await seedSystemPlaceCategories(prisma);
   const idByKey = new Map<string, string>();
@@ -127,9 +180,7 @@ async function seedSystemPlaces(prisma: PrismaClient) {
 
   // First pass: upsert rows without depending on parents existing yet
   for (const d of allPlaces) {
-    const existing = await prisma.place.findFirst({
-      where: { isSystem: true, key: d.key, deletedAt: null },
-    });
+    const existing = await findExistingSystemPlaceForSeed(prisma, d);
     const data = {
       name: d.name,
       country: d.country,
@@ -137,11 +188,34 @@ async function seedSystemPlaces(prisma: PrismaClient) {
       domesticOrIntl: d.domesticOrIntl,
       kind: d.kind,
       isActive: true,
+      // Keep CSV path keys; only set key when creating or still on short key.
+      ...(existing && (existing.key === d.key || existing.key.includes('/'))
+        ? {}
+        : { key: d.key }),
       profileJson: d.profile ? (d.profile as Prisma.InputJsonValue) : undefined,
     };
     if (existing) {
-      await prisma.place.update({ where: { id: existing.id }, data });
+      // Merge seed profile without wiping ingest legacyKeys / sourceUrl.
+      const prev =
+        existing.profileJson &&
+        typeof existing.profileJson === 'object' &&
+        !Array.isArray(existing.profileJson)
+          ? { ...(existing.profileJson as Record<string, unknown>) }
+          : {};
+      const nextProfile = d.profile
+        ? ({ ...prev, ...d.profile, legacyKeys: profileLegacyKeys(prev) } as Prisma.InputJsonValue)
+        : existing.profileJson
+          ? (existing.profileJson as Prisma.InputJsonValue)
+          : undefined;
+      await prisma.place.update({
+        where: { id: existing.id },
+        data: {
+          ...data,
+          profileJson: nextProfile,
+        },
+      });
       idByKey.set(d.key, existing.id);
+      idByKey.set(existing.key, existing.id);
     } else {
       const created = await prisma.place.create({
         data: {
@@ -474,6 +548,7 @@ async function migratePlaceRefs(prisma: PrismaClient) {
       id: true,
       origin: true,
       originPlaceId: true,
+      originJson: true,
       destinationsJson: true,
       stopsJson: true,
     },
@@ -481,20 +556,43 @@ async function migratePlaceRefs(prisma: PrismaClient) {
   for (const inq of inquiries) {
     const destinations = migrateList(inq.destinationsJson);
     const stops = migrateList(inq.stopsJson);
-    let originPlaceId = inq.originPlaceId;
-    let origin = inq.origin;
-    if (inq.origin) {
-      const ref = toRef(inq.origin);
-      if (ref) {
-        origin = ref.name;
-        originPlaceId = ref.placeId;
+
+    // Prefer existing originJson; else build from placeId / exact name (no ambiguous guess).
+    let originRef =
+      inq.originJson && typeof inq.originJson === 'object' && !Array.isArray(inq.originJson)
+        ? toRef(inq.originJson)
+        : null;
+    if (!originRef && inq.originPlaceId) {
+      const hit = places.find((p) => p.id === inq.originPlaceId);
+      if (hit) {
+        originRef = { placeId: hit.id, name: hit.name, kind: hit.kind };
+      } else if (inq.origin?.trim()) {
+        originRef = {
+          placeId: inq.originPlaceId,
+          name: inq.origin.trim(),
+        };
       }
     }
+    if (!originRef && inq.origin?.trim()) {
+      const nameKey = inq.origin.trim().toLowerCase();
+      const exact = places.filter((p) => p.name.toLowerCase() === nameKey);
+      if (exact.length === 1) {
+        originRef = {
+          placeId: exact[0]!.id,
+          name: exact[0]!.name,
+          kind: exact[0]!.kind,
+        };
+      } else {
+        // Ambiguous or missing — preserve display name only
+        originRef = { placeId: null, name: inq.origin.trim() };
+      }
+    }
+
     await prisma.inquiry.update({
       where: { id: inq.id },
       data: {
-        origin,
-        originPlaceId,
+        originJson: originRef,
+        // Leave legacy columns for read fallback until verified
         destinationsJson: destinations,
         stopsJson: stops,
       },
@@ -1914,7 +2012,7 @@ async function seedRichAgencyData(
         status: input.status,
         travelType: 'leisure',
         domesticOrIntl: 'domestic',
-        origin: 'Bengaluru',
+        originJson: { placeId: null, name: 'Bengaluru', kind: 'city' },
         destinationsJson: [input.titleDest],
         startDate: new Date('2026-09-10'),
         endDate: new Date('2026-09-15'),
@@ -5535,6 +5633,168 @@ async function ensureDemoAgency(
   return { user, org, passwordHash };
 }
 
+/**
+ * Dedicated Phase 1 staging agency — NOT demo-travel.
+ * Reuses the existing seed persona name "North India Tours" (B2B party on DMC).
+ * Seed ≠ Market-proven; claim stays Testing until a real non-eng named week.
+ */
+async function ensurePilotStagingAgency(
+  prisma: PrismaClient,
+  password: string,
+) {
+  const passwordHash = await bcrypt.hash(password, 10);
+  const slug = 'pilot-staging';
+  const orgName = 'North India Tours';
+  const ownerEmail = 'owner@northindia.tours.demo';
+  const salesEmail = 'sales@northindia.tours.demo';
+
+  let org = await prisma.organization.findUnique({ where: { slug } });
+  if (!org) {
+    const identity = await allocateSeedOrgIdentity(prisma, orgName, 'northindiatours');
+    org = await prisma.organization.create({
+      data: {
+        name: orgName,
+        slug,
+        publicCode: identity.publicCode,
+        subdomain: identity.subdomain,
+        kind: 'travel_agency',
+        timezone: 'Asia/Kolkata',
+        currency: 'INR',
+        taxLabel: 'GST',
+        brandingJson: {
+          primaryColor: '#1a5f4a',
+          companyName: orgName,
+        },
+        settingsJson: {
+          indiaReady: true,
+          defaultTaxPercent: 5,
+          defaultMarkupPercent: 20,
+          business: {
+            legalName: 'North India Tours Pvt Ltd',
+            phone: '+919811122233',
+            supportEmail: 'hello@northindia.tours.demo',
+            website: 'https://northindia.tours.demo',
+            gstin: '07AABCT1234D1Z5',
+            placeOfSupply: 'DL',
+            destinationPlaceOfSupply: 'HP',
+            state: 'Delhi',
+          },
+          pilotProgram: {
+            mode: 'named',
+            evidenceComplete: false,
+            startedAt: new Date().toISOString(),
+            replayPrivacyConfirmed: false,
+            seedStaging: true,
+          },
+        },
+        partnerProfile: {
+          create: {
+            discoverable: false,
+            country: 'India',
+            city: 'Delhi',
+            serviceTagsJson: [],
+          },
+        },
+      },
+    });
+  } else {
+    const prior =
+      org.settingsJson && typeof org.settingsJson === 'object'
+        ? (org.settingsJson as Record<string, unknown>)
+        : {};
+    await prisma.organization.update({
+      where: { id: org.id },
+      data: {
+        name: orgName,
+        settingsJson: {
+          ...prior,
+          indiaReady: true,
+          defaultTaxPercent: 5,
+          defaultMarkupPercent: 20,
+          pilotProgram: {
+            mode: 'named',
+            evidenceComplete: false,
+            startedAt: new Date().toISOString(),
+            replayPrivacyConfirmed: false,
+            seedStaging: true,
+          },
+        },
+      },
+    });
+  }
+
+  await ensureOrgRoles(prisma, org.id);
+  const ownerRole = await prisma.role.findUniqueOrThrow({
+    where: { organizationId_key: { organizationId: org.id, key: 'owner' } },
+  });
+  const salesRole = await prisma.role.findUniqueOrThrow({
+    where: {
+      organizationId_key: { organizationId: org.id, key: 'sales_executive' },
+    },
+  });
+
+  const owner = await prisma.user.upsert({
+    where: { email: ownerEmail },
+    create: {
+      email: ownerEmail,
+      fullName: 'North India Tours Owner',
+      passwordHash,
+    },
+    update: { passwordHash, fullName: 'North India Tours Owner' },
+  });
+  const ownerMembership = await prisma.organizationMembership.upsert({
+    where: {
+      organizationId_userId: { organizationId: org.id, userId: owner.id },
+    },
+    create: { organizationId: org.id, userId: owner.id, isOwner: true },
+    update: { isOwner: true, isActive: true },
+  });
+  await prisma.membershipRole.upsert({
+    where: {
+      membershipId_roleId: {
+        membershipId: ownerMembership.id,
+        roleId: ownerRole.id,
+      },
+    },
+    create: { membershipId: ownerMembership.id, roleId: ownerRole.id },
+    update: {},
+  });
+
+  const sales = await prisma.user.upsert({
+    where: { email: salesEmail },
+    create: {
+      email: salesEmail,
+      fullName: 'North India Tours Sales',
+      passwordHash,
+    },
+    update: { passwordHash, fullName: 'North India Tours Sales' },
+  });
+  const salesMembership = await prisma.organizationMembership.upsert({
+    where: {
+      organizationId_userId: { organizationId: org.id, userId: sales.id },
+    },
+    create: { organizationId: org.id, userId: sales.id, isOwner: false },
+    update: { isActive: true },
+  });
+  await prisma.membershipRole.upsert({
+    where: {
+      membershipId_roleId: {
+        membershipId: salesMembership.id,
+        roleId: salesRole.id,
+      },
+    },
+    create: { membershipId: salesMembership.id, roleId: salesRole.id },
+    update: {},
+  });
+
+  await ensureAgencyBootstrap(prisma, org.id);
+
+  console.log(
+    `Pilot staging org ready: ${orgName} (slug=${slug}) · ${ownerEmail} / ${salesEmail}`,
+  );
+  return org;
+}
+
 /** Extra agency owner (e.g. personal Google SSO email) on the demo org. */
 async function ensureAgencyOwnerAlias(
   prisma: PrismaClient,
@@ -5666,6 +5926,8 @@ async function main() {
   await seedAgencyPackageTemplate(prisma, org.id);
   await seedPartnerOperationalData(prisma);
 
+  await ensurePilotStagingAgency(prisma, password);
+
   await ensureSystemPresenceThemes(prisma);
   const orgsForPresence = await prisma.organization.findMany({
     where: { deletedAt: null, kind: { not: 'platform' } },
@@ -5690,7 +5952,10 @@ async function main() {
   console.log(
     'Per-role partner logins follow <owner-local>.<role>@domain, e.g. hotel.goa.frontdesk@demo.travel',
   );
-  console.log('Org slug: travel-os (platform) / demo-travel / partner slugs seed-*');
+  console.log('Org slug: travel-os (platform) / demo-travel / pilot-staging / partner slugs seed-*');
+  console.log(
+    '  Pilot staging:    owner@northindia.tours.demo · sales@northindia.tours.demo (North India Tours)',
+  );
   await prisma.$disconnect();
 }
 

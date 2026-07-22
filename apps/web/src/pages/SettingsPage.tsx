@@ -13,14 +13,18 @@ import {
   Inbox,
   IndianRupee,
   Info,
+  MonitorCog,
+  Moon,
   Network,
   Paintbrush,
+  PanelLeftClose,
   Percent,
   Plug,
   PoundSterling,
   Scale,
   Settings,
   Shield,
+  Sun,
   Tags,
   Users,
   type LucideIcon,
@@ -37,10 +41,15 @@ import {
   FormGrid,
   Input,
   Label,
-  PageHeader,
+  NumberField,
+  PageSkeleton,
+  PageStack,
+  SectionStack,
   PhoneInput,
+  PriceField,
   SimpleFormField as FormField,
   StatusBadge,
+  SuggestionChips,
   Switch,
   Textarea,
   TIME_FORMAT_OPTIONS,
@@ -49,9 +58,17 @@ import {
   setDateTimePrefs,
   toastError,
   toastSuccess,
+  usePageChrome,
+  useUiPrefs,
   type ComboboxOption,
   type DateFormatId,
+  type Density,
+  type FontScale,
+  type GlassPreference,
+  type MotionPreference,
   type TimeFormatId,
+  type Theme,
+  COLOR_THEME_OPTIONS,
 } from '@wayrune/ui';
 import { api } from '../api';
 import {
@@ -77,6 +94,7 @@ import type { PlaceRef } from '../lib/placeRefs';
 
 type SettingsSection =
   | 'general'
+  | 'appearance'
   | 'workspaces'
   | 'organization'
   | 'branding'
@@ -163,8 +181,50 @@ type DisplayForm = {
   timeFormat: TimeFormatId;
 };
 
+type OrgAppearanceForm = {
+  theme: Theme;
+  colorTheme: (typeof COLOR_THEME_OPTIONS)[number]['id'];
+  highContrast: boolean;
+  customAccent: string;
+  glass: GlassPreference;
+};
+
 const DATE_FORMAT_IDS = DATE_FORMAT_OPTIONS.map((o) => o.id) as DateFormatId[];
 const TIME_FORMAT_IDS = TIME_FORMAT_OPTIONS.map((o) => o.id) as TimeFormatId[];
+const APPEARANCE_THEME_OPTIONS: Array<{ value: Theme; label: string; description: string }> = [
+  { value: 'light', label: 'Light', description: 'Bright surfaces for daytime work.' },
+  { value: 'dark', label: 'Dark', description: 'Lower-glare shell for long ops sessions.' },
+  { value: 'system', label: 'System', description: 'Follow your device appearance.' },
+];
+const APPEARANCE_DENSITY_OPTIONS: Array<{ value: Density; label: string; description: string }> = [
+  { value: 'compact', label: 'Compact', description: 'Current tight workspace density.' },
+  { value: 'comfortable', label: 'Comfortable', description: 'Adds breathing room to panels and forms.' },
+  { value: 'spacious', label: 'Spacious', description: 'Largest spacing for more relaxed scanning.' },
+];
+const APPEARANCE_FONT_OPTIONS: Array<{ value: FontScale; label: string; description: string }> = [
+  { value: 'small', label: 'Small', description: 'Slightly denser text for more on screen.' },
+  { value: 'default', label: 'Default', description: 'Standard text scale.' },
+  { value: 'large', label: 'Large', description: 'Easier reading without page zoom.' },
+  { value: 'xlarge', label: 'Extra large', description: 'Maximum readable scale for long sessions.' },
+];
+const APPEARANCE_MOTION_OPTIONS: Array<{ value: MotionPreference; label: string; description: string }> =
+  [
+    { value: 'system', label: 'System', description: 'Follow your device motion preference.' },
+    { value: 'reduce', label: 'Reduce', description: 'Minimize animation and transitions.' },
+    { value: 'allow', label: 'Allow', description: 'Use the normal app motion.' },
+  ];
+const APPEARANCE_GLASS_OPTIONS: Array<{ value: GlassPreference; label: string; description: string }> = [
+  {
+    value: 'frosted',
+    label: 'Frosted',
+    description: 'Liquid glass panels — luminous rims, soft depth, vibrant blur.',
+  },
+  {
+    value: 'solid',
+    label: 'Solid',
+    description: 'Opaque panels without blur — calmer and often snappier.',
+  },
+];
 
 function asDateFormat(value: unknown): DateFormatId {
   return DATE_FORMAT_IDS.includes(value as DateFormatId)
@@ -189,6 +249,12 @@ const SECTIONS: {
     label: 'General',
     description: 'Timezone, date/time format, currency, tax and itinerary defaults.',
     icon: Settings,
+  },
+  {
+    id: 'appearance',
+    label: 'Appearance',
+    description: 'Theme, color packs, contrast, density, motion, glass, and sidebar defaults.',
+    icon: MonitorCog,
   },
   {
     id: 'workspaces',
@@ -395,7 +461,7 @@ function ToggleRow({
   onCheckedChange: (next: boolean) => void;
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 rounded-xl border px-3 py-3 glass-well">
+    <div className="flex items-start justify-between gap-[var(--gap-section)] rounded-xl border px-3 py-3 glass-well">
       <div className="min-w-0 space-y-0.5">
         <Label className="text-sm font-medium">{label}</Label>
         {description ? <p className="text-xs text-muted-foreground">{description}</p> : null}
@@ -421,7 +487,19 @@ export function SettingsPage({
   standalone?: boolean;
 } = {}) {
   useDocumentTitle('Settings');
-  const { me, refreshMe, switchOrganization } = useAuth();
+  const { me, refreshMe, switchOrganization, resetAppearanceToWorkspaceDefault } = useAuth();
+  const {
+    prefs,
+    setTheme,
+    setDensity,
+    setFontScale,
+    setMotion,
+    setGlass,
+    setColorTheme,
+    setHighContrast,
+    setCustomAccent,
+    setSidebarCollapsedDefault,
+  } = useUiPrefs();
   const { toOrgPath, navigate } = useOrgNavigate();
   const { hasAny } = usePermissions();
   const canUserManage = hasAny(CAP.userManage);
@@ -447,6 +525,12 @@ export function SettingsPage({
         ? sectionParam
         : 'general';
   const activeMeta = SECTIONS.find((s) => s.id === section)!;
+  const pageTitle = standalone && forcedSection ? activeMeta.label : 'Settings';
+  const pageSubtitle =
+    standalone && forcedSection
+      ? activeMeta.description
+      : 'Configure your agency identity, compliance, security and integrations.';
+  usePageChrome({ title: pageTitle, subtitle: pageSubtitle });
 
   const [org, setOrg] = useState<any>(null);
   const [loadError, setLoadError] = useState('');
@@ -544,6 +628,13 @@ export function SettingsPage({
     showAgencyFooter: true,
   });
   const [display, setDisplay] = useState<DisplayForm>({ ...DEFAULT_DATETIME_PREFS });
+  const [orgAppearance, setOrgAppearance] = useState<OrgAppearanceForm>({
+    theme: 'light',
+    colorTheme: 'wayrune',
+    highContrast: false,
+    customAccent: '#0f766e',
+    glass: 'frosted',
+  });
 
   function hydrateFromOrg(o: any) {
     const settings = asRecord(o.settingsJson);
@@ -555,10 +646,27 @@ export function SettingsPage({
     const privacyJson = asRecord(settings.privacy);
     const itineraryJson = asRecord(settings.itinerary);
     const displayJson = asRecord(settings.display);
+    const appearanceJson = asRecord(settings.appearance);
     const nextDisplay: DisplayForm = {
       dateFormat: asDateFormat(displayJson.dateFormat),
       timeFormat: asTimeFormat(displayJson.timeFormat),
     };
+    const colorThemeRaw = str(appearanceJson.colorTheme);
+    const themeRaw = str(appearanceJson.theme);
+    const glassRaw = str(appearanceJson.glass);
+    const accentRaw = str(appearanceJson.customAccent);
+    setOrgAppearance({
+      theme:
+        themeRaw === 'light' || themeRaw === 'dark' || themeRaw === 'system'
+          ? themeRaw
+          : 'light',
+      colorTheme: COLOR_THEME_OPTIONS.some((t) => t.id === colorThemeRaw)
+        ? (colorThemeRaw as OrgAppearanceForm['colorTheme'])
+        : 'wayrune',
+      highContrast: Boolean(appearanceJson.highContrast),
+      customAccent: /^#[0-9a-fA-F]{6}$/.test(accentRaw) ? accentRaw : '#0f766e',
+      glass: glassRaw === 'solid' || glassRaw === 'frosted' ? glassRaw : 'frosted',
+    });
 
     setOrg(o);
     setName(o.name || '');
@@ -796,7 +904,19 @@ export function SettingsPage({
       return { name };
     }
     if (section === 'branding') {
-      return { brandingJson: branding };
+      return {
+        brandingJson: branding,
+        settingsJson: {
+          appearance: {
+            theme: orgAppearance.theme,
+            colorTheme: orgAppearance.colorTheme,
+            highContrast: orgAppearance.highContrast,
+            customAccent:
+              orgAppearance.colorTheme === 'custom' ? orgAppearance.customAccent : undefined,
+            glass: orgAppearance.glass,
+          },
+        },
+      };
     }
     if (section === 'business') {
       const years = Number(trust.yearsExperience);
@@ -846,6 +966,7 @@ export function SettingsPage({
     display,
     name,
     branding,
+    orgAppearance,
     business,
     trust,
     security,
@@ -895,7 +1016,7 @@ export function SettingsPage({
         body: JSON.stringify(patchBody),
       });
       hydrateFromOrg(updated);
-      if (section === 'general') {
+      if (section === 'general' || section === 'branding') {
         await refreshMe();
       }
       toastSuccess('Settings saved');
@@ -942,7 +1063,7 @@ export function SettingsPage({
   }
 
   if (loadError) return <p className="text-sm text-destructive">{loadError}</p>;
-  if (!org) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  if (!org) return <PageSkeleton variant="settings" />;
 
   const fxMetaCue = formatOrgFxRatesMetaCue(fxRatesMeta);
 
@@ -965,26 +1086,13 @@ export function SettingsPage({
     return <Navigate to={toOrgPath(AGENCY_ROUTES.settingsLeadSources)} replace />;
   }
 
-  const sectionMeta = SECTIONS.find((s) => s.id === section)!;
-  const pageTitle = standalone && forcedSection ? sectionMeta.label : 'Settings';
-  const pageSubtitle =
-    standalone && forcedSection
-      ? sectionMeta.description
-      : 'Configure your agency identity, compliance, security and integrations.';
-
   return (
-    <div>
-      <PageHeader
-        icon={standalone && forcedSection ? sectionMeta.icon : Settings}
-        title={pageTitle}
-        subtitle={pageSubtitle}
-      />
-
+    <PageStack>
       <div
         className={
           standalone
-            ? 'mt-4'
-            : 'grid gap-6 lg:grid-cols-[220px_minmax(0,1fr)]'
+            ? undefined
+            : 'grid gap-[var(--gap-section)] lg:grid-cols-[220px_minmax(0,1fr)]'
         }
       >
         {standalone ? null : (
@@ -1013,7 +1121,8 @@ export function SettingsPage({
         )}
 
         <Card className="min-w-0 max-w-4xl">
-          <CardContent className="space-y-5 p-5">
+          <CardContent className="p-[var(--pad-card)]">
+            <SectionStack>
             {standalone ? null : (
             <div className="space-y-1">
               <h2 className="text-base font-semibold tracking-tight">{activeMeta.label}</h2>
@@ -1022,7 +1131,7 @@ export function SettingsPage({
             )}
 
             {section === 'workspaces' ? (
-              <div className="space-y-5">
+              <SectionStack>
                 <div className="space-y-2">
                   <p className="text-sm font-medium">Your workspaces</p>
                   <p className="text-xs text-muted-foreground">
@@ -1078,7 +1187,7 @@ export function SettingsPage({
                   </ul>
                 </div>
 
-                <div className="space-y-3 rounded-xl border border-border/70 p-4">
+                <div className="stack-form rounded-xl border border-border/70 pad-panel">
                   <div>
                     <p className="text-sm font-medium">Create another workspace</p>
                     <p className="text-xs text-muted-foreground">
@@ -1180,18 +1289,302 @@ export function SettingsPage({
                     {creatingWorkspace ? 'Creating…' : 'Create & switch'}
                   </Button>
                 </div>
-              </div>
+              </SectionStack>
             ) : section === 'members' ? (
               <AccessManagementPanel active={section === 'members'} />
             ) : section === 'policies' ? (
               <PoliciesPanel />
             ) : section === 'about' ? (
               <AboutReleaseNotesPanel showPublicLink />
+            ) : section === 'appearance' ? (
+              <SectionStack>
+                <div className="rounded-xl border border-border/60 pad-panel glass-well flex flex-wrap items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium">Workspace default</div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {me?.organization.appearanceDefaults
+                        ? 'Admins set a workspace theme under Branding. Your choices here override it.'
+                        : 'No workspace theme yet — admins can set one under Branding for new members.'}
+                    </p>
+                  </div>
+                  {me?.organization.appearanceDefaults ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        void resetAppearanceToWorkspaceDefault()
+                          .then(() => toastSuccess('Using workspace default theme'))
+                          .catch((err) =>
+                            toastError(
+                              err instanceof Error
+                                ? err.message
+                                : 'Could not reset to workspace default',
+                            ),
+                          );
+                      }}
+                    >
+                      Use workspace default
+                    </Button>
+                  ) : null}
+                </div>
+                <div className="rounded-xl border border-border/60 pad-panel glass">
+                  <div className="grid gap-[var(--gap-section)] sm:grid-cols-2">
+                    <FormField
+                      label="Theme"
+                      description="Light, dark, or follow your device."
+                    >
+                      <div className="grid gap-[var(--field-gap)]">
+                        {APPEARANCE_THEME_OPTIONS.map((option) => (
+                          <button
+                            key={option.value}
+                            type="button"
+                            onClick={() => setTheme(option.value)}
+                            className={cn(
+                              'flex items-start justify-between rounded-xl border pad-panel text-left transition-colors',
+                              prefs.theme === option.value
+                                ? 'border-primary/50 bg-primary/10'
+                                : 'border-border/60 hover:bg-muted/30',
+                            )}
+                          >
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2 text-sm font-medium">
+                                {option.value === 'light' ? (
+                                  <Sun className="size-4" />
+                                ) : option.value === 'dark' ? (
+                                  <Moon className="size-4" />
+                                ) : (
+                                  <MonitorCog className="size-4" />
+                                )}
+                                {option.label}
+                              </div>
+                              <p className="text-xs text-muted-foreground">{option.description}</p>
+                            </div>
+                            <StatusBadge
+                              value={prefs.theme === option.value ? 'active' : 'inactive'}
+                              label={prefs.theme === option.value ? 'Selected' : 'Available'}
+                              showIcon={false}
+                            />
+                          </button>
+                        ))}
+                      </div>
+                    </FormField>
+                    <FormField
+                      label="Color theme"
+                      description="Accent pack for chrome, buttons, and atmosphere — like VS Code color themes."
+                    >
+                      <div className="grid gap-[var(--field-gap)] sm:grid-cols-2">
+                        {COLOR_THEME_OPTIONS.map((option) => (
+                          <button
+                            key={option.id}
+                            type="button"
+                            onClick={() => setColorTheme(option.id)}
+                            className={cn(
+                              'flex items-start gap-3 rounded-xl border pad-panel text-left transition-colors',
+                              prefs.colorTheme === option.id
+                                ? 'border-primary/50 bg-primary/10'
+                                : 'border-border/60 hover:bg-muted/30',
+                            )}
+                          >
+                            <span
+                              className="mt-0.5 size-5 shrink-0 rounded-full border border-border/70 shadow-sm"
+                              style={{ backgroundColor: option.swatch }}
+                              aria-hidden
+                            />
+                            <span className="min-w-0 space-y-1">
+                              <span className="block text-sm font-medium">{option.label}</span>
+                              <span className="block text-xs text-muted-foreground">
+                                {option.description}
+                              </span>
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                      {prefs.colorTheme === 'custom' ? (
+                        <div className="mt-[var(--field-gap)] flex items-center gap-3 rounded-xl border border-border/60 pad-panel">
+                          <label className="text-sm font-medium" htmlFor="custom-accent">
+                            Custom accent
+                          </label>
+                          <input
+                            id="custom-accent"
+                            type="color"
+                            value={prefs.customAccent}
+                            onChange={(e) => setCustomAccent(e.target.value)}
+                            className="size-9 cursor-pointer rounded-md border border-border/60 bg-transparent p-0.5"
+                          />
+                          <span className="font-mono text-xs text-muted-foreground">
+                            {prefs.customAccent}
+                          </span>
+                        </div>
+                      ) : null}
+                    </FormField>
+                    <FormField
+                      label="High contrast"
+                      description="Stronger text and borders for accessibility or bright rooms."
+                      className="sm:col-span-2"
+                    >
+                      <div className="flex items-center gap-3 pt-1">
+                        <Switch
+                          checked={prefs.highContrast}
+                          onCheckedChange={setHighContrast}
+                          aria-label="High contrast"
+                        />
+                        <span className="text-sm text-muted-foreground">
+                          {prefs.highContrast
+                            ? 'High contrast is on'
+                            : 'Standard contrast'}
+                        </span>
+                      </div>
+                    </FormField>
+                    <FormField
+                      label="Density"
+                      description="Scales panel spacing, control heights, and table rhythm across the app."
+                    >
+                      <div className="grid gap-[var(--field-gap)]">
+                        {APPEARANCE_DENSITY_OPTIONS.map((option) => (
+                          <button
+                            key={option.value}
+                            type="button"
+                            onClick={() => setDensity(option.value)}
+                            className={cn(
+                              'rounded-xl border pad-panel text-left transition-colors',
+                              prefs.density === option.value
+                                ? 'border-primary/50 bg-primary/10'
+                                : 'border-border/60 hover:bg-muted/30',
+                            )}
+                          >
+                            <div className="text-sm font-medium">{option.label}</div>
+                            <p className="mt-1 text-xs text-muted-foreground">{option.description}</p>
+                          </button>
+                        ))}
+                      </div>
+                    </FormField>
+                    <FormField
+                      label="Text size"
+                      description="Scales rem-based UI text across the app without browser zoom."
+                    >
+                      <div className="grid gap-[var(--field-gap)]">
+                        {APPEARANCE_FONT_OPTIONS.map((option) => (
+                          <button
+                            key={option.value}
+                            type="button"
+                            onClick={() => setFontScale(option.value)}
+                            className={cn(
+                              'rounded-xl border pad-panel text-left transition-colors',
+                              prefs.fontScale === option.value
+                                ? 'border-primary/50 bg-primary/10'
+                                : 'border-border/60 hover:bg-muted/30',
+                            )}
+                          >
+                            <div className="text-sm font-medium">{option.label}</div>
+                            <p className="mt-1 text-xs text-muted-foreground">{option.description}</p>
+                          </button>
+                        ))}
+                      </div>
+                    </FormField>
+                    <FormField label="Motion" description="Reduce non-essential animation when you want a calmer UI.">
+                      <div className="grid gap-[var(--field-gap)]">
+                        {APPEARANCE_MOTION_OPTIONS.map((option) => (
+                          <button
+                            key={option.value}
+                            type="button"
+                            onClick={() => setMotion(option.value)}
+                            className={cn(
+                              'rounded-xl border pad-panel text-left transition-colors',
+                              prefs.motion === option.value
+                                ? 'border-primary/50 bg-primary/10'
+                                : 'border-border/60 hover:bg-muted/30',
+                            )}
+                          >
+                            <div className="text-sm font-medium">{option.label}</div>
+                            <p className="mt-1 text-xs text-muted-foreground">{option.description}</p>
+                          </button>
+                        ))}
+                      </div>
+                    </FormField>
+                    <FormField
+                      label="Glass"
+                      description="Frosted translucent panels, or solid surfaces without blur."
+                    >
+                      <div className="grid gap-[var(--field-gap)]">
+                        {APPEARANCE_GLASS_OPTIONS.map((option) => (
+                          <button
+                            key={option.value}
+                            type="button"
+                            onClick={() => setGlass(option.value)}
+                            className={cn(
+                              'rounded-xl border pad-panel text-left transition-colors',
+                              prefs.glass === option.value
+                                ? 'border-primary/50 bg-primary/10'
+                                : 'border-border/60 hover:bg-muted/30',
+                            )}
+                          >
+                            <div className="text-sm font-medium">{option.label}</div>
+                            <p className="mt-1 text-xs text-muted-foreground">{option.description}</p>
+                          </button>
+                        ))}
+                      </div>
+                    </FormField>
+                    <FormField
+                      label="Start with collapsed sidebar"
+                      description="Applies immediately and becomes the default for new sessions on this device."
+                      className="sm:col-span-2"
+                    >
+                      <div className="flex items-center gap-3 pt-1">
+                        <Switch
+                          checked={prefs.sidebarCollapsedDefault}
+                          onCheckedChange={setSidebarCollapsedDefault}
+                          aria-label="Start with collapsed sidebar"
+                        />
+                        <span className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <PanelLeftClose className="size-4" />
+                          {prefs.sidebarCollapsedDefault
+                            ? 'Sidebar uses the narrow icon rail'
+                            : 'Sidebar uses the full navigation'}
+                        </span>
+                      </div>
+                    </FormField>
+                  </div>
+                </div>
+                <div className="rounded-xl border border-border/60 pad-panel glass-well">
+                  <div className="mb-[var(--field-gap)] text-sm font-medium">Live preview</div>
+                  <div className="stack-form">
+                    <div className="grid gap-[var(--gap-section)] sm:grid-cols-[minmax(0,1fr)_auto]">
+                      <FormField label="Sample field" description="Spacing and control height respond immediately.">
+                        <Input value="Preview text" readOnly />
+                      </FormField>
+                      <div className="flex items-end gap-2">
+                        <Button type="button">Primary</Button>
+                        <Button type="button" variant="outline">
+                          Secondary
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-border/60 overflow-hidden">
+                      <div className="grid grid-cols-[1.2fr_0.8fr_0.6fr] border-b border-border/60 bg-muted/40 text-[length:var(--control-text-sm)] font-semibold uppercase tracking-wide text-muted-foreground">
+                        <div className="px-3 py-[var(--field-gap)]">Panel</div>
+                        <div className="px-3 py-[var(--field-gap)]">State</div>
+                        <div className="px-3 py-[var(--field-gap)]">SLA</div>
+                      </div>
+                      {[
+                        ['Inbox workspace', 'Ready', 'On track'],
+                        ['Trip control centre', 'Queued', '2 hrs'],
+                      ].map(([label, state, sla]) => (
+                        <div key={label} className="grid grid-cols-[1.2fr_0.8fr_0.6fr] border-b border-border/60 last:border-b-0">
+                          <div className="px-3 py-[var(--field-gap)] text-sm">{label}</div>
+                          <div className="px-3 py-[var(--field-gap)] text-sm text-muted-foreground">{state}</div>
+                          <div className="px-3 py-[var(--field-gap)] text-sm text-muted-foreground">{sla}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </SectionStack>
             ) : (
-              <form onSubmit={onSave} className="space-y-6">
+              <form onSubmit={onSave} className="flex flex-col gap-[var(--gap-section)]">
                 {section === 'general' ? (
                   <>
-                    <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="grid gap-[var(--gap-section)] sm:grid-cols-2">
                       <FormField label="Timezone" required>
                         <Combobox
                           options={
@@ -1228,23 +1621,20 @@ export function SettingsPage({
                         description="Used when Lock FX has no manual rate. Refresh pulls ECB rates via Frankfurter (AED kept if not in feed)."
                         className="sm:col-span-2"
                       >
-                        <div className="space-y-3">
+                        <div className="stack-form">
                           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                             {ORG_FX_CODES.map((code) => (
                               <div key={code} className="space-y-1.5">
                                 <Label htmlFor={`fx-rate-${code}`}>{code}</Label>
-                                <Input
+                                <NumberField
                                   id={`fx-rate-${code}`}
-                                  type="number"
                                   min={0.0001}
-                                  step="any"
-                                  inputMode="decimal"
-                                  className="tabular-nums"
+                                  integer={false}
                                   value={fxRateInputs[code] ?? ''}
-                                  onChange={(e) =>
+                                  onChange={(v) =>
                                     setFxRateInputs((prev) => ({
                                       ...prev,
-                                      [code]: e.target.value,
+                                      [code]: v,
                                     }))
                                   }
                                   placeholder={String(ORG_FX_DEFAULTS[code])}
@@ -1337,13 +1727,14 @@ export function SettingsPage({
                         />
                       </FormField>
                       <FormField label="Default tax %" required>
-                        <Input
-                          type="number"
+                        <NumberField
                           min={0}
                           max={100}
-                          step={0.5}
+                          integer={false}
                           value={defaultTaxPercent}
-                          onChange={(e) => setDefaultTaxPercent(Number(e.target.value))}
+                          onChange={(v) =>
+                            setDefaultTaxPercent(v === '' ? 0 : Number(v))
+                          }
                           required
                         />
                       </FormField>
@@ -1351,14 +1742,13 @@ export function SettingsPage({
                         label="Default markup %"
                         description="Sell = cost × (1 + markup/100) when pricing from the rate directory (retail / FIT clients)."
                       >
-                        <Input
-                          type="number"
+                        <NumberField
                           min={0}
                           max={500}
-                          step={0.5}
+                          integer={false}
                           value={defaultMarkupPercent}
-                          onChange={(e) =>
-                            setDefaultMarkupPercent(Number(e.target.value))
+                          onChange={(v) =>
+                            setDefaultMarkupPercent(v === '' ? 0 : Number(v))
                           }
                         />
                       </FormField>
@@ -1366,18 +1756,17 @@ export function SettingsPage({
                         label="Agent / B2B markup %"
                         description="Used for travel agency, reseller, and DMC clients when set. Leave equal to default if you do not split trade vs retail."
                       >
-                        <Input
-                          type="number"
+                        <NumberField
                           min={0}
                           max={500}
-                          step={0.5}
+                          integer={false}
                           value={agentMarkupPercent}
-                          onChange={(e) =>
-                            setAgentMarkupPercent(Number(e.target.value))
+                          onChange={(v) =>
+                            setAgentMarkupPercent(v === '' ? 0 : Number(v))
                           }
                         />
                       </FormField>
-                      <div className="md:col-span-2 space-y-3 rounded-xl border border-border/60 p-4">
+                      <div className="md:col-span-2 stack-form rounded-xl border border-border/60 pad-panel">
                         <div>
                           <div className="text-sm font-medium">Markup preset library</div>
                           <p className="mt-1 text-xs text-muted-foreground">
@@ -1425,24 +1814,42 @@ export function SettingsPage({
                               />
                             </FormField>
                             <FormField label="Value">
-                              <Input
-                                type="number"
-                                min={0}
-                                step={preset.mode === 'percent' ? 0.5 : 1}
-                                value={preset.value}
-                                onChange={(e) =>
-                                  setMarkupPresets((rows) =>
-                                    rows.map((row, i) =>
-                                      i === index
-                                        ? {
-                                            ...row,
-                                            value: Number(e.target.value),
-                                          }
-                                        : row,
-                                    ),
-                                  )
-                                }
-                              />
+                              {preset.mode === 'fixed' ? (
+                                <PriceField
+                                  currency={currency}
+                                  value={preset.value}
+                                  onChange={(v) =>
+                                    setMarkupPresets((rows) =>
+                                      rows.map((row, i) =>
+                                        i === index
+                                          ? {
+                                              ...row,
+                                              value: v === '' ? 0 : Number(v),
+                                            }
+                                          : row,
+                                      ),
+                                    )
+                                  }
+                                />
+                              ) : (
+                                <NumberField
+                                  min={0}
+                                  integer={false}
+                                  value={preset.value}
+                                  onChange={(v) =>
+                                    setMarkupPresets((rows) =>
+                                      rows.map((row, i) =>
+                                        i === index
+                                          ? {
+                                              ...row,
+                                              value: v === '' ? 0 : Number(v),
+                                            }
+                                          : row,
+                                      ),
+                                    )
+                                  }
+                                />
+                              )}
                             </FormField>
                             <div className="flex items-end">
                               <Button
@@ -1511,14 +1918,12 @@ export function SettingsPage({
                         label="Default quote validity (days)"
                         description="New, cloned, template, and revise-from-accepted drafts get Valid until = today + this many days."
                       >
-                        <Input
-                          type="number"
+                        <NumberField
                           min={1}
                           max={365}
-                          step={1}
                           value={defaultQuoteValidityDays}
-                          onChange={(e) =>
-                            setDefaultQuoteValidityDays(Number(e.target.value))
+                          onChange={(v) =>
+                            setDefaultQuoteValidityDays(v === '' ? 1 : Number(v))
                           }
                         />
                       </FormField>
@@ -1526,14 +1931,12 @@ export function SettingsPage({
                         label="Post-expiry grace (hours)"
                         description="After Valid until passes, send keeps that date for this many hours. Past grace blocks send until you reset the date (0 = no grace). Default 24."
                       >
-                        <Input
-                          type="number"
+                        <NumberField
                           min={0}
                           max={72}
-                          step={1}
                           value={quoteValidityGraceHours}
-                          onChange={(e) =>
-                            setQuoteValidityGraceHours(Number(e.target.value))
+                          onChange={(v) =>
+                            setQuoteValidityGraceHours(v === '' ? 0 : Number(v))
                           }
                         />
                       </FormField>
@@ -1541,14 +1944,12 @@ export function SettingsPage({
                         label="Inbox aging (hours)"
                         description="Unread open threads older than this count as aging on the sales dashboard and /inbox?aging=1."
                       >
-                        <Input
-                          type="number"
+                        <NumberField
                           min={1}
                           max={72}
-                          step={1}
                           value={inboxAgingHours}
-                          onChange={(e) =>
-                            setInboxAgingHours(Number(e.target.value))
+                          onChange={(v) =>
+                            setInboxAgingHours(v === '' ? 1 : Number(v))
                           }
                         />
                       </FormField>
@@ -1556,69 +1957,63 @@ export function SettingsPage({
                         label="First-touch target (hours)"
                         description="Optional. When set, the sales dashboard tones median first touch against this (blank = no target)."
                       >
-                        <Input
-                          type="number"
+                        <NumberField
                           min={0.25}
                           max={168}
-                          step={0.25}
+                          integer={false}
                           placeholder="e.g. 4"
                           value={firstTouchTargetHours}
-                          onChange={(e) => setFirstTouchTargetHours(e.target.value)}
+                          onChange={setFirstTouchTargetHours}
                         />
                       </FormField>
                       <FormField
                         label="Lead → quote target (hours)"
                         description="Optional. Tones median lead→quote on the sales dashboard (blank = no target)."
                       >
-                        <Input
-                          type="number"
+                        <NumberField
                           min={0.25}
                           max={720}
-                          step={0.25}
+                          integer={false}
                           placeholder="e.g. 48"
                           value={leadToQuoteTargetHours}
-                          onChange={(e) => setLeadToQuoteTargetHours(e.target.value)}
+                          onChange={setLeadToQuoteTargetHours}
                         />
                       </FormField>
                       <FormField
                         label="FIT build target (minutes)"
                         description="Optional. Tones median FIT build (workspace open → first send) on the sales dashboard (blank = no target)."
                       >
-                        <Input
-                          type="number"
+                        <NumberField
                           min={1}
                           max={1440}
-                          step={1}
                           placeholder="e.g. 30"
                           value={fitBuildTargetMinutes}
-                          onChange={(e) => setFitBuildTargetMinutes(e.target.value)}
+                          onChange={setFitBuildTargetMinutes}
                         />
                       </FormField>
                       <FormField
                         label="Minimum margin %"
                         description="Lines below this margin on sell need below-margin approval before send. 0 = only block sell-below-cost."
                       >
-                        <Input
-                          type="number"
+                        <NumberField
                           min={0}
                           max={100}
-                          step={0.5}
+                          integer={false}
                           value={minMarginPercent}
-                          onChange={(e) =>
-                            setMinMarginPercent(Number(e.target.value))
+                          onChange={(v) =>
+                            setMinMarginPercent(v === '' ? 0 : Number(v))
                           }
                         />
                       </FormField>
                       <FormField label="Share link default (days)">
-                        <Input
-                          type="number"
+                        <NumberField
                           min={1}
                           max={365}
                           value={itinerary.shareLinkDefaultDays}
-                          onChange={(e) =>
+                          onChange={(v) =>
                             setItinerary((prev) => ({
                               ...prev,
-                              shareLinkDefaultDays: Number(e.target.value),
+                              shareLinkDefaultDays: v === '' ? 1 : Number(v),
                             }))
                           }
                         />
@@ -1751,6 +2146,124 @@ export function SettingsPage({
                         />
                       </FormField>
                     </div>
+                    <div className="rounded-xl border border-border/60 pad-panel glass-well space-y-[var(--gap-section)]">
+                      <div>
+                        <div className="text-sm font-medium">Workspace app theme</div>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Default ERP chrome for members who have not set personal Appearance yet.
+                          Personal settings always override this.
+                        </p>
+                      </div>
+                      <div className="grid gap-[var(--gap-section)] sm:grid-cols-2">
+                        <FormField label="Mode">
+                          <div className="grid gap-[var(--field-gap)]">
+                            {APPEARANCE_THEME_OPTIONS.map((option) => (
+                              <button
+                                key={option.value}
+                                type="button"
+                                onClick={() =>
+                                  setOrgAppearance((prev) => ({ ...prev, theme: option.value }))
+                                }
+                                className={cn(
+                                  'rounded-xl border pad-panel text-left text-sm transition-colors',
+                                  orgAppearance.theme === option.value
+                                    ? 'border-primary/50 bg-primary/10'
+                                    : 'border-border/60 hover:bg-muted/30',
+                                )}
+                              >
+                                {option.label}
+                              </button>
+                            ))}
+                          </div>
+                        </FormField>
+                        <FormField label="Color pack">
+                          <div className="grid gap-[var(--field-gap)]">
+                            {COLOR_THEME_OPTIONS.map((option) => (
+                              <button
+                                key={option.id}
+                                type="button"
+                                onClick={() =>
+                                  setOrgAppearance((prev) => ({
+                                    ...prev,
+                                    colorTheme: option.id,
+                                  }))
+                                }
+                                className={cn(
+                                  'flex items-center gap-2 rounded-xl border pad-panel text-left text-sm transition-colors',
+                                  orgAppearance.colorTheme === option.id
+                                    ? 'border-primary/50 bg-primary/10'
+                                    : 'border-border/60 hover:bg-muted/30',
+                                )}
+                              >
+                                <span
+                                  className="size-3.5 shrink-0 rounded-full border border-border/70"
+                                  style={{ backgroundColor: option.swatch }}
+                                  aria-hidden
+                                />
+                                {option.label}
+                              </button>
+                            ))}
+                          </div>
+                          {orgAppearance.colorTheme === 'custom' ? (
+                            <div className="mt-[var(--field-gap)] flex items-center gap-2">
+                              <input
+                                type="color"
+                                value={orgAppearance.customAccent}
+                                onChange={(e) =>
+                                  setOrgAppearance((prev) => ({
+                                    ...prev,
+                                    customAccent: e.target.value,
+                                  }))
+                                }
+                                className="size-9 cursor-pointer rounded-md border border-border/60 bg-transparent p-0.5"
+                                aria-label="Workspace custom accent"
+                              />
+                              <span className="font-mono text-xs text-muted-foreground">
+                                {orgAppearance.customAccent}
+                              </span>
+                            </div>
+                          ) : null}
+                        </FormField>
+                        <FormField label="Glass">
+                          <div className="grid gap-[var(--field-gap)]">
+                            {APPEARANCE_GLASS_OPTIONS.map((option) => (
+                              <button
+                                key={option.value}
+                                type="button"
+                                onClick={() =>
+                                  setOrgAppearance((prev) => ({ ...prev, glass: option.value }))
+                                }
+                                className={cn(
+                                  'rounded-xl border pad-panel text-left text-sm transition-colors',
+                                  orgAppearance.glass === option.value
+                                    ? 'border-primary/50 bg-primary/10'
+                                    : 'border-border/60 hover:bg-muted/30',
+                                )}
+                              >
+                                {option.label}
+                              </button>
+                            ))}
+                          </div>
+                        </FormField>
+                        <FormField label="High contrast">
+                          <div className="flex items-center gap-3 pt-1">
+                            <Switch
+                              checked={orgAppearance.highContrast}
+                              onCheckedChange={(checked) =>
+                                setOrgAppearance((prev) => ({
+                                  ...prev,
+                                  highContrast: checked === true,
+                                }))
+                              }
+                              aria-label="Workspace high contrast default"
+                            />
+                            <span className="text-sm text-muted-foreground">
+                              {orgAppearance.highContrast ? 'On by default' : 'Off by default'}
+                            </span>
+                          </div>
+                        </FormField>
+                      </div>
+                    </div>
                     <ComingSoonNote>
                       Image upload for logo/favicon is coming soon — paste hosted URLs for now.
                     </ComingSoonNote>
@@ -1758,7 +2271,7 @@ export function SettingsPage({
                 ) : null}
 
                 {section === 'business' ? (
-                  <div className="space-y-6">
+                  <div className="flex flex-col gap-[var(--gap-section)]">
                     <div className="grid gap-4 sm:grid-cols-2">
                       <FormField label="Legal name" className="sm:col-span-2">
                         <Input
@@ -1914,12 +2427,11 @@ export function SettingsPage({
                       />
                       <div className="grid gap-4 sm:grid-cols-2">
                         <FormField label="Years of experience">
-                          <Input
-                            type="number"
+                          <NumberField
                             min={1}
                             value={trust.yearsExperience}
-                            onChange={(e) =>
-                              setTrust((prev) => ({ ...prev, yearsExperience: e.target.value }))
+                            onChange={(yearsExperience) =>
+                              setTrust((prev) => ({ ...prev, yearsExperience }))
                             }
                             placeholder="12"
                           />
@@ -1966,29 +2478,27 @@ export function SettingsPage({
                   <>
                     <div className="grid gap-4 sm:grid-cols-2">
                       <FormField label="Session timeout (minutes)">
-                        <Input
-                          type="number"
+                        <NumberField
                           min={15}
                           max={10080}
                           value={security.sessionTimeoutMinutes}
-                          onChange={(e) =>
+                          onChange={(v) =>
                             setSecurity((prev) => ({
                               ...prev,
-                              sessionTimeoutMinutes: Number(e.target.value),
+                              sessionTimeoutMinutes: v === '' ? 15 : Number(v),
                             }))
                           }
                         />
                       </FormField>
                       <FormField label="Minimum password length">
-                        <Input
-                          type="number"
+                        <NumberField
                           min={8}
                           max={128}
                           value={security.passwordMinLength}
-                          onChange={(e) =>
+                          onChange={(v) =>
                             setSecurity((prev) => ({
                               ...prev,
-                              passwordMinLength: Number(e.target.value),
+                              passwordMinLength: v === '' ? 8 : Number(v),
                             }))
                           }
                         />
@@ -2137,15 +2647,14 @@ export function SettingsPage({
                         />
                       </FormField>
                       <FormField label="Data retention (days)">
-                        <Input
-                          type="number"
+                        <NumberField
                           min={30}
                           max={3650}
                           value={privacy.dataRetentionDays}
-                          onChange={(e) =>
+                          onChange={(v) =>
                             setPrivacy((prev) => ({
                               ...prev,
-                              dataRetentionDays: Number(e.target.value),
+                              dataRetentionDays: v === '' ? 30 : Number(v),
                             }))
                           }
                         />
@@ -2178,9 +2687,10 @@ export function SettingsPage({
                 </Can>
               </form>
             )}
+            </SectionStack>
           </CardContent>
         </Card>
       </div>
-    </div>
+    </PageStack>
   );
 }

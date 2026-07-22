@@ -7,6 +7,7 @@ import {
   CardContent,
   Input,
   PageHeader,
+  PublicPageSkeleton,
   StatusBadge,
   toastError,
   toastSuccess,
@@ -90,6 +91,10 @@ export function AcceptInvitePage() {
     }
   }
 
+  if (loading) {
+    return <PublicPageSkeleton />;
+  }
+
   return (
     <div className="mx-auto max-w-lg space-y-6 p-6">
       <PageHeader
@@ -99,9 +104,7 @@ export function AcceptInvitePage() {
       />
       <Card>
         <CardContent className="space-y-4 p-5">
-          {loading ? (
-            <p className="text-sm text-muted-foreground">Loading invitation…</p>
-          ) : !peek ? (
+          {!peek ? (
             <p className="text-sm text-muted-foreground">This invitation is invalid or was revoked.</p>
           ) : !peek.claimable ? (
             <div className="space-y-2">

@@ -5,6 +5,7 @@ import {
   Combobox,
   Input,
   Label,
+  Skeleton,
   StatusBadge,
   toastError,
   toastSuccess,
@@ -174,7 +175,12 @@ export function CollectionsPanel({
         <div className="space-y-3 rounded-xl border p-3">
           <div className="text-sm font-medium">Collections</div>
           {loading ? (
-            <p className="text-xs text-muted-foreground">Loading…</p>
+            <div className="space-y-2" role="status" aria-busy="true">
+              <span className="sr-only">Loading</span>
+              <Skeleton className="h-8 w-full rounded-lg" />
+              <Skeleton className="h-8 w-full rounded-lg" />
+              <Skeleton className="h-8 w-4/5 rounded-lg" />
+            </div>
           ) : (
             <ul className="space-y-1">
               {collections.map((c) => (

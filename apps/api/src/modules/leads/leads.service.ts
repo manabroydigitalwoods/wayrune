@@ -63,6 +63,12 @@ import {
   mapAcquisitionFromIngest,
   resolveIngestChannelKey,
 } from '@wayrune/contracts';
+import {
+  emptyLeadFacets,
+  filtersOmittingFacet,
+  type LeadFacetsResult,
+  type LeadListFilters,
+} from './lead-facets';
 
 /** Prefer E.164-ish storage; fall back to last 10 digits for India mobiles. */
 function normalizeWhatsappPhone(waId: string): string | null {
@@ -160,6 +166,22 @@ export class LeadsService {
       if (autoOwner) ownerId = autoOwner;
     }
 
+    const sourceLabel = input.sourceKey
+      ? input.sourceKey.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+      : null;
+    const followUpAt = input.followUpAt ? new Date(input.followUpAt) : null;
+    const createdBodyLines = ['Lead created'];
+    if (sourceLabel) createdBodyLines.push(`Source: ${sourceLabel}`);
+    if (followUpAt) {
+      createdBodyLines.push(
+        `Follow-up scheduled for ${followUpAt.toLocaleDateString('en-GB', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric',
+        })}`,
+      );
+    }
+
     const lead = await db.lead.create({
       data: {
         organizationId: user.organizationId,
@@ -176,7 +198,7 @@ export class LeadsService {
         phone: input.phone ?? null,
         priority: input.priority,
         tagsJson: input.tags ?? [],
-        followUpAt: input.followUpAt ? new Date(input.followUpAt) : null,
+        followUpAt,
         idempotencyKey: input.idempotencyKey ?? null,
         customFieldsJson: input.customFields
           ? (input.customFields as Prisma.InputJsonValue)
@@ -190,7 +212,7 @@ export class LeadsService {
           create: {
             organizationId: user.organizationId,
             type: 'system',
-            body: 'Lead created',
+            body: createdBodyLines.join('\n'),
             createdBy: user.sub,
           },
         },
@@ -224,34 +246,22 @@ export class LeadsService {
     priority?: string,
     followUp?: string,
     owner?: string,
+    followUpFrom?: string | null,
+    followUpTo?: string | null,
+    sourceKey?: string,
+    campaignId?: string,
   ) {
-    const ownOnly =
-      hasPermission(user.permissions, 'lead.read.own') &&
-      !hasPermission(user.permissions, 'lead.read');
-
-    const where: Prisma.LeadWhereInput = {
-      organizationId: user.organizationId,
-      deletedAt: null,
-      ...(ownOnly || owner === 'me' ? { ownerId: user.sub } : {}),
-      ...(stageKey ? { stage: { key: stageKey } } : {}),
-      ...(priority ? { priority } : {}),
-      ...(followUp === 'overdue'
-        ? {
-            followUpAt: { lt: new Date() },
-            stage: { isWon: false, isLost: false },
-          }
-        : {}),
-      ...(q
-        ? {
-            OR: [
-              { title: { contains: q } },
-              { contactName: { contains: q } },
-              { email: { contains: q } },
-              { phone: { contains: q } },
-            ],
-          }
-        : {}),
-    };
+    const where = this.leadListWhere(user, {
+      stageKey,
+      q,
+      priority,
+      followUp,
+      owner,
+      followUpFrom,
+      followUpTo,
+      sourceKey,
+      campaignId,
+    });
 
     const [items, total] = await Promise.all([
       this.prisma.lead.findMany({
@@ -269,6 +279,190 @@ export class LeadsService {
       this.prisma.lead.count({ where }),
     ]);
     return { items, total, page, pageSize };
+  }
+
+  /**
+   * Cross-filtered facet counts for the Filter menu.
+   * Each dimension is counted with every active filter except that dimension’s own selection.
+   */
+  async facets(user: AuthUser, filters: LeadListFilters): Promise<LeadFacetsResult> {
+    const result = emptyLeadFacets();
+
+    const [
+      sourceRows,
+      stageRows,
+      priorityRows,
+      ownerRows,
+      overdueCount,
+      noneCount,
+      campaignRows,
+      sources,
+      stages,
+    ] = await Promise.all([
+      this.prisma.lead.groupBy({
+        by: ['sourceId'],
+        where: this.leadListWhere(user, filtersOmittingFacet(filters, 'source')),
+        _count: { _all: true },
+      }),
+      this.prisma.lead.groupBy({
+        by: ['stageId'],
+        where: this.leadListWhere(user, filtersOmittingFacet(filters, 'stage')),
+        _count: { _all: true },
+      }),
+      this.prisma.lead.groupBy({
+        by: ['priority'],
+        where: this.leadListWhere(user, filtersOmittingFacet(filters, 'priority')),
+        _count: { _all: true },
+      }),
+      this.prisma.lead.groupBy({
+        by: ['ownerId'],
+        where: this.leadListWhere(user, filtersOmittingFacet(filters, 'owner')),
+        _count: { _all: true },
+      }),
+      this.prisma.lead.count({
+        where: this.leadListWhere(user, {
+          ...filtersOmittingFacet(filters, 'followUp'),
+          followUp: 'overdue',
+        }),
+      }),
+      this.prisma.lead.count({
+        where: this.leadListWhere(user, {
+          ...filtersOmittingFacet(filters, 'followUp'),
+          followUp: 'none',
+        }),
+      }),
+      this.prisma.lead.groupBy({
+        by: ['campaignId'],
+        where: this.leadListWhere(user, filtersOmittingFacet(filters, 'campaign')),
+        _count: { _all: true },
+      }),
+      this.prisma.leadSource.findMany({
+        where: { organizationId: user.organizationId },
+        select: { id: true, key: true },
+      }),
+      this.prisma.pipelineStage.findMany({
+        where: { pipeline: { organizationId: user.organizationId } },
+        select: { id: true, key: true },
+      }),
+    ]);
+
+    const sourceKeyById = new Map(sources.map((s) => [s.id, s.key]));
+    for (const row of sourceRows) {
+      const key = row.sourceId ? sourceKeyById.get(row.sourceId) ?? 'unknown' : 'unknown';
+      result.source[key] = (result.source[key] ?? 0) + row._count._all;
+    }
+
+    const stageKeyById = new Map(stages.map((s) => [s.id, s.key]));
+    for (const row of stageRows) {
+      const key = stageKeyById.get(row.stageId) ?? 'unknown';
+      result.stage[key] = (result.stage[key] ?? 0) + row._count._all;
+    }
+
+    for (const row of priorityRows) {
+      result.priority[row.priority] = row._count._all;
+    }
+
+    for (const row of ownerRows) {
+      if (!row.ownerId) {
+        result.owner.unassigned = (result.owner.unassigned ?? 0) + row._count._all;
+        continue;
+      }
+      result.owner[row.ownerId] = row._count._all;
+      if (row.ownerId === user.sub) {
+        result.owner.me = row._count._all;
+      }
+    }
+
+    if (overdueCount > 0) result.followUp.overdue = overdueCount;
+    if (noneCount > 0) result.followUp.none = noneCount;
+
+    for (const row of campaignRows) {
+      if (!row.campaignId) continue;
+      result.campaign[row.campaignId] = row._count._all;
+    }
+
+    return result;
+  }
+
+  /** Shared list/board filter where — keep Queue Standard filters in sync. */
+  private leadListWhere(
+    user: AuthUser,
+    input: LeadListFilters & {
+      /** When set, board columns already scope by stageId — skip stageKey. */
+      stageId?: string;
+      pipelineId?: string;
+    },
+  ): Prisma.LeadWhereInput {
+    const ownOnly =
+      hasPermission(user.permissions, 'lead.read.own') &&
+      !hasPermission(user.permissions, 'lead.read');
+
+    const openStagesOnly =
+      input.followUp === 'overdue' ||
+      input.followUp === 'none' ||
+      (input.followUp !== 'overdue' &&
+        input.followUp !== 'none' &&
+        Boolean(input.followUpFrom || input.followUpTo));
+
+    const followUpAtFilter =
+      input.followUp === 'overdue'
+        ? { lt: new Date() }
+        : input.followUp === 'none'
+          ? null
+          : input.followUpFrom || input.followUpTo
+            ? {
+                ...(input.followUpFrom && /^\d{4}-\d{2}-\d{2}$/.test(input.followUpFrom)
+                  ? { gte: new Date(`${input.followUpFrom}T00:00:00.000Z`) }
+                  : {}),
+                ...(input.followUpTo && /^\d{4}-\d{2}-\d{2}$/.test(input.followUpTo)
+                  ? { lte: new Date(`${input.followUpTo}T23:59:59.999Z`) }
+                  : {}),
+              }
+            : undefined;
+
+    const stageFilter = (() => {
+      const key = input.stageKey && !input.stageId ? input.stageKey : undefined;
+      if (!key && !openStagesOnly) return undefined;
+      return {
+        ...(key ? { key } : {}),
+        ...(openStagesOnly ? { isWon: false, isLost: false } : {}),
+      };
+    })();
+
+    const ownerFilter = (() => {
+      if (ownOnly) return { ownerId: user.sub };
+      if (!input.owner) return undefined;
+      if (input.owner === 'me') return { ownerId: user.sub };
+      if (input.owner === 'unassigned') return { ownerId: null };
+      return { ownerId: input.owner };
+    })();
+
+    return {
+      organizationId: user.organizationId,
+      deletedAt: null,
+      ...(input.pipelineId ? { pipelineId: input.pipelineId } : {}),
+      ...(input.stageId ? { stageId: input.stageId } : {}),
+      ...(ownerFilter ?? {}),
+      ...(stageFilter ? { stage: stageFilter } : {}),
+      ...(input.priority ? { priority: input.priority } : {}),
+      ...(followUpAtFilter === null
+        ? { followUpAt: null }
+        : followUpAtFilter
+          ? { followUpAt: followUpAtFilter }
+          : {}),
+      ...(input.sourceKey ? { source: { key: input.sourceKey } } : {}),
+      ...(input.campaignId ? { campaignId: input.campaignId } : {}),
+      ...(input.q
+        ? {
+            OR: [
+              { title: { contains: input.q } },
+              { contactName: { contains: input.q } },
+              { email: { contains: input.q } },
+              { phone: { contains: input.q } },
+            ],
+          }
+        : {}),
+    };
   }
 
   async get(user: AuthUser, id: string) {
@@ -292,6 +486,8 @@ export class LeadsService {
             travelType: true,
             domesticOrIntl: true,
             origin: true,
+            originPlaceId: true,
+            originJson: true,
             destinationsJson: true,
             startDate: true,
             endDate: true,
@@ -821,22 +1017,35 @@ export class LeadsService {
     return activity;
   }
 
-  async pipelineBoard(user: AuthUser, pageSize = 10) {
+  async pipelineBoard(
+    user: AuthUser,
+    pageSize = 10,
+    filters?: {
+      stageKey?: string;
+      q?: string;
+      priority?: string;
+      followUp?: string;
+      owner?: string;
+      followUpFrom?: string | null;
+      followUpTo?: string | null;
+      sourceKey?: string;
+      campaignId?: string;
+    },
+  ) {
     const pipeline = await this.defaultPipeline(user.organizationId);
-    const ownOnly =
-      hasPermission(user.permissions, 'lead.read.own') &&
-      !hasPermission(user.permissions, 'lead.read');
-
-    const baseWhere: Prisma.LeadWhereInput = {
-      organizationId: user.organizationId,
-      deletedAt: null,
-      pipelineId: pipeline.id,
-      ...(ownOnly ? { ownerId: user.sub } : {}),
-    };
+    const stages = filters?.stageKey
+      ? pipeline.stages.filter((s) => s.key === filters.stageKey)
+      : pipeline.stages;
 
     const columns = await Promise.all(
-      pipeline.stages.map(async (stage) => {
-        const where: Prisma.LeadWhereInput = { ...baseWhere, stageId: stage.id };
+      stages.map(async (stage) => {
+        const where = this.leadListWhere(user, {
+          ...filters,
+          stageId: stage.id,
+          pipelineId: pipeline.id,
+          // Column already scopes stage — don't also apply stageKey
+          stageKey: undefined,
+        });
         const [leads, total] = await Promise.all([
           this.prisma.lead.findMany({
             where,

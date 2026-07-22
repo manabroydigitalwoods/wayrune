@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ImagePlus, Loader2, Upload } from 'lucide-react';
-import { Button, Input, Label, RecordSheet, cn } from '@wayrune/ui';
+import { Button, Input, Label, RecordSheet, Skeleton, cn } from '@wayrune/ui';
 import { api, apiUpload } from '../../../api';
 import { presencePublicMediaUrl } from './helpers';
 import type { Identity } from './types';
@@ -185,9 +185,15 @@ export function MediaPickerDialog({
         </div>
         {error ? <p className="text-xs text-destructive">{error}</p> : null}
         {loading ? (
-          <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
-            <Loader2 className="mr-2 size-4 animate-spin" />
-            Loading…
+          <div
+            role="status"
+            aria-busy="true"
+            className="grid max-h-72 grid-cols-3 gap-2 sm:grid-cols-4"
+          >
+            <span className="sr-only">Loading</span>
+            {Array.from({ length: 8 }, (_, i) => (
+              <Skeleton key={i} className="aspect-square w-full rounded-md" />
+            ))}
           </div>
         ) : (
           <div className="grid max-h-72 grid-cols-3 gap-2 overflow-y-auto sm:grid-cols-4">

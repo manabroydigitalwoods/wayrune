@@ -2,6 +2,7 @@ import * as React from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { isPortaledOverlayTarget } from '../../lib/portaled-overlay';
 
 const Dialog = DialogPrimitive.Root;
 const DialogTrigger = DialogPrimitive.Trigger;
@@ -23,7 +24,7 @@ DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
->(({ className, children, ...props }, ref) => (
+>(({ className, children, onInteractOutside, ...props }, ref) => (
   <DialogPortal>
     <DialogOverlay />
     <DialogPrimitive.Content
@@ -32,10 +33,17 @@ const DialogContent = React.forwardRef<
         'fixed left-1/2 top-1/2 z-[220] flex w-full max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border p-0 shadow-xl glass-strong dialog-content-animate',
         className,
       )}
+      onInteractOutside={(e) => {
+        if (isPortaledOverlayTarget(e.target)) {
+          e.preventDefault();
+          return;
+        }
+        onInteractOutside?.(e);
+      }}
       {...props}
     >
       {children}
-      <DialogPrimitive.Close className="absolute right-4 top-4 z-10 rounded-lg p-1 opacity-70 transition-opacity hover:bg-primary/10 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring">
+      <DialogPrimitive.Close className="absolute right-[var(--dialog-pad-x)] top-[var(--dialog-pad-y)] z-10 rounded-lg p-1 opacity-70 transition-opacity hover:bg-primary/10 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring">
         <X className="h-4 w-4" />
         <span className="sr-only">Close</span>
       </DialogPrimitive.Close>
@@ -48,7 +56,7 @@ function DialogHeader({ className, ...props }: React.HTMLAttributes<HTMLDivEleme
   return (
     <div
       className={cn(
-        'flex flex-col gap-1.5 border-b border-white/40 px-6 py-5 pr-12 text-left dark:border-white/10',
+        'flex flex-col gap-[var(--field-gap)] border-b border-white/40 px-[var(--dialog-pad-x)] py-[var(--dialog-pad-y)] pr-12 text-left dark:border-white/10',
         className,
       )}
       {...props}
@@ -60,7 +68,7 @@ function DialogFooter({ className, ...props }: React.HTMLAttributes<HTMLDivEleme
   return (
     <div
       className={cn(
-        'flex flex-col-reverse gap-2 border-t border-white/40 px-6 py-4 sm:flex-row sm:justify-end dark:border-white/10',
+        'flex flex-col-reverse gap-[var(--field-gap)] border-t border-white/40 px-[var(--dialog-pad-x)] py-[var(--dialog-pad-y)] sm:flex-row sm:justify-end dark:border-white/10',
         className,
       )}
       {...props}
@@ -69,7 +77,7 @@ function DialogFooter({ className, ...props }: React.HTMLAttributes<HTMLDivEleme
 }
 
 function DialogBody({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn('min-h-0 flex-1 overflow-y-auto px-6 py-4', className)} {...props} />;
+  return <div className={cn('min-h-0 flex-1 overflow-y-auto px-[var(--dialog-pad-x)] py-[var(--dialog-pad-y)]', className)} {...props} />;
 }
 
 const DialogTitle = React.forwardRef<
@@ -78,7 +86,7 @@ const DialogTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Title
     ref={ref}
-    className={cn('font-display text-lg font-semibold leading-none tracking-tight', className)}
+    className={cn('font-display text-base font-semibold leading-none tracking-tight', className)}
     {...props}
   />
 ));

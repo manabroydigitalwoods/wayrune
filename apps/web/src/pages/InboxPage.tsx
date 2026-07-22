@@ -1,7 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { useOrgNavigate } from '../hooks/useOrgNavigate';
-import { Inbox, MessagesSquare, MoreHorizontal, Phone, Plus, Send, Sparkles } from 'lucide-react';
+import {
+  Inbox,
+  LayoutList,
+  MessageCircle,
+  MessagesSquare,
+  MoreHorizontal,
+  Phone,
+  Plus,
+  Search,
+  Send,
+  Sparkles,
+  UserRound,
+  X,
+} from 'lucide-react';
 import {
   Avatar,
   AvatarFallback,
@@ -17,10 +30,13 @@ import {
   EmptyState,
   EntityCombobox,
   Input,
-  ListPageShell,
-  PageHeader,
+  ListPageSkeleton,
+  PageSkeleton,
+  SectionStack,
+  Skeleton,
   PhoneInput,
   RecordSheet,
+  FormGrid,
   SimpleFormField as FormField,
   StatusBadge,
   Textarea,
@@ -30,6 +46,7 @@ import {
   splitPhone,
   toastError,
   toastSuccess,
+  usePageChrome,
   type ComboboxOption,
 } from '@wayrune/ui';
 import { api } from '../api';
@@ -41,7 +58,24 @@ import { formatWhatsappSessionCue } from '../lib/whatsappSessionCue';
 import { inboxAgingFilterLabel } from '../lib/inboxAgingLabel';
 import { useSalesCrmSla } from '../hooks/useSalesCrmSla';
 import { usePermissions } from '../lib/permissions';
-import { SalesCrmSlaStrip } from '../components/agency/SalesCrmSlaStrip';
+import {
+  ActiveFilterChips,
+  AttentionPresets,
+  FilterMenu,
+  QUEUE_MENU_ITEM_CLASS,
+  QUEUE_PAGE_SEARCH_CLASS,
+  QueuePageChrome,
+  QueueViewToggle,
+} from '../components/queue';
+import {
+  filterThreadRowsByQuery,
+  inboxListApiQuery,
+  inboxQueryHasFilters,
+  inboxThreadsApiQuery,
+  parseInboxQueryState,
+  patchInboxQueryParams,
+  type InboxQueryState,
+} from '../lib/queue';
 import {
   inboxChannelReplyReady,
   inboxComposerBlockedMessage,
@@ -63,6 +97,7 @@ type InboxRow = {
     direction?: string;
     text?: string | null;
     message?: string | null;
+    destinations?: string | null;
     widgetMode?: string | null;
     widgetId?: string | null;
     widgetName?: string | null;
@@ -315,14 +350,9 @@ export function InboxPage() {
   const agingFilterLabel = inboxAgingFilterLabel(salesSla?.inboxAgingHours);
   const [searchParams, setSearchParams] = useSearchParams();
   const openTravelRequest = useTravelRequestLauncher();
-  const channelFromUrl = searchParams.get('channel') || '';
-  const [channel, setChannel] = useState(channelFromUrl);
-  const [ownership, setOwnership] = useState<'all' | 'mine' | 'unassigned'>('all');
-  const [unreadOnly, setUnreadOnly] = useState(
-    () => searchParams.get('unread') === '1' || searchParams.get('aging') === '1',
-  );
-  const [agingOnly, setAgingOnly] = useState(() => searchParams.get('aging') === '1');
-  const [pendingOnly, setPendingOnly] = useState(true);
+  const query = useMemo(() => parseInboxQueryState(searchParams), [searchParams]);
+  const [searchDraft, setSearchDraft] = useState(query.q ?? '');
+  const pendingOnly = query.pendingOnly !== false;
   const [items, setItems] = useState<InboxRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [acquisitionOptions, setAcquisitionOptions] = useState(
@@ -343,7 +373,6 @@ export function InboxPage() {
     byChannel: Array<{ channel: string; count: number }>;
   } | null>(null);
 
-  const [view, setView] = useState<'inbox' | 'threads'>('threads');
   const [threads, setThreads] = useState<ThreadRow[]>([]);
   const [threadsLoading, setThreadsLoading] = useState(false);
   const [activeThreadKey, setActiveThreadKey] = useState<string | null>(null);
@@ -358,7 +387,6 @@ export function InboxPage() {
     readStoredWidth(INBOX_DETAIL_WIDTH_KEY, INBOX_DETAIL_WIDTH_DEFAULT, 200, 420),
   );
   const [conversationDetail, setConversationDetail] = useState<ConversationDetail | null>(null);
-  const [queue, setQueue] = useState<'all' | 'assigned' | 'waiting' | 'follow_up'>('all');
   const [channelUnread, setChannelUnread] = useState<Array<{ channel: string; unread: number }>>(
     [],
   );
@@ -371,6 +399,9 @@ export function InboxPage() {
 
   const [logOpen, setLogOpen] = useState(false);
   const [logSaving, setLogSaving] = useState(false);
+  const [callLogOpen, setCallLogOpen] = useState(false);
+  const [callLogNotes, setCallLogNotes] = useState('');
+  const [callLogSaving, setCallLogSaving] = useState(false);
   const [logForm, setLogForm] = useState({
     channel: 'whatsapp' as (typeof LOG_CHANNELS)[number]['value'],
     contactName: '',
@@ -447,58 +478,33 @@ export function InboxPage() {
     thread: ThreadRow;
   } | null>(null);
 
+  function applyQuery(patch: Parameters<typeof patchInboxQueryParams>[1]) {
+    setSearchParams(patchInboxQueryParams(searchParams, patch), { replace: true });
+  }
+
+  function changeView(next: InboxQueryState['view']) {
+    applyQuery({ view: next });
+  }
+
   useEffect(() => {
-    const next = searchParams.get('channel') || '';
-    setChannel(next);
-    const unread = searchParams.get('unread') === '1' || searchParams.get('aging') === '1';
-    const aging = searchParams.get('aging') === '1';
-    setUnreadOnly(unread);
-    setAgingOnly(aging);
-  }, [searchParams]);
+    setSearchDraft(query.q ?? '');
+  }, [query.q]);
 
-  function selectChannel(value: string) {
-    setChannel(value);
-    const next = new URLSearchParams(searchParams);
-    if (value) next.set('channel', value);
-    else next.delete('channel');
-    setSearchParams(next, { replace: true });
-  }
-
-  function setUnreadFilter(nextUnread: boolean) {
-    setUnreadOnly(nextUnread);
-    if (!nextUnread) setAgingOnly(false);
-    const next = new URLSearchParams(searchParams);
-    if (nextUnread) next.set('unread', '1');
-    else {
-      next.delete('unread');
-      next.delete('aging');
-    }
-    setSearchParams(next, { replace: true });
-  }
-
-  function setAgingFilter(nextAging: boolean) {
-    setAgingOnly(nextAging);
-    if (nextAging) setUnreadOnly(true);
-    const next = new URLSearchParams(searchParams);
-    if (nextAging) {
-      next.set('unread', '1');
-      next.set('aging', '1');
-    } else {
-      next.delete('aging');
-    }
-    setSearchParams(next, { replace: true });
-  }
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      const next = searchDraft.trim();
+      if ((query.q ?? '') === next) return;
+      applyQuery({ q: next || undefined });
+    }, 300);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce draft only
+  }, [searchDraft]);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams({ pageSize: '50' });
-      if (channel) params.set('channel', channel);
-      if (unreadOnly) params.set('unread', '1');
-      if (agingOnly) params.set('aging', '1');
-      if (pendingOnly) params.set('outcome', 'pending');
-      if (ownership !== 'all') params.set('ownership', ownership);
-      const res = await api<{ items: InboxRow[] }>(`/interactions?${params}`);
+      const qs = inboxListApiQuery(query, { pageSize: 50 });
+      const res = await api<{ items: InboxRow[] }>(`/interactions?${qs}`);
       setItems(res.items);
     } catch (e) {
       reportError(e, 'Could not load inbox');
@@ -506,7 +512,7 @@ export function InboxPage() {
     } finally {
       setLoading(false);
     }
-  }, [channel, unreadOnly, agingOnly, pendingOnly, ownership]);
+  }, [query]);
 
   useEffect(() => {
     void load();
@@ -546,29 +552,24 @@ export function InboxPage() {
   const loadThreads = useCallback(async (opts?: { quiet?: boolean }) => {
     if (!opts?.quiet) setThreadsLoading(true);
     try {
-      const params = new URLSearchParams({ pageSize: '50' });
-      if (channel) params.set('channel', channel);
-      if (unreadOnly) params.set('unread', '1');
-      if (agingOnly) params.set('aging', '1');
-      if (ownership !== 'all') params.set('ownership', ownership);
-      if (queue !== 'all') params.set('queue', queue);
-      const res = await api<{ items: ThreadRow[] }>(`/interactions/threads?${params}`);
-      setThreads(res.items);
+      const qs = inboxThreadsApiQuery(query, { pageSize: 50 });
+      const res = await api<{ items: ThreadRow[] }>(`/interactions/threads?${qs}`);
+      setThreads(filterThreadRowsByQuery(res.items, query.q));
     } catch (e) {
       reportError(e, 'Could not load conversations');
       if (!opts?.quiet) setThreads([]);
     } finally {
       if (!opts?.quiet) setThreadsLoading(false);
     }
-  }, [channel, unreadOnly, agingOnly, ownership, queue]);
+  }, [query]);
 
   useEffect(() => {
-    if (view === 'threads') void loadThreads();
-  }, [view, loadThreads]);
+    if (query.view === 'threads') void loadThreads();
+  }, [query.view, loadThreads]);
 
   /** Live inbox: auto-refresh conversations + open thread; sound on new inbound. */
   useEffect(() => {
-    if (view !== 'threads') return;
+    if (query.view !== 'threads') return;
     inboxPollPrimedRef.current = false;
     knownMessageIdsRef.current = new Set();
 
@@ -616,7 +617,7 @@ export function InboxPage() {
     }, 3000);
     void tick();
     return () => window.clearInterval(id);
-  }, [view, loadThreads, channel, unreadOnly, agingOnly, ownership, queue]);
+  }, [query.view, loadThreads, query.channel, query.unread, query.aging, query.ownership, query.queue]);
 
   useEffect(() => {
     // Reset sound priming when switching conversations so we don't ding for history.
@@ -733,14 +734,23 @@ export function InboxPage() {
     }
   }
 
-  async function logPhoneCall() {
-    const notes = window.prompt('Call notes');
-    if (!notes?.trim()) return;
+  function openLogCall() {
+    setCallLogNotes('');
+    setCallLogOpen(true);
+  }
+
+  async function submitLogCall() {
+    const notes = callLogNotes.trim();
+    if (!notes) {
+      toastError('Add a short note about the call');
+      return;
+    }
+    setCallLogSaving(true);
     try {
       await api('/interactions/phone', {
         method: 'POST',
         body: JSON.stringify({
-          summary: notes.trim(),
+          summary: notes,
           direction: 'inbound',
           conversationId: conversationDetail?.id ?? null,
           partyId: conversationDetail?.party?.id ?? null,
@@ -749,10 +759,13 @@ export function InboxPage() {
         }),
       });
       toastSuccess('Phone call logged');
+      setCallLogOpen(false);
       if (activeThreadKey) await refreshActiveThreadQuietly();
       else await loadThreads();
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Could not log call');
+    } finally {
+      setCallLogSaving(false);
     }
   }
 
@@ -792,58 +805,121 @@ export function InboxPage() {
     return `${analytics.total} conversations in the last 30 days`;
   }, [analytics]);
 
-  const channelOptions = useMemo<ComboboxOption[]>(
+  const channelFilterOptions = useMemo(
     () =>
-      CHANNEL_FILTERS.map((f) => {
+      CHANNEL_FILTERS.filter((f) => f.value).map((f) => {
         const unread = channelUnread.find((c) => c.channel === f.value)?.unread;
-        return {
-          value: f.value || 'all',
-          label: unread ? `${f.label} (${unread})` : f.label,
-        };
+        return { value: f.value, label: f.label, countLabel: unread ? String(unread) : undefined };
       }),
     [channelUnread],
   );
 
-  const queueOptions = useMemo<ComboboxOption[]>(
-    () => QUEUE_FILTERS.map((f) => ({ value: f.value, label: f.label })),
+  const queueFilterOptions = useMemo(
+    () => QUEUE_FILTERS.filter((f) => f.value !== 'all').map((f) => ({ value: f.value, label: f.label })),
     [],
   );
 
-  const ownerOptions = useMemo<ComboboxOption[]>(
+  const filterDefs = useMemo(
     () => [
-      { value: 'all', label: 'Everyone' },
-      { value: 'unassigned', label: 'Unassigned' },
-      { value: 'mine', label: 'Assigned to me' },
+      {
+        id: 'channel',
+        label: 'Channel',
+        icon: MessageCircle,
+        value: query.channel ?? null,
+        options: channelFilterOptions,
+        onSelect: (value: string | null) => applyQuery({ channel: value || undefined }),
+      },
+      {
+        id: 'owner',
+        label: 'Owner',
+        icon: UserRound,
+        value: query.ownership ?? null,
+        options: [
+          { value: 'mine', label: 'Assigned to me' },
+          { value: 'unassigned', label: 'Unassigned' },
+        ],
+        onSelect: (value: string | null) =>
+          applyQuery({ ownership: (value as InboxQueryState['ownership']) || undefined }),
+      },
+      ...(query.view === 'threads'
+        ? [
+            {
+              id: 'queue',
+              label: 'Queue',
+              icon: LayoutList,
+              value: query.queue ?? null,
+              options: queueFilterOptions,
+              onSelect: (value: string | null) =>
+                applyQuery({ queue: (value as InboxQueryState['queue']) || undefined }),
+            },
+          ]
+        : []),
     ],
-    [],
+    [query.channel, query.ownership, query.queue, query.view, channelFilterOptions, queueFilterOptions],
   );
 
-  const filtersActive =
-    Boolean(channel) ||
-    ownership !== 'all' ||
-    unreadOnly ||
-    agingOnly ||
-    (view === 'inbox' && !pendingOnly) ||
-    (view === 'threads' && queue !== 'all');
+  const filterChips = [
+    query.channel
+      ? {
+          id: 'channel',
+          label: `Channel: ${channelLabel(query.channel)}`,
+          onRemove: () => applyQuery({ channel: undefined }),
+        }
+      : null,
+    query.ownership
+      ? {
+          id: 'owner',
+          label: query.ownership === 'mine' ? 'Owner: Me' : 'Owner: Unassigned',
+          onRemove: () => applyQuery({ ownership: undefined }),
+        }
+      : null,
+    query.view === 'threads' && query.queue
+      ? {
+          id: 'queue',
+          label: `Queue: ${QUEUE_FILTERS.find((f) => f.value === query.queue)?.label ?? query.queue}`,
+          onRemove: () => applyQuery({ queue: undefined }),
+        }
+      : null,
+    query.view === 'inbox' && !pendingOnly
+      ? {
+          id: 'pending',
+          label: 'All outcomes',
+          onRemove: () => applyQuery({ pendingOnly: true }),
+        }
+      : null,
+  ].filter(Boolean) as Array<{ id: string; label: string; onRemove: () => void }>;
+
+  const attentionPresets = [
+    {
+      id: 'unread',
+      label: 'unread',
+      count: salesSla?.inboxUnreadThreads ?? 0,
+      active: Boolean(query.unread),
+      tone: 'info' as const,
+      onClick: () => applyQuery({ unread: !query.unread }),
+    },
+    {
+      id: 'aging',
+      label: agingFilterLabel.toLowerCase(),
+      count: salesSla?.inboxAgingUnreadThreads ?? 0,
+      active: Boolean(query.aging),
+      tone: 'danger' as const,
+      onClick: () => applyQuery({ aging: !query.aging }),
+    },
+  ];
 
   function clearFilters() {
-    selectChannel('');
-    setOwnership('all');
-    setUnreadOnly(false);
-    setAgingOnly(false);
-    setPendingOnly(true);
-    setQueue('all');
-    const next = new URLSearchParams(searchParams);
-    next.delete('unread');
-    next.delete('aging');
-    next.delete('channel');
-    setSearchParams(next, { replace: true });
+    applyQuery({ clearFilters: true });
   }
 
   function startTravelRequest(row?: InboxRow) {
     const campaignId =
       row?.rawPayloadJson && typeof row.rawPayloadJson.campaignId === 'string'
         ? row.rawPayloadJson.campaignId
+        : undefined;
+    const destinationText =
+      row?.rawPayloadJson && typeof row.rawPayloadJson.destinations === 'string'
+        ? row.rawPayloadJson.destinations.trim() || undefined
         : undefined;
     openTravelRequest(
       row
@@ -854,6 +930,7 @@ export function InboxPage() {
             partyId: row.party?.id,
             partyLabel: row.party?.displayName,
             campaignId,
+            destinationText,
           }
         : {
             channelKey: 'phone',
@@ -1065,7 +1142,7 @@ export function InboxPage() {
       setReplyRow(null);
       setReplyText('');
       setComposerText('');
-      if (view === 'threads' && activeThreadKey) {
+      if (query.view === 'threads' && activeThreadKey) {
         await refreshActiveThreadQuietly();
       } else {
         await load();
@@ -1407,212 +1484,161 @@ export function InboxPage() {
     }
   }
 
-  return (
-    <ListPageShell fill className="gap-0">
-      <div className="shrink-0 space-y-3 pb-3">
-      <PageHeader
-        icon={Inbox}
-        title="Inbox"
-        subtitle={subtitle}
-        actions={
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" onClick={() => void logPhoneCall()}>
-              <Phone className="size-4" />
-              Log call
-            </Button>
-            <Button type="button" variant="outline" onClick={openLogTouch}>
-              Log message
-            </Button>
-            <Button type="button" onClick={() => startTravelRequest()}>
-              <Plus className="size-4" />
-              New travel request
-            </Button>
-          </div>
-        }
-      />
+  usePageChrome({ title: 'Inbox', subtitle });
 
-      {connectorReadiness?.banners.length ? (
-        <div className="space-y-2">
-          {connectorReadiness.banners.slice(0, 3).map((banner) => (
-            <p
-              key={banner.channel}
-              className={cn(
-                'rounded-md px-3 py-2 text-sm',
-                banner.tone === 'warn'
-                  ? 'border border-amber-500/40 bg-amber-500/10 text-amber-950 dark:text-amber-100'
-                  : 'border border-border/60 bg-muted/30 text-muted-foreground',
-              )}
-            >
-              {banner.message}{' '}
-              <button
-                type="button"
-                className="font-medium text-foreground underline underline-offset-2"
-                onClick={() => navigate(AGENCY_ROUTES.settingsIntegrations)}
-              >
-                Open Integrations
-              </button>
-            </p>
-          ))}
-        </div>
-      ) : null}
-
-      <SalesCrmSlaStrip
-        enabled={showSalesSla}
-        highlight={agingOnly ? 'inboxAging' : unreadOnly ? 'inboxUnread' : undefined}
-      />
-
-      <div className="space-y-3">
-        <div
-          className="inline-flex rounded-xl border border-border/70 bg-muted/20 p-1"
-          role="tablist"
-          aria-label="Inbox view"
-        >
-          {(
-            [
-              { value: 'threads', label: 'Conversations', icon: MessagesSquare },
-              { value: 'inbox', label: 'All messages', icon: Inbox },
-            ] as const
-          ).map((v) => (
-            <button
-              key={v.value}
-              type="button"
-              role="tab"
-              aria-selected={view === v.value}
-              onClick={() => setView(v.value)}
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium transition-colors',
-                view === v.value
-                  ? 'bg-background text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <v.icon className="size-3.5" />
-              {v.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-          {view === 'threads' ? (
-            <Combobox
-              className="h-9 w-full sm:w-[11.5rem]"
-              value={queue}
-              onChange={(value) => setQueue((value || 'all') as typeof queue)}
-              placeholder="Needs attention"
-              searchPlaceholder="Filter queue…"
-              options={queueOptions}
-            />
-          ) : null}
-          <Combobox
-            className="h-9 w-full sm:w-[12rem]"
-            value={channel || 'all'}
-            onChange={(value) => selectChannel(value === 'all' ? '' : value)}
-            placeholder="Channel"
-            searchPlaceholder="Find channel…"
-            options={channelOptions}
-          />
-          <Combobox
-            className="h-9 w-full sm:w-[11.5rem]"
-            value={ownership}
-            onChange={(value) =>
-              setOwnership((value || 'all') as 'all' | 'mine' | 'unassigned')
-            }
-            placeholder="Owner"
-            searchPlaceholder="Filter owner…"
-            options={ownerOptions}
-          />
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setUnreadFilter(!unreadOnly)}
-              className={cn(
-                'rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors',
-                unreadOnly
-                  ? 'border-primary/40 bg-primary/10 text-primary'
-                  : 'border-border/70 bg-background text-muted-foreground hover:text-foreground',
-              )}
-            >
-              Unread only
-            </button>
-            <button
-              type="button"
-              onClick={() => setAgingFilter(!agingOnly)}
-              className={cn(
-                'rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors',
-                agingOnly
-                  ? 'border-primary/40 bg-primary/10 text-primary'
-                  : 'border-border/70 bg-background text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {agingFilterLabel}
-            </button>
-            {view === 'inbox' ? (
-              <button
-                type="button"
-                onClick={() => setPendingOnly((v) => !v)}
-                className={cn(
-                  'rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors',
-                  pendingOnly
-                    ? 'border-primary/40 bg-primary/10 text-primary'
-                    : 'border-border/70 bg-background text-muted-foreground hover:text-foreground',
-                )}
-              >
-                Needs reply
-              </button>
-            ) : null}
-            {filtersActive ? (
-              <Button type="button" variant="ghost" size="sm" onClick={clearFilters}>
-                Clear filters
-              </Button>
-            ) : null}
-          </div>
-        </div>
-
-        {channelUnread.length > 0 ? (
-          <p className="text-xs text-muted-foreground">
-            Unread:{' '}
-            {channelUnread.slice(0, 4).map((c, i) => (
-              <span key={c.channel}>
-                {i > 0 ? ' · ' : null}
-                <button
-                  type="button"
-                  className="font-medium text-foreground underline-offset-2 hover:underline"
-                  onClick={() => {
-                    selectChannel(c.channel);
-                    setView('threads');
-                  }}
-                >
-                  {channelLabel(c.channel)} ({c.unread})
-                </button>
-              </span>
-            ))}
-          </p>
+  const queueToolbar = (
+    <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+      <div className="relative min-w-[12rem] flex-1 basis-[14rem]">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 size-[0.875em] -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={searchDraft}
+          onChange={(e) => setSearchDraft(e.target.value)}
+          placeholder={query.view === 'threads' ? 'Search conversations…' : 'Search messages…'}
+          className={cn(QUEUE_PAGE_SEARCH_CLASS, searchDraft.trim() && 'pr-8')}
+          aria-label="Search inbox"
+        />
+        {searchDraft.trim() ? (
+          <button
+            type="button"
+            className="absolute right-1.5 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+            aria-label="Clear search"
+            onClick={() => {
+              setSearchDraft('');
+              applyQuery({ q: '' });
+            }}
+          >
+            <X className="size-3.5" />
+          </button>
         ) : null}
       </div>
+      <div className="flex flex-wrap items-center gap-1">
+        <FilterMenu filters={filterDefs} />
+        {query.view === 'inbox' ? (
+          <button
+            type="button"
+            onClick={() => applyQuery({ pendingOnly: !pendingOnly })}
+            className={cn(
+              'inline-flex h-[var(--control-h)] items-center rounded-md border px-[var(--control-px-sm)] text-[length:var(--control-text-sm)] font-medium transition-colors',
+              pendingOnly
+                ? 'border-primary/40 bg-primary/10 text-primary'
+                : 'border-border/70 bg-background text-muted-foreground hover:text-foreground',
+            )}
+          >
+            Needs reply
+          </button>
+        ) : null}
       </div>
+    </div>
+  );
 
-      {view === 'threads' ? (
+  return (
+    <QueuePageChrome
+      viewToggle={
+        <QueueViewToggle
+          value={query.view}
+          onChange={(id) => changeView(id as InboxQueryState['view'])}
+          options={[
+            {
+              id: 'threads',
+              label: 'Conversations',
+              icon: <MessagesSquare className="size-[0.875em]" />,
+            },
+            { id: 'inbox', label: 'All messages', icon: <Inbox className="size-[0.875em]" /> },
+          ]}
+        />
+      }
+      attention={showSalesSla ? <AttentionPresets presets={attentionPresets} /> : null}
+      primaryActions={
+        <Button type="button" size="sm" onClick={() => startTravelRequest()}>
+          <Plus className="size-[0.875em]" />
+          New travel request
+        </Button>
+      }
+      moreMenu={
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              className="size-[var(--control-h-sm)]"
+              aria-label="More actions"
+            >
+              <MoreHorizontal className="size-[0.875em]" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-52 p-1">
+            <DropdownMenuLabel className="text-[length:var(--control-text-sm)]">More</DropdownMenuLabel>
+            <DropdownMenuItem className={QUEUE_MENU_ITEM_CLASS} onClick={openLogCall}>
+              <Phone />
+              Log call
+            </DropdownMenuItem>
+            <DropdownMenuItem className={QUEUE_MENU_ITEM_CLASS} onClick={openLogTouch}>
+              <MessagesSquare />
+              Log message
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      }
+      error={
+        connectorReadiness?.banners.length ? (
+          <div className="space-y-1">
+            {connectorReadiness.banners.slice(0, 3).map((banner) => (
+              <p
+                key={banner.channel}
+                className={cn(
+                  'rounded-md px-2 py-1 text-xs leading-snug',
+                  banner.tone === 'warn'
+                    ? 'border border-amber-500/40 bg-amber-500/10 text-amber-950 dark:text-amber-100'
+                    : 'border border-border/60 bg-muted/30 text-muted-foreground',
+                )}
+              >
+                {banner.message}{' '}
+                <button
+                  type="button"
+                  className="font-medium text-foreground underline underline-offset-2"
+                  onClick={() => navigate(AGENCY_ROUTES.settingsIntegrations)}
+                >
+                  Open Integrations
+                </button>
+              </p>
+            ))}
+          </div>
+        ) : null
+      }
+      toolbar={queueToolbar}
+      chips={
+        <ActiveFilterChips
+          chips={filterChips}
+          onClear={inboxQueryHasFilters(query) ? clearFilters : undefined}
+        />
+      }
+    >
+      <div className="flex min-h-0 flex-1 basis-0 flex-col overflow-hidden">
+      {query.view === 'threads' ? (
         threadsLoading && threads.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <PageSkeleton variant="split" className="min-h-0 flex-1" />
         ) : threads.length === 0 ? (
+          <div className="flex min-h-0 flex-1 items-center justify-center">
           <EmptyState
             icon={MessagesSquare}
             title="No conversations yet"
             description="When a customer messages you on WhatsApp, web, Google, or phone, it shows up here. Start by logging a call or a message."
             action={
               <div className="flex flex-wrap justify-center gap-2">
-                <Button type="button" variant="outline" onClick={() => void logPhoneCall()}>
+                <Button type="button" size="sm" variant="outline" onClick={openLogCall}>
                   Log call
                 </Button>
-                <Button type="button" onClick={openLogTouch}>
+                <Button type="button" size="sm" onClick={openLogTouch}>
                   Log message
                 </Button>
               </div>
             }
           />
+          </div>
         ) : (
           <div
-            className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border/60 bg-background lg:flex-row"
+            className="flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border/60 bg-background lg:flex-row"
             style={
               {
                 '--inbox-list-w': `${inboxListWidth}px`,
@@ -1621,7 +1647,7 @@ export function InboxPage() {
             }
           >
             <ul
-              className="min-h-0 max-h-[40%] divide-y divide-border/50 overflow-y-auto border-b border-border/60 lg:max-h-none lg:w-[var(--inbox-list-w)] lg:shrink-0 lg:border-b-0"
+              className="min-h-0 max-h-[40%] divide-y divide-border/50 overflow-y-auto border-b border-border/60 lg:h-full lg:max-h-none lg:w-[var(--inbox-list-w)] lg:shrink-0 lg:border-b-0 lg:border-r"
             >              {threads.map((thread) => {
                 const selected = activeThreadKey === thread.key;
                 return (
@@ -1635,13 +1661,13 @@ export function InboxPage() {
                         setThreadMenu({ x: e.clientX, y: e.clientY, thread });
                       }}
                       className={cn(
-                        'flex w-full min-w-0 items-center gap-3 px-3 py-3 text-left transition-colors',
+                        'flex w-full min-w-0 items-center gap-2 px-2.5 py-2 text-left transition-colors',
                         selected ? 'bg-primary/10' : 'hover:bg-muted/40',
                         thread.unreadCount > 0 && !selected && 'bg-primary/[0.04]',
                       )}
                     >
-                      <Avatar className="size-11 shrink-0">
-                        <AvatarFallback className="bg-primary/15 text-sm font-semibold text-primary">
+                      <Avatar className="size-9 shrink-0">
+                        <AvatarFallback className="bg-primary/15 text-xs font-semibold text-primary">
                           {personInitials(thread.label)}
                         </AvatarFallback>
                       </Avatar>
@@ -1686,22 +1712,27 @@ export function InboxPage() {
               className="relative z-10 hidden w-1 shrink-0 cursor-col-resize bg-border/60 transition-colors hover:bg-primary/50 lg:block before:absolute before:inset-y-0 before:-left-1.5 before:w-4 before:content-['']"
             />
 
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col border-b border-border/60 lg:border-b-0">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col lg:h-full">
               {!activeThreadKey ? (
-                <div className="m-auto max-w-xs px-6 py-10 text-center">
-                  <MessagesSquare className="mx-auto mb-3 size-8 text-muted-foreground/70" />
+                <div className="flex flex-1 flex-col items-center justify-center px-4 py-4 text-center">
+                  <MessagesSquare className="mb-2 size-7 text-muted-foreground/70" />
                   <p className="text-sm font-medium text-foreground">Pick a chat</p>
-                  <p className="mt-1 text-sm text-muted-foreground">
+                  <p className="mt-0.5 text-xs text-muted-foreground">
                     Select a customer on the left to open the conversation.
                   </p>
                 </div>
               ) : threadMessagesLoading ? (
-                <p className="m-auto text-sm text-muted-foreground">Loading messages…</p>
+                <div className="m-auto w-full max-w-sm space-y-2 px-6" role="status" aria-busy="true">
+                  <span className="sr-only">Loading</span>
+                  <Skeleton className="h-4 w-40" />
+                  <Skeleton className="h-8 w-full" />
+                  <Skeleton className="h-8 w-4/5" />
+                </div>
               ) : (
                 <>
-                  <div className="flex shrink-0 items-center gap-3 border-b border-border/60 px-3 py-2.5">
-                    <Avatar className="size-10 shrink-0">
-                      <AvatarFallback className="bg-primary/15 text-sm font-semibold text-primary">
+                  <div className="flex shrink-0 items-center gap-2 border-b border-border/60 px-2.5 py-2">
+                    <Avatar className="size-8 shrink-0">
+                      <AvatarFallback className="bg-primary/15 text-xs font-semibold text-primary">
                         {personInitials(chatTitle)}
                       </AvatarFallback>
                     </Avatar>
@@ -1788,14 +1819,19 @@ export function InboxPage() {
                   <div
                     ref={messagesScrollRef}
                     onScroll={onMessagesScroll}
-                    className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-muted/15 px-4 py-5"
+                    className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-muted/15 px-2.5 py-3"
                   >
                     <div className="mt-auto flex flex-col gap-3">
                       {threadHasMore || threadLoadingMore ? (
                         <div className="py-2 text-center text-[11px] text-muted-foreground">
-                          {threadLoadingMore
-                            ? 'Loading earlier messages…'
-                            : 'Scroll up for earlier messages'}
+                          {threadLoadingMore ? (
+                            <div className="mx-auto flex justify-center" role="status" aria-busy="true">
+                              <span className="sr-only">Loading</span>
+                              <Skeleton className="h-3 w-36" />
+                            </div>
+                          ) : (
+                            'Scroll up for earlier messages'
+                          )}
                         </div>
                       ) : null}
                       {threadMessages.map((msg) => {
@@ -1835,7 +1871,7 @@ export function InboxPage() {
                     </div>
                   </div>
 
-                  <div className="shrink-0 border-t border-border/60 bg-background px-3 py-2.5">
+                  <div className="shrink-0 border-t border-border/60 bg-background px-2.5 py-2">
                     {replyTarget ? (
                       <div className="space-y-2">
                         {waSessionCue ? (
@@ -1960,15 +1996,16 @@ export function InboxPage() {
               className="relative z-10 hidden w-1 shrink-0 cursor-col-resize bg-border/60 transition-colors hover:bg-primary/50 lg:block before:absolute before:inset-y-0 before:-left-1.5 before:w-4 before:content-['']"
             />
 
-            <aside className="hidden min-h-0 space-y-4 overflow-y-auto p-4 text-sm lg:block lg:w-[var(--inbox-detail-w)] lg:shrink-0">
-              <div className="flex items-center gap-3">
-                <Avatar className="size-12 shrink-0">
-                  <AvatarFallback className="bg-primary/15 text-base font-semibold text-primary">
+            <aside className="hidden min-h-0 overflow-y-auto border-border/60 p-2.5 text-sm lg:block lg:h-full lg:w-[var(--inbox-detail-w)] lg:shrink-0 lg:border-l">
+              <SectionStack className="gap-2">
+              <div className="flex items-center gap-2">
+                <Avatar className="size-9 shrink-0">
+                  <AvatarFallback className="bg-primary/15 text-sm font-semibold text-primary">
                     {personInitials(chatTitle)}
                   </AvatarFallback>
                 </Avatar>
                 <div className="min-w-0">
-                  <p className="truncate text-base font-semibold tracking-tight">{chatTitle}</p>
+                  <p className="truncate text-sm font-semibold tracking-tight">{chatTitle}</p>
                   <p className="text-xs text-muted-foreground">Customer</p>
                 </div>
               </div>
@@ -2028,19 +2065,21 @@ export function InboxPage() {
                   Claim conversation
                 </Button>
               ) : null}
+              </SectionStack>
             </aside>
           </div>
         )
       ) : loading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <ListPageSkeleton className="min-h-0 flex-1" />
       ) : items.length === 0 ? (
+          <div className="flex min-h-0 flex-1 items-center justify-center">
           <EmptyState
             icon={Phone}
             title="Nothing here yet"
             description="Log a WhatsApp message, website enquiry, or phone call — or clear filters if you narrowed the list too much."
             action={
               <div className="flex flex-wrap justify-center gap-2">
-                {filtersActive ? (
+                {inboxQueryHasFilters(query) ? (
                   <Button type="button" variant="outline" onClick={clearFilters}>
                     Clear filters
                   </Button>
@@ -2048,14 +2087,16 @@ export function InboxPage() {
                 <Button type="button" variant="outline" onClick={openLogTouch}>
                   Log message
                 </Button>
-                <Button type="button" onClick={() => void logPhoneCall()}>
+                <Button type="button" size="sm" onClick={openLogCall}>
                   Log call
                 </Button>
               </div>
             }
           />
+          </div>
       ) : (
-        <ul className="divide-y divide-border/60 overflow-hidden rounded-2xl border border-border/60">
+        <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border/60">
+        <ul className="min-h-0 flex-1 divide-y divide-border/60 overflow-y-auto">
           {items.map((row) => {
             const pending = row.outcome === 'pending';
             return (
@@ -2064,7 +2105,7 @@ export function InboxPage() {
                   type="button"
                   onClick={() => void openRow(row)}
                   className={cn(
-                    'flex min-w-0 flex-1 items-start justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40',
+                    'flex min-w-0 flex-1 items-start justify-between gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/40',
                     row.unread && 'bg-primary/5',
                   )}
                 >
@@ -2168,19 +2209,10 @@ export function InboxPage() {
             );
           })}
         </ul>
+        </div>
       )}
 
-      <p className="mt-4 shrink-0 text-xs text-muted-foreground">
-        Pipeline owners still use{' '}
-        <button
-          type="button"
-          className="text-primary hover:underline"
-          onClick={() => navigate(AGENCY_ROUTES.leads)}
-        >
-          Leads
-        </button>{' '}
-        for assignment and stages. Right-click a chat for read / unread and more.
-      </p>
+      </div>
 
       {threadMenu ? (
         <div
@@ -2265,59 +2297,114 @@ export function InboxPage() {
       ) : null}
 
       <RecordSheet
+        open={callLogOpen}
+        onOpenChange={setCallLogOpen}
+        title="Log call"
+        description="Record a phone conversation — it appears in Inbox and the customer timeline."
+        footer={
+          <>
+            <Button type="button" variant="outline" size="sm" onClick={() => setCallLogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={callLogSaving || !callLogNotes.trim()}
+              onClick={() => void submitLogCall()}
+            >
+              {callLogSaving ? 'Saving…' : 'Save call'}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-2.5">
+          {conversationDetail?.party?.displayName ? (
+            <div className="rounded-md border border-border/60 bg-muted/30 px-2.5 py-2 text-sm">
+              <span className="font-medium text-foreground">
+                {conversationDetail.party.displayName}
+              </span>
+              {conversationDetail.party.phone ? (
+                <span className="text-muted-foreground"> · {conversationDetail.party.phone}</span>
+              ) : null}
+            </div>
+          ) : null}
+          <FormField label="Call notes" required>
+            <Textarea
+              value={callLogNotes}
+              onChange={(e) => setCallLogNotes(e.target.value)}
+              placeholder="What did they ask about? Any follow-up needed?"
+              rows={3}
+              autoFocus
+            />
+          </FormField>
+        </div>
+      </RecordSheet>
+
+      <RecordSheet
         open={logOpen}
         onOpenChange={setLogOpen}
         title="Log message"
-        description="Capture an inbound channel without creating a travel request yet."
+        description="Capture an inbound touch without opening a travel request yet."
         footer={
           <>
-            <Button type="button" variant="outline" onClick={() => setLogOpen(false)}>
+            <Button type="button" variant="outline" size="sm" onClick={() => setLogOpen(false)}>
               Cancel
             </Button>
-            <Button type="button" disabled={logSaving} onClick={() => void saveLogTouch()}>
+            <Button type="button" size="sm" disabled={logSaving} onClick={() => void saveLogTouch()}>
               {logSaving ? 'Saving…' : 'Save message'}
             </Button>
           </>
         }
       >
-        <div className="space-y-4">
-          <div>
-            <p className="mb-2 text-xs font-medium text-muted-foreground">Channel</p>
-            <div className="flex flex-wrap gap-2">
-              {LOG_CHANNELS.map((c) => (
-                <button
-                  key={c.value}
-                  type="button"
-                  onClick={() => setLogForm({ ...logForm, channel: c.value })}
-                  className={cn(
-                    'rounded-lg border px-3 py-1.5 text-sm font-medium',
-                    logForm.channel === c.value
-                      ? 'border-primary bg-primary text-primary-foreground'
-                      : 'border-border/70 bg-muted/30',
-                  )}
-                >
-                  {c.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <FormField label="Name">
-            <Input
-              value={logForm.contactName}
-              onChange={(e) => setLogForm({ ...logForm, contactName: e.target.value })}
-              placeholder="Caller name"
-              disabled={Boolean(logForm.partyId)}
-            />
-          </FormField>
-          <FormField label="Phone">
-            <PhoneInput
-              value={logForm.contactPhone}
-              onChange={(contactPhone) => setLogForm({ ...logForm, contactPhone })}
-              disabled={Boolean(logForm.partyId)}
-            />
-          </FormField>
+        <div className="space-y-2.5">
+          <FormGrid className="gap-x-3 gap-y-3">
+            <FormField label="Channel">
+              <Combobox
+                size="sm"
+                value={logForm.channel}
+                onChange={(channel) =>
+                  setLogForm({
+                    ...logForm,
+                    channel: channel as (typeof LOG_CHANNELS)[number]['value'],
+                  })
+                }
+                options={LOG_CHANNELS.map((c) => ({ value: c.value, label: c.label }))}
+                searchable={false}
+              />
+            </FormField>
+            <FormField label="How did they find us?">
+              <Combobox
+                size="sm"
+                value={logForm.acquisitionKey || ''}
+                onChange={(acquisitionKey) => setLogForm({ ...logForm, acquisitionKey })}
+                placeholder="Optional"
+                options={[
+                  { value: '', label: 'Not sure' },
+                  ...acquisitionOptions.map((o) => ({ value: o.value, label: o.label })),
+                ]}
+                searchable={acquisitionOptions.length > 6}
+              />
+            </FormField>
+          </FormGrid>
+          <FormGrid className="gap-x-3 gap-y-3">
+            <FormField label="Name">
+              <Input
+                value={logForm.contactName}
+                onChange={(e) => setLogForm({ ...logForm, contactName: e.target.value })}
+                placeholder="Caller name"
+                disabled={Boolean(logForm.partyId)}
+              />
+            </FormField>
+            <FormField label="Phone">
+              <PhoneInput
+                value={logForm.contactPhone}
+                onChange={(contactPhone) => setLogForm({ ...logForm, contactPhone })}
+                disabled={Boolean(logForm.partyId)}
+              />
+            </FormField>
+          </FormGrid>
           {logForm.partyId ? (
-            <div className="flex items-center justify-between gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm">
+            <div className="flex items-center justify-between gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5 text-sm">
               <span>
                 Linked to <span className="font-medium">{logForm.partyLabel}</span>
               </span>
@@ -2325,13 +2412,14 @@ export function InboxPage() {
                 type="button"
                 variant="ghost"
                 size="sm"
+                className="h-7 px-2"
                 onClick={() => setLogForm({ ...logForm, partyId: '', partyLabel: '' })}
               >
                 Change
               </Button>
             </div>
           ) : partyMatch ? (
-            <div className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-muted/40 px-3 py-2 text-sm">
+            <div className="flex items-center justify-between gap-2 rounded-md border border-border/60 bg-muted/40 px-2.5 py-1.5 text-sm">
               <span>
                 Existing: <span className="font-medium">{partyMatch.displayName}</span>
               </span>
@@ -2339,6 +2427,7 @@ export function InboxPage() {
                 type="button"
                 variant="secondary"
                 size="sm"
+                className="h-7 px-2"
                 onClick={() =>
                   setLogForm({
                     ...logForm,
@@ -2353,32 +2442,13 @@ export function InboxPage() {
             </div>
           ) : null}
           <FormField label="Note">
-            <Input
+            <Textarea
               value={logForm.summary}
               onChange={(e) => setLogForm({ ...logForm, summary: e.target.value })}
               placeholder="What did they ask about?"
+              rows={2}
             />
           </FormField>
-          <div>
-            <p className="mb-2 text-xs font-medium text-muted-foreground">How did they find us?</p>
-            <div className="flex flex-wrap gap-2">
-              {acquisitionOptions.map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setLogForm({ ...logForm, acquisitionKey: opt.value })}
-                  className={cn(
-                    'rounded-lg border px-3 py-1.5 text-sm font-medium',
-                    logForm.acquisitionKey === opt.value
-                      ? 'border-primary bg-primary text-primary-foreground'
-                      : 'border-border/70 bg-muted/30',
-                  )}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
       </RecordSheet>
 
@@ -2428,7 +2498,7 @@ export function InboxPage() {
             />
           </FormField>
         ) : (
-          <div className="space-y-4">
+          <div className="stack-form">
             <FormField label="Follow up on">
               <DatePicker
                 value={followUpAt}
@@ -2525,6 +2595,6 @@ export function InboxPage() {
           ) : null}
         </ul>
       </RecordSheet>
-    </ListPageShell>
+    </QueuePageChrome>
   );
 }

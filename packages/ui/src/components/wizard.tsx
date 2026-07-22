@@ -23,6 +23,7 @@ export function Wizard({
   canNext = true,
   finishing,
   className,
+  finishTestId,
 }: {
   steps: WizardStep[];
   stepIndex: number;
@@ -37,11 +38,12 @@ export function Wizard({
   canNext?: boolean;
   finishing?: boolean;
   className?: string;
+  finishTestId?: string;
 }) {
   const isLast = stepIndex >= steps.length - 1;
   return (
-    <div className={cn('space-y-6', className)}>
-      <ol className="flex flex-wrap gap-2">
+    <div className={cn('stack-form', className)}>
+      <ol className="flex flex-wrap gap-[var(--field-gap)]">
         {steps.map((step, i) => {
           const done = i < stepIndex;
           const active = i === stepIndex;
@@ -58,7 +60,7 @@ export function Wizard({
                   onStepChange?.(i);
                 }}
                 className={cn(
-                  'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors',
+                  'inline-flex items-center gap-2 rounded-full px-3 py-[var(--field-gap)] text-[length:var(--control-text-sm)] font-semibold transition-colors',
                   canJump && 'cursor-pointer hover:opacity-90',
                   !canJump && 'cursor-not-allowed opacity-70',
                   active && 'bg-primary text-primary-foreground',
@@ -68,7 +70,7 @@ export function Wizard({
               >
                 <span
                   className={cn(
-                    'flex size-5 items-center justify-center rounded-full text-[10px]',
+                    'flex size-5 items-center justify-center rounded-full text-[length:var(--control-text-sm)]',
                     active || done ? 'bg-white/20' : 'bg-background/60',
                   )}
                 >
@@ -81,18 +83,25 @@ export function Wizard({
         })}
       </ol>
       <div>
-        <h3 className="font-display text-lg font-semibold">{steps[stepIndex]?.title}</h3>
+        <h3 className="font-display text-base font-semibold sm:text-lg">{steps[stepIndex]?.title}</h3>
         {steps[stepIndex]?.description ? (
-          <p className="mt-1 text-sm text-muted-foreground">{steps[stepIndex].description}</p>
+          <p className="mt-[var(--field-gap)] text-[length:var(--control-text)] text-muted-foreground">
+            {steps[stepIndex].description}
+          </p>
         ) : null}
       </div>
       <div>{children}</div>
-      <div className="flex justify-between gap-2 border-t border-border pt-4">
+      <div className="flex justify-between gap-[var(--field-gap)] border-t border-border pt-[var(--gap-section)]">
         <Button type="button" variant="outline" disabled={stepIndex === 0} onClick={onBack}>
           {backLabel}
         </Button>
         {isLast ? (
-          <Button type="button" onClick={onFinish} disabled={!canNext || finishing}>
+          <Button
+            type="button"
+            data-testid={finishTestId}
+            onClick={onFinish}
+            disabled={!canNext || finishing}
+          >
             {finishing ? 'Saving…' : finishLabel}
           </Button>
         ) : (

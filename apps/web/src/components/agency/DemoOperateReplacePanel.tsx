@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button, toastError, toastSuccess } from '@wayrune/ui';
+import { Button, Skeleton, toastError, toastSuccess } from '@wayrune/ui';
 import { api } from '../../api';
 import { reportError } from '../../lib/errors';
 
@@ -57,19 +57,45 @@ export function DemoOperateReplacePanel() {
     }
   }
 
-  if (loading || !hasDemo) return null;
+  if (loading) {
+    return (
+      <div
+        className="space-y-2 rounded-xl border border-border/60 px-4 py-3"
+        role="status"
+        aria-busy="true"
+      >
+        <span className="sr-only">Loading</span>
+        <Skeleton className="h-4 w-40" />
+        <Skeleton className="h-3 w-full" />
+        <Skeleton className="h-8 w-36" />
+      </div>
+    );
+  }
+  if (!hasDemo) return null;
 
   return (
-    <section className="space-y-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3">
+    <section
+      className="space-y-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3"
+      data-testid="demo-operate-replace-panel"
+    >
       <h2 className="text-sm font-semibold">Demo operate data</h2>
       <p className="text-xs text-muted-foreground">
         Labeled demo hotel / transfer / activity suppliers are installed for the
         enquiry→voucher walkthrough. They are not for live booking.
       </p>
+      <p
+        className="text-[11px] text-muted-foreground"
+        data-testid="demo-operate-honesty-cue"
+      >
+        Operate-ready on [Demo] suppliers is a walkthrough score — not real-agency
+        Operate-ready. After Replace, import your suppliers and rates before live
+        bookings.
+      </p>
       <Button
         size="sm"
         variant="outline"
         disabled={replacing}
+        data-testid="demo-operate-replace-btn"
         onClick={() => void replaceDemo()}
       >
         {replacing ? 'Replacing…' : 'Replace demo with real data'}

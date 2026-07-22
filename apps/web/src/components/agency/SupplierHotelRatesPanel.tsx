@@ -17,10 +17,12 @@ import {
   DatePicker,
   FormGrid,
   Input,
+  NumberField,
   PriceField,
   QuickPicks,
   RecordSheet,
   SimpleFormField as FormField,
+  Skeleton,
   SuggestionChips,
   formatCurrency,
   toastError,
@@ -1278,7 +1280,13 @@ export function SupplierHotelRatesPanel({
       </div>
 
       {loading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <div role="status" aria-busy="true" className="space-y-2 py-1">
+          <span className="sr-only">Loading</span>
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-5/6" />
+          <Skeleton className="h-10 w-full" />
+        </div>
       ) : sorted.length ? (
         <ul className="divide-y divide-border/50 overflow-hidden rounded-xl border border-border/60">
           {sorted.map((r) => (
@@ -1741,29 +1749,31 @@ export function SupplierHotelRatesPanel({
                     (row, idx) => (
                       <FormGrid key={idx}>
                         <FormField label={idx === 0 ? 'Age min' : ' '}>
-                          <Input
-                            inputMode="numeric"
+                          <NumberField
+                            min={0}
+                            max={17}
                             value={row.ageMin}
-                            onChange={(e) => {
+                            onChange={(ageMin) => {
                               const next = [
                                 ...(form.childAgeNatRows ??
                                   emptyChildAgeNatRows()),
                               ];
-                              next[idx] = { ...row, ageMin: e.target.value };
+                              next[idx] = { ...row, ageMin };
                               setForm({ ...form, childAgeNatRows: next });
                             }}
                           />
                         </FormField>
                         <FormField label={idx === 0 ? 'Age max' : ' '}>
-                          <Input
-                            inputMode="numeric"
+                          <NumberField
+                            min={0}
+                            max={17}
                             value={row.ageMax}
-                            onChange={(e) => {
+                            onChange={(ageMax) => {
                               const next = [
                                 ...(form.childAgeNatRows ??
                                   emptyChildAgeNatRows()),
                               ];
-                              next[idx] = { ...row, ageMax: e.target.value };
+                              next[idx] = { ...row, ageMax };
                               setForm({ ...form, childAgeNatRows: next });
                             }}
                           />
@@ -1839,21 +1849,23 @@ export function SupplierHotelRatesPanel({
                 </div>
                 <FormGrid>
                   <FormField label="Base adults / room">
-                    <Input
-                      inputMode="numeric"
+                    <NumberField
+                      min={1}
+                      max={12}
                       value={form.baseAdults}
-                      onChange={(e) =>
-                        setForm({ ...form, baseAdults: e.target.value })
+                      onChange={(baseAdults) =>
+                        setForm({ ...form, baseAdults })
                       }
                       placeholder="2"
                     />
                   </FormField>
                   <FormField label="Child age max">
-                    <Input
-                      inputMode="numeric"
+                    <NumberField
+                      min={0}
+                      max={17}
                       value={form.childAgeMax}
-                      onChange={(e) =>
-                        setForm({ ...form, childAgeMax: e.target.value })
+                      onChange={(childAgeMax) =>
+                        setForm({ ...form, childAgeMax })
                       }
                       placeholder="11"
                     />
@@ -1889,11 +1901,12 @@ export function SupplierHotelRatesPanel({
                     label="Min stay (nights)"
                     description="Blocks send when stay is shorter unless a manager acknowledges."
                   >
-                    <Input
-                      inputMode="numeric"
+                    <NumberField
+                      min={1}
+                      max={30}
                       value={form.minStayNights}
-                      onChange={(e) =>
-                        setForm({ ...form, minStayNights: e.target.value })
+                      onChange={(minStayNights) =>
+                        setForm({ ...form, minStayNights })
                       }
                       placeholder="2"
                     />
@@ -1902,11 +1915,12 @@ export function SupplierHotelRatesPanel({
                     label="Max stay (nights)"
                     description="Blocks send when stay is longer unless a manager acknowledges."
                   >
-                    <Input
-                      inputMode="numeric"
+                    <NumberField
+                      min={1}
+                      max={90}
                       value={form.maxStayNights}
-                      onChange={(e) =>
-                        setForm({ ...form, maxStayNights: e.target.value })
+                      onChange={(maxStayNights) =>
+                        setForm({ ...form, maxStayNights })
                       }
                       placeholder="7"
                     />
@@ -2167,7 +2181,12 @@ export function SupplierHotelRatesPanel({
         }
       >
         {historyLoading ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <div role="status" aria-busy="true" className="space-y-2 py-1">
+            <span className="sr-only">Loading</span>
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-4/5" />
+          </div>
         ) : historyVersions.length ? (
           <ul className="divide-y divide-border/50 overflow-hidden rounded-xl border border-border/60">
             {(() => {

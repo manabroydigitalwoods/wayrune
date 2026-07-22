@@ -1,7 +1,18 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import type { ColumnDef } from '@tanstack/react-table';
-import { ArrowUpRight, Building2, Copy, Import, MoreHorizontal, Pencil, Plus } from 'lucide-react';
+import type { ColumnDef, VisibilityState } from '@tanstack/react-table';
+import {
+  ArrowUpRight,
+  Building2,
+  Copy,
+  Import,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Search,
+  UserRound,
+  X,
+} from 'lucide-react';
 import { CreatePartySchema, parseWithFieldErrors } from '@wayrune/contracts';
 import {
   Button,
@@ -15,17 +26,19 @@ import {
   DropdownMenuTrigger,
   EmailInput,
   Input,
-  ListPageShell,
-  PageHeader,
   PhoneInput,
   RecordSheet,
   SimpleFormField as FormField,
   FormGrid,
+  Skeleton,
   StatusBadge,
   StorageKeys,
   formatDate,
   toastError,
   toastSuccess,
+  localStorageKit,
+  usePageChrome,
+  cn,
 } from '@wayrune/ui';
 import { api } from '../api';
 import { PUBLIC_DOCS_BRING_YOUR_DATA_HREF } from '../lib/publicDocs';
@@ -41,6 +54,20 @@ import { type Party, type PartyDetail, partyHubPath, B2B_PARTY_TYPES } from '../
 import { formatPartyImportSkipReason } from '../lib/partyImportSkip';
 import { useTravelRequestLauncher } from '../lib/travelRequestLauncher';
 import { useCanonicalCreateVisibility } from '../hooks/useCanonicalCreateVisibility';
+import {
+  parsePartiesQueryState,
+  partiesQueryHasFilters,
+  patchPartiesQueryParams,
+  type PartiesPartyType,
+} from '../lib/queue';
+import {
+  ActiveFilterChips,
+  DisplayMenu,
+  FilterMenu,
+  QUEUE_MENU_ITEM_CLASS,
+  QUEUE_PAGE_SEARCH_CLASS,
+  QueuePageChrome,
+} from '../components/queue';
 
 const emptyForm = {
   type: 'organization',
@@ -50,7 +77,20 @@ const emptyForm = {
   businessType: 'travel_agency',
 };
 
-const B2B_TYPES = B2B_PARTY_TYPES;
+const B2B_TYPES = [...B2B_PARTY_TYPES];
+
+const TYPE_FILTER_OPTIONS: Array<{ value: PartiesPartyType; label: string }> = [
+  { value: 'individual', label: 'Individual' },
+  { value: 'organization', label: 'Organization' },
+];
+
+function readPartiesColumnVisibility(): VisibilityState {
+  const stored = localStorageKit.getJson<VisibilityState>(StorageKeys.parties.columns, {
+    version: 1,
+  });
+  if (!stored || typeof stored !== 'object') return {};
+  return stored;
+}
 
 export function PartiesPage() {
   const { me } = useAuth();
@@ -64,9 +104,19 @@ export function PartiesPage() {
   const pageCopy = PARTIES_PAGE_COPY[variant];
   const clientsLabel = agencyClientsLabel(me?.organization.kind);
   const title = variant === 'all' ? clientsLabel : pageCopy.title;
+  const subtitle =
+    variant === 'all' && dmc
+      ? 'Agency and corporate buyers you sell packages to — B2B first.'
+      : pageCopy.subtitle;
   useDocumentTitle(variant === 'all' ? clientsLabel : pageCopy.documentTitle);
+  usePageChrome({ title, subtitle });
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const query = useMemo(() => parsePartiesQueryState(searchParams), [searchParams]);
+  const [searchDraft, setSearchDraft] = useState(query.q ?? '');
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(() =>
+    readPartiesColumnVisibility(),
+  );
   const [items, setItems] = useState<Party[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -77,7 +127,6 @@ export function PartiesPage() {
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detail, setDetail] = useState<PartyDetail | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [b2bOnly, setB2bOnly] = useState(variant === 'all' ? dmc : false);
   const [form, setForm] = useState(() =>
     dmc
       ? emptyForm
@@ -89,12 +138,33 @@ export function PartiesPage() {
   const [contactForm, setContactForm] = useState({ fullName: '', email: '', phone: '' });
   const [addingContact, setAddingContact] = useState(false);
 
+  const impliedB2b = variant === 'all' && dmc;
+  const effectiveB2b = query.b2b ?? impliedB2b;
+
+  function applyQuery(patch: Parameters<typeof patchPartiesQueryParams>[1]) {
+    setSearchParams(patchPartiesQueryParams(searchParams, patch), { replace: true });
+  }
+
   // Legacy deep links → customer hub
   useEffect(() => {
     const openId = searchParams.get('open');
     if (!openId) return;
     navigate(partyHubPath(openId), { replace: true });
   }, [searchParams, navigate]);
+
+  useEffect(() => {
+    setSearchDraft(query.q ?? '');
+  }, [query.q]);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      const next = searchDraft.trim();
+      if ((query.q ?? '') === next) return;
+      applyQuery({ q: next || undefined });
+    }, 300);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce draft only
+  }, [searchDraft]);
 
   function patchForm(patch: Partial<typeof emptyForm>) {
     setForm((f) => ({ ...f, ...patch }));
@@ -121,8 +191,9 @@ export function PartiesPage() {
   }
 
   useEffect(() => {
-    void load({ b2b: b2bOnly });
-  }, [b2bOnly]);
+    void load({ b2b: effectiveB2b });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when the b2b scope changes
+  }, [effectiveB2b]);
 
   useEffect(() => {
     if (!detailId) {
@@ -159,7 +230,7 @@ export function PartiesPage() {
       email: res.email || '',
       phone: res.phone || '',
     });
-    await load({ b2b: b2bOnly });
+    await load({ b2b: effectiveB2b });
   }
 
   async function saveDetail() {
@@ -229,7 +300,7 @@ export function PartiesPage() {
           : { type: 'individual', displayName: '', email: '', phone: '', businessType: '' },
       );
       setOpen(false);
-      await load({ b2b: b2bOnly });
+      await load({ b2b: effectiveB2b });
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Could not create client');
     } finally {
@@ -289,13 +360,42 @@ export function PartiesPage() {
         : '';
       toastSuccess(`Imported ${res.imported}, skipped ${res.skipped}${skipHint}`);
       setImportOpen(false);
-      await load({ b2b: b2bOnly });
+      await load({ b2b: effectiveB2b });
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Import failed');
     } finally {
       setImporting(false);
     }
   }
+
+  function toggleColumn(id: string, visible: boolean) {
+    setColumnVisibility((prev) => {
+      const next = { ...prev, [id]: visible };
+      localStorageKit.setJson(StorageKeys.parties.columns, next, { version: 1 });
+      return next;
+    });
+  }
+
+  function clearPartyFilters() {
+    applyQuery({ clearFilters: true });
+  }
+
+  function clearPartyFiltersAndSearch() {
+    setSearchDraft('');
+    applyQuery({ clearFilters: true, q: '' });
+  }
+
+  const filteredItems = useMemo(() => {
+    let list = items;
+    if (query.type) list = list.filter((p) => p.type === query.type);
+    const q = query.q?.trim().toLowerCase();
+    if (q) {
+      list = list.filter((p) =>
+        [p.displayName, p.email, p.phone].filter(Boolean).some((v) => (v as string).toLowerCase().includes(q)),
+      );
+    }
+    return list;
+  }, [items, query.type, query.q]);
 
   const columns = useMemo<ColumnDef<Party>[]>(
     () => [
@@ -482,84 +582,174 @@ export function PartiesPage() {
     [navigate, variant],
   );
 
-  return (
-    <ListPageShell>
-      <PageHeader
-        icon={Building2}
-        title={title}
-        subtitle={
-          variant === 'all' && dmc
-            ? 'Agency and corporate buyers you sell packages to — B2B first.'
-            : pageCopy.subtitle
+  const filterDefs = [
+    {
+      id: 'type',
+      label: 'Type',
+      icon: Building2,
+      value: query.type ?? null,
+      options: TYPE_FILTER_OPTIONS,
+      onSelect: (value: string | null) =>
+        applyQuery({ type: (value as PartiesPartyType | null) || undefined }),
+    },
+    ...(variant === 'all'
+      ? [
+          {
+            id: 'scope',
+            label: 'Scope',
+            icon: UserRound,
+            value: effectiveB2b ? 'b2b' : null,
+            options: [{ value: 'b2b', label: 'B2B only' }],
+            onSelect: (value: string | null) => applyQuery({ b2b: value === 'b2b' }),
+          },
+        ]
+      : []),
+  ];
+
+  const filterChips = [
+    query.type
+      ? {
+          id: 'type',
+          label: `Type: ${TYPE_FILTER_OPTIONS.find((o) => o.value === query.type)?.label ?? query.type}`,
+          onRemove: () => applyQuery({ type: undefined }),
         }
-        className="mb-4 shrink-0"
-        actions={
-          <div className="flex flex-wrap gap-2">
-            {variant === 'all' ? (
+      : null,
+    variant === 'all' && effectiveB2b
+      ? { id: 'scope', label: 'B2B only', onRemove: () => applyQuery({ b2b: false }) }
+      : null,
+  ].filter(Boolean) as Array<{ id: string; label: string; onRemove: () => void }>;
+
+  const displayColumns = [
+    { id: 'type', label: 'Type', visible: columnVisibility.type !== false, icon: Building2 },
+    ...(variant === 'all'
+      ? [{ id: 'businessType', label: 'B2B', visible: columnVisibility.businessType !== false }]
+      : []),
+    { id: 'activeTrips', label: 'Active trips', visible: columnVisibility.activeTrips !== false },
+    { id: 'openRequests', label: 'Open requests', visible: columnVisibility.openRequests !== false },
+    { id: 'phone', label: 'Phone', visible: columnVisibility.phone !== false },
+    { id: 'email', label: 'Email', visible: columnVisibility.email !== false },
+    { id: 'updatedAt', label: 'Updated', visible: columnVisibility.updatedAt !== false },
+  ];
+
+  const hasExtraFilters = partiesQueryHasFilters(query) || Boolean(query.q);
+
+  const queueToolbar = (
+    <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+      <div className="relative min-w-[12rem] flex-1 basis-[14rem]">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 size-[0.875em] -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={searchDraft}
+          onChange={(e) => setSearchDraft(e.target.value)}
+          placeholder={variant === 'customers' ? 'Search customers…' : 'Search clients…'}
+          className={cn(QUEUE_PAGE_SEARCH_CLASS, searchDraft.trim() && 'pr-8')}
+          aria-label={variant === 'customers' ? 'Search customers' : 'Search clients'}
+        />
+        {searchDraft.trim() ? (
+          <button
+            type="button"
+            className="absolute right-1.5 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+            aria-label="Clear search"
+            onClick={() => {
+              setSearchDraft('');
+              applyQuery({ q: '' });
+            }}
+          >
+            <X className="size-3.5" />
+          </button>
+        ) : null}
+      </div>
+      <div className="flex flex-wrap items-center gap-1">
+        <FilterMenu filters={filterDefs} />
+        <DisplayMenu columns={displayColumns} onToggleColumn={toggleColumn} />
+      </div>
+    </div>
+  );
+
+  return (
+    <QueuePageChrome
+      primaryActions={
+        <Can anyOf={CAP.partyWrite}>
+          {showNewClient ? (
+            <Button size="sm" onClick={() => setOpen(true)}>
+              <Plus className="size-[0.875em]" />
+              {variant === 'customers' ? 'New customer' : 'New client'}
+            </Button>
+          ) : null}
+        </Can>
+      }
+      moreMenu={
+        <Can anyOf={CAP.partyWrite}>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
               <Button
                 type="button"
-                size="sm"
-                variant={b2bOnly ? 'default' : 'outline'}
-                onClick={() => setB2bOnly((v) => !v)}
+                size="icon"
+                variant="outline"
+                className="size-[var(--control-h-sm)]"
+                aria-label="More actions"
               >
-                {b2bOnly ? 'B2B filter on' : 'Show B2B'}
+                <MoreHorizontal className="size-[0.875em]" />
               </Button>
-            ) : null}
-            <Can anyOf={CAP.partyWrite}>
-              <Button type="button" variant="outline" onClick={() => setImportOpen(true)}>
-                <Import className="size-4" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52 p-1">
+              <DropdownMenuLabel className="text-[length:var(--control-text-sm)]">More</DropdownMenuLabel>
+              <DropdownMenuItem className={QUEUE_MENU_ITEM_CLASS} onClick={() => setImportOpen(true)}>
+                <Import />
                 Import CSV
-              </Button>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </Can>
+      }
+      error={error ? <p className="text-sm text-destructive">{error}</p> : null}
+      toolbar={queueToolbar}
+      chips={
+        <ActiveFilterChips
+          chips={filterChips}
+          onClear={partiesQueryHasFilters(query) ? clearPartyFilters : undefined}
+        />
+      }
+    >
+      <DataTable
+        key={`cols-${JSON.stringify(columnVisibility)}`}
+        columns={columns}
+        data={filteredItems}
+        loading={loading}
+        pageSize={25}
+        showSearch={false}
+        showColumnsMenu={false}
+        defaultColumnVisibility={columnVisibility}
+        columnVisibilityKey={StorageKeys.parties.columns}
+        emptyTitle={
+          hasExtraFilters ? 'No matching clients' : dmc ? 'No B2B clients yet' : 'No clients yet'
+        }
+        emptyDescription={
+          hasExtraFilters
+            ? 'Try clearing filters or search.'
+            : dmc
+              ? 'Add a buying agency or corporate account to start packaging.'
+              : 'Add your first client or agency account.'
+        }
+        emptyAction={
+          hasExtraFilters ? (
+            <Button type="button" size="sm" variant="outline" onClick={clearPartyFiltersAndSearch}>
+              Clear filters
+            </Button>
+          ) : (
+            <Can anyOf={CAP.partyWrite}>
               {showNewClient ? (
                 <Button onClick={() => setOpen(true)}>
                   <Plus className="size-4" />
-                  {variant === 'customers' ? 'New customer' : 'New client'}
+                  New client
+                </Button>
+              ) : canCreateTravelRequest ? (
+                <Button onClick={() => openTravelRequest()}>
+                  <Plus className="size-4" />
+                  New customer call
                 </Button>
               ) : null}
             </Can>
-          </div>
-        }
-      />
-      <DataTable
-        columns={columns}
-        data={items}
-        loading={loading}
-        error={error}
-        pageSize={25}
-        searchKey="displayName"
-        searchPlaceholder={variant === 'customers' ? 'Search customers…' : 'Search clients…'}
-        columnVisibilityKey={StorageKeys.parties.columns}
-        facets={[
-          {
-            id: 'type',
-            columnId: 'type',
-            label: 'Type',
-            options: [
-              { value: 'individual', label: 'Individual' },
-              { value: 'organization', label: 'Organization' },
-            ],
-          },
-        ]}
-        emptyTitle={dmc ? 'No B2B clients yet' : 'No clients yet'}
-        emptyDescription={
-          dmc
-            ? 'Add a buying agency or corporate account to start packaging.'
-            : 'Add your first client or agency account.'
-        }
-        emptyAction={
-          <Can anyOf={CAP.partyWrite}>
-            {showNewClient ? (
-            <Button onClick={() => setOpen(true)}>
-              <Plus className="size-4" />
-              New client
-            </Button>
-            ) : canCreateTravelRequest ? (
-              <Button onClick={() => openTravelRequest()}>
-                <Plus className="size-4" />
-                New customer call
-              </Button>
-            ) : null}
-          </Can>
+          )
         }
         emptyIcon={Building2}
       />
@@ -671,7 +861,13 @@ export function PartiesPage() {
         cancelLabel="Close"
       >
         {!detail ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <div className="space-y-3" role="status" aria-busy="true">
+            <span className="sr-only">Loading</span>
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-9 w-full" />
+            <Skeleton className="h-9 w-full" />
+            <Skeleton className="h-9 w-3/4" />
+          </div>
         ) : (
           <div className="space-y-5">
             <div className="flex flex-wrap items-center gap-2">
@@ -773,6 +969,6 @@ export function PartiesPage() {
           </div>
         )}
       </RecordSheet>
-    </ListPageShell>
+    </QueuePageChrome>
   );
 }

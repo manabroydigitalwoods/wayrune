@@ -1,20 +1,37 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
-import type { ColumnDef } from '@tanstack/react-table';
-import { ArrowUpRight, Copy, Download, MessageCircle, Users, Wallet, X } from 'lucide-react';
+import type { ColumnDef, VisibilityState } from '@tanstack/react-table';
+import {
+  ArrowUpRight,
+  Copy,
+  Download,
+  MessageCircle,
+  MoreHorizontal,
+  Search,
+  Users,
+  Wallet,
+  X,
+} from 'lucide-react';
 import {
   Button,
   DataTable,
-  ListPageShell,
-  PageHeader,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+  Input,
+  RecordDialog,
   StatusBadge,
   StorageKeys,
   cn,
   formatCurrency,
   formatDate,
+  localStorageKit,
   toastError,
   toastSuccess,
   toastWarning,
+  usePageChrome,
 } from '@wayrune/ui';
 import { api } from '../api';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
@@ -25,10 +42,13 @@ import {
 } from '../lib/agencyRoutes';
 import { reportError } from '../lib/errors';
 import { downloadRowsAsCsv } from '../lib/downloadCsv';
+import { type AgingBucketKey } from '../lib/financeAgingFilters';
 import {
-  type AgingBucketKey,
-  parseAgingBucketParam,
-} from '../lib/financeAgingFilters';
+  financeAgingQueryHasFilters,
+  parseFinanceAgingQueryState,
+  patchFinanceAgingQueryParams,
+  type FinanceAgingStatusFilter,
+} from '../lib/queue';
 import {
   agingPackHref,
   createFinanceReportPack,
@@ -46,6 +66,15 @@ import {
   toastForPaymentLinkWhatsapp,
 } from '../lib/paymentLinkActions';
 import { WriteOffAwaitingStrip } from '../components/agency/WriteOffAwaitingStrip';
+import {
+  ActiveFilterChips,
+  AttentionPresets,
+  DisplayMenu,
+  FilterMenu,
+  QUEUE_MENU_ITEM_CLASS,
+  QUEUE_PAGE_SEARCH_CLASS,
+  QueuePageChrome,
+} from '../components/queue';
 
 type AgingRow = {
   id: string;
@@ -89,6 +118,12 @@ const BUCKET_LABELS: Record<AgingBucketKey, string> = {
   noDue: 'No due date',
 };
 
+const STATUS_OPTIONS = [
+  { value: 'scheduled', label: 'Scheduled' },
+  { value: 'partial', label: 'Partial' },
+  { value: 'overdue', label: 'Overdue' },
+];
+
 function useAgingMode(): AgingMode {
   const { pathname } = useLocation();
   const path = stripOrgPrefix(pathname);
@@ -107,9 +142,9 @@ const MODE_COPY: Record<
     documentTitle: 'Overdue receivables',
   },
   receivables: {
-    title: 'Receivables',
-    subtitle: 'Open customer instalments aged by due date — chase with a payment link.',
-    documentTitle: 'Receivables',
+    title: 'Invoices & payments',
+    subtitle: 'Open customer receivables aged by due date — chase with a payment link.',
+    documentTitle: 'Invoices & payments',
   },
   payables: {
     title: 'Supplier payables',
@@ -118,15 +153,24 @@ const MODE_COPY: Record<
   },
 };
 
+function readAgingColumnVisibility(): VisibilityState {
+  const stored = localStorageKit.getJson<VisibilityState>(StorageKeys.financeAging.columns, {
+    version: 1,
+  });
+  if (!stored || typeof stored !== 'object') return {};
+  return stored;
+}
+
 export function FinanceAgingPage() {
   const mode = useAgingMode();
   const copy = MODE_COPY[mode];
   useDocumentTitle(copy.documentTitle);
   const { navigate, toOrgPath } = useOrgNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const bucketFromUrl = useMemo(
-    () => parseAgingBucketParam(searchParams),
-    [searchParams],
+  const query = useMemo(() => parseFinanceAgingQueryState(searchParams), [searchParams]);
+  const [searchDraft, setSearchDraft] = useState(query.q ?? '');
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(() =>
+    readAgingColumnVisibility(),
   );
   const [data, setData] = useState<AgingBoard | null>(null);
   const [loading, setLoading] = useState(true);
@@ -136,6 +180,7 @@ export function FinanceAgingPage() {
   const [scheduleEmails, setScheduleEmails] = useState('');
   const [savingOrgPack, setSavingOrgPack] = useState(false);
   const [sendingPackId, setSendingPackId] = useState<string | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
   const [chaseBusyId, setChaseBusyId] = useState<string | null>(null);
   const [markSentPaymentId, setMarkSentPaymentId] = useState<string | null>(null);
   const [markingSentId, setMarkingSentId] = useState<string | null>(null);
@@ -148,6 +193,23 @@ export function FinanceAgingPage() {
     tripNumber: string;
   } | null>(null);
 
+  function applyQuery(patch: Parameters<typeof patchFinanceAgingQueryParams>[1]) {
+    setSearchParams(patchFinanceAgingQueryParams(searchParams, patch), { replace: true });
+  }
+
+  useEffect(() => {
+    setSearchDraft(query.q ?? '');
+  }, [query.q]);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      const next = searchDraft.trim();
+      if ((query.q ?? '') === next) return;
+      applyQuery({ q: next || undefined });
+    }, 300);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce draft only
+  }, [searchDraft]);
 
   async function refreshOrgPacks() {
     try {
@@ -318,6 +380,7 @@ export function FinanceAgingPage() {
         id: 'label',
         accessorKey: 'label',
         header: 'Instalment',
+        enableHiding: false,
         cell: ({ row }) => (
           <div className="min-w-[10rem]">
             <div className="font-medium">{row.original.label}</div>
@@ -390,6 +453,7 @@ export function FinanceAgingPage() {
             {
               id: 'chase',
               header: 'Chase',
+              enableHiding: false,
               cell: ({ row }) => {
                 const busy = chaseBusyId === row.original.id;
                 const needsMark = markSentPaymentId === row.original.id;
@@ -439,6 +503,7 @@ export function FinanceAgingPage() {
             {
               id: 'settle',
               header: 'Settle',
+              enableHiding: false,
               cell: ({ row }) => {
                 const busy = settleBusyId === row.original.id;
                 const canUnmark =
@@ -486,22 +551,52 @@ export function FinanceAgingPage() {
   );
 
   const activeBucket =
-    bucketFromUrl && bucketOrder.includes(bucketFromUrl) ? bucketFromUrl : null;
+    query.bucket && bucketOrder.includes(query.bucket) ? query.bucket : null;
 
   useEffect(() => {
-    if (!bucketFromUrl) return;
-    if (bucketOrder.includes(bucketFromUrl)) return;
-    const next = new URLSearchParams(searchParams);
-    next.delete('bucket');
-    setSearchParams(next, { replace: true });
-  }, [bucketFromUrl, bucketOrder, searchParams, setSearchParams]);
+    if (!query.bucket) return;
+    if (bucketOrder.includes(query.bucket)) return;
+    applyQuery({ bucket: undefined });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- clear stale bucket for this mode only
+  }, [query.bucket, bucketOrder]);
 
-  function patchBucket(next: AgingBucketKey | null) {
-    const params = new URLSearchParams(searchParams);
-    if (!next) params.delete('bucket');
-    else params.set('bucket', next);
-    setSearchParams(params, { replace: true });
+  function bucketTone(key: AgingBucketKey): 'danger' | 'warn' | 'info' | 'default' {
+    if (key === 'current' || key === 'noDue') return 'info';
+    if (key === 'd1_30') return 'warn';
+    return 'danger';
   }
+
+  function toggleColumn(id: string, visible: boolean) {
+    setColumnVisibility((prev) => {
+      const next = { ...prev, [id]: visible };
+      localStorageKit.setJson(StorageKeys.financeAging.columns, next, { version: 1 });
+      return next;
+    });
+  }
+
+  function clearAgingFilters() {
+    applyQuery({ clearFilters: true });
+  }
+
+  function clearAgingFiltersAndSearch() {
+    setSearchDraft('');
+    applyQuery({ clearFilters: true, q: '' });
+  }
+
+  const filteredRows = useMemo(() => {
+    let rows = data?.rows ?? [];
+    if (activeBucket) rows = rows.filter((r) => r.bucket === activeBucket);
+    if (query.status) rows = rows.filter((r) => r.status === query.status);
+    const q = query.q?.trim().toLowerCase();
+    if (q) {
+      rows = rows.filter((r) =>
+        [r.label, r.tripNumber, r.tripTitle, r.partyName, r.supplierName]
+          .filter(Boolean)
+          .some((v) => (v as string).toLowerCase().includes(q)),
+      );
+    }
+    return rows;
+  }, [data?.rows, activeBucket, query.status, query.q]);
 
   function downloadCsv() {
     const rows = data?.rows ?? [];
@@ -547,7 +642,7 @@ export function FinanceAgingPage() {
         ? 'Supplier payables'
         : mode === 'overdue'
           ? 'Overdue receivables'
-          : 'Receivables');
+          : 'Invoices & payments');
     const emails = scheduleEmails
       .split(/[,;\s]+/)
       .map((e) => e.trim())
@@ -650,170 +745,169 @@ export function FinanceAgingPage() {
     }
   }
 
-  return (
-    <ListPageShell>
-      <PageHeader
-        icon={Wallet}
-        title={copy.title}
-        subtitle={copy.subtitle}
-        className="mb-4 shrink-0"
-        actions={
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={loading || !(data?.rows.length)}
-            onClick={downloadCsv}
-          >
-            <Download className="size-4" />
-            Download CSV
-          </Button>
+  const attentionPresets = bucketOrder.map((key) => ({
+    id: key,
+    label: BUCKET_LABELS[key].toLowerCase(),
+    count: summary?.buckets[key]?.count ?? 0,
+    active: activeBucket === key,
+    tone: bucketTone(key),
+    onClick: () => applyQuery({ bucket: activeBucket === key ? undefined : key }),
+  }));
+
+  const filterDefs = [
+    {
+      id: 'bucket',
+      label: 'Age',
+      value: query.bucket ?? null,
+      options: bucketOrder.map((value) => ({ value, label: BUCKET_LABELS[value] })),
+      onSelect: (value: string | null) =>
+        applyQuery({ bucket: (value as AgingBucketKey | null) || undefined }),
+    },
+    {
+      id: 'status',
+      label: 'Status',
+      value: query.status ?? null,
+      options: STATUS_OPTIONS,
+      onSelect: (value: string | null) =>
+        applyQuery({ status: (value as FinanceAgingStatusFilter | null) || undefined }),
+    },
+  ];
+
+  const displayColumns = [
+    { id: 'dueAt', label: 'Due', visible: columnVisibility.dueAt !== false },
+    { id: 'trip', label: 'Trip', visible: columnVisibility.trip !== false },
+    { id: 'outstanding', label: 'Outstanding', visible: columnVisibility.outstanding !== false },
+    { id: 'bucket', label: 'Age', visible: columnVisibility.bucket !== false },
+    { id: 'status', label: 'Status', visible: columnVisibility.status !== false },
+  ];
+
+  const filterChips = [
+    activeBucket
+      ? {
+          id: 'bucket',
+          label: `Age: ${BUCKET_LABELS[activeBucket]}`,
+          onRemove: () => applyQuery({ bucket: undefined }),
         }
-      />
+      : null,
+    query.status
+      ? {
+          id: 'status',
+          label: `Status: ${STATUS_OPTIONS.find((o) => o.value === query.status)?.label ?? query.status}`,
+          onRemove: () => applyQuery({ status: undefined }),
+        }
+      : null,
+  ].filter(Boolean) as Array<{ id: string; label: string; onRemove: () => void }>;
 
-      {mode !== 'payables' ? <WriteOffAwaitingStrip /> : null}
+  const pageSubtitle = activeBucket
+    ? `${copy.subtitle} · Age: ${BUCKET_LABELS[activeBucket]}`
+    : copy.subtitle;
 
-      <div className="mb-4 space-y-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            className="h-9 min-w-[10rem] flex-1 rounded-md border border-input bg-background px-3 text-sm sm:max-w-xs"
-            placeholder="Pack name (optional)"
-            value={packName}
-            onChange={(e) => setPackName(e.target.value)}
-          />
-          <input
-            className="h-9 min-w-[12rem] flex-1 rounded-md border border-input bg-background px-3 text-sm sm:max-w-sm"
-            placeholder="Weekly email to (optional, comma-separated)"
-            value={scheduleEmails}
-            onChange={(e) => setScheduleEmails(e.target.value)}
-          />
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={savingOrgPack}
-            onClick={() => void saveOrgPack()}
-          >
-            <Users className="size-4" />
-            {savingOrgPack ? 'Sharing…' : 'Share this view'}
-          </Button>
-        </div>
-        {orgPacks.length ? (
-          <div className="flex flex-wrap gap-1.5">
-            {orgPacks.map((p) => {
-              const deliveryCue = packDeliveryHonestyCue(p);
-              return (
-              <span
-                key={p.id}
-                className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2 py-1 text-xs"
-                title={deliveryCue || undefined}
-              >
-                <Users className="size-3 text-primary" aria-hidden />
-                <button
-                  type="button"
-                  className="font-medium hover:underline"
-                  onClick={() => applyOrgPack(p)}
-                >
-                  {p.name}
-                  {deliveryCue ? ` · ${deliveryCue}` : ''}
-                </button>
-                <button
-                  type="button"
-                  className="text-muted-foreground hover:underline"
-                  disabled={sendingPackId === p.id}
-                  onClick={() => void emailPackNow(p)}
-                >
-                  {sendingPackId === p.id ? '…' : 'Email now'}
-                </button>
-                <button
-                  type="button"
-                  className="text-muted-foreground hover:underline"
-                  onClick={() => void togglePackSchedule(p)}
-                >
-                  {p.delivery?.enabled ? 'Unschedule' : 'Schedule'}
-                </button>
-                <button
-                  type="button"
-                  className="text-muted-foreground hover:text-destructive"
-                  aria-label={`Remove org pack ${p.name}`}
-                  onClick={() => void removeOrgPack(p.id)}
-                >
-                  ×
-                </button>
-              </span>
-              );
-            })}
-          </div>
-        ) : (
-          <span className="text-xs text-muted-foreground">
-            Share receivables / overdue / payables views · optional weekly CSV email
-          </span>
-        )}
-      </div>
+  usePageChrome({ title: copy.title, subtitle: pageSubtitle });
 
-      {summary ? (
-        <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
-          <div className="rounded-lg border border-border/60 px-3 py-2">
-            <div className="text-xs text-muted-foreground">Outstanding</div>
-            <div className="text-lg font-semibold tabular-nums">
-              {formatCurrency(summary.totalOutstanding, summary.currency)}
-            </div>
-            {(summary.otherCurrencyCount ?? 0) > 0 ? (
-              <div className="text-[11px] text-muted-foreground">
-                {summary.otherCurrencyCount} other-currency row
-                {summary.otherCurrencyCount === 1 ? '' : 's'} excluded from totals
-              </div>
-            ) : null}
-          </div>
-          {mode !== 'payables' ? (
-            <div className="rounded-lg border border-border/60 px-3 py-2">
-              <div className="text-xs text-muted-foreground">Overdue</div>
-              <div className="text-lg font-semibold tabular-nums">
-                {formatCurrency(summary.overdueOutstanding, summary.currency)}
-              </div>
-            </div>
-          ) : null}
-          {bucketOrder.map((key) => {
-            const selected = activeBucket === key;
-            return (
-              <button
-                key={key}
-                type="button"
-                className={cn(
-                  'rounded-lg border px-3 py-2 text-left transition-colors',
-                  selected
-                    ? 'border-primary/50 bg-primary/5'
-                    : 'border-border/60 hover:bg-muted/40',
-                )}
-                onClick={() => patchBucket(selected ? null : key)}
-                aria-pressed={selected}
-              >
-                <div className="text-xs text-muted-foreground">{BUCKET_LABELS[key]}</div>
-                <div className="text-sm font-semibold tabular-nums">
-                  {formatCurrency(summary.buckets[key]?.amount ?? 0, summary.currency)}
-                </div>
-                <div className="text-[11px] text-muted-foreground">
-                  {summary.buckets[key]?.count ?? 0} open
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      ) : null}
-
-      {activeBucket ? (
-        <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <span>
-            Showing Age · {BUCKET_LABELS[activeBucket]}
-          </span>
-          <Button
+  const queueToolbar = (
+    <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+      <div className="relative min-w-[12rem] flex-1 basis-[14rem]">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 size-[0.875em] -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={searchDraft}
+          onChange={(e) => setSearchDraft(e.target.value)}
+          placeholder="Search instalment or trip…"
+          className={cn(QUEUE_PAGE_SEARCH_CLASS, searchDraft.trim() && 'pr-8')}
+          aria-label="Search finance aging"
+        />
+        {searchDraft.trim() ? (
+          <button
             type="button"
-            size="sm"
-            variant="ghost"
-            className="h-7 gap-1 px-2"
-            onClick={() => patchBucket(null)}
+            className="absolute right-1.5 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+            aria-label="Clear search"
+            onClick={() => {
+              setSearchDraft('');
+              applyQuery({ q: '' });
+            }}
           >
             <X className="size-3.5" />
-            Clear age filter
-          </Button>
+          </button>
+        ) : null}
+      </div>
+      <div className="flex flex-wrap items-center gap-1">
+        <FilterMenu filters={filterDefs} />
+        <DisplayMenu columns={displayColumns} onToggleColumn={toggleColumn} />
+      </div>
+    </div>
+  );
+
+  return (
+    <QueuePageChrome
+      attention={<AttentionPresets presets={attentionPresets} />}
+      primaryActions={
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={loading || !(data?.rows.length)}
+          onClick={downloadCsv}
+        >
+          <Download className="size-[0.875em]" />
+          Download CSV
+        </Button>
+      }
+      moreMenu={
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              className="size-[var(--control-h-sm)]"
+              aria-label="More actions"
+            >
+              <MoreHorizontal className="size-[0.875em]" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-52 p-1">
+            <DropdownMenuLabel className="text-[length:var(--control-text-sm)]">More</DropdownMenuLabel>
+            <DropdownMenuItem
+              className={QUEUE_MENU_ITEM_CLASS}
+              onClick={() => setShareOpen(true)}
+            >
+              <Users />
+              Share &amp; schedule
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      }
+      error={error ? <p className="text-sm text-destructive">{error}</p> : null}
+      toolbar={queueToolbar}
+      chips={
+        <ActiveFilterChips
+          chips={filterChips}
+          onClear={financeAgingQueryHasFilters(query) ? clearAgingFilters : undefined}
+        />
+      }
+    >
+      {mode !== 'payables' ? <WriteOffAwaitingStrip /> : null}
+
+      {summary ? (
+        <div className="mb-3 flex flex-wrap items-center gap-4 text-sm">
+          <span className="text-muted-foreground">
+            Outstanding{' '}
+            <strong className="font-semibold text-foreground tabular-nums">
+              {formatCurrency(summary.totalOutstanding, summary.currency)}
+            </strong>
+          </span>
+          {mode !== 'payables' ? (
+            <span className="text-muted-foreground">
+              Overdue{' '}
+              <strong className="font-semibold text-destructive tabular-nums">
+                {formatCurrency(summary.overdueOutstanding, summary.currency)}
+              </strong>
+            </span>
+          ) : null}
+          {(summary.otherCurrencyCount ?? 0) > 0 ? (
+            <span className="text-xs text-muted-foreground">
+              {summary.otherCurrencyCount} other-currency row
+              {summary.otherCurrencyCount === 1 ? '' : 's'} excluded from totals
+            </span>
+          ) : null}
         </div>
       ) : null}
 
@@ -850,42 +944,19 @@ export function FinanceAgingPage() {
       ) : null}
 
       <DataTable
-        key={`aging-bucket-${activeBucket ?? 'all'}`}
+        key={`cols-${JSON.stringify(columnVisibility)}-bucket-${activeBucket ?? 'all'}-status-${query.status ?? 'all'}`}
         columns={columns}
-        data={data?.rows ?? []}
+        data={filteredRows}
         loading={loading}
         error={error ?? undefined}
         pageSize={25}
-        searchKey="label"
-        searchPlaceholder="Search instalment or trip…"
+        showSearch={false}
+        showColumnsMenu={false}
+        defaultColumnVisibility={columnVisibility}
         columnVisibilityKey={StorageKeys.financeAging.columns}
-        defaultFacetValues={
-          activeBucket ? { bucket: activeBucket } : undefined
-        }
-        facets={[
-          {
-            id: 'bucket',
-            columnId: 'bucket',
-            label: 'Age',
-            options: bucketOrder.map((value) => ({
-              value,
-              label: BUCKET_LABELS[value],
-            })),
-          },
-          {
-            id: 'status',
-            columnId: 'status',
-            label: 'Status',
-            options: [
-              { value: 'scheduled', label: 'Scheduled' },
-              { value: 'partial', label: 'Partial' },
-              { value: 'overdue', label: 'Overdue' },
-            ],
-          },
-        ]}
         emptyTitle={
-          activeBucket
-            ? `No ${BUCKET_LABELS[activeBucket].toLowerCase()} rows`
+          financeAgingQueryHasFilters(query) || query.q
+            ? 'No matching rows'
             : mode === 'overdue'
               ? 'No overdue receivables'
               : mode === 'payables'
@@ -893,12 +964,103 @@ export function FinanceAgingPage() {
                 : 'No open receivables'
         }
         emptyDescription={
-          activeBucket
-            ? 'Clear the age filter or pick another bucket.'
+          financeAgingQueryHasFilters(query) || query.q
+            ? 'Try clearing filters or search.'
             : 'Trip instalments with outstanding balances will appear here.'
         }
         emptyIcon={Wallet}
+        emptyAction={
+          financeAgingQueryHasFilters(query) || query.q ? (
+            <Button type="button" size="sm" variant="outline" onClick={clearAgingFiltersAndSearch}>
+              Clear filters
+            </Button>
+          ) : undefined
+        }
       />
-    </ListPageShell>
+
+      <RecordDialog
+        open={shareOpen}
+        onOpenChange={setShareOpen}
+        title="Share & schedule"
+        description="Share receivables / overdue / payables views · optional weekly CSV email"
+        cancelLabel="Close"
+        size="lg"
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            className="min-w-[10rem] flex-1 sm:max-w-xs"
+            placeholder="Pack name (optional)"
+            value={packName}
+            onChange={(e) => setPackName(e.target.value)}
+          />
+          <Input
+            className="min-w-[12rem] flex-1 sm:max-w-sm"
+            placeholder="Weekly email to (optional, comma-separated)"
+            value={scheduleEmails}
+            onChange={(e) => setScheduleEmails(e.target.value)}
+          />
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={savingOrgPack}
+            onClick={() => void saveOrgPack()}
+          >
+            <Users className="size-4" />
+            {savingOrgPack ? 'Sharing…' : 'Share this view'}
+          </Button>
+        </div>
+        {orgPacks.length ? (
+          <div className="flex flex-wrap gap-1.5">
+            {orgPacks.map((p) => {
+              const deliveryCue = packDeliveryHonestyCue(p);
+              return (
+                <span
+                  key={p.id}
+                  className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2 py-1 text-xs"
+                  title={deliveryCue || undefined}
+                >
+                  <Users className="size-3 text-primary" aria-hidden />
+                  <button
+                    type="button"
+                    className="font-medium hover:underline"
+                    onClick={() => applyOrgPack(p)}
+                  >
+                    {p.name}
+                    {deliveryCue ? ` · ${deliveryCue}` : ''}
+                  </button>
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:underline"
+                    disabled={sendingPackId === p.id}
+                    onClick={() => void emailPackNow(p)}
+                  >
+                    {sendingPackId === p.id ? '…' : 'Email now'}
+                  </button>
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:underline"
+                    onClick={() => void togglePackSchedule(p)}
+                  >
+                    {p.delivery?.enabled ? 'Unschedule' : 'Schedule'}
+                  </button>
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:text-destructive"
+                    aria-label={`Remove org pack ${p.name}`}
+                    onClick={() => void removeOrgPack(p.id)}
+                  >
+                    ×
+                  </button>
+                </span>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            No shared views yet — share this view to give your team a one-click deep-link.
+          </p>
+        )}
+      </RecordDialog>
+    </QueuePageChrome>
   );
 }

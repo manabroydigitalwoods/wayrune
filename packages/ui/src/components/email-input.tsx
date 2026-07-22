@@ -31,7 +31,9 @@ export function EmailInput({
   placeholder = 'name@company.com',
   disabled,
   className,
+  inputSize = 'default',
   domains = COMMON_EMAIL_DOMAINS,
+  maxVisibleDomains = 3,
   'aria-invalid': ariaInvalid,
   autoComplete = 'email',
 }: {
@@ -41,18 +43,25 @@ export function EmailInput({
   placeholder?: string;
   disabled?: boolean;
   className?: string;
+  inputSize?: 'default' | 'sm';
   domains?: readonly string[];
+  /** How many domain chips to show before “More domains” (default 3). */
+  maxVisibleDomains?: number;
   'aria-invalid'?: boolean;
   autoComplete?: string;
 }) {
+  const [showAllDomains, setShowAllDomains] = React.useState(false);
   const { domain: currentDomain } = splitEmail(value);
   const query = currentDomain.toLowerCase();
-  const visibleDomains = query
+  const filtered = query
     ? domains.filter((d) => d.startsWith(query) || d.includes(query))
     : [...domains];
-
-  // Always show a few defaults even when filtering yields nothing (custom domain in progress).
-  const chips = visibleDomains.length > 0 ? visibleDomains : domains.slice(0, 4);
+  const pool = filtered.length > 0 ? filtered : domains.slice(0, Math.max(maxVisibleDomains, 1));
+  const chips =
+    showAllDomains || query || pool.length <= maxVisibleDomains
+      ? pool
+      : pool.slice(0, maxVisibleDomains);
+  const canExpand = !query && !showAllDomains && pool.length > maxVisibleDomains;
 
   return (
     <div className={cn('space-y-1.5', className)}>
@@ -61,6 +70,7 @@ export function EmailInput({
         type="email"
         inputMode="email"
         autoComplete={autoComplete}
+        inputSize={inputSize}
         value={value}
         disabled={disabled}
         placeholder={placeholder}
@@ -85,7 +95,7 @@ export function EmailInput({
               className={cn(
                 'rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors',
                 selected
-                  ? 'border-primary bg-primary text-primary-foreground'
+                  ? 'border-primary/50 bg-primary/15 text-primary'
                   : 'border-border/80 bg-muted/40 text-muted-foreground hover:border-primary/40 hover:bg-primary-50 hover:text-foreground',
               )}
             >
@@ -93,6 +103,16 @@ export function EmailInput({
             </button>
           );
         })}
+        {canExpand ? (
+          <button
+            type="button"
+            disabled={disabled}
+            className="rounded-full border border-dashed border-border/80 px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:border-primary/40 hover:text-foreground"
+            onClick={() => setShowAllDomains(true)}
+          >
+            More domains
+          </button>
+        ) : null}
       </div>
       <p className="text-[11px] leading-snug text-muted-foreground">
         Business domain? Just type it after @

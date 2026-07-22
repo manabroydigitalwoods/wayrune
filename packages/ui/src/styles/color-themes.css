@@ -1,0 +1,186 @@
+/*
+  Named color themes + high-contrast overlays.
+  Base tokens live on :root / .dark; these packs retint primary + atmosphere.
+*/
+
+:root {
+  --atmosphere-base: 150 26% 93%;
+  --atmosphere-a: 152 58% 82%;
+  --atmosphere-b: 195 55% 84%;
+  --atmosphere-c: 168 48% 84%;
+  --atmosphere-d: 140 42% 88%;
+  --atmosphere-e: 0 0% 100%;
+}
+
+html[data-color-theme='ocean'] {
+  --primary: 199 85% 32%;
+  --ring: 199 85% 32%;
+  --sidebar-accent: 199 55% 94%;
+  --sidebar-accent-foreground: 199 85% 28%;
+  --primary-50: 199 70% 96%;
+  --primary-100: 199 60% 90%;
+  --primary-200: 199 55% 78%;
+  --primary-800: 199 80% 22%;
+  --primary-900: 199 85% 14%;
+  --atmosphere-base: 200 30% 94%;
+  --atmosphere-a: 199 70% 82%;
+  --atmosphere-b: 210 55% 86%;
+  --atmosphere-c: 190 45% 86%;
+  --atmosphere-d: 205 40% 90%;
+}
+
+html[data-color-theme='ocean'].dark {
+  --primary: 199 75% 58%;
+  --ring: 199 75% 58%;
+  --sidebar-accent: 199 35% 18%;
+  --sidebar-accent-foreground: 199 80% 92%;
+  --primary-50: 199 30% 14%;
+  --primary-100: 199 32% 18%;
+  --primary-200: 199 35% 28%;
+  --primary-800: 199 55% 78%;
+  --primary-900: 199 50% 88%;
+  --atmosphere-base: 205 32% 7%;
+  --atmosphere-a: 199 45% 28%;
+  --atmosphere-b: 215 35% 22%;
+  --atmosphere-c: 190 28% 18%;
+  --atmosphere-d: 210 25% 40%;
+}
+
+html[data-color-theme='slate'] {
+  --primary: 215 25% 27%;
+  --ring: 215 25% 27%;
+  --sidebar-accent: 215 20% 94%;
+  --sidebar-accent-foreground: 215 25% 22%;
+  --primary-50: 210 20% 96%;
+  --primary-100: 214 18% 90%;
+  --primary-200: 214 16% 78%;
+  --primary-800: 215 28% 18%;
+  --primary-900: 215 30% 12%;
+  --atmosphere-base: 210 18% 94%;
+  --atmosphere-a: 215 20% 82%;
+  --atmosphere-b: 200 16% 86%;
+  --atmosphere-c: 220 14% 88%;
+  --atmosphere-d: 205 12% 90%;
+}
+
+html[data-color-theme='slate'].dark {
+  --primary: 210 20% 72%;
+  --ring: 210 20% 72%;
+  --sidebar-accent: 215 16% 18%;
+  --sidebar-accent-foreground: 210 20% 92%;
+  --primary-50: 215 18% 14%;
+  --primary-100: 215 16% 18%;
+  --primary-200: 215 14% 28%;
+  --primary-800: 210 16% 80%;
+  --primary-900: 210 14% 88%;
+  --atmosphere-base: 215 18% 7%;
+  --atmosphere-a: 215 16% 24%;
+  --atmosphere-b: 220 14% 20%;
+  --atmosphere-c: 205 12% 16%;
+  --atmosphere-d: 210 10% 36%;
+}
+
+html[data-color-theme='sand'] {
+  --primary: 28 72% 32%;
+  --ring: 28 72% 32%;
+  --sidebar-accent: 36 45% 94%;
+  --sidebar-accent-foreground: 28 72% 26%;
+  --primary-50: 36 50% 96%;
+  --primary-100: 34 48% 90%;
+  --primary-200: 32 42% 78%;
+  --primary-800: 26 70% 22%;
+  --primary-900: 24 72% 14%;
+  --atmosphere-base: 36 28% 93%;
+  --atmosphere-a: 34 50% 82%;
+  --atmosphere-b: 20 40% 86%;
+  --atmosphere-c: 42 35% 86%;
+  --atmosphere-d: 28 30% 90%;
+}
+
+html[data-color-theme='sand'].dark {
+  --primary: 34 70% 58%;
+  --ring: 34 70% 58%;
+  --sidebar-accent: 28 28% 16%;
+  --sidebar-accent-foreground: 36 50% 92%;
+  --primary-50: 28 24% 12%;
+  --primary-100: 28 26% 16%;
+  --primary-200: 30 30% 26%;
+  --primary-800: 34 45% 78%;
+  --primary-900: 36 40% 88%;
+  --atmosphere-base: 24 22% 7%;
+  --atmosphere-a: 28 35% 24%;
+  --atmosphere-b: 18 28% 20%;
+  --atmosphere-c: 36 24% 16%;
+  --atmosphere-d: 30 20% 36%;
+}
+
+html[data-color-theme='violet'] {
+  --primary: 262 70% 42%;
+  --ring: 262 70% 42%;
+  --sidebar-accent: 262 45% 95%;
+  --sidebar-accent-foreground: 262 70% 36%;
+  --primary-50: 262 55% 97%;
+  --primary-100: 262 50% 92%;
+  --primary-200: 262 45% 82%;
+  --primary-800: 262 65% 28%;
+  --primary-900: 262 70% 18%;
+  --atmosphere-base: 260 28% 95%;
+  --atmosphere-a: 262 48% 86%;
+  --atmosphere-b: 280 35% 88%;
+  --atmosphere-c: 240 30% 88%;
+  --atmosphere-d: 270 28% 92%;
+}
+
+html[data-color-theme='violet'].dark {
+  --primary: 262 65% 68%;
+  --ring: 262 65% 68%;
+  --sidebar-accent: 262 30% 16%;
+  --sidebar-accent-foreground: 262 55% 92%;
+  --primary-50: 262 28% 12%;
+  --primary-100: 262 30% 16%;
+  --primary-200: 262 32% 26%;
+  --primary-800: 262 45% 80%;
+  --primary-900: 262 40% 88%;
+  --atmosphere-base: 262 24% 7%;
+  --atmosphere-a: 262 35% 26%;
+  --atmosphere-b: 280 28% 20%;
+  --atmosphere-c: 240 22% 16%;
+  --atmosphere-d: 270 20% 38%;
+}
+
+/* High contrast — stronger text/borders; keeps chosen accent hue */
+html[data-contrast='high'] {
+  --foreground: 162 70% 7%;
+  --card-foreground: 162 70% 7%;
+  --popover-foreground: 162 70% 7%;
+  --muted-foreground: 160 25% 24%;
+  --border: 150 18% 52%;
+  --input: 150 18% 52%;
+  --secondary: 150 16% 88%;
+  --accent: 150 18% 86%;
+}
+
+html[data-contrast='high'].dark {
+  --foreground: 0 0% 100%;
+  --card-foreground: 0 0% 100%;
+  --popover-foreground: 0 0% 100%;
+  --muted-foreground: 150 12% 82%;
+  --border: 0 0% 58%;
+  --input: 0 0% 58%;
+  --secondary: 162 14% 20%;
+  --accent: 162 16% 22%;
+  --background: 162 30% 5%;
+  --card: 162 24% 9%;
+}
+
+html[data-contrast='high'] body {
+  font-weight: 450;
+}
+
+html[data-contrast='high'] .glass,
+html[data-contrast='high'] .glass-panel,
+html[data-contrast='high'] .glass-strong,
+html[data-contrast='high'] .glass-row,
+html[data-contrast='high'] .glass-well {
+  border-color: hsl(var(--border) / 0.95);
+}

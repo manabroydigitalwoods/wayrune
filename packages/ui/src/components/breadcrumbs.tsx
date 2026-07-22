@@ -14,8 +14,8 @@ export function Breadcrumbs({
   className?: string;
 }) {
   return (
-    <nav aria-label="Breadcrumb" className={cn('mb-3', className)}>
-      <ol className="flex flex-wrap items-center gap-1 text-sm text-muted-foreground">
+    <nav aria-label="Breadcrumb" className={cn('mb-3 text-sm', className)}>
+      <ol className="flex flex-wrap items-center gap-1 text-inherit text-muted-foreground">
         {items.map((item, i) => {
           const last = i === items.length - 1;
           return (

@@ -72,6 +72,14 @@ describe('countMarginPolicyViolations', () => {
     expect(countMarginPolicyViolations(items, 15)).toBe(2);
     expect(countMarginPolicyViolations(items, 0)).toBe(1);
   });
+
+  it('skips included (₹0) proposal lines', () => {
+    const items = [
+      { unitCost: 0, unitSell: 0, includedMeta: { at: '2026-01-01', reason: 'included' } },
+      { unitCost: 100, unitSell: 125 },
+    ];
+    expect(countMarginPolicyViolations(items, 15)).toBe(0);
+  });
 });
 
 describe('parseMinMarginPercent', () => {

@@ -24,6 +24,7 @@ export function RecordSheet({
   size,
   hideFooter,
   footer,
+  submitTestId,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -40,6 +41,7 @@ export function RecordSheet({
   size?: 'default' | 'wide' | 'xl';
   hideFooter?: boolean;
   footer?: ReactNode;
+  submitTestId?: string;
 }) {
   const resolvedSize = size ?? (wide ? 'wide' : 'default');
   return (
@@ -57,16 +59,22 @@ export function RecordSheet({
           <SheetTitle>{title}</SheetTitle>
           {description ? <SheetDescription>{description}</SheetDescription> : null}
         </SheetHeader>
-        <SheetBody>{children}</SheetBody>
+        <SheetBody className="stack-form">{children}</SheetBody>
         {hideFooter ? null : footer ? (
           <SheetFooter>{footer}</SheetFooter>
         ) : (
           <SheetFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            <Button type="button" variant="outline" size="sm" onClick={() => onOpenChange(false)}>
               {cancelLabel}
             </Button>
             {onSubmit ? (
-              <Button type="button" onClick={onSubmit} disabled={submitting}>
+              <Button
+                type="button"
+                size="sm"
+                data-testid={submitTestId}
+                onClick={onSubmit}
+                disabled={submitting}
+              >
                 {submitting ? 'Saving…' : submitLabel}
               </Button>
             ) : null}

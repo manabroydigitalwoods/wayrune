@@ -14,6 +14,7 @@ import {
   DialogTitle,
   Input,
   Label,
+  Skeleton,
   StatusBadge,
   Textarea,
   toastError,
@@ -726,7 +727,11 @@ export function SiteSettingsDialog({
                 Publish history
               </div>
               {loadingVersions ? (
-                <p className="text-sm text-muted-foreground">Loading…</p>
+                <div className="space-y-2" role="status" aria-busy="true">
+                  <span className="sr-only">Loading</span>
+                  <Skeleton className="h-12 w-full rounded-lg" />
+                  <Skeleton className="h-12 w-full rounded-lg" />
+                </div>
               ) : versions.length ? (
                 <ul className="space-y-2">
                   {versions.map((v) => (

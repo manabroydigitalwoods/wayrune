@@ -718,11 +718,11 @@ export function StayRoomsPanel({ assetId }: { assetId: string }) {
           />
         </FormField>
         <FormField label="Count per night" required>
-          <Input
-            type="number"
+          <NumberField
+            min={0}
             value={allotmentForm.availableCount}
-            onChange={(e) =>
-              setAllotmentForm((f) => ({ ...f, availableCount: e.target.value }))
+            onChange={(availableCount) =>
+              setAllotmentForm((f) => ({ ...f, availableCount }))
             }
           />
         </FormField>

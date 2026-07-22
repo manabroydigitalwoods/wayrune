@@ -35,6 +35,23 @@ export function placeRefsFromJson(raw: unknown): PlaceRef[] {
   return raw.map(toPlaceRef).filter(Boolean) as PlaceRef[];
 }
 
+/** Prefer canonical originJson; fall back to deprecated origin + originPlaceId. */
+export function originRefFromInquiry(row: {
+  originJson?: unknown;
+  origin?: string | null;
+  originPlaceId?: string | null;
+}): PlaceRef | null {
+  const fromJson = toPlaceRef(row.originJson);
+  if (fromJson) return fromJson;
+  if (typeof row.origin === 'string' && row.origin.trim()) {
+    return {
+      placeId: row.originPlaceId ?? null,
+      name: row.origin.trim(),
+    };
+  }
+  return null;
+}
+
 export function placeRefKey(ref: PlaceRef) {
   return ref.placeId || ref.name.toLowerCase();
 }

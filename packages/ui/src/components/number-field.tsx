@@ -30,7 +30,7 @@ function sanitizeNumberInput(
 
 export type NumberFieldProps = Omit<
   InputHTMLAttributes<HTMLInputElement>,
-  'value' | 'onChange' | 'type' | 'min' | 'max' | 'step'
+  'value' | 'onChange' | 'type' | 'min' | 'max' | 'step' | 'size'
 > & {
   value: string | number;
   onChange: (value: string) => void;
@@ -45,6 +45,7 @@ export type NumberFieldProps = Omit<
   quickPickLabel?: string;
   /** When a selected quick pick is tapped again, clear the value. */
   allowDeselect?: boolean;
+  inputSize?: 'default' | 'sm';
   'aria-invalid'?: boolean;
 };
 
@@ -69,6 +70,7 @@ export function NumberField({
   id,
   name,
   autoFocus,
+  inputSize = 'default',
   'aria-invalid': ariaInvalid,
   'aria-label': ariaLabel,
   ...rest
@@ -108,6 +110,7 @@ export function NumberField({
         autoFocus={autoFocus}
         aria-invalid={ariaInvalid}
         aria-label={ariaLabel}
+        inputSize={inputSize}
         value={display}
         onFocus={(e) => e.currentTarget.select()}
         onChange={(e) => {
@@ -125,11 +128,11 @@ export function NumberField({
       />
       {quickPicks?.length ? (
         <div className="mt-2 space-y-1.5">
-          <p className="text-[11px] text-muted-foreground">{quickPickLabel}</p>
+          <p className="text-[length:var(--control-text-sm)] text-muted-foreground">{quickPickLabel}</p>
           <div
             role="group"
             aria-label={ariaLabel ? `${ariaLabel} quick picks` : quickPickLabel}
-            className="flex flex-wrap gap-2"
+            className="flex flex-wrap gap-[var(--field-gap)]"
           >
             {quickPicks.map((n) => {
               const token = String(n);
@@ -150,7 +153,7 @@ export function NumberField({
                     commit(token);
                   }}
                   className={cn(
-                    'inline-flex size-8 shrink-0 items-center justify-center rounded-full border text-xs font-semibold tabular-nums transition-colors',
+                    'inline-flex h-[var(--control-h-sm)] min-w-[var(--control-h-sm)] shrink-0 items-center justify-center rounded-full border px-2 text-[length:var(--control-text-sm)] font-semibold tabular-nums transition-colors',
                     selected
                       ? 'border-primary bg-primary text-primary-foreground'
                       : 'border-white/50 bg-white/35 text-foreground backdrop-blur-md hover:border-primary/40 hover:bg-white/55 dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10',
@@ -180,7 +183,7 @@ export function QuickPicks({
 }) {
   return (
     <div className={cn('mt-2 space-y-1.5', className)}>
-      <p className="text-[11px] text-muted-foreground">{label}</p>
+      <p className="text-[length:var(--control-text-sm)] text-muted-foreground">{label}</p>
       {children}
     </div>
   );

@@ -14,6 +14,7 @@ import {
   Input,
   NumberField,
   PriceField,
+  TimePicker,
   RecordSheet,
   SimpleFormField as FormField,
   Textarea,
@@ -25,6 +26,8 @@ import {
 } from '@wayrune/ui';
 import { api, type SupplierHotelRateRow } from '../../api';
 import { PlaceSinglePicker } from '../places/PlacePicker';
+import { TransferEndpointPicker } from './TransferEndpointPicker';
+import { transferSameEndpointWarning } from '../../lib/transferEndpointRefs';
 import { formatDateInput, parseDateInput } from '../../lib/dateInput';
 import {
   markupDetailsFromPreset,
@@ -442,7 +445,7 @@ function parseMoney(raw: string): number | null {
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="space-y-3 border-t border-border/60 pt-3 first:border-t-0 first:pt-0">
+    <section className="stack-form border-t border-border/60 pt-[var(--gap-section)] first:border-t-0 first:pt-0">
       <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         {title}
       </h3>
@@ -635,9 +638,15 @@ export function QuoteServiceDetailSheet({
   unitCostRef.current = unitCost;
   const descriptionRef = useRef(description);
   descriptionRef.current = description;
+  /** Alt cards are ephemeral UI; clear only when opening/switching lines — not when Match onSave refreshes `line`. */
+  const matchAltsSeedKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!open || !line) return;
+    if (!open) {
+      matchAltsSeedKeyRef.current = null;
+      return;
+    }
+    if (!line) return;
     setDescription(line.description);
     setServiceType(line.serviceType || 'custom');
     const merged = { ...(seedDetails || {}), ...(line.details || {}) };
@@ -755,7 +764,10 @@ export function QuoteServiceDetailSheet({
       if (!accepted.length && !rejected.length) return null;
       return { accepted, rejected };
     });
-    setMatchAlternatives([]);
+    if (matchAltsSeedKeyRef.current !== line.id) {
+      matchAltsSeedKeyRef.current = line.id;
+      setMatchAlternatives([]);
+    }
     setLastMatchBlockReason(line.rateBlockReason ?? null);
     setChartDriftUpdatedAt(null);
     setAllotmentNote(line.rateProvenance?.allotmentNote?.trim() || null);
@@ -1812,9 +1824,14 @@ export function QuoteServiceDetailSheet({
         return;
       }
       setLastMatchExplain(parseMatchExplain(hit.rateMeta));
-      setMatchAlternatives(
-        hit.matched ? parseMatchAlternatives(hit.rateMeta) : [],
-      );
+      const nextAlts = hit.matched
+        ? parseMatchAlternatives(hit.rateMeta)
+        : [];
+      // Manual Match requests alternatives; auto rematch uses limit 0.
+      // Do not wipe alt cards the user just received from a manual Match.
+      if (!auto || nextAlts.length > 0) {
+        setMatchAlternatives(nextAlts);
+      }
 
       const appliedForced = applyRateResolveHit({
         serviceType,
@@ -2238,6 +2255,7 @@ export function QuoteServiceDetailSheet({
                     type="button"
                     variant="secondary"
                     className="cursor-pointer"
+                    data-testid="match-rate"
                     disabled={matchDisabled}
                     title={matchPrereqBlocked || lastMatchFailure || undefined}
                     onClick={() => void matchRate()}
@@ -2283,7 +2301,10 @@ export function QuoteServiceDetailSheet({
         </FormField>
 
         {matchAlternatives.length > 0 && !readOnly ? (
-          <div className="rounded-md border border-border/50 bg-muted/20 px-2.5 py-2 text-xs">
+          <div
+            className="rounded-md border border-border/50 bg-muted/20 px-2.5 py-2 text-xs"
+            data-testid="match-alts"
+          >
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="font-medium text-foreground">Other eligible rates</p>
               <div className="flex flex-wrap gap-1">
@@ -2374,6 +2395,7 @@ export function QuoteServiceDetailSheet({
                       variant="secondary"
                       className="h-7"
                       disabled={matching}
+                      data-testid="match-alt-keep-markup"
                       onClick={() =>
                         void matchRate({
                           preferredRateId: alt.rateId,
@@ -2390,6 +2412,7 @@ export function QuoteServiceDetailSheet({
                       variant="ghost"
                       className="h-7"
                       disabled={matching}
+                      data-testid="match-alt-use"
                       onClick={() =>
                         void matchRate({
                           preferredRateId: alt.rateId,
@@ -2477,8 +2500,9 @@ export function QuoteServiceDetailSheet({
                   }
                 >
                   <DatePicker
-                    className="h-9 cursor-pointer"
+                    className="cursor-pointer"
                     disabled={readOnly}
+                    data-testid="hotel-check-in"
                     value={parseDateInput(details.checkIn)}
                     onChange={(d) =>
                       patchDetails({ checkIn: formatDateInput(d) || undefined })
@@ -2494,8 +2518,9 @@ export function QuoteServiceDetailSheet({
                   }
                 >
                   <DatePicker
-                    className="h-9 cursor-pointer"
+                    className="cursor-pointer"
                     disabled={readOnly}
+                    data-testid="hotel-check-out"
                     value={parseDateInput(details.checkOut)}
                     onChange={(d) =>
                       patchDetails({ checkOut: formatDateInput(d) || undefined })
@@ -2980,46 +3005,41 @@ export function QuoteServiceDetailSheet({
               })()}
               <FormGrid>
                 <FormField label="Rooms">
-                  <Input
-                    type="number"
+                  <NumberField
                     min={1}
                     disabled={readOnly}
                     value={details.rooms ?? 1}
-                    onChange={(e) => {
-                      const n = Number(e.target.value);
-                      patchDetails({
-                        rooms: e.target.value === '' ? 1 : Math.max(1, n),
-                      });
+                    onChange={(raw) => {
+                      if (raw === '') {
+                        patchDetails({ rooms: 1 });
+                        return;
+                      }
+                      patchDetails({ rooms: Math.max(1, Number(raw)) });
                     }}
+                    quickPicks={[1, 2, 3, 4]}
                   />
                 </FormField>
                 <FormField label="Adults">
-                  <Input
-                    type="number"
+                  <NumberField
                     min={0}
                     disabled={readOnly}
                     value={details.adults ?? ''}
-                    onChange={(e) =>
+                    onChange={(raw) =>
                       patchDetails({
-                        adults:
-                          e.target.value === ''
-                            ? undefined
-                            : Math.max(0, Number(e.target.value)),
+                        adults: raw === '' ? undefined : Math.max(0, Number(raw)),
                       })
                     }
+                    quickPicks={[1, 2, 3, 4]}
                   />
                 </FormField>
                 <FormField label="Children">
-                  <Input
-                    type="number"
+                  <NumberField
                     min={0}
                     disabled={readOnly}
                     value={details.children ?? ''}
-                    onChange={(e) => {
+                    onChange={(raw) => {
                       const children =
-                        e.target.value === ''
-                          ? undefined
-                          : Math.max(0, Number(e.target.value));
+                        raw === '' ? undefined : Math.max(0, Number(raw));
                       patchDetails({
                         children,
                         childAges: trimChildAgesForChildrenCount(
@@ -3032,6 +3052,7 @@ export function QuoteServiceDetailSheet({
                         ),
                       });
                     }}
+                    quickPicks={[0, 1, 2]}
                   />
                 </FormField>
               </FormGrid>
@@ -3242,18 +3263,33 @@ export function QuoteServiceDetailSheet({
               <FormField
                 label={markupMode === 'fixed' ? 'Markup amount' : 'Markup %'}
               >
-                <Input
-                  type="number"
-                  min={0}
-                  disabled={readOnly}
-                  value={markupValue}
-                  onChange={(e) =>
-                    onMarkupChange(
-                      markupMode === 'fixed' ? 'fixed' : 'percent',
-                      e.target.value === '' ? undefined : Number(e.target.value),
-                    )
-                  }
-                />
+                {markupMode === 'fixed' ? (
+                  <PriceField
+                    currency={currency}
+                    disabled={readOnly}
+                    value={markupValue ?? ''}
+                    onChange={(raw) =>
+                      onMarkupChange(
+                        'fixed',
+                        raw === '' ? undefined : Number(raw),
+                      )
+                    }
+                  />
+                ) : (
+                  <NumberField
+                    integer={false}
+                    min={0}
+                    disabled={readOnly}
+                    data-testid="line-markup-value"
+                    value={markupValue ?? ''}
+                    onChange={(raw) =>
+                      onMarkupChange(
+                        'percent',
+                        raw === '' ? undefined : Number(raw),
+                      )
+                    }
+                  />
+                )}
               </FormField>
               {renderMarkupPresetChips()}
               {renderPartyMarkupStampCue()}
@@ -3266,12 +3302,12 @@ export function QuoteServiceDetailSheet({
                 />
               </FormField>
               <FormField label="Tax %">
-                <Input
-                  type="number"
+                <NumberField
+                  integer={false}
                   min={0}
                   disabled={readOnly}
                   value={taxPercent}
-                  onChange={(e) => setTaxPercent(e.target.value)}
+                  onChange={setTaxPercent}
                 />
               </FormField>
               <div className="space-y-1.5 rounded-md border border-border/70 bg-muted/20 px-3 py-2.5 text-sm tabular-nums">
@@ -3680,52 +3716,59 @@ export function QuoteServiceDetailSheet({
         {showTransfer ? (
           <>
             <Section title="Route and vehicle">
-              <PlaceSinglePicker
-                label="From"
-                value={placeRefFrom(details.fromPlaceId, details.fromPlaceName)}
-                onChange={(ref) => {
-                  const name = ref?.name || undefined;
+              <TransferEndpointPicker
+                endpoint="pickup"
+                label="Pickup"
+                placeId={details.fromPlaceId}
+                placeName={details.fromPlaceName}
+                onChange={(next) => {
                   patchDetails({
-                    fromPlaceId: ref?.placeId || undefined,
-                    fromPlaceName: name,
-                    fromCountry: inferPlaceCountry(name) || undefined,
+                    fromPlaceId: next.placeId || undefined,
+                    fromPlaceName: next.name || undefined,
+                    fromCountry: next.name
+                      ? inferPlaceCountry(next.name) || undefined
+                      : undefined,
                   });
-                  if (ref?.placeId) {
-                    void fetchPlaceMeta(ref.placeId).then((meta) => {
+                  if (next.placeId) {
+                    void fetchPlaceMeta(next.placeId).then((meta) => {
                       if (!meta) return;
                       patchDetails({
-                        fromCountry: meta.country || inferPlaceCountry(name) || undefined,
-                        ...(meta.name && looksLikePlaceId(name)
-                          ? { fromPlaceName: meta.name }
-                          : {}),
+                        fromCountry:
+                          meta.country || inferPlaceCountry(next.name) || undefined,
                       });
                     });
                   }
                 }}
               />
-              <PlaceSinglePicker
-                label="To"
-                value={placeRefFrom(details.toPlaceId, details.toPlaceName)}
-                onChange={(ref) => {
-                  const name = ref?.name || undefined;
+              <TransferEndpointPicker
+                endpoint="drop"
+                label="Drop"
+                placeId={details.toPlaceId}
+                placeName={details.toPlaceName}
+                onChange={(next) => {
                   patchDetails({
-                    toPlaceId: ref?.placeId || undefined,
-                    toPlaceName: name,
-                    toCountry: inferPlaceCountry(name) || undefined,
+                    toPlaceId: next.placeId || undefined,
+                    toPlaceName: next.name || undefined,
+                    toCountry: next.name
+                      ? inferPlaceCountry(next.name) || undefined
+                      : undefined,
                   });
-                  if (ref?.placeId) {
-                    void fetchPlaceMeta(ref.placeId).then((meta) => {
+                  if (next.placeId) {
+                    void fetchPlaceMeta(next.placeId).then((meta) => {
                       if (!meta) return;
                       patchDetails({
-                        toCountry: meta.country || inferPlaceCountry(name) || undefined,
-                        ...(meta.name && looksLikePlaceId(name)
-                          ? { toPlaceName: meta.name }
-                          : {}),
+                        toCountry:
+                          meta.country || inferPlaceCountry(next.name) || undefined,
                       });
                     });
                   }
                 }}
               />
+              {transferSameEndpointWarning(details.fromPlaceId, details.toPlaceId) ? (
+                <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-950 dark:text-amber-100">
+                  {transferSameEndpointWarning(details.fromPlaceId, details.toPlaceId)}
+                </div>
+              ) : null}
               {reverseCorridorHint ? (
                 <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-950 dark:text-amber-100">
                   <p className="text-xs">Corridor · {reverseCorridorHint}</p>
@@ -3800,7 +3843,7 @@ export function QuoteServiceDetailSheet({
                   }
                 >
                   <DatePicker
-                    className="h-9 cursor-pointer"
+                    className="cursor-pointer"
                     disabled={readOnly}
                     value={parseDateInput(details.serviceDate)}
                     preferredMonth={parseDateInput(tripStartDate)}
@@ -3817,16 +3860,15 @@ export function QuoteServiceDetailSheet({
                   />
                 </FormField>
                 <FormField label="Adults">
-                  <Input
-                    type="number"
+                  <NumberField
                     min={0}
                     disabled={readOnly}
                     value={details.adults ?? ''}
-                    onChange={(e) => {
+                    onChange={(raw) => {
                       const adults =
-                        e.target.value === ''
+                        raw === ''
                           ? undefined
-                          : Math.max(0, Number(e.target.value));
+                          : Math.max(0, Number(raw));
                       const party =
                         Math.max(0, Number(adults) || 0) +
                         Math.max(0, Number(details.children) || 0);
@@ -3874,16 +3916,15 @@ export function QuoteServiceDetailSheet({
                   />
                 </FormField>
                 <FormField label="Children">
-                  <Input
-                    type="number"
+                  <NumberField
                     min={0}
                     disabled={readOnly}
                     value={details.children ?? ''}
-                    onChange={(e) => {
+                    onChange={(raw) => {
                       const children =
-                        e.target.value === ''
+                        raw === ''
                           ? undefined
-                          : Math.max(0, Number(e.target.value));
+                          : Math.max(0, Number(raw));
                       const party =
                         Math.max(0, Number(details.adults) || 0) +
                         Math.max(0, Number(children) || 0);
@@ -3940,16 +3981,15 @@ export function QuoteServiceDetailSheet({
                   label="Infants"
                   description="Used when child ages are empty — ages below the fare card min count as infants on Match"
                 >
-                  <Input
-                    type="number"
+                  <NumberField
                     min={0}
                     disabled={readOnly}
                     value={details.infants ?? ''}
-                    onChange={(e) => {
+                    onChange={(raw) => {
                       const infants =
-                        e.target.value === ''
+                        raw === ''
                           ? undefined
-                          : Math.max(0, Number(e.target.value));
+                          : Math.max(0, Number(raw));
                       patchDetails({ infants });
                     }}
                   />
@@ -3962,14 +4002,11 @@ export function QuoteServiceDetailSheet({
                     ) || undefined
                   }
                 >
-                  <Input
-                    type="number"
+                  <NumberField
                     min={1}
-                    step={1}
                     disabled={readOnly}
                     value={details.vehicles ?? ''}
-                    onChange={(e) => {
-                      const raw = e.target.value;
+                    onChange={(raw) => {
                       if (raw === '') {
                         patchDetails({
                           vehicles: undefined,
@@ -4191,18 +4228,32 @@ export function QuoteServiceDetailSheet({
               <FormField
                 label={markupMode === 'fixed' ? 'Markup amount' : 'Markup %'}
               >
-                <Input
-                  type="number"
-                  min={0}
-                  disabled={readOnly}
-                  value={markupValue}
-                  onChange={(e) =>
-                    onMarkupChange(
-                      markupMode === 'fixed' ? 'fixed' : 'percent',
-                      e.target.value === '' ? undefined : Number(e.target.value),
-                    )
-                  }
-                />
+                {markupMode === 'fixed' ? (
+                  <PriceField
+                    currency={currency}
+                    disabled={readOnly}
+                    value={markupValue ?? ''}
+                    onChange={(raw) =>
+                      onMarkupChange(
+                        'fixed',
+                        raw === '' ? undefined : Number(raw),
+                      )
+                    }
+                  />
+                ) : (
+                  <NumberField
+                    integer={false}
+                    min={0}
+                    disabled={readOnly}
+                    value={markupValue ?? ''}
+                    onChange={(raw) =>
+                      onMarkupChange(
+                        'percent',
+                        raw === '' ? undefined : Number(raw),
+                      )
+                    }
+                  />
+                )}
               </FormField>
               {renderMarkupPresetChips()}
               {renderPartyMarkupStampCue()}
@@ -4216,12 +4267,12 @@ export function QuoteServiceDetailSheet({
                 />
               </FormField>
               <FormField label="Tax %">
-                <Input
-                  type="number"
+                <NumberField
+                  integer={false}
                   min={0}
                   disabled={readOnly}
                   value={taxPercent}
-                  onChange={(e) => setTaxPercent(e.target.value)}
+                  onChange={setTaxPercent}
                 />
               </FormField>
               <div className="space-y-1.5 rounded-md border border-border/70 bg-muted/20 px-3 py-2.5 text-sm tabular-nums">
@@ -4558,7 +4609,7 @@ export function QuoteServiceDetailSheet({
                   error={!details.activityDate ? 'Required' : undefined}
                 >
                   <DatePicker
-                    className="h-9 cursor-pointer"
+                    className="cursor-pointer"
                     disabled={readOnly}
                     value={parseDateInput(details.activityDate)}
                     onChange={(d) =>
@@ -4570,12 +4621,11 @@ export function QuoteServiceDetailSheet({
                   />
                 </FormField>
                 <FormField label="Time">
-                  <Input
-                    type="time"
+                  <TimePicker
                     disabled={readOnly}
-                    value={details.activityTime || ''}
-                    onChange={(e) =>
-                      patchDetails({ activityTime: e.target.value || undefined })
+                    value={details.activityTime || undefined}
+                    onChange={(time) =>
+                      patchDetails({ activityTime: time || undefined })
                     }
                   />
                 </FormField>
@@ -4622,29 +4672,27 @@ export function QuoteServiceDetailSheet({
               </FormField>
               <FormGrid>
                 <FormField label="Adults">
-                  <Input
-                    type="number"
+                  <NumberField
                     min={0}
                     disabled={readOnly}
                     value={details.adults ?? ''}
-                    onChange={(e) =>
+                    onChange={(raw) =>
                       patchDetails({
-                        adults: e.target.value === '' ? undefined : Number(e.target.value),
+                        adults: raw === '' ? undefined : Math.max(0, Number(raw)),
                       })
                     }
                   />
                 </FormField>
                 <FormField label="Children">
-                  <Input
-                    type="number"
+                  <NumberField
                     min={0}
                     disabled={readOnly}
                     value={details.children ?? ''}
-                    onChange={(e) => {
+                    onChange={(raw) => {
                       const children =
-                        e.target.value === ''
+                        raw === ''
                           ? undefined
-                          : Math.max(0, Number(e.target.value));
+                          : Math.max(0, Number(raw));
                       patchDetails({
                         children,
                         childAges: trimChildAgesForChildrenCount(
@@ -4752,18 +4800,32 @@ export function QuoteServiceDetailSheet({
                 <FormField
                   label={markupMode === 'fixed' ? 'Markup amount' : 'Markup %'}
                 >
-                  <Input
-                    type="number"
-                    min={0}
-                    disabled={readOnly}
-                    value={markupValue}
-                    onChange={(e) =>
-                      onMarkupChange(
-                        markupMode === 'fixed' ? 'fixed' : 'percent',
-                        e.target.value === '' ? undefined : Number(e.target.value),
-                      )
-                    }
-                  />
+                  {markupMode === 'fixed' ? (
+                    <PriceField
+                      currency={currency}
+                      disabled={readOnly}
+                      value={markupValue ?? ''}
+                      onChange={(raw) =>
+                        onMarkupChange(
+                          'fixed',
+                          raw === '' ? undefined : Number(raw),
+                        )
+                      }
+                    />
+                  ) : (
+                    <NumberField
+                      integer={false}
+                      min={0}
+                      disabled={readOnly}
+                      value={markupValue ?? ''}
+                      onChange={(raw) =>
+                        onMarkupChange(
+                          'percent',
+                          raw === '' ? undefined : Number(raw),
+                        )
+                      }
+                    />
+                  )}
                 </FormField>
                 {renderMarkupPresetChips()}
                 {renderPartyMarkupStampCue()}
@@ -4779,12 +4841,12 @@ export function QuoteServiceDetailSheet({
                   />
                 </FormField>
                 <FormField label="Tax %">
-                  <Input
-                    type="number"
+                  <NumberField
+                    integer={false}
                     min={0}
                     disabled={readOnly}
                     value={taxPercent}
-                    onChange={(e) => setTaxPercent(e.target.value)}
+                    onChange={setTaxPercent}
                   />
                 </FormField>
               </FormGrid>
@@ -4833,12 +4895,11 @@ export function QuoteServiceDetailSheet({
                 />
               </FormField>
               <FormField label="Quantity">
-                <Input
-                  type="number"
+                <NumberField
                   min={1}
                   disabled={readOnly}
                   value={customQty}
-                  onChange={(e) => setCustomQty(e.target.value)}
+                  onChange={setCustomQty}
                 />
               </FormField>
             </FormGrid>
@@ -4872,18 +4933,32 @@ export function QuoteServiceDetailSheet({
                   (details.markupMode || 'percent') === 'fixed' ? 'Markup amount' : 'Markup %'
                 }
               >
-                <Input
-                  type="number"
-                  min={0}
-                  disabled={readOnly}
-                  value={details.markupValue ?? defaultMarkupPercent}
-                  onChange={(e) =>
-                    onMarkupChange(
-                      (details.markupMode || 'percent') as QuoteMarkupMode,
-                      e.target.value === '' ? undefined : Number(e.target.value),
-                    )
-                  }
-                />
+                {(details.markupMode || 'percent') === 'fixed' ? (
+                  <PriceField
+                    currency={currency}
+                    disabled={readOnly}
+                    value={details.markupValue ?? defaultMarkupPercent}
+                    onChange={(raw) =>
+                      onMarkupChange(
+                        'fixed',
+                        raw === '' ? undefined : Number(raw),
+                      )
+                    }
+                  />
+                ) : (
+                  <NumberField
+                    integer={false}
+                    min={0}
+                    disabled={readOnly}
+                    value={details.markupValue ?? defaultMarkupPercent}
+                    onChange={(raw) =>
+                      onMarkupChange(
+                        (details.markupMode || 'percent') as QuoteMarkupMode,
+                        raw === '' ? undefined : Number(raw),
+                      )
+                    }
+                  />
+                )}
               </FormField>
             </FormGrid>
             {renderMarkupPresetChips()}
@@ -4916,12 +4991,12 @@ export function QuoteServiceDetailSheet({
               />
             </FormField>
             <FormField label="Tax %">
-              <Input
-                type="number"
+              <NumberField
+                integer={false}
                 min={0}
                 disabled={readOnly}
                 value={taxPercent}
-                onChange={(e) => setTaxPercent(e.target.value)}
+                onChange={setTaxPercent}
               />
             </FormField>
           </Section>
@@ -4948,12 +5023,12 @@ export function QuoteServiceDetailSheet({
               </FormField>
             </FormGrid>
             <FormField label="Tax %">
-              <Input
-                type="number"
+              <NumberField
+                integer={false}
                 min={0}
                 disabled={readOnly}
                 value={taxPercent}
-                onChange={(e) => setTaxPercent(e.target.value)}
+                onChange={setTaxPercent}
               />
             </FormField>
           </Section>

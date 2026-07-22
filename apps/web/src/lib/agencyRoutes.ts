@@ -269,6 +269,10 @@ export function isAgencyNavActive(navPath: string, pathname: string, search: str
     return relNav === AGENCY_ROUTES.inquiries;
   }
 
+  if (relPath === AGENCY_ROUTES.operations || relPath === AGENCY_ROUTES.operationsBookings) {
+    return relNav === AGENCY_ROUTES.operations;
+  }
+
   if (/^\/trips\/[^/]+/.test(relPath)) {
     const tab = new URLSearchParams(search).get('tab') || 'overview';
     // Trip workspace tabs map to exactly one sidebar entry (never highlight several).

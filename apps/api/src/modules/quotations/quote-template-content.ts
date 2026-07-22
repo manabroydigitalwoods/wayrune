@@ -29,6 +29,29 @@ export function parseQuoteTemplateContent(raw: unknown): QuoteTemplateContent {
   };
 }
 
+/**
+ * Portability: destinationPlaceId is a matching hint only.
+ * When the Place is not visible in the current org, clear the ID on this copy
+ * and keep destinationHint as the portable fallback. Never invent a replacement ID.
+ */
+export function withSanitizedDestinationPlaceId(
+  content: QuoteTemplateContent,
+  visiblePlaceId: string | null,
+): QuoteTemplateContent {
+  const requested = content.destinationPlaceId?.trim() || null;
+  if (!requested) {
+    return { ...content, destinationPlaceId: content.destinationPlaceId ?? null };
+  }
+  if (visiblePlaceId && visiblePlaceId === requested) {
+    return { ...content, destinationPlaceId: requested };
+  }
+  return {
+    ...content,
+    destinationPlaceId: null,
+    destinationHint: content.destinationHint ?? null,
+  };
+}
+
 const TEMPLATE_FOLDER_MAX_LEN = 80;
 
 /** Trim segments, collapse `//`, join with `/`, cap length (slash-path ok). */
@@ -367,6 +390,7 @@ export function contentFromVersionFields(input: {
   exclusions: string | null;
   terms: string | null;
   destinationHint?: string | null;
+  destinationPlaceId?: string | null;
   tags?: string[] | null;
   folder?: string | null;
   itinerary?: QuoteTemplateContent['itinerary'];
@@ -386,6 +410,7 @@ export function contentFromVersionFields(input: {
     exclusions: input.exclusions ?? undefined,
     terms: input.terms,
     destinationHint: input.destinationHint ?? undefined,
+    destinationPlaceId: input.destinationPlaceId ?? undefined,
     ...(tags ? { tags } : {}),
     ...(folder ? { folder } : {}),
     ...(input.itinerary ? { itinerary: input.itinerary } : {}),

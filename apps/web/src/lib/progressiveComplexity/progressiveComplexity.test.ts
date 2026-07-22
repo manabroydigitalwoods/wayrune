@@ -70,7 +70,7 @@ describe('Progressive Complexity 1.0 contract', () => {
     ).toBe('owner');
   });
 
-  it('composes sales executive nav with Inbox in primary and Leads in More', () => {
+  it('composes sales executive nav along sell spine with Leads in primary', () => {
     const nav = composeAgencyNavigation({
       orgKind: 'travel_agency',
       workspace: 'sales_executive',
@@ -84,19 +84,63 @@ describe('Progressive Complexity 1.0 contract', () => {
         'trip.read',
         'quote.read',
         'task.read',
+        'org.settings.read',
       ],
     });
     expect(nav).not.toBeNull();
     const primaryKeys = nav!.primary.map((i) => i.key);
     expect(primaryKeys).not.toContain('agency.travel_request.create');
-    expect(primaryKeys).toContain('agency.requests.mine');
-    expect(primaryKeys).toContain('agency.inbox');
-    expect(primaryKeys).not.toContain('agency.leads');
-    expect(nav!.secondary.map((i) => i.key)).toContain('agency.leads');
+    expect(primaryKeys.slice(0, 4)).toEqual([
+      'agency.home',
+      'agency.inbox',
+      'agency.followups',
+      'agency.leads',
+    ]);
+    expect(primaryKeys).toContain('agency.quotations');
+    expect(primaryKeys).toContain('agency.trips');
+    expect(nav!.secondary.map((i) => i.key)).toContain('agency.requests.mine');
   });
 
-  it('hides parallel create actions for sales executive', () => {
-    expect(shouldShowCanonicalCreate('sales_executive', 'lead')).toBe(false);
+  it('owner primary follows sell → operate → settle → supply before admin', () => {
+    const nav = composeAgencyNavigation({
+      orgKind: 'travel_agency',
+      workspace: 'owner',
+      permissions: [...PERMISSIONS],
+    });
+    const primaryKeys = nav!.primary.map((i) => i.key);
+    expect(primaryKeys.slice(0, 5)).toEqual([
+      'agency.home',
+      'agency.inbox',
+      'agency.leads',
+      'agency.customers',
+      'agency.quotations',
+    ]);
+    expect(primaryKeys).toContain('agency.operations_centre');
+    expect(primaryKeys).not.toContain('agency.bookings');
+    expect(primaryKeys).toContain('agency.receivables');
+    expect(primaryKeys).toContain('agency.suppliers');
+    expect(primaryKeys).toContain('agency.rates');
+    expect(primaryKeys).not.toContain('agency.team_members');
+    expect(primaryKeys).not.toContain('agency.presence');
+    expect(primaryKeys).not.toContain('agency.sales');
+    expect(nav!.secondary.map((i) => i.key)).toContain('agency.team_members');
+    expect(nav!.secondary.map((i) => i.key)).not.toContain('agency.sales');
+    expect(nav!.advanced.map((i) => i.key)).toContain('agency.presence');
+    expect(nav!.flat.find((i) => i.key === 'agency.home')?.label).toBe('Dashboard');
+    expect(nav!.flat.find((i) => i.key === 'agency.quotations')?.label).toBe('Quotes');
+    expect(nav!.flat.find((i) => i.key === 'agency.movement_board')?.label).toBe(
+      'Movement board',
+    );
+    expect(nav!.flat.find((i) => i.key === 'agency.incidents')?.label).toBe(
+      'Alerts & risks',
+    );
+    expect(nav!.flat.find((i) => i.key === 'agency.rates')?.section).toBe(
+      'Products & suppliers',
+    );
+  });
+
+  it('shows New lead for sales executive; keeps inquiry create gated', () => {
+    expect(shouldShowCanonicalCreate('sales_executive', 'lead')).toBe(true);
     expect(shouldShowCanonicalCreate('sales_executive', 'inquiry')).toBe(false);
     expect(shouldShowCanonicalCreate('sales_manager', 'lead')).toBe(true);
   });

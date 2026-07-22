@@ -7,9 +7,11 @@ import {
   EntityCombobox,
   FormGrid,
   Input,
+  NumberField,
   PriceField,
   RecordSheet,
   SimpleFormField as FormField,
+  Skeleton,
   formatCurrency,
   toastError,
   toastSuccess,
@@ -638,7 +640,13 @@ export function SupplierTransferFaresPanel({
       </div>
 
       {loading ? (
-        <p className="text-sm text-muted-foreground">Loading fares…</p>
+        <div role="status" aria-busy="true" className="space-y-2 py-1">
+          <span className="sr-only">Loading</span>
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-5/6" />
+          <Skeleton className="h-10 w-full" />
+        </div>
       ) : sorted.length === 0 ? (
         <p className="rounded-xl border border-dashed border-border/70 px-4 py-6 text-sm text-muted-foreground">
           No supplier corridors yet. Add Siliguri → Darjeeling (or similar) so
@@ -773,13 +781,17 @@ export function SupplierTransferFaresPanel({
         <FormGrid>
           <PlaceSinglePicker
             label="From"
+            purpose="transfer_pickup"
             value={form.from}
             onChange={(from) => setForm((f) => ({ ...f, from }))}
+            placeholder="Pickup…"
           />
           <PlaceSinglePicker
             label="To"
+            purpose="transfer_drop"
             value={form.to}
             onChange={(to) => setForm((f) => ({ ...f, to }))}
+            placeholder="Drop…"
           />
           <FormField label="Vehicle type" required>
             <EntityCombobox
@@ -834,12 +846,13 @@ export function SupplierTransferFaresPanel({
                 </div>
                 {form.seatMatrixRows.map((row, idx) => (
                   <div key={idx} className="grid grid-cols-4 gap-2">
-                    <Input
-                      inputMode="numeric"
+                    <NumberField
+                      min={1}
+                      max={20}
                       value={row.seats}
-                      onChange={(e) => {
+                      onChange={(seats) => {
                         const next = [...form.seatMatrixRows];
-                        next[idx] = { ...row, seats: e.target.value };
+                        next[idx] = { ...row, seats };
                         setForm((f) => ({ ...f, seatMatrixRows: next }));
                       }}
                       placeholder="Seats"
@@ -907,12 +920,13 @@ export function SupplierTransferFaresPanel({
               <div className="space-y-2">
                 {form.partyBandRows.map((row, idx) => (
                   <div key={idx} className="grid grid-cols-2 gap-2">
-                    <Input
-                      inputMode="numeric"
+                    <NumberField
+                      min={1}
+                      max={12}
                       value={row.partySize}
-                      onChange={(e) => {
+                      onChange={(partySize) => {
                         const next = [...form.partyBandRows];
-                        next[idx] = { ...row, partySize: e.target.value };
+                        next[idx] = { ...row, partySize };
                         setForm((f) => ({ ...f, partyBandRows: next }));
                       }}
                       placeholder="Party size"
@@ -964,25 +978,23 @@ export function SupplierTransferFaresPanel({
             />
           </FormField>
           <FormField label="Child age min">
-            <Input
-              type="number"
+            <NumberField
               min={0}
               max={17}
               value={form.childAgeMin}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, childAgeMin: e.target.value }))
+              onChange={(childAgeMin) =>
+                setForm((f) => ({ ...f, childAgeMin }))
               }
               placeholder="0"
             />
           </FormField>
           <FormField label="Child age max">
-            <Input
-              type="number"
+            <NumberField
               min={0}
               max={17}
               value={form.childAgeMax}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, childAgeMax: e.target.value }))
+              onChange={(childAgeMax) =>
+                setForm((f) => ({ ...f, childAgeMax }))
               }
               placeholder="17"
             />
@@ -1034,7 +1046,12 @@ export function SupplierTransferFaresPanel({
         }
       >
         {historyLoading ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <div role="status" aria-busy="true" className="space-y-2 py-1">
+            <span className="sr-only">Loading</span>
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-4/5" />
+          </div>
         ) : historyVersions.length ? (
           <ul className="divide-y divide-border/50 overflow-hidden rounded-xl border border-border/60">
             {(() => {

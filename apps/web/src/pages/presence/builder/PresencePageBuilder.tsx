@@ -13,7 +13,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from '@dnd-kit/core';
-import { EmptyState, Input, Label, RecordSheet, Textarea, toastError, toastSuccess, StorageKeys, usePersistentState, cn, BrandTooltip, Button } from '@wayrune/ui';
+import { EmptyState, Input, Label, PageSkeleton, RecordSheet, Textarea, toastError, toastSuccess, StorageKeys, usePersistentState, cn, BrandTooltip, Button } from '@wayrune/ui';
 import type { PresenceSiteLayout } from '@wayrune/contracts';
 import { ArrowLeft, ListTree, PanelRightOpen, Plus, Settings } from 'lucide-react';
 import { api } from '../../../api';
@@ -191,7 +191,7 @@ function PreviewFitFrame({
         ref={shellRef}
         className={cn(
           'relative flex min-h-0 flex-1 justify-center overflow-auto',
-          framed ? 'bg-muted/30 p-3 sm:p-4' : 'p-2 sm:p-3',
+          framed ? 'bg-muted/30 pad-panel' : 'p-2 sm:p-3',
         )}
       >
         <iframe
@@ -1577,7 +1577,7 @@ export function PresencePageBuilder({
     <div className="fixed inset-0 z-[200] flex flex-col bg-background">
       <BuilderChrome
         title={page?.title || 'Page builder'}
-        siteName={page?.site.name || (loading ? 'Loading…' : '—')}
+        siteName={page?.site.name || '—'}
         status={page?.status}
         dirty={dirty}
         saving={saving || chromeSaving}
@@ -1606,9 +1606,15 @@ export function PresencePageBuilder({
       />
 
       {loading || !page ? (
-        <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-          {error || 'Loading page builder…'}
-        </div>
+        error ? (
+          <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+            {error}
+          </div>
+        ) : (
+          <div className="flex flex-1 items-center justify-center p-6">
+            <PageSkeleton variant="workspace" className="w-full max-w-5xl" />
+          </div>
+        )
       ) : error ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6">
           <EmptyState title="Page builder" description={error} />
@@ -1908,7 +1914,7 @@ export function PresencePageBuilder({
         submitLabel="Save template"
         submitting={templateSaving}
       >
-        <div className="space-y-3">
+        <div className="stack-form">
           <div>
             <Label className="text-xs">Template key</Label>
             <Input
@@ -1955,7 +1961,7 @@ export function PresencePageBuilder({
         submitLabel="Save component"
         submitting={componentSaving}
       >
-        <div className="space-y-3">
+        <div className="stack-form">
           <div>
             <Label className="text-xs">Component key</Label>
             <Input

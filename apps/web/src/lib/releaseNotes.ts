@@ -27,6 +27,14 @@ export const APP_RELEASE_LABEL = 'Travel OS · Jul 2026';
  */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    id: '2026-07-21-appearance-settings',
+    date: '2026-07-21',
+    title: 'Appearance settings',
+    summary:
+      'Settings now includes personal theme, color packs (VS Code–style), custom accent, high contrast, density, text size, motion, glass, and sidebar defaults. Switches show a brief page loader to avoid visual glitches.',
+    claimStatus: 'proven',
+  },
+  {
     id: '2026-07-20-revision-customer-story',
     date: '2026-07-20',
     title: 'Revised quote banner + change summary',
@@ -1103,6 +1111,22 @@ export const RELEASE_NOTES: ReleaseNote[] = [
     date: '2026-07-20',
     title: 'Under-three-minute FIT (public claim)',
     summary: 'Instrumented and gated; not approved for website or sales decks.',
+    claimStatus: 'testing',
+  },
+  {
+    id: 'internal-market-proof-testing',
+    date: '2026-07-21',
+    title: 'Market-proven (named agency adoption)',
+    summary:
+      'Evidence pack + Named-pilot scorecard opened; named pilot week not run. Do not claim Market-proven until flip criteria clear. FIT Proven stays gated separately.',
+    claimStatus: 'testing',
+  },
+  {
+    id: 'internal-pilot-day0-testing',
+    date: '2026-07-21',
+    title: 'Pilot Day-0 readiness (ops pack)',
+    summary:
+      'Ops pack + Settings About Pilot Day-0 tracks Quote/Operate/Evidence. Proxy and evidence-complete are manual — never auto Market-proven. FIT stays Testing.',
     claimStatus: 'testing',
   },
   {

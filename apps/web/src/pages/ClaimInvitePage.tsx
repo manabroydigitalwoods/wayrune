@@ -1,7 +1,17 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Link2 } from 'lucide-react';
-import { Button, Card, CardContent, Combobox, PageHeader, StatusBadge, toastError, toastSuccess } from '@wayrune/ui';
+import {
+  Button,
+  Card,
+  CardContent,
+  Combobox,
+  PageHeader,
+  PublicPageSkeleton,
+  StatusBadge,
+  toastError,
+  toastSuccess,
+} from '@wayrune/ui';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
@@ -87,6 +97,10 @@ export function ClaimInvitePage() {
     me.organization.kind !== 'dmc' &&
     me.organization.kind !== 'platform';
 
+  if (loading || authLoading) {
+    return <PublicPageSkeleton />;
+  }
+
   return (
     <div className="mx-auto max-w-lg space-y-6 p-6">
       <PageHeader
@@ -96,9 +110,7 @@ export function ClaimInvitePage() {
       />
       <Card>
         <CardContent className="space-y-4 p-5">
-          {loading || authLoading ? (
-            <p className="text-sm text-muted-foreground">Loading invite…</p>
-          ) : !peek ? (
+          {!peek ? (
             <p className="text-sm text-muted-foreground">This invite is invalid or was revoked.</p>
           ) : (
             <>

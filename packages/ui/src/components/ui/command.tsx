@@ -37,14 +37,14 @@ const CommandInput = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof CommandPrimitive.Input>
 >(({ className, ...props }, ref) => (
   <div
-    className="flex items-center gap-2 border-b border-white/40 px-3 dark:border-white/10"
+    className="flex items-center gap-2 border-b border-white/40 px-[var(--control-px)] dark:border-white/10"
     cmdk-input-wrapper=""
   >
-    <Search className="size-3.5 shrink-0 text-muted-foreground" />
+    <Search className="size-[var(--control-icon)] shrink-0 text-muted-foreground" />
     <CommandPrimitive.Input
       ref={ref}
       className={cn(
-        'flex h-10 w-full bg-transparent py-2.5 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50',
+        'flex h-[var(--control-h)] w-full bg-transparent py-2 text-[length:var(--control-text)] outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50',
         className,
       )}
       {...props}
@@ -79,7 +79,7 @@ const CommandEmpty = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <CommandPrimitive.Empty
     ref={ref}
-    className={cn('py-6 text-center text-sm text-muted-foreground', className)}
+    className={cn('py-[var(--gap-section)] text-center text-[length:var(--control-text)] text-muted-foreground', className)}
     {...props}
   />
 ));
@@ -92,9 +92,8 @@ const CommandGroup = React.forwardRef<
   <CommandPrimitive.Group
     ref={ref}
     className={cn(
-      'overflow-visible p-1.5 text-foreground',
-      // cmdk wraps items in [cmdk-group-items] — gap must live there, not on the group root
-      '[&_[cmdk-group-items]]:flex [&_[cmdk-group-items]]:flex-col [&_[cmdk-group-items]]:gap-1.5',
+      'overflow-visible p-[var(--field-gap)] text-foreground',
+      '[&_[cmdk-group-items]]:flex [&_[cmdk-group-items]]:flex-col [&_[cmdk-group-items]]:gap-0.5',
       className,
     )}
     {...props}
@@ -109,7 +108,7 @@ const CommandItem = React.forwardRef<
   <CommandPrimitive.Item
     ref={ref}
     className={cn(
-      'relative flex cursor-pointer select-none items-center gap-2 rounded-lg px-2.5 py-2 text-sm outline-none',
+      'relative flex cursor-pointer select-none items-center gap-2 rounded-md px-[var(--menu-item-px)] py-[var(--menu-item-py)] text-[length:var(--control-text)] outline-none',
       'hover:bg-primary/10 hover:text-foreground',
       'data-[selected=true]:bg-primary/10 data-[selected=true]:text-foreground',
       'data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50',

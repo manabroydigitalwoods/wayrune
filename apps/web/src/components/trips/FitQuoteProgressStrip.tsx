@@ -17,18 +17,20 @@ export function FitQuoteProgressStrip({
 }: FitQuoteProgressStripProps) {
   if (!steps.length) return null;
 
+  const current = steps.find((s) => s.status === 'current');
+
   return (
     <nav
       aria-label="FIT quote progress"
       className="flex flex-wrap items-center gap-1.5 rounded-lg border border-border/60 bg-muted/20 px-3 py-2"
     >
-      <span className="mr-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+      <span className="mr-1 text-[length:var(--control-text-sm)] font-medium uppercase tracking-wide text-muted-foreground">
         FIT path
       </span>
       {steps.map((step, index) => {
         const clickable = step.status === 'current' && step.action != null;
         const done = step.status === 'done';
-        const current = step.status === 'current';
+        const isCurrent = step.status === 'current';
         return (
           <div key={step.id} className="flex items-center gap-1.5">
             {index > 0 ? (
@@ -40,15 +42,15 @@ export function FitQuoteProgressStrip({
               type="button"
               disabled={!clickable}
               title={step.hint}
-              aria-current={current ? 'step' : undefined}
+              aria-current={isCurrent ? 'step' : undefined}
               onClick={() => {
                 if (step.action) onStepAction(step.action, step.fixTargetLineId);
               }}
               className={cn(
-                'inline-flex max-w-[12rem] items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors',
-                done && 'text-emerald-800 dark:text-emerald-200',
-                current &&
-                  'border border-border/60 bg-background font-medium text-foreground shadow-sm',
+                'inline-flex max-w-[14rem] items-center gap-1.5 rounded-md px-2 py-1 text-[length:var(--control-text-sm)] transition-colors',
+                done && 'text-success',
+                isCurrent &&
+                  'border border-primary/40 bg-background font-medium text-foreground shadow-sm',
                 step.status === 'upcoming' && 'text-muted-foreground',
                 clickable && 'hover:bg-background/90 cursor-pointer',
                 !clickable && 'cursor-default',
@@ -56,9 +58,9 @@ export function FitQuoteProgressStrip({
             >
               <span
                 className={cn(
-                  'flex size-4 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold',
-                  done && 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300',
-                  current && 'bg-primary/15 text-primary',
+                  'flex size-4 shrink-0 items-center justify-center rounded-full text-[length:var(--control-text-sm)] font-semibold',
+                  done && 'bg-success-soft text-success',
+                  isCurrent && 'bg-primary/15 text-primary',
                   step.status === 'upcoming' && 'bg-muted text-muted-foreground',
                 )}
                 aria-hidden
@@ -70,6 +72,16 @@ export function FitQuoteProgressStrip({
           </div>
         );
       })}
+      {current?.ctaLabel && current.action ? (
+        <button
+          type="button"
+          data-testid="fit-progress-next"
+          className="ml-auto inline-flex items-center rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+          onClick={() => onStepAction(current.action!, current.fixTargetLineId)}
+        >
+          Next: {current.ctaLabel}
+        </button>
+      ) : null}
     </nav>
   );
 }

@@ -1,17 +1,19 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Network, Plus, UserPlus } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { Handshake, Network, Plus, Search, Store, UserPlus, X } from 'lucide-react';
 import {
   Button,
   Card,
   CardContent,
   EmptyState,
   Input,
-  ListPageShell,
-  PageHeader,
+  ListPageSkeleton,
+  PageSkeleton,
   StatusBadge,
-  SuggestionChips,
+  cn,
   toastError,
   toastSuccess,
+  usePageChrome,
 } from '@wayrune/ui';
 import { api } from '../api';
 import { NetworkCommercePanel } from '../components/network/NetworkCommercePanel';
@@ -19,6 +21,19 @@ import { CAP } from '../lib/capabilities';
 import { reportError } from '../lib/errors';
 import { usePermissions } from '../lib/permissions';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import {
+  networkQueryHasFilters,
+  parseNetworkQueryState,
+  patchNetworkQueryParams,
+  type NetworkView,
+} from '../lib/queue';
+import {
+  ActiveFilterChips,
+  FilterMenu,
+  QUEUE_PAGE_SEARCH_CLASS,
+  QueuePageChrome,
+  QueueViewToggle,
+} from '../components/queue';
 
 type PartnerCard = {
   id: string;
@@ -48,8 +63,7 @@ type RelationshipRow = {
   localSupplierId?: string | null;
 };
 
-const KIND_FILTERS = [
-  { value: '', label: 'All kinds' },
+const KIND_FILTER_OPTIONS = [
   { value: 'hotel', label: 'Hotel' },
   { value: 'homestay', label: 'Homestay' },
   { value: 'farmstay', label: 'Farmstay' },
@@ -65,22 +79,53 @@ function kindLabel(kind: string) {
 }
 
 export function NetworkPage() {
-  useDocumentTitle('Network');
+  useDocumentTitle('Partner network');
+  usePageChrome({
+    title: 'Partner network',
+    subtitle:
+      'Discover hotels, homestays, drivers and more — follow them and use them on trip bookings. Your private Suppliers list still works offline.',
+  });
   const { hasAny } = usePermissions();
   const canWrite = hasAny(CAP.networkWrite);
-  const [tab, setTab] = useState<'discover' | 'following' | 'commerce'>('discover');
-  const [q, setQ] = useState('');
-  const [kind, setKind] = useState('');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const query = useMemo(() => parseNetworkQueryState(searchParams), [searchParams]);
+  const view = query.view;
+  const [searchDraft, setSearchDraft] = useState(query.q ?? '');
   const [partners, setPartners] = useState<PartnerCard[]>([]);
   const [following, setFollowing] = useState<RelationshipRow[]>([]);
   const [loading, setLoading] = useState(true);
+
+  function applyQuery(patch: Parameters<typeof patchNetworkQueryParams>[1]) {
+    setSearchParams(patchNetworkQueryParams(searchParams, patch), { replace: true });
+  }
+
+  const setView = useCallback(
+    (next: NetworkView) => {
+      setSearchParams(patchNetworkQueryParams(searchParams, { view: next }), { replace: true });
+    },
+    [searchParams, setSearchParams],
+  );
+
+  useEffect(() => {
+    setSearchDraft(query.q ?? '');
+  }, [query.q]);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      const next = searchDraft.trim();
+      if ((query.q ?? '') === next) return;
+      applyQuery({ q: next || undefined });
+    }, 300);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce draft only
+  }, [searchDraft]);
 
   const loadDiscover = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (q.trim()) params.set('q', q.trim());
-      if (kind) params.set('kind', kind);
+      if (query.q) params.set('q', query.q);
+      if (query.kind) params.set('kind', query.kind);
       const res = await api<PartnerCard[]>(`/network/partners?${params.toString()}`);
       setPartners(res);
     } catch (e) {
@@ -88,7 +133,7 @@ export function NetworkPage() {
     } finally {
       setLoading(false);
     }
-  }, [q, kind]);
+  }, [query.q, query.kind]);
 
   const loadFollowing = useCallback(async () => {
     setLoading(true);
@@ -103,9 +148,9 @@ export function NetworkPage() {
   }, []);
 
   useEffect(() => {
-    if (tab === 'discover') void loadDiscover();
+    if (view === 'discover') void loadDiscover();
     else void loadFollowing();
-  }, [tab, loadDiscover, loadFollowing]);
+  }, [view, loadDiscover, loadFollowing]);
 
   async function follow(partnerId: string) {
     try {
@@ -119,7 +164,7 @@ export function NetworkPage() {
       });
       toastSuccess('Following — added to your suppliers');
       await loadDiscover();
-      if (tab === 'following') await loadFollowing();
+      if (view === 'following') await loadFollowing();
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Could not follow');
     }
@@ -132,7 +177,7 @@ export function NetworkPage() {
         body: JSON.stringify({ partnerOrganizationId: partnerId }),
       });
       toastSuccess('Added to my suppliers');
-      if (tab === 'discover') await loadDiscover();
+      if (view === 'discover') await loadDiscover();
       else await loadFollowing();
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Could not add supplier');
@@ -162,30 +207,94 @@ export function NetworkPage() {
     }
   }
 
-  return (
-    <ListPageShell>
-      <PageHeader
-        icon={Network}
-        title="Network"
-        subtitle="Discover hotels, homestays, drivers and more — follow them and use them on trip bookings. Your private Suppliers list still works offline."
-        className="mb-4 shrink-0"
-      />
+  function clearNetworkFilters() {
+    applyQuery({ clearFilters: true });
+  }
 
-      <div className="mb-4 flex flex-wrap gap-2">
-        <SuggestionChips
-          aria-label="Network tabs"
-          allowDeselect={false}
-          options={[
-            { value: 'discover', label: 'Discover' },
-            { value: 'following', label: 'Following' },
-            { value: 'commerce', label: 'Rates & settlements' },
-          ]}
-          value={tab}
-          onChange={(v) => setTab(v as 'discover' | 'following' | 'commerce')}
-        />
+  function clearNetworkFiltersAndSearch() {
+    setSearchDraft('');
+    applyQuery({ clearFilters: true, q: '' });
+  }
+
+  const filterDefs =
+    view === 'discover'
+      ? [
+          {
+            id: 'kind',
+            label: 'Kind',
+            icon: Store,
+            value: query.kind ?? null,
+            options: KIND_FILTER_OPTIONS,
+            onSelect: (value: string | null) => applyQuery({ kind: value || undefined }),
+          },
+        ]
+      : [];
+
+  const filterChips = [
+    query.kind
+      ? {
+          id: 'kind',
+          label: `Kind: ${kindLabel(query.kind)}`,
+          onRemove: () => applyQuery({ kind: undefined }),
+        }
+      : null,
+  ].filter(Boolean) as Array<{ id: string; label: string; onRemove: () => void }>;
+
+  const queueToolbar =
+    view === 'discover' ? (
+      <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+        <div className="relative min-w-[12rem] flex-1 basis-[14rem]">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-[0.875em] -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={searchDraft}
+            onChange={(e) => setSearchDraft(e.target.value)}
+            placeholder="Search name or city…"
+            className={cn(QUEUE_PAGE_SEARCH_CLASS, searchDraft.trim() && 'pr-8')}
+            aria-label="Search partners"
+          />
+          {searchDraft.trim() ? (
+            <button
+              type="button"
+              className="absolute right-1.5 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+              aria-label="Clear search"
+              onClick={() => {
+                setSearchDraft('');
+                applyQuery({ q: '' });
+              }}
+            >
+              <X className="size-3.5" />
+            </button>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap items-center gap-1">
+          <FilterMenu filters={filterDefs} />
+        </div>
       </div>
+    ) : null;
 
-      {tab === 'commerce' ? (
+  const hasExtraFilters = networkQueryHasFilters(query) || Boolean(query.q);
+
+  return (
+    <QueuePageChrome
+      viewToggle={
+        <QueueViewToggle
+          value={view}
+          onChange={(id) => setView(id as NetworkView)}
+          options={[
+            { id: 'discover', label: 'Discover', icon: <Network className="size-[0.875em]" /> },
+            { id: 'following', label: 'Following', icon: <Handshake className="size-[0.875em]" /> },
+            { id: 'commerce', label: 'Rates & settlements', icon: <Store className="size-[0.875em]" /> },
+          ]}
+        />
+      }
+      toolbar={queueToolbar}
+      chips={
+        view === 'discover' ? (
+          <ActiveFilterChips chips={filterChips} onClear={networkQueryHasFilters(query) ? clearNetworkFilters : undefined} />
+        ) : null
+      }
+    >
+      {view === 'commerce' ? (
         <NetworkCommercePanel
           relationships={following.map((r) => ({
             id: r.id,
@@ -194,92 +303,76 @@ export function NetworkPage() {
         />
       ) : null}
 
-      {tab === 'discover' ? (
-        <div className="space-y-4">
-          <div className="flex flex-wrap gap-2">
-            <Input
-              className="max-w-xs"
-              placeholder="Search name or city…"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') void loadDiscover();
-              }}
-            />
-            <Button variant="secondary" onClick={() => void loadDiscover()}>
-              Search
-            </Button>
-          </div>
-          <SuggestionChips
-            aria-label="Partner kind"
-            allowDeselect
-            options={KIND_FILTERS.filter((k) => k.value)}
-            value={kind}
-            onChange={setKind}
-          />
-          {loading ? (
-            <p className="text-sm text-muted-foreground">Loading partners…</p>
-          ) : partners.length ? (
-            <ul className="grid gap-3 md:grid-cols-2">
-              {partners.map((p) => (
-                <li key={p.id}>
-                  <Card>
-                    <CardContent className="space-y-2 p-4">
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div>
-                          <div className="font-medium">{p.name}</div>
-                          <div className="mt-1 flex flex-wrap gap-1.5 text-xs text-muted-foreground">
-                            <StatusBadge value={p.kind} label={kindLabel(p.kind)} showIcon={false} />
-                            {p.profile?.city ? <span>{p.profile.city}</span> : null}
-                          </div>
+      {view === 'discover' ? (
+        loading ? (
+          <PageSkeleton variant="cards" />
+        ) : partners.length ? (
+          <ul className="grid gap-3 md:grid-cols-2">
+            {partners.map((p) => (
+              <li key={p.id}>
+                <Card>
+                  <CardContent className="space-y-2 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <div className="font-medium">{p.name}</div>
+                        <div className="mt-1 flex flex-wrap gap-1.5 text-xs text-muted-foreground">
+                          <StatusBadge value={p.kind} label={kindLabel(p.kind)} showIcon={false} />
+                          {p.profile?.city ? <span>{p.profile.city}</span> : null}
                         </div>
-                        {p.relationship ? (
-                          <StatusBadge value={p.relationship.status} showIcon={false} />
-                        ) : null}
                       </div>
-                      {p.profile?.bio ? (
-                        <p className="line-clamp-2 text-xs text-muted-foreground">{p.profile.bio}</p>
+                      {p.relationship ? (
+                        <StatusBadge value={p.relationship.status} showIcon={false} />
                       ) : null}
-                      <div className="flex flex-wrap gap-2 pt-1">
-                        {canWrite && !p.relationship ? (
-                          <Button size="sm" onClick={() => void follow(p.id)}>
-                            <UserPlus className="size-3.5" />
-                            Follow
+                    </div>
+                    {p.profile?.bio ? (
+                      <p className="line-clamp-2 text-xs text-muted-foreground">{p.profile.bio}</p>
+                    ) : null}
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {canWrite && !p.relationship ? (
+                        <Button size="sm" onClick={() => void follow(p.id)}>
+                          <UserPlus className="size-3.5" />
+                          Follow
+                        </Button>
+                      ) : null}
+                      {!p.localSupplierId ? (
+                        canWrite ? (
+                          <Button size="sm" variant="secondary" onClick={() => void addSupplier(p.id)}>
+                            <Plus className="size-3.5" />
+                            Add to my suppliers
                           </Button>
-                        ) : null}
-                        {!p.localSupplierId ? (
-                          canWrite ? (
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              onClick={() => void addSupplier(p.id)}
-                            >
-                              <Plus className="size-3.5" />
-                              Add to my suppliers
-                            </Button>
-                          ) : null
-                        ) : (
-                          <span className="text-xs text-muted-foreground">In your suppliers</span>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <EmptyState
-              icon={Network}
-              title="No discoverable partners yet"
-              description="Partners must turn on discoverability. Seed includes demo hotels for local testing."
-            />
-          )}
-        </div>
+                        ) : null
+                      ) : (
+                        <span className="text-xs text-muted-foreground">In your suppliers</span>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <EmptyState
+            icon={Network}
+            title={hasExtraFilters ? 'No matching partners' : 'No discoverable partners yet'}
+            description={
+              hasExtraFilters
+                ? 'Try clearing filters or search.'
+                : 'Partners must turn on discoverability. Seed includes demo hotels for local testing.'
+            }
+            action={
+              hasExtraFilters ? (
+                <Button type="button" size="sm" variant="outline" onClick={clearNetworkFiltersAndSearch}>
+                  Clear filters
+                </Button>
+              ) : undefined
+            }
+          />
+        )
       ) : null}
 
-      {tab === 'following' ? (
+      {view === 'following' ? (
         loading ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <ListPageSkeleton />
         ) : following.length ? (
           <ul className="space-y-2">
             {following.map((r) => (
@@ -328,6 +421,6 @@ export function NetworkPage() {
           />
         )
       ) : null}
-    </ListPageShell>
+    </QueuePageChrome>
   );
 }

@@ -17,6 +17,7 @@ import {
   Card,
   Combobox,
   Input,
+  NumberField,
   PriceField,
   SimpleFormField as FormField,
   Textarea,
@@ -938,17 +939,15 @@ export function GuestMenuPanel({
                   </FormField>
                   <div className="grid gap-3 sm:grid-cols-2">
                     <FormField label="Occasion" className="mb-0">
-                      <select
-                        className="flex h-9 w-full rounded-md border border-input bg-card/85 px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      <Combobox
                         value={spType}
-                        onChange={(e) => setSpType(e.target.value as MenuSpecial['type'])}
-                      >
-                        {SPECIAL_TYPES.map((t) => (
-                          <option key={t} value={t}>
-                            {SPECIAL_TYPE_LABELS[t]}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={(value) => setSpType(value as MenuSpecial['type'])}
+                        options={SPECIAL_TYPES.map((t) => ({
+                          value: t,
+                          label: SPECIAL_TYPE_LABELS[t],
+                        }))}
+                        placeholder="Occasion"
+                      />
                     </FormField>
                     <FormField label="Dish" className="mb-0">
                       <Combobox
@@ -1473,22 +1472,22 @@ export function GuestMenuPanel({
                     placeholder="Group name"
                   />
                   <div className="mb-2 flex gap-2">
-                    <Input
-                      type="number"
+                    <NumberField
+                      min={0}
                       value={g.minSelect}
-                      onChange={(e) => {
+                      onChange={(raw) => {
                         const next = [...modDraft];
-                        next[gi] = { ...g, minSelect: Number(e.target.value) || 0 };
+                        next[gi] = { ...g, minSelect: Number(raw) || 0 };
                         setModDraft(next);
                       }}
                       placeholder="Min"
                     />
-                    <Input
-                      type="number"
+                    <NumberField
+                      min={0}
                       value={g.maxSelect}
-                      onChange={(e) => {
+                      onChange={(raw) => {
                         const next = [...modDraft];
-                        next[gi] = { ...g, maxSelect: Number(e.target.value) || 1 };
+                        next[gi] = { ...g, maxSelect: Number(raw) || 1 };
                         setModDraft(next);
                       }}
                       placeholder="Max"

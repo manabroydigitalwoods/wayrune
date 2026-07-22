@@ -25,7 +25,10 @@ import {
   ConfirmDialog,
   EmptyState,
   Input,
+  NumberField,
   PageHeader,
+  PageSkeleton,
+  PriceField,
   SimpleFormField as FormField,
   StatusBadge,
   SuggestionChips,
@@ -761,7 +764,7 @@ export function PlatformCatalogPage() {
           <Card>
             <CardContent className="p-0">
               {contributionsLoading ? (
-                <p className="p-6 text-sm text-muted-foreground">Loading contributions…</p>
+                <PageSkeleton variant="cards" />
               ) : contributions.length === 0 ? (
                 <div className="p-6">
                   <EmptyState
@@ -860,11 +863,11 @@ export function PlatformCatalogPage() {
               </FormField>
               <p className="text-xs text-muted-foreground">
                 {vehiclesLoading
-                  ? 'Loading…'
+                  ? '\u00a0'
                   : `${vehicles.length} vehicle type${vehicles.length === 1 ? '' : 's'}`}
               </p>
               {vehiclesLoading ? (
-                <p className="text-sm text-muted-foreground">Loading…</p>
+                <PageSkeleton variant="cards" />
               ) : vehicles.length === 0 ? (
                 <EmptyState
                   icon={Car}
@@ -934,12 +937,12 @@ export function PlatformCatalogPage() {
                   />
                 </FormField>
                 <FormField label="Seats">
-                  <Input
-                    type="number"
+                  <NumberField
                     min={1}
                     value={vehicleForm.seats}
-                    onChange={(e) => setVehicleForm({ ...vehicleForm, seats: e.target.value })}
+                    onChange={(raw) => setVehicleForm({ ...vehicleForm, seats: raw })}
                     placeholder="6"
+                    quickPicks={[4, 6, 7, 12]}
                   />
                 </FormField>
                 <FormField label="Description">
@@ -989,7 +992,7 @@ export function PlatformCatalogPage() {
               </div>
               <div className="flex items-center justify-between gap-2">
                 <p className="text-xs text-muted-foreground">
-                  {loading ? 'Loading…' : `${items.length} place${items.length === 1 ? '' : 's'}`}
+                  {loading ? '\u00a0' : `${items.length} place${items.length === 1 ? '' : 's'}`}
                 </p>
                 {(q || kind) && !loading ? (
                   <Button
@@ -1006,7 +1009,7 @@ export function PlatformCatalogPage() {
                 ) : null}
               </div>
               {loading ? (
-                <p className="text-sm text-muted-foreground">Loading…</p>
+                <PageSkeleton variant="cards" />
               ) : items.length === 0 ? (
                 <EmptyState
                   icon={MapPin}
@@ -1266,10 +1269,11 @@ export function PlatformCatalogPage() {
                       />
                     </FormField>
                     <FormField label="Entry fee">
-                      <Input
+                      <PriceField
+                        currency="INR"
                         value={form.entryFee}
-                        onChange={(e) => setForm({ ...form, entryFee: e.target.value })}
-                        placeholder="₹50"
+                        onChange={(entryFee) => setForm({ ...form, entryFee })}
+                        placeholder="50"
                       />
                     </FormField>
                   </div>

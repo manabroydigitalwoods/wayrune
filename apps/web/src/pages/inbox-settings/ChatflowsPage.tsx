@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { MoreHorizontal, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import {
   Button,
+  Combobox,
   ConfirmDialog,
   DropdownMenu,
   DropdownMenuContent,
@@ -10,6 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   Input,
+  ListPageSkeleton,
   StatusBadge,
   Switch,
   toastError,
@@ -203,19 +205,21 @@ export function ChatflowsPage() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <select
-          className="h-9 rounded-xl border bg-background px-2 text-sm"
+        <Combobox
+          className="w-[11rem]"
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as 'all' | 'on' | 'off')}
-        >
-          <option value="all">All statuses</option>
-          <option value="on">Enabled</option>
-          <option value="off">Disabled</option>
-        </select>
+          onChange={(value) => setStatusFilter(value as 'all' | 'on' | 'off')}
+          options={[
+            { value: 'all', label: 'All statuses' },
+            { value: 'on', label: 'Enabled' },
+            { value: 'off', label: 'Disabled' },
+          ]}
+          placeholder="Status"
+        />
       </div>
 
       {loading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <ListPageSkeleton />
       ) : filtered.length === 0 ? (
         <div className="rounded-xl border border-dashed px-4 py-12 text-center">
           <p className="text-sm font-medium">No chatflows yet</p>

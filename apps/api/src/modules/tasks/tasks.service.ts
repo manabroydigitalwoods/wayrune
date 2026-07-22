@@ -1,6 +1,6 @@
-import { Inject, Injectable, Optional, forwardRef } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException, Optional, forwardRef } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { CreateTaskSchema } from '@wayrune/contracts';
+import type { CreateTaskSchema, UpdateTaskSchema } from '@wayrune/contracts';
 import { z } from 'zod';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -12,6 +12,7 @@ import {
 } from './lead-follow-up-sync';
 
 type CreateTaskInput = z.infer<typeof CreateTaskSchema>;
+type UpdateTaskInput = z.infer<typeof UpdateTaskSchema>;
 
 @Injectable()
 export class TasksService {
@@ -87,6 +88,64 @@ export class TasksService {
     return task;
   }
 
+  async update(organizationId: string, userId: string, id: string, input: UpdateTaskInput) {
+    const existing = await this.prisma.task.findFirst({
+      where: { id, organizationId, deletedAt: null },
+    });
+    if (!existing) throw new NotFoundException('Task not found');
+
+    const dueAt =
+      input.dueAt === undefined
+        ? undefined
+        : input.dueAt
+          ? new Date(input.dueAt)
+          : null;
+
+    const task = await this.prisma.task.update({
+      where: { id },
+      data: {
+        ...(input.title !== undefined ? { title: input.title } : {}),
+        ...(input.description !== undefined ? { description: input.description } : {}),
+        ...(input.priority !== undefined ? { priority: input.priority } : {}),
+        ...(dueAt !== undefined ? { dueAt } : {}),
+        ...(input.assigneeId !== undefined ? { assigneeId: input.assigneeId } : {}),
+        ...(input.status !== undefined ? { status: input.status } : {}),
+        updatedBy: userId,
+      },
+    });
+
+    await this.audit.record({
+      organizationId,
+      actorUserId: userId,
+      action: 'task.update',
+      entityType: 'task',
+      entityId: task.id,
+    });
+
+    if (dueAt !== undefined) {
+      await this.syncLeadFollowUpFromTask(organizationId, {
+        entityType: task.entityType,
+        entityId: task.entityId,
+        dueAt,
+      });
+    }
+
+    if (this.google && task.dueAt) {
+      try {
+        await this.google.syncTaskToCalendar(organizationId, {
+          id: task.id,
+          title: task.title,
+          description: task.description,
+          dueAt: task.dueAt,
+        });
+      } catch {
+        /* Calendar sync is best-effort */
+      }
+    }
+
+    return task;
+  }
+
   /** Stamp Lead.followUpAt so sales overdue strip matches Log Activity / inbox follow-up. */
   private async syncLeadFollowUpFromTask(
     organizationId: string,
@@ -140,8 +199,26 @@ export class TasksService {
     due?: string,
     entityType?: string,
     entityId?: string,
+    dueFrom?: string | null,
+    dueTo?: string | null,
   ) {
     const now = new Date();
+    const dueAtRange =
+      due !== 'overdue' &&
+      due !== 'today' &&
+      (dueFrom || dueTo)
+        ? {
+            dueAt: {
+              ...(dueFrom && /^\d{4}-\d{2}-\d{2}$/.test(dueFrom)
+                ? { gte: new Date(`${dueFrom}T00:00:00.000Z`) }
+                : {}),
+              ...(dueTo && /^\d{4}-\d{2}-\d{2}$/.test(dueTo)
+                ? { lte: new Date(`${dueTo}T23:59:59.999Z`) }
+                : {}),
+            },
+          }
+        : {};
+
     const where: Prisma.TaskWhereInput = {
       organizationId,
       deletedAt: null,
@@ -157,7 +234,7 @@ export class TasksService {
                 lt: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1),
               },
             }
-          : {}),
+          : dueAtRange),
       ...(q ? { title: { contains: q } } : {}),
     };
     return this.prisma.task.findMany({
@@ -168,9 +245,43 @@ export class TasksService {
   }
 
   async complete(organizationId: string, userId: string, id: string) {
-    return this.prisma.task.updateMany({
-      where: { id, organizationId },
+    const task = await this.prisma.task.findFirst({
+      where: { id, organizationId, deletedAt: null },
+    });
+    if (!task) throw new NotFoundException('Task not found');
+
+    await this.prisma.task.update({
+      where: { id },
       data: { status: 'done', updatedBy: userId },
     });
+
+    // Completing a lead-linked task clears the lead next-follow-up so the two stay aligned.
+    if (task.entityType === 'lead' && task.entityId) {
+      await this.prisma.lead.updateMany({
+        where: { id: task.entityId, organizationId, deletedAt: null },
+        data: { followUpAt: null },
+      });
+    } else if (task.entityType === 'inquiry' && task.entityId) {
+      const inquiry = await this.prisma.inquiry.findFirst({
+        where: { id: task.entityId, organizationId, deletedAt: null },
+        select: { leadId: true },
+      });
+      if (inquiry?.leadId) {
+        await this.prisma.lead.updateMany({
+          where: { id: inquiry.leadId, organizationId, deletedAt: null },
+          data: { followUpAt: null },
+        });
+      }
+    }
+
+    await this.audit.record({
+      organizationId,
+      actorUserId: userId,
+      action: 'task.complete',
+      entityType: 'task',
+      entityId: id,
+    });
+
+    return { id, status: 'done' as const };
   }
 }

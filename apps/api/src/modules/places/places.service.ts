@@ -14,6 +14,20 @@ import type {
   ReviewPlaceContributionInput,
   UpdatePlaceInput,
 } from '@wayrune/contracts';
+import {
+  clampPlaceSearchLimit,
+  looksLikeTransportCode,
+  parsePlaceKinds,
+  parsePlaceSearchPurpose,
+  placeSuggestionPoolStems,
+  rankPlacesForPurpose,
+  resolvePurposeKinds,
+  salesPlaceSecondaryLabel,
+  suggestPlaceCorrections,
+  PLACE_SUGGEST_CANDIDATE_POOL_LIMIT,
+  PLACE_SUGGEST_MAX_RESULTS,
+  type PlaceSearchPurpose,
+} from '@wayrune/contracts';
 import { loadEnv } from '@wayrune/config';
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -34,6 +48,9 @@ type ListFilters = {
   q?: string;
   domesticOrIntl?: string;
   kind?: string;
+  kinds?: string;
+  purpose?: string;
+  limit?: string | number;
   parentId?: string | null;
   categoryId?: string;
   subcategoryId?: string;
@@ -149,12 +166,32 @@ export class PlacesService {
       q,
       domesticOrIntl,
       kind,
+      kinds: kindsRaw,
+      purpose: purposeRaw,
+      limit: limitRaw,
       parentId,
       categoryId,
       subcategoryId,
       includeDescendants,
       includeInactive,
     } = filters;
+
+    const purpose = parsePlaceSearchPurpose(purposeRaw);
+    const kindsOverride = parsePlaceKinds(kindsRaw);
+    const resolvedKinds = resolvePurposeKinds(purpose, kindsOverride, kind);
+    const purposeMode = Boolean(purpose || kindsOverride.length || limitRaw != null);
+    const limit = purposeMode ? clampPlaceSearchLimit(limitRaw) : 500;
+
+    const hasStructuralFilter =
+      Boolean(parentId) ||
+      parentId === 'null' ||
+      parentId === '' ||
+      Boolean(categoryId) ||
+      Boolean(subcategoryId);
+    // Purpose pickers: no uncontrolled catalog dump before the user types.
+    if (purpose && !(q && q.trim()) && !hasStructuralFilter) {
+      return { items: [], purpose, limit };
+    }
 
     let parentFilter: Prisma.PlaceWhereInput = {};
     if (parentId === 'null' || parentId === '') {
@@ -168,27 +205,42 @@ export class PlacesService {
       }
     }
 
+    const codeQ = q?.trim() || '';
+    const codeSearch = looksLikeTransportCode(codeQ);
+    const codeUpper = codeQ.toUpperCase();
+
+    const textOr: Prisma.PlaceWhereInput[] = q
+      ? [
+          { name: { contains: q } },
+          { country: { contains: q } },
+          { region: { contains: q } },
+          { key: { contains: q } },
+        ]
+      : [];
+
+    // Do not use Prisma JSON path filters here — MySQL rejects paths without `$`
+    // and short text queries were incorrectly treated as codes. Match codes in memory.
+
     const scoped: Prisma.PlaceWhereInput = {
       ...this.orgScope(organizationId, { includeInactive }),
       ...parentFilter,
-      ...(kind ? { kind } : {}),
+      ...(resolvedKinds?.length === 1
+        ? { kind: resolvedKinds[0] }
+        : resolvedKinds && resolvedKinds.length > 1
+          ? { kind: { in: resolvedKinds } }
+          : kind
+            ? { kind }
+            : {}),
       ...(domesticOrIntl ? { domesticOrIntl } : {}),
       ...(subcategoryId
         ? { subcategoryLinks: { some: { subcategoryId } } }
         : categoryId
           ? { subcategoryLinks: { some: { subcategory: { categoryId } } } }
           : {}),
-      ...(q
-        ? {
-            OR: [
-              { name: { contains: q } },
-              { country: { contains: q } },
-              { region: { contains: q } },
-              { key: { contains: q } },
-            ],
-          }
-        : {}),
+      ...(textOr.length ? { OR: textOr } : {}),
     };
+
+    const fetchTake = purposeMode ? Math.min(200, Math.max(limit * 5, limit)) : 500;
 
     const items = await this.prisma.place.findMany({
       where: scoped,
@@ -203,24 +255,172 @@ export class PlacesService {
         },
       },
       orderBy: [{ kind: 'asc' }, { name: 'asc' }],
-      take: 500,
+      take: fetchTake,
     });
 
-    const byKey = new Map<string, (typeof items)[0]>();
-    for (const item of items) {
+    // When query looks like a transport code, also pull airports/stations and match profile codes in memory.
+    let codeHits: typeof items = [];
+    if (codeSearch) {
+      const transportKinds =
+        resolvedKinds?.filter((k) => k === 'airport' || k === 'railway_station') ??
+        ['airport', 'railway_station'];
+      if (transportKinds.length) {
+        const transportRows = await this.prisma.place.findMany({
+          where: {
+            ...this.orgScope(organizationId, { includeInactive }),
+            ...parentFilter,
+            kind: { in: transportKinds },
+            ...(domesticOrIntl ? { domesticOrIntl } : {}),
+          },
+          include: {
+            parent: { select: { id: true, name: true, kind: true } },
+            subcategoryLinks: {
+              include: {
+                subcategory: {
+                  include: { category: { select: { id: true, name: true, key: true } } },
+                },
+              },
+            },
+          },
+          take: 200,
+        });
+        codeHits = transportRows.filter((p) => {
+          const profile = asProfile(p.profileJson);
+          const iata = String(profile?.iataCode || '').toUpperCase();
+          const station = String(profile?.stationCode || '').toUpperCase();
+          return iata === codeUpper || station === codeUpper;
+        });
+      }
+    }
+
+    const mergedRows = [...items];
+    const seenIds = new Set(items.map((i) => i.id));
+    for (const hit of codeHits) {
+      if (!seenIds.has(hit.id)) {
+        seenIds.add(hit.id);
+        mergedRows.push(hit);
+      }
+    }
+
+    const byKey = new Map<string, (typeof mergedRows)[0]>();
+    for (const item of mergedRows) {
       const existing = byKey.get(item.key);
       if (!existing || (!item.isSystem && existing.isSystem)) {
         byKey.set(item.key, item);
       }
     }
 
-    const formatted = [];
-    for (const place of [...byKey.values()].sort((a, b) => a.name.localeCompare(b.name))) {
-      const ancestors = await this.ancestorsOf(place.parentId);
-      formatted.push(this.formatPlace(place, ancestors));
+    const deduped = [...byKey.values()];
+    const ranked = purposeMode
+      ? rankPlacesForPurpose(
+          deduped.map((p) => ({
+            ...p,
+            profile: asProfile(p.profileJson) as {
+              iataCode?: string | null;
+              stationCode?: string | null;
+            } | null,
+          })),
+          { q: q || '', purpose: (purpose || 'all') as PlaceSearchPurpose },
+        )
+      : deduped
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .map((p) => ({ ...p, matchType: 'normal' as const }));
+
+    const sliced = purposeMode ? ranked.slice(0, limit) : ranked;
+
+    const formatRows = async (rows: typeof sliced) => {
+      const formatted = [];
+      for (const place of rows) {
+        const ancestors = await this.ancestorsOf(place.parentId);
+        const base = this.formatPlace(place, ancestors);
+        const salesDescription = salesPlaceSecondaryLabel({
+          name: base.name,
+          kind: base.kind,
+          country: base.country,
+          region: base.region,
+          parent: base.parent,
+          profile: base.profile as {
+            iataCode?: string | null;
+            stationCode?: string | null;
+          } | null,
+          breadcrumb: base.breadcrumb,
+        });
+        formatted.push({
+          ...base,
+          salesDescription,
+          matchType: 'matchType' in place ? place.matchType : undefined,
+        });
+      }
+      return formatted;
+    };
+
+    const formatted = await formatRows(sliced);
+
+    // Zero-result typo assistance over existing Places (bounded pool — not full catalog scan).
+    let suggestions: Awaited<ReturnType<typeof formatRows>> | undefined;
+    if (purposeMode && formatted.length === 0 && q?.trim()) {
+      const stems = placeSuggestionPoolStems(q);
+      if (stems) {
+        const poolBase: Prisma.PlaceWhereInput = {
+          ...this.orgScope(organizationId, { includeInactive }),
+          ...parentFilter,
+          ...(resolvedKinds?.length === 1
+            ? { kind: resolvedKinds[0] }
+            : resolvedKinds && resolvedKinds.length > 1
+              ? { kind: { in: resolvedKinds } }
+              : kind
+                ? { kind }
+                : {}),
+          ...(domesticOrIntl ? { domesticOrIntl } : {}),
+        };
+        const poolRows = await this.prisma.place.findMany({
+          where: {
+            ...poolBase,
+            OR: [
+              { name: { startsWith: stems.prefix } },
+              { name: { contains: stems.stem } },
+              { key: { contains: stems.stem } },
+            ],
+          },
+          include: {
+            parent: { select: { id: true, name: true, kind: true } },
+            subcategoryLinks: {
+              include: {
+                subcategory: {
+                  include: { category: { select: { id: true, name: true, key: true } } },
+                },
+              },
+            },
+          },
+          orderBy: [{ kind: 'asc' }, { name: 'asc' }],
+          take: PLACE_SUGGEST_CANDIDATE_POOL_LIMIT,
+        });
+        const corrected = suggestPlaceCorrections(
+          poolRows.map((p) => ({
+            id: p.id,
+            name: p.name,
+            kind: p.kind,
+            key: p.key,
+          })),
+          q,
+          { max: PLACE_SUGGEST_MAX_RESULTS },
+        );
+        if (corrected.length) {
+          const byId = new Map(poolRows.map((p) => [p.id, p]));
+          const suggestionRows = corrected
+            .map((c) => byId.get(c.id))
+            .filter((p): p is (typeof poolRows)[number] => Boolean(p))
+            .map((p) => ({ ...p, matchType: 'normal' as const }));
+          suggestions = await formatRows(suggestionRows);
+        }
+      }
     }
 
-    return { items: formatted };
+    return {
+      items: formatted,
+      ...(suggestions?.length ? { suggestions } : {}),
+      ...(purposeMode ? { purpose: purpose || null, limit } : {}),
+    };
   }
 
   async getById(organizationId: string, id: string) {

@@ -10,6 +10,26 @@ import {
 } from './fields';
 import { InboxChatSettingsSchema } from './inbox-chat-settings';
 import { tripTravelEndOnOrAfterStart } from './trip-travel-dates';
+export {
+  ThemePreferenceSchema,
+  DensityPreferenceSchema,
+  FontScalePreferenceSchema,
+  MotionPreferenceSchema,
+  GlassPreferenceSchema,
+  ColorThemePreferenceSchema,
+  CustomAccentSchema,
+  UserAppearancePreferencesSchema,
+  OrgAppearanceDefaultsSchema,
+  UserPreferencesSchema,
+  UpdateUserPreferencesSchema,
+  parseOrgAppearanceDefaults,
+  orgAppearanceHasValues,
+  type UserAppearancePreferences,
+  type OrgAppearanceDefaults,
+  type UserPreferences,
+  type UpdateUserPreferencesInput,
+} from './user-preferences';
+import { OrgAppearanceDefaultsSchema } from './user-preferences';
 
 export {
   OptionalEmail,
@@ -378,6 +398,8 @@ quoteValidityGraceHours: z.number().int().min(0).max(72).optional(),
       })
       .partial()
       .optional(),
+    /** Workspace ERP chrome defaults for members without personal appearance prefs. */
+    appearance: OrgAppearanceDefaultsSchema.optional(),
     /** QR Guest Services org controls (Phase 1). */
     guestServices: z
       .object({
@@ -398,6 +420,20 @@ quoteValidityGraceHours: z.number().int().min(0).max(72).optional(),
     inbox: z
       .object({
         chat: InboxChatSettingsSchema.optional(),
+      })
+      .partial()
+      .optional(),
+    /**
+     * Named / proxy pilot program flags (Market proof Day-0).
+     * Never auto-set Market-proven — evidence pack flip criteria only.
+     */
+    pilotProgram: z
+      .object({
+        mode: z.enum(['none', 'proxy', 'named']).optional(),
+        evidenceComplete: z.boolean().optional(),
+        startedAt: z.string().optional(),
+        /** Owner confirms PostHog masking reviewed for this org/build. */
+        replayPrivacyConfirmed: z.boolean().optional(),
       })
       .partial()
       .optional(),
@@ -757,6 +793,11 @@ export const CreateSupplierSchema = z.object({
   phone: OptionalPhone,
   notes: z.preprocess(blankToNull, z.string().nullable()).optional(),
   placeId: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  /**
+   * Structured service-area Place IDs (destination kinds only).
+   * Omit = leave unset (null). [] = configured empty. Duplicates normalized server-side.
+   */
+  servedPlaceIds: z.array(z.string().min(1)).max(80).optional(),
   linkedAssetId: z.preprocess(blankToNull, z.string().nullable()).optional(),
   profileJson: z.record(z.string(), z.unknown()).optional(),
 });
@@ -768,6 +809,8 @@ export const UpdateSupplierSchema = z.object({
   phone: OptionalPhone,
   notes: z.preprocess(blankToNull, z.string().nullable()).optional(),
   placeId: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  /** Set to configure/replace coverage; omit to leave unchanged. */
+  servedPlaceIds: z.array(z.string().min(1)).max(80).optional(),
   linkedAssetId: z.preprocess(blankToNull, z.string().nullable()).optional(),
   /** Replaces profileJson when provided (full profile save from type-specific UI). */
   profileJson: z.record(z.string(), z.unknown()).optional(),
@@ -1098,7 +1141,7 @@ export const CreateVehicleTypeSchema = z.object({
     .optional(),
 });
 
-export const CreateInquirySchema = z.object({
+export const CreateInquiryFieldsSchema = z.object({
   partyId: z.preprocess(blankToNull, z.string().nullable()).optional(),
   leadId: z.preprocess(blankToNull, z.string().nullable()).optional(),
   travelType: z.preprocess(blankToNull, z.string().nullable()).optional(),
@@ -1128,8 +1171,22 @@ export const CreateInquirySchema = z.object({
   internalNotes: z.preprocess(blankToNull, z.string().nullable()).optional(),
 });
 
+export const CreateInquirySchema = CreateInquiryFieldsSchema.refine(
+  (v) => tripTravelEndOnOrAfterStart(v.startDate, v.endDate),
+  {
+    message: 'Travel end must be on or after travel start',
+    path: ['endDate'],
+  },
+);
+
 /** Partial update for agency inquiries — recomputes missing-field completeness on save. */
-export const UpdateInquirySchema = CreateInquirySchema.partial();
+export const UpdateInquirySchema = CreateInquiryFieldsSchema.partial().refine(
+  (v) => tripTravelEndOnOrAfterStart(v.startDate, v.endDate),
+  {
+    message: 'Travel end must be on or after travel start',
+    path: ['endDate'],
+  },
+);
 
 /**
  * Manual inquiry status transition (open <-> qualified <-> lost). `converted`
@@ -1231,7 +1288,7 @@ export const UpdateTripDatesSchema = z
  * Lead + Inquiry. Reuses the inquiry travel fields plus a person block; either
  * link an existing `partyId` or provide a new `contact` (name required).
  */
-export const CreateTravelRequestSchema = CreateInquirySchema.omit({
+export const CreateTravelRequestSchema = CreateInquiryFieldsSchema.omit({
   partyId: true,
   leadId: true,
 })
@@ -1253,11 +1310,20 @@ export const CreateTravelRequestSchema = CreateInquirySchema.omit({
     conversationId: z.preprocess(blankToNull, z.string().nullable()).optional(),
     /** Attribution from Meta/ads when converting an Inbox touch. */
     campaignId: z.preprocess(blankToNull, z.string().nullable()).optional(),
+    /**
+     * Original visitor destination free-text (immutable spelling).
+     * Stored on Lead.customFieldsJson.destinationText — not a PlaceRef.
+     */
+    destinationText: z.preprocess(blankToNull, z.string().nullable()).optional(),
     priority: z.enum(['low', 'normal', 'high', 'urgent']).default('normal'),
   })
   .refine((v) => Boolean(v.partyId) || Boolean(v.contact?.name?.trim()), {
     message: 'Select an existing customer or enter a name',
     path: ['contact', 'name'],
+  })
+  .refine((v) => tripTravelEndOnOrAfterStart(v.startDate, v.endDate), {
+    message: 'Travel end must be on or after travel start',
+    path: ['endDate'],
   });
 
 export type CreateTravelRequestInput = z.infer<typeof CreateTravelRequestSchema>;
@@ -2702,6 +2768,11 @@ export const ItineraryDayItemSchema = z.object({
   startTime: z.preprocess(blankToNull, z.string().nullable()).optional(),
   endTime: z.preprocess(blankToNull, z.string().nullable()).optional(),
   customerVisible: z.boolean().default(true),
+  /** Canonical item place (preferred). */
+  locationRef: PlaceRefSchema.nullish(),
+  /** Custom display override — does not redefine place identity. */
+  locationLabel: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  /** @deprecated Read compatibility only — omit on new writes. */
   location: z
     .preprocess(
       (v) => (v === '' || v === undefined ? null : v),
@@ -2718,7 +2789,11 @@ export const ItineraryDaySchema = z.object({
   dayNumber: z.number().int().min(1),
   title: z.string().optional(),
   date: z.preprocess(blankToNull, z.string().nullable()).optional(),
-  /** Primary place for this day (multi-stop trips). */
+  /** Canonical primary place for this day (preferred). */
+  destinationRef: PlaceRefSchema.nullish(),
+  /** Custom display override — does not redefine place identity. */
+  destinationLabel: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  /** @deprecated Read compatibility only — omit on new writes. */
   destination: z
     .preprocess(
       (v) => (v === '' || v === undefined ? null : v),
@@ -3722,7 +3797,13 @@ export const QuoteTemplateContentSchema = z.object({
   inclusions: z.union([z.string(), z.array(z.string())]).optional(),
   exclusions: z.union([z.string(), z.array(z.string())]).optional(),
   terms: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  /** Primary destination display snapshot (portable fallback). Not full multi-dest coverage. */
   destinationHint: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  /**
+   * Optional catalog Place ID for matching only — never a hard template dependency.
+   * Use when visible in the current org; otherwise keep destinationHint.
+   */
+  destinationPlaceId: z.preprocess(blankToNull, z.string().nullable()).optional(),
   /** Lightweight organize labels (no folders) — max 12 × 40 chars. */
   tags: z.array(z.string().min(1).max(40)).max(12).optional(),
   /** Optional folder path (`Hill stations/Darjeeling`) — max 80 chars. */
@@ -3856,6 +3937,16 @@ export const CreateTaskSchema = z.object({
   assigneeId: z.preprocess(blankToNull, z.string().nullable()).optional(),
   entityType: z.preprocess(blankToNull, z.string().nullable()).optional(),
   entityId: z.preprocess(blankToNull, z.string().nullable()).optional(),
+});
+
+/** Partial update for agency tasks (reschedule / light edits). */
+export const UpdateTaskSchema = z.object({
+  title: RequiredText('Task').optional(),
+  description: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  priority: z.enum(['low', 'normal', 'high', 'urgent']).optional(),
+  dueAt: z.string().datetime().optional().nullable(),
+  assigneeId: z.preprocess(blankToNull, z.string().nullable()).optional(),
+  status: z.enum(['open', 'done', 'cancelled']).optional(),
 });
 
 export const PaymentMethodSchema = z.enum([
@@ -4396,6 +4487,87 @@ export {
   lineNeedsMaxStayRiskAck,
 } from './quote-inventory-risk-ack';
 export { lineHasStopSaleBlock } from './quote-rate-block';
+
+export {
+  PLACE_KINDS,
+  PLACE_KIND_SET,
+  PLACE_KIND_LABELS,
+  PLACE_SEARCH_PURPOSES,
+  PURPOSE_CONFIG,
+  PLACE_SEARCH_DEFAULT_LIMIT,
+  PLACE_SEARCH_MAX_LIMIT,
+  parsePlaceKinds,
+  parsePlaceSearchPurpose,
+  resolvePurposeKinds,
+  looksLikeTransportCode,
+  normalizePlaceSearchQuery,
+  normalizePlaceSearchText,
+  placeMatchType,
+  rankPlacesForPurpose,
+  salesPlaceSecondaryLabel,
+  clampPlaceSearchLimit,
+  maxEditDistanceForQuery,
+  levenshteinDistance,
+  placeNameSimilarity,
+  placeSuggestionPoolStems,
+  scorePlaceSuggestion,
+  suggestPlaceCorrections,
+  PLACE_SUGGEST_MIN_QUERY_LENGTH,
+  PLACE_SUGGEST_MAX_RESULTS,
+  PLACE_SUGGEST_MIN_SIMILARITY,
+  PLACE_SUGGEST_CANDIDATE_POOL_LIMIT,
+  type PlaceKind,
+  type PlaceSearchPurpose,
+  type PlaceSearchTab,
+  type PlaceSearchMatchType,
+  type RankablePlace,
+  type SalesPlaceLabelInput,
+  type PlaceSuggestionCandidate,
+  type PlaceSuggestionScore,
+} from './place-search';
+
+export {
+  locationRefFromItem,
+  destinationRefFromDay,
+  locationDisplayLabel,
+  destinationDisplayLabel,
+  withCanonicalDayDestination,
+  withCanonicalItemLocation,
+  normalizeItineraryDaysForRead,
+  normalizeItineraryContentForWrite,
+  assignSeedDestinationRefs,
+  type ItineraryPlaceRef,
+} from './itinerary-place-refs';
+
+export {
+  PROPOSAL_TRIP_STATUSES,
+  CONFIRMED_OPS_TRIP_STATUSES,
+  isProposalTrip,
+  isConfirmedOpsTrip,
+  pickActiveInquiryProposalTrip,
+  pickActiveProposalTrip,
+  pickPrimaryOpsTrip,
+  proposalTrips,
+  confirmedOpsTrips,
+  computeInquiryProposalReadiness,
+  buildProposalAssumptions,
+  buildSeededItineraryDays,
+  resolveTripDayCount,
+  parseTripProposalSeed,
+  proposalSeedPublicSummary,
+  type ProposalTripStatus,
+  type ConfirmedOpsTripStatus,
+  type InquiryLinkedTrip,
+  type ProposalAssumptionKey,
+  type ProposalAssumptionSource,
+  type ProposalAssumption,
+  type ProposalSeedStepState,
+  type ProposalSeedSteps,
+  type ProposalSeedPricing,
+  type InquiryProposalSeed,
+  type InquiryProposalReadiness,
+  type InquiryProposalReadinessInput,
+} from './inquiry-proposal-seed';
 
 export {
   FinanceReportPackSchema,

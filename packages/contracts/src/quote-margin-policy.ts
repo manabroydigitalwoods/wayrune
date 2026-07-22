@@ -61,12 +61,15 @@ export function countMarginPolicyViolations(
     unitCost: number | null;
     unitSell: number | null;
     marginOverride?: { reason?: string } | null;
+    includedMeta?: unknown;
   }>,
   minMarginPercent = 0,
   opts?: { ignoreOverridden?: boolean },
 ): number {
   let n = 0;
   for (const item of items) {
+    // Included (₹0) lines are proposal display only — not margin-gated.
+    if (item.includedMeta) continue;
     const v = lineMarginPolicyViolation(item.unitCost, item.unitSell, minMarginPercent);
     if (!v) continue;
     if (opts?.ignoreOverridden && item.marginOverride?.reason?.trim()) continue;
@@ -81,6 +84,7 @@ export function countLossMakingLines(
     unitCost: number | null;
     unitSell: number | null;
     marginOverride?: { reason?: string } | null;
+    includedMeta?: unknown;
   }>,
   opts?: { ignoreOverridden?: boolean },
 ): number {

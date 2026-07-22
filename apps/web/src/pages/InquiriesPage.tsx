@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, Navigate, useSearchParams } from 'react-router-dom';
+import { Navigate, useSearchParams } from 'react-router-dom';
 import { useOrgNavigate } from '../hooks/useOrgNavigate';
-import type { ColumnDef } from '@tanstack/react-table';
-import { ArrowUpRight, Contact, Copy, MoreHorizontal, Plane, Plus } from 'lucide-react';
+import type { ColumnDef, VisibilityState } from '@tanstack/react-table';
+import { ArrowUpRight, Contact, Copy, MoreHorizontal, Plane, Plus, Search, X } from 'lucide-react';
 import {
   Button,
   ConfirmDialog,
@@ -13,10 +13,12 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  Input,
+  cn,
   humanizeFieldKeys,
-  ListPageShell,
-  PageHeader,
+  localStorageKit,
   RecordSheet,
+  Skeleton,
   StatusBadge,
   StorageKeys,
   formatCurrency,
@@ -24,6 +26,7 @@ import {
   formatDateTime,
   toastError,
   toastSuccess,
+  usePageChrome,
 } from '@wayrune/ui';
 import { api } from '../api';
 import { Can } from '../components/Can';
@@ -31,6 +34,7 @@ import { CAP } from '../lib/capabilities';
 import { reportError } from '../lib/errors';
 import { usePermissions } from '../lib/permissions';
 import { useCanonicalCreateVisibility } from '../hooks/useCanonicalCreateVisibility';
+import { useInquiryQueueSummary } from '../hooks/useInquiryQueueSummary';
 import { InquiryCreateSheet } from '../components/inquiries/InquiryCreateSheet';
 import { InquiryStatusMenu } from '../components/inquiries/InquiryStatusMenu';
 import { INQUIRY_STATUS_FACET_OPTIONS, inquiryStatusLabel } from '../lib/agencyStatusLabels';
@@ -43,8 +47,19 @@ import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { leadOutcomeMessage, type LeadOutcome } from '../lib/lead-outcome';
 import { placeRefsFromJson } from '../lib/placeRefs';
 import { buildInquiriesListQuery } from '../lib/inquiryQueue';
-import { TravelRequestQueueStrip } from '../components/agency/TravelRequestQueueStrip';
-import { SalesCrmSlaStrip } from '../components/agency/SalesCrmSlaStrip';
+import {
+  inquiriesQueryHasFilters,
+  parseInquiriesQueryState,
+  patchInquiriesQueryParams,
+} from '../lib/queue';
+import {
+  ActiveFilterChips,
+  AttentionPresets,
+  DisplayMenu,
+  FilterMenu,
+  QUEUE_PAGE_SEARCH_CLASS,
+  QueuePageChrome,
+} from '../components/queue';
 
 function formatDestinations(value: unknown): string {
   return placeRefsFromJson(value)
@@ -89,6 +104,21 @@ const DOMESTIC_LABELS: Record<string, string> = {
   international: 'International',
 };
 
+function readInquiriesColumnVisibility(): VisibilityState {
+  const defaults: VisibilityState = {
+    travelType: false,
+    scope: false,
+    budget: false,
+    lead: false,
+    updated: false,
+  };
+  const stored = localStorageKit.getJson<VisibilityState>(StorageKeys.inquiries.columns, {
+    version: 1,
+  });
+  if (!stored || typeof stored !== 'object') return defaults;
+  return { ...defaults, ...stored };
+}
+
 export function InquiriesPage() {
   const { navigate, toOrgPath } = useOrgNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -100,10 +130,9 @@ export function InquiriesPage() {
   const showNewInquiry = useCanonicalCreateVisibility('inquiry');
   const canConvert = hasAny(CAP.inquiryConvertTrip);
   const leadId = searchParams.get('leadId') || undefined;
-  const incompleteFilter = searchParams.get('incomplete') === '1';
-  const unassignedFilter = searchParams.get('unassigned') === '1';
-  const staleFilter = searchParams.get('stale') === '1';
-  const showSalesSla = hasAny(['inquiry.read', 'lead.read', 'lead.read.own']);
+  const query = useMemo(() => parseInquiriesQueryState(searchParams), [searchParams]);
+  const showQueueAttention = variant === 'planning' || variant === 'requests' || variant === 'sales';
+  const { data: queueSummary } = useInquiryQueueSummary(showQueueAttention);
   const [items, setItems] = useState<Inquiry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -114,15 +143,37 @@ export function InquiriesPage() {
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detail, setDetail] = useState<InquiryDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [searchDraft, setSearchDraft] = useState(query.q ?? '');
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(() =>
+    readInquiriesColumnVisibility(),
+  );
+
+  function applyQuery(patch: Parameters<typeof patchInquiriesQueryParams>[1]) {
+    setSearchParams(patchInquiriesQueryParams(searchParams, patch), { replace: true });
+  }
+
+  useEffect(() => {
+    setSearchDraft(query.q ?? '');
+  }, [query.q]);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      const next = searchDraft.trim();
+      if ((query.q ?? '') === next) return;
+      applyQuery({ q: next || undefined });
+    }, 300);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce draft only
+  }, [searchDraft]);
 
   async function load() {
     setLoading(true);
     try {
       const qs = buildInquiriesListQuery({
         variant,
-        incomplete: incompleteFilter,
-        unassigned: unassignedFilter,
-        stale: staleFilter,
+        incomplete: query.incomplete,
+        unassigned: query.unassigned,
+        stale: query.stale,
       });
       const res = await api<{ items: Inquiry[] }>(`/inquiries?${qs}`);
       setItems(res.items);
@@ -136,7 +187,8 @@ export function InquiriesPage() {
 
   useEffect(() => {
     void load();
-  }, [variant, incompleteFilter, unassignedFilter, staleFilter]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when queue URL changes
+  }, [variant, query.incomplete, query.unassigned, query.stale]);
 
   useEffect(() => {
     if (leadId) setOpen(true);
@@ -200,20 +252,28 @@ export function InquiriesPage() {
   }
 
   const tableRows = useMemo(() => {
-    return items.map((item) => ({
-        ...item,
-        searchText: [
+    const q = query.q?.trim().toLowerCase();
+    return items
+      .filter((item) => {
+        if (query.statusFilter && item.status !== query.statusFilter) return false;
+        if (!q) return true;
+        const haystack = [
           item.inquiryNumber,
           item.party?.displayName,
           item.lead?.title,
           item.travelType,
-          ...(placeRefsFromJson(item.destinationsJson).map((p) => p.name)),
+          ...placeRefsFromJson(item.destinationsJson).map((p) => p.name),
         ]
           .filter(Boolean)
-          .join(' '),
+          .join(' ')
+          .toLowerCase();
+        return haystack.includes(q);
+      })
+      .map((item) => ({
+        ...item,
         completeness: (item.missingFieldsJson || []).length > 0 ? 'incomplete' : 'complete',
       }));
-  }, [items]);
+  }, [items, query.statusFilter, query.q]);
 
   const columns = useMemo<ColumnDef<(typeof tableRows)[number]>[]>(
     () => [
@@ -355,7 +415,6 @@ export function InquiriesPage() {
         accessorFn: (r) => r.updatedAt,
         cell: ({ row }) => <span className="tabular-nums text-muted-foreground">{formatDate(row.original.updatedAt)}</span>,
       },
-      { id: 'searchText', accessorKey: 'searchText', header: 'Search', enableHiding: false, enableSorting: false },
       {
         id: 'actions',
         header: '',
@@ -395,138 +454,205 @@ export function InquiriesPage() {
     [navigate],
   );
 
-  function toggleIncompleteFilter() {
-    const params = new URLSearchParams(searchParams);
-    if (incompleteFilter) params.delete('incomplete');
-    else params.set('incomplete', '1');
-    setSearchParams(params, { replace: true });
+  function toggleColumn(id: string, visible: boolean) {
+    setColumnVisibility((prev) => {
+      const next = { ...prev, [id]: visible };
+      localStorageKit.setJson(StorageKeys.inquiries.columns, next, { version: 1 });
+      return next;
+    });
   }
 
-  function toggleUnassignedFilter() {
-    const params = new URLSearchParams(searchParams);
-    if (unassignedFilter) params.delete('unassigned');
-    else params.set('unassigned', '1');
-    setSearchParams(params, { replace: true });
+  function clearInquiryFilters() {
+    applyQuery({ clearFilters: true });
   }
 
-  function toggleStaleFilter() {
-    const params = new URLSearchParams(searchParams);
-    if (staleFilter) params.delete('stale');
-    else params.set('stale', '1');
-    setSearchParams(params, { replace: true });
-  }
-
-  function clearQueueFilters() {
-    const params = new URLSearchParams(searchParams);
-    params.delete('incomplete');
-    params.delete('unassigned');
-    params.delete('stale');
-    setSearchParams(params, { replace: true });
+  /** Empty-state reset: drop filters and search so results can show again. */
+  function clearInquiryFiltersAndSearch() {
+    setSearchDraft('');
+    applyQuery({ clearFilters: true, q: '' });
   }
 
   if (searchParams.get('status') === 'open' && variant === 'all') {
     return <Navigate to={toOrgPath(AGENCY_ROUTES.workPlanning)} replace />;
   }
 
+  const pageSubtitle =
+    query.stale && query.incomplete && query.unassigned
+      ? 'Showing stale, incomplete, unassigned travel requests'
+      : query.stale
+        ? 'Showing stale travel requests in planning'
+        : query.incomplete && query.unassigned
+          ? 'Showing incomplete, unassigned travel requests'
+          : query.incomplete
+            ? 'Showing travel requests with missing fields'
+            : query.unassigned
+              ? 'Showing unassigned travel requests'
+              : copy.subtitle;
+
+  usePageChrome({ title: copy.title, subtitle: pageSubtitle });
+
+  const attentionPresets = [
+    {
+      id: 'stale',
+      label: 'stale in planning',
+      count: queueSummary?.planningStale ?? 0,
+      active: Boolean(query.stale),
+      tone: 'danger' as const,
+      onClick: () => applyQuery({ stale: query.stale ? undefined : true }),
+    },
+    {
+      id: 'incomplete',
+      label: 'incomplete',
+      count: queueSummary?.planningIncomplete ?? 0,
+      active: Boolean(query.incomplete),
+      tone: 'warn' as const,
+      onClick: () => applyQuery({ incomplete: query.incomplete ? undefined : true }),
+    },
+    ...(variant === 'planning'
+      ? [
+          {
+            id: 'unassigned',
+            label: 'unassigned',
+            count: queueSummary?.planningUnassigned ?? 0,
+            active: Boolean(query.unassigned),
+            tone: 'info' as const,
+            onClick: () => applyQuery({ unassigned: query.unassigned ? undefined : true }),
+          },
+        ]
+      : []),
+  ];
+
+  const statusFilterDefs = [
+    {
+      id: 'status',
+      label: 'Status',
+      value: query.statusFilter ?? null,
+      options: [...INQUIRY_STATUS_FACET_OPTIONS],
+      onSelect: (value: string | null) => applyQuery({ statusFilter: value || undefined }),
+    },
+  ];
+
+  const displayColumns = [
+    { id: 'client', label: 'Client', visible: columnVisibility.client !== false },
+    { id: 'status', label: 'Status', visible: columnVisibility.status !== false },
+    { id: 'destinations', label: 'Destinations', visible: columnVisibility.destinations !== false },
+    { id: 'missing', label: 'Missing', visible: columnVisibility.missing !== false },
+    { id: 'travelType', label: 'Travel type', visible: columnVisibility.travelType !== false },
+    { id: 'scope', label: 'Scope', visible: columnVisibility.scope !== false },
+    { id: 'budget', label: 'Budget', visible: columnVisibility.budget !== false },
+    { id: 'lead', label: 'Lead', visible: columnVisibility.lead !== false },
+    { id: 'updated', label: 'Updated', visible: columnVisibility.updated !== false },
+  ];
+
+  const filterChips = [
+    query.stale
+      ? { id: 'stale', label: 'Stale in planning', onRemove: () => applyQuery({ stale: undefined }) }
+      : null,
+    query.incomplete
+      ? { id: 'incomplete', label: 'Incomplete', onRemove: () => applyQuery({ incomplete: undefined }) }
+      : null,
+    query.unassigned
+      ? { id: 'unassigned', label: 'Unassigned', onRemove: () => applyQuery({ unassigned: undefined }) }
+      : null,
+    query.statusFilter
+      ? {
+          id: 'status',
+          label: `Status: ${INQUIRY_STATUS_FACET_OPTIONS.find((o) => o.value === query.statusFilter)?.label ?? query.statusFilter}`,
+          onRemove: () => applyQuery({ statusFilter: undefined }),
+        }
+      : null,
+  ].filter(Boolean) as Array<{ id: string; label: string; onRemove: () => void }>;
+
+  const queueToolbar = (
+    <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+      <div className="relative min-w-[12rem] flex-1 basis-[14rem]">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 size-[0.875em] -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={searchDraft}
+          onChange={(e) => setSearchDraft(e.target.value)}
+          placeholder={`Search ${copy.title.toLowerCase()}…`}
+          className={cn(QUEUE_PAGE_SEARCH_CLASS, searchDraft.trim() && 'pr-8')}
+          aria-label={`Search ${copy.title.toLowerCase()}`}
+        />
+        {searchDraft.trim() ? (
+          <button
+            type="button"
+            className="absolute right-1.5 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+            aria-label="Clear search"
+            onClick={() => {
+              setSearchDraft('');
+              applyQuery({ q: '' });
+            }}
+          >
+            <X className="size-3.5" />
+          </button>
+        ) : null}
+      </div>
+      <div className="flex flex-wrap items-center gap-1">
+        <FilterMenu filters={statusFilterDefs} />
+        <DisplayMenu columns={displayColumns} onToggleColumn={toggleColumn} />
+      </div>
+    </div>
+  );
+
   return (
-    <ListPageShell>
-      <PageHeader
-        icon={Contact}
-        title={copy.title}
-        subtitle={
-          staleFilter && incompleteFilter && unassignedFilter
-            ? 'Showing stale, incomplete, unassigned travel requests'
-            : staleFilter
-              ? 'Showing stale travel requests in planning'
-              : incompleteFilter && unassignedFilter
-                ? 'Showing incomplete, unassigned travel requests'
-                : incompleteFilter
-                  ? 'Showing travel requests with missing fields'
-                  : unassignedFilter
-                    ? 'Showing unassigned travel requests'
-                    : copy.subtitle
-        }
-        className="mb-4 shrink-0"
-        actions={
-          <Can anyOf={CAP.inquiryWrite}>
-            {showNewInquiry ? (
-            <Button onClick={() => setOpen(true)}><Plus className="size-4" />New inquiry</Button>
-            ) : null}
-          </Can>
-        }
-      />
-
-      {variant === 'planning' || variant === 'requests' || variant === 'sales' ? (
-        <SalesCrmSlaStrip enabled={showSalesSla} />
-      ) : null}
-
-      {variant !== 'all' ? (
-        <TravelRequestQueueStrip enabled variant={variant} />
-      ) : null}
-
-      {variant === 'planning' || variant === 'requests' || variant === 'sales' ? (
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          <Button
-            size="sm"
-            variant={staleFilter ? 'secondary' : 'outline'}
-            onClick={toggleStaleFilter}
-          >
-            Stale in planning
-          </Button>
-          <Button
-            size="sm"
-            variant={incompleteFilter ? 'secondary' : 'outline'}
-            onClick={toggleIncompleteFilter}
-          >
-            Incomplete only
-          </Button>
-          {variant === 'planning' ? (
-            <Button
-              size="sm"
-              variant={unassignedFilter ? 'secondary' : 'outline'}
-              onClick={toggleUnassignedFilter}
-            >
-              Unassigned
+    <QueuePageChrome
+      attention={showQueueAttention ? <AttentionPresets presets={attentionPresets} /> : null}
+      primaryActions={
+        <Can anyOf={CAP.inquiryWrite}>
+          {showNewInquiry ? (
+            <Button size="sm" onClick={() => setOpen(true)}>
+              <Plus className="size-[0.875em]" />
+              New inquiry
             </Button>
           ) : null}
-          {incompleteFilter || unassignedFilter || staleFilter ? (
-            <Button size="sm" variant="ghost" onClick={clearQueueFilters}>
-              Clear filters
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
-
+        </Can>
+      }
+      error={error ? <p className="text-sm text-destructive">{error}</p> : null}
+      toolbar={queueToolbar}
+      chips={
+        <ActiveFilterChips
+          chips={filterChips}
+          onClear={inquiriesQueryHasFilters(query) ? clearInquiryFilters : undefined}
+        />
+      }
+    >
       <DataTable
+        key={`cols-${JSON.stringify(columnVisibility)}`}
         columns={columns}
         data={tableRows}
         loading={loading}
-        error={error}
         pageSize={25}
-        searchKey="searchText"
-        searchPlaceholder={`Search ${copy.title.toLowerCase()}…`}
+        showSearch={false}
+        showColumnsMenu={false}
         columnVisibilityKey={StorageKeys.inquiries.columns}
-        defaultColumnVisibility={{ searchText: false, travelType: false, scope: false, budget: false, lead: false, updated: false }}
-        facets={[
-          { id: 'status', columnId: 'status', label: 'Status', options: [...INQUIRY_STATUS_FACET_OPTIONS] },
-          { id: 'missing', columnId: 'missing', label: 'Completeness', options: [{ value: 'incomplete', label: 'Incomplete' }, { value: 'complete', label: 'Complete' }] },
-        ]}
-        defaultFacetValues={
-          variant === 'planning' ? { status: 'open' } : undefined
+        defaultColumnVisibility={columnVisibility}
+        emptyTitle={
+          inquiriesQueryHasFilters(query) || query.q ? 'No matching inquiries' : `No ${copy.title.toLowerCase()}`
         }
-        emptyTitle={`No ${copy.title.toLowerCase()}`}
         emptyDescription={
-          variant === 'planning'
-            ? 'Open requests appear here while itinerary and quotation work is in progress.'
-            : 'Capture requirements from a lead or walk-in client.'
+          inquiriesQueryHasFilters(query) || query.q
+            ? 'Try clearing filters or search.'
+            : variant === 'planning'
+              ? 'Open requests appear here while itinerary and quotation work is in progress.'
+              : 'Capture requirements from a lead or walk-in client.'
         }
         emptyIcon={Contact}
         emptyAction={
-          <Can anyOf={CAP.inquiryWrite}>
-            {showNewInquiry ? (
-            <Button onClick={() => setOpen(true)}><Plus className="size-4" />New inquiry</Button>
-            ) : null}
-          </Can>
+          inquiriesQueryHasFilters(query) || query.q ? (
+            <Button type="button" size="sm" variant="outline" onClick={clearInquiryFiltersAndSearch}>
+              Clear filters
+            </Button>
+          ) : (
+            <Can anyOf={CAP.inquiryWrite}>
+              {showNewInquiry ? (
+                <Button onClick={() => setOpen(true)}>
+                  <Plus className="size-4" />
+                  New inquiry
+                </Button>
+              ) : null}
+            </Can>
+          )
         }
       />
 
@@ -545,7 +671,13 @@ export function InquiriesPage() {
         cancelLabel="Close"
         wide
       >
-        {detailLoading || !detail ? <p className="text-sm text-muted-foreground">Loading inquiry…</p> : (
+        {detailLoading || !detail ? (
+          <div className="space-y-2" role="status" aria-busy="true">
+            <span className="sr-only">Loading</span>
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-8 w-full" />
+          </div>
+        ) : (
           <div className="space-y-5">
             <div className="flex flex-wrap items-center gap-2">
               <StatusBadge value={detail.status} label={inquiryStatusLabel(detail.status)} size="md" />
@@ -594,7 +726,7 @@ export function InquiriesPage() {
         loading={converting}
         onConfirm={() => convertId && convert(convertId)}
       />
-    </ListPageShell>
+    </QueuePageChrome>
   );
 }
 

@@ -73,8 +73,20 @@ describe('revisionMarginDelta', () => {
     });
     expect(delta?.deltaSellExTax).toBe(20);
     expect(delta?.deltaMarginPp).toBeCloseTo(after.marginPercent - before.marginPercent);
+    expect(delta?.showCost).toBe(true);
     expect(signedMoneyDelta(20)).toEqual({ sign: '+', abs: 20 });
     expect(signedPpDelta(-1.2).sign).toBe('−');
+
+    const sellOnly = buildRevisionMarginDelta({
+      before,
+      after,
+      source: 'accepted',
+      canViewCost: false,
+      baselineLabel: 'Accepted',
+    });
+    expect(sellOnly?.showCost).toBe(false);
+    expect(sellOnly?.deltaSellExTax).toBe(20);
+    expect(sellOnly?.visible).toBe(true);
   });
 
   it('computes tax delta and changed-line summaries', () => {
@@ -124,18 +136,29 @@ describe('revisionMarginDelta', () => {
     expect(summaries).not.toContain('~ Keep');
   });
 
-  it('hides when cost cannot be viewed', () => {
-    expect(
-      buildRevisionMarginDelta({
-        before: commercialTotalsFromLines([
-          { quantity: 1, unitCost: 1, unitSell: 2, taxPercent: 0 },
-        ]),
-        after: commercialTotalsFromLines([
-          { quantity: 1, unitCost: 1, unitSell: 3, taxPercent: 0 },
-        ]),
-        source: 'accepted',
-        canViewCost: false,
-      }),
-    ).toBeNull();
+  it('shows sell/tax delta without cost when view_cost is false', () => {
+    const delta = buildRevisionMarginDelta({
+      before: commercialTotalsFromLines([
+        { quantity: 1, unitCost: 1, unitSell: 2, taxPercent: 0 },
+      ]),
+      after: commercialTotalsFromLines([
+        { quantity: 1, unitCost: 1, unitSell: 3, taxPercent: 0 },
+      ]),
+      source: 'accepted',
+      canViewCost: false,
+    });
+    expect(delta?.showCost).toBe(false);
+    expect(delta?.deltaSellExTax).toBe(1);
+    expect(delta?.visible).toBe(true);
+  });
+
+  it('builds sell snapshot when baseline cost is redacted', () => {
+    const snap = commercialTotalsFromVersion({
+      id: 'acc',
+      costHidden: true,
+      sellTotal: 5000,
+    });
+    expect(snap?.sellTotal).toBe(5000);
+    expect(snap?.incomplete).toBe(true);
   });
 });

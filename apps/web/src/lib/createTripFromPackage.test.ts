@@ -4,6 +4,7 @@ import {
   fromPackageRequestBody,
   planCreateTripFromPackage,
   sortQuoteTemplatesForPicker,
+  templateDestinationMatchScore,
 } from './createTripFromPackage';
 
 describe('planCreateTripFromPackage', () => {
@@ -138,5 +139,63 @@ describe('sortQuoteTemplatesForPicker', () => {
       'Darjeeling',
     );
     expect(sorted[0]?.name).toBe('Darjeeling');
+  });
+
+  it('valid equal Place IDs outrank substring-only hints', () => {
+    const sorted = sortQuoteTemplatesForPicker(
+      [
+        {
+          name: 'Substring bait',
+          content: { destinationHint: 'North Darjeeling Hills' },
+        },
+        {
+          name: 'ID match',
+          content: {
+            destinationHint: 'Other',
+            destinationPlaceId: 'place_darj',
+          },
+        },
+      ],
+      { placeId: 'place_darj', name: 'Darjeeling' },
+    );
+    expect(sorted[0]?.name).toBe('ID match');
+  });
+
+  it('different valid IDs with same name do not both get strong match', () => {
+    const scoreA = templateDestinationMatchScore(
+      { destinationHint: 'Darjeeling', destinationPlaceId: 'id_a' },
+      { placeId: 'id_b', name: 'Darjeeling' },
+    );
+    const scoreB = templateDestinationMatchScore(
+      { destinationHint: 'Darjeeling', destinationPlaceId: 'id_b' },
+      { placeId: 'id_b', name: 'Darjeeling' },
+    );
+    expect(scoreA).toBe(60);
+    expect(scoreB).toBe(100);
+  });
+
+  it('inaccessible template Place ID falls back to hint name', () => {
+    const score = templateDestinationMatchScore(
+      { destinationHint: 'Darjeeling', destinationPlaceId: 'stale' },
+      { placeId: 'stale', name: 'Darjeeling' },
+      { templatePlaceIdVisible: false },
+    );
+    expect(score).toBe(60);
+  });
+
+  it('legacy hint-only and unresolved trip dest still score by name', () => {
+    expect(
+      templateDestinationMatchScore(
+        { destinationHint: 'Goa' },
+        { placeId: null, name: 'Goa' },
+      ),
+    ).toBe(60);
+    expect(
+      templateDestinationMatchScore(
+        { destinationHint: 'Private island near Phuket', destinationPlaceId: null },
+        { name: 'Phuket' },
+      ),
+    ).toBe(30);
+    expect(templateDestinationMatchScore({ destinationHint: 'Goa' }, null)).toBe(0);
   });
 });

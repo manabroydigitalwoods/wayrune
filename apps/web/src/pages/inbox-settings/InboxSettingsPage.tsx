@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Mail, MessageCircle, MessageSquare } from 'lucide-react';
 import {
   Button,
+  Skeleton,
   SoftIcon,
   StatusBadge,
   Switch,
@@ -115,8 +116,16 @@ export function InboxSettingsPage() {
         </TabsList>
 
         <TabsContent value="channels" className="mt-4 space-y-3">
+          {loading ? (
+            <div className="space-y-2" role="status" aria-busy="true">
+              <span className="sr-only">Loading</span>
+              <Skeleton className="h-3 w-56" />
+              <Skeleton className="h-24 w-full rounded-xl" />
+            </div>
+          ) : (
+            <>
           <p className="text-sm text-muted-foreground">
-            {loading ? 'Loading channels…' : 'Channels connected to this inbox.'}
+            Channels connected to this inbox.
           </p>
           <div className="overflow-hidden rounded-xl border">
             <table className="w-full text-sm">
@@ -155,6 +164,8 @@ export function InboxSettingsPage() {
               </tbody>
             </table>
           </div>
+            </>
+          )}
         </TabsContent>
 
         <TabsContent value="slas" className="mt-4 rounded-xl border px-4 py-8 text-center">

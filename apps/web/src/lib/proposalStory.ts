@@ -1,4 +1,6 @@
 import {
+  destinationRefFromDay,
+  locationRefFromItem,
   pickSeasonalKnowledgeBody,
   tripClimateSeason,
   tripWindowHeadline,
@@ -30,11 +32,13 @@ export type StorySeedInput = {
 };
 
 type DayLike = {
+  destinationRef?: unknown;
   destination?: unknown;
   items?: Array<{
     title?: string;
     type?: string;
     customerVisible?: boolean;
+    locationRef?: unknown;
     location?: unknown;
     details?: {
       catalogPlaceId?: string;
@@ -101,12 +105,12 @@ export function storyHasContent(story: StorySeedInput): boolean {
 function uniquePlaceIds(days: DayLike[]): string[] {
   const ids = new Set<string>();
   for (const day of days) {
-    const dest = toPlaceRef(day.destination);
+    const dest = destinationRefFromDay(day) || toPlaceRef(day.destination);
     if (dest?.placeId) ids.add(dest.placeId);
     for (const item of day.items || []) {
       const catalogId = item.details?.catalogPlaceId;
       if (catalogId) ids.add(catalogId);
-      const loc = toPlaceRef(item.location);
+      const loc = locationRefFromItem(item) || toPlaceRef(item.location);
       if (loc?.placeId) ids.add(loc.placeId);
     }
   }
@@ -137,7 +141,7 @@ function destinationNames(days: DayLike[], places: PlaceWithKnowledge[]): string
   const names: string[] = [];
   const seen = new Set<string>();
   for (const day of days) {
-    const dest = toPlaceRef(day.destination);
+    const dest = destinationRefFromDay(day) || toPlaceRef(day.destination);
     const name = dest ? placeName(dest) : null;
     if (name && !seen.has(name.toLowerCase())) {
       seen.add(name.toLowerCase());

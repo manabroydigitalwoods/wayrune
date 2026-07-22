@@ -21,6 +21,7 @@ import {
   Combobox,
   EmptyState,
   Input,
+  Skeleton,
   Tabs,
   TabsContent,
   TabsList,
@@ -253,7 +254,14 @@ function PermissionsCatalogTab({
   roles: RoleRow[];
 }) {
   if (!catalog) {
-    return <p className="text-sm text-muted-foreground">Loading permission catalog…</p>;
+    return (
+      <div className="space-y-2" role="status" aria-busy="true">
+        <span className="sr-only">Loading</span>
+        <Skeleton className="h-4 w-40" />
+        <Skeleton className="h-8 w-full" />
+        <Skeleton className="h-8 w-full" />
+      </div>
+    );
   }
 
   return (
@@ -1166,7 +1174,14 @@ function EffectiveView({
   propertyName?: (id: string) => string;
 }) {
   if (!data) {
-    return <p className="mt-2 text-xs text-muted-foreground">Loading…</p>;
+    return (
+      <div className="mt-2 space-y-2" role="status" aria-busy="true">
+        <span className="sr-only">Loading</span>
+        <Skeleton className="h-3 w-full" />
+        <Skeleton className="h-3 w-5/6" />
+        <Skeleton className="h-3 w-4/5" />
+      </div>
+    );
   }
   const grantedSet = new Set(data.granted);
   const grouped = new Map<string, PermMeta[]>();

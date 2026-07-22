@@ -553,9 +553,15 @@ export class OperationsController {
   movementBoard(
     @CurrentUser() user: AuthUser,
     @Query('days') days?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
   ) {
     const n = days != null && days !== '' ? Number(days) : 14;
-    return this.operations.getMovementBoard(user, Number.isFinite(n) ? n : 14);
+    return this.operations.getMovementBoard(user, {
+      days: Number.isFinite(n) ? n : 14,
+      from: from?.trim() || null,
+      to: to?.trim() || null,
+    });
   }
 
   @Get('operations/finance/aging')

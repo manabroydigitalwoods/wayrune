@@ -1,9 +1,8 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { useOrgNavigate } from '../hooks/useOrgNavigate';
-import { ChevronDown, MoreHorizontal, UserPlus, Users } from 'lucide-react';
+import { ClipboardList, GitMerge, Link2, ListTodo, MoreHorizontal, Pencil, UserPlus, UserRoundCog, Users } from 'lucide-react';
 import {
-  Breadcrumbs,
   Button,
   Combobox,
   ConfirmDialog,
@@ -11,22 +10,37 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
   EmailInput,
+  EntityCombobox,
   Input,
-  PageHeader,
+  PageSkeleton,
   PhoneInput,
   RecordDialog,
   RecordSheet,
   SimpleFormField as FormField,
   StatusBadge,
+  SuggestionChips,
+  TimePicker,
   toastError,
   toastSuccess,
+  usePageChrome,
+  statusMeta,
 } from '@wayrune/ui';
 import { api } from '../api';
 import { Can } from '../components/Can';
+import { QUEUE_MENU_ITEM_CLASS } from '../components/queue';
 import { CAP } from '../lib/capabilities';
 import { reportError } from '../lib/errors';
+import {
+  applyTimeToDate,
+  followUpFromPreset,
+  followUpPresetOptions,
+  presetFromFollowUp,
+  TASK_DUE_TIME_PRESETS,
+  timeValueFromDate,
+} from '../lib/leadFollowUpPresets';
 import { usePermissions } from '../lib/permissions';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { LeadAboutPanel } from '../components/leads/LeadAboutPanel';
@@ -34,8 +48,35 @@ import { LeadAssociationsPanel } from '../components/leads/LeadAssociationsPanel
 import { LeadActivityTimeline } from '../components/leads/LeadActivityTimeline';
 import { LogActivityComposer } from '../components/leads/LogActivityComposer';
 import { InquiryCreateSheet } from '../components/inquiries/InquiryCreateSheet';
+import {
+  DETAIL_CRM_GRID,
+  DETAIL_CRM_STACK,
+  DETAIL_PANEL_SHELL,
+  DetailActionStrip,
+  DetailMobileSection,
+  DetailPageShell,
+} from '../components/detail';
 
 type PipelineStage = { key: string; name: string; isLost?: boolean; isWon?: boolean };
+
+/** Lead-page task presets (agency sales follow-ups). */
+const TASK_TITLE_PRESETS = [
+  'Call customer',
+  'Send quotation',
+  'Collect requirements',
+  'Schedule follow-up',
+  'Follow up payment',
+  'Call supplier',
+] as const;
+
+const emptyTaskForm = () => ({
+  title: '',
+  priority: 'normal',
+  dueAt: undefined as Date | undefined,
+  duePreset: '' as string,
+  description: '',
+  detailsOpen: false,
+});
 
 export function LeadDetailPage() {
   const { id } = useParams();
@@ -54,6 +95,9 @@ export function LeadDetailPage() {
   const [pendingStageKey, setPendingStageKey] = useState<string | null>(null);
   const [assignOpen, setAssignOpen] = useState(false);
   const [mergeOpen, setMergeOpen] = useState(false);
+  const [linkPartyOpen, setLinkPartyOpen] = useState(false);
+  const [linkPartyId, setLinkPartyId] = useState('');
+  const [linkPartyLabel, setLinkPartyLabel] = useState('');
   const [members, setMembers] = useState<Array<{ id: string; fullName: string; email: string }>>([]);
   const [assignOwnerId, setAssignOwnerId] = useState('');
   const [mergeSecondaryId, setMergeSecondaryId] = useState('');
@@ -72,17 +116,26 @@ export function LeadDetailPage() {
     priority: 'normal',
     followUpAt: undefined as Date | undefined,
   });
-  const [taskForm, setTaskForm] = useState({
-    title: '',
-    priority: 'normal',
-    dueAt: undefined as Date | undefined,
-  });
+  const [taskForm, setTaskForm] = useState(emptyTaskForm);
+  const [taskNextOpen, setTaskNextOpen] = useState(false);
+  const [completedTaskTitle, setCompletedTaskTitle] = useState('');
 
   useDocumentTitle(lead?.title ? `Lead · ${lead.title}` : 'Lead');
 
-  const { has, hasAny } = usePermissions();
+  usePageChrome({
+    title: lead?.title ?? 'Lead',
+    titleMeta: lead?.phone || lead?.email || undefined,
+    icon: Users,
+    breadcrumbs: lead
+      ? [
+          { label: 'Leads', onClick: () => navigate('/leads') },
+          { label: lead.title },
+        ]
+      : [{ label: 'Leads', onClick: () => navigate('/leads') }],
+  });
+
+  const { has } = usePermissions();
   const canTasks = has('task.read');
-  const canLeadWrite = hasAny(CAP.leadWrite);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -195,20 +248,25 @@ export function LeadDetailPage() {
   }
 
   async function createTask() {
+    if (!taskForm.title.trim()) {
+      toastError('Enter what needs to be done');
+      return;
+    }
     setSaving(true);
     try {
       await api('/tasks', {
         method: 'POST',
         body: JSON.stringify({
-          title: taskForm.title,
+          title: taskForm.title.trim(),
           priority: taskForm.priority,
           dueAt: taskForm.dueAt?.toISOString(),
+          description: taskForm.description.trim() || null,
           entityType: 'lead',
           entityId: id,
         }),
       });
       toastSuccess('Task created');
-      setTaskForm({ title: '', priority: 'normal', dueAt: undefined });
+      setTaskForm(emptyTaskForm());
       setTaskOpen(false);
       await load();
     } catch (e) {
@@ -218,14 +276,90 @@ export function LeadDetailPage() {
     }
   }
 
-  async function completeTask(taskId: string) {
+  async function rescheduleTask(taskId: string, dueAt: Date) {
+    try {
+      await api(`/tasks/${taskId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ dueAt: dueAt.toISOString() }),
+      });
+      toastSuccess('Task rescheduled');
+      await load();
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not reschedule task');
+      throw e;
+    }
+  }
+
+  function openNewTask() {
+    const dueAt = lead?.followUpAt
+      ? new Date(lead.followUpAt)
+      : followUpFromPreset('tomorrow');
+    setTaskForm({
+      ...emptyTaskForm(),
+      dueAt,
+      duePreset: dueAt ? presetFromFollowUp(dueAt) : 'tomorrow',
+    });
+    setTaskOpen(true);
+  }
+
+  async function completeTask(taskId: string, title?: string) {
     try {
       await api(`/tasks/${taskId}/complete`, { method: 'POST' });
-      toastSuccess('Task completed');
+      setCompletedTaskTitle(title || 'Task');
+      setTaskNextOpen(true);
       await load();
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Could not complete task');
     }
+  }
+
+  async function setNextFollowUp(preset: string | null, nextTitle?: string) {
+    if (!id) return;
+    try {
+      if (preset) {
+        const dueAt = followUpFromPreset(preset);
+        await api(`/leads/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ followUpAt: dueAt?.toISOString() ?? null }),
+        });
+        if (nextTitle) {
+          await api('/tasks', {
+            method: 'POST',
+            body: JSON.stringify({
+              title: nextTitle,
+              priority: 'normal',
+              dueAt: dueAt?.toISOString(),
+              entityType: 'lead',
+              entityId: id,
+            }),
+          });
+        }
+        toastSuccess(nextTitle ? 'Next task scheduled' : 'Follow-up updated');
+      } else {
+        toastSuccess('Task completed');
+      }
+      setTaskNextOpen(false);
+      await load();
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not set next step');
+    }
+  }
+
+  function patchTaskDue(next: Date | undefined, preset: string) {
+    setTaskForm((f) => ({ ...f, dueAt: next, duePreset: preset }));
+  }
+
+  function patchTaskTime(hhmm: string) {
+    setTaskForm((f) => {
+      if (!f.dueAt) return f;
+      const dueAt = applyTimeToDate(f.dueAt, hhmm);
+      // Time tweak keeps named presets when still matching; else Custom.
+      const duePreset =
+        f.duePreset && f.duePreset !== 'custom' && presetFromFollowUp(dueAt) === f.duePreset
+          ? f.duePreset
+          : presetFromFollowUp(dueAt);
+      return { ...f, dueAt, duePreset };
+    });
   }
 
   function openLog(type: 'note' | 'email' | 'call') {
@@ -252,14 +386,48 @@ export function LeadDetailPage() {
       if (res.alreadyLinked) {
         toastSuccess(`Already linked to ${res.party.displayName}`);
       } else if (res.created) {
-        toastSuccess(`Created client ${res.party.displayName}`);
+        toastSuccess(`Created customer ${res.party.displayName}`);
       } else {
         toastSuccess(`Linked to ${res.party.displayName}`);
       }
       await load();
     } catch (e) {
-      toastError(e instanceof Error ? e.message : 'Could not convert to client');
+      toastError(e instanceof Error ? e.message : 'Could not create customer');
     }
+  }
+
+  async function linkExistingCustomer() {
+    if (!lead || !linkPartyId) {
+      toastError('Select a customer');
+      return;
+    }
+    setSaving(true);
+    try {
+      await api(`/leads/${lead.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ partyId: linkPartyId }),
+      });
+      toastSuccess(`Linked to ${linkPartyLabel || 'customer'}`);
+      setLinkPartyOpen(false);
+      setLinkPartyId('');
+      setLinkPartyLabel('');
+      await load();
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Could not link customer');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function searchCustomers(q: string) {
+    const res = await api<{ items: Array<{ id: string; displayName: string; email?: string | null; phone?: string | null }> }>(
+      `/parties?pageSize=8&q=${encodeURIComponent(q.trim() || '')}`,
+    );
+    return res.items.map((p) => ({
+      value: p.id,
+      label: p.displayName,
+      description: [p.phone, p.email].filter(Boolean).join(' · ') || undefined,
+    }));
   }
 
   async function openAssign() {
@@ -328,10 +496,10 @@ export function LeadDetailPage() {
   }
 
   if (error) return <p className="text-sm text-destructive">{error}</p>;
-  if (!lead) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  if (!lead) return <PageSkeleton variant="detail" />;
 
   const stageOptions =
-    stages.length > 0
+    (stages.length > 0
       ? stages.map((s) => ({ value: s.key, label: s.name }))
       : [
           { value: 'new', label: 'New' },
@@ -343,172 +511,249 @@ export function LeadDetailPage() {
           { value: 'negotiation', label: 'Negotiation' },
           { value: 'won', label: 'Won' },
           { value: 'lost', label: 'Lost' },
-        ];
+        ]
+    ).map((s) => ({
+      ...s,
+      icon: statusMeta(s.value).Icon,
+    }));
 
-  const panelShell = 'rounded-xl border p-4 glass';
+  const panelShell = DETAIL_PANEL_SHELL;
+  const inquiries = Array.isArray(lead.inquiries) ? lead.inquiries : [];
+  const primaryInquiry = inquiries[0] as { id: string; inquiryNumber?: string } | undefined;
+  const nextOpenTask = [...tasks]
+    .filter((t) => t.status !== 'done')
+    .sort((a, b) => {
+      const aDue = a.dueAt ? new Date(a.dueAt).getTime() : Number.POSITIVE_INFINITY;
+      const bDue = b.dueAt ? new Date(b.dueAt).getTime() : Number.POSITIVE_INFINITY;
+      return aDue - bDue;
+    })[0] as { title: string; dueAt?: string | null } | undefined;
 
   return (
-    <div className="relative flex h-[calc(100dvh-5.5rem)] min-h-0 flex-col md:h-[calc(100dvh-3.5rem)]">
-      <Breadcrumbs
-        items={[
-          { label: 'Leads', onClick: () => navigate('/leads') },
-          { label: lead.title },
-        ]}
-      />
-      <PageHeader
-        icon={Users}
-        title={lead.title}
-        subtitle={`${lead.contactName || 'No contact'} · ${lead.email || lead.phone || '—'}`}
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <StatusBadge value={lead.priority} showIcon size="md" />
-            <StatusBadge
-              value={lead.stage?.key || 'new'}
-              label={lead.stage?.name}
-              showIcon
-              size="md"
-            />
-            <Can anyOf={CAP.leadWrite}>
-              <Combobox
-                className="w-52"
-                contentClassName="min-w-[16rem]"
-                value={lead.stage?.key || ''}
-                onChange={(stageKey) => void move(stageKey)}
-                options={stageOptions}
-                placeholder="Change stage"
+    <DetailPageShell>
+      <DetailActionStrip>
+          <StatusBadge value={lead.priority} showIcon />
+          <Can
+            anyOf={CAP.leadWrite}
+            fallback={
+              <StatusBadge
+                value={lead.stage?.key || 'new'}
+                label={lead.stage?.name}
+                showIcon
               />
-            </Can>
-            {canLeadWrite && !lead.partyId && !lead.party?.id ? (
-              <Button variant="secondary" onClick={() => void convertToClient()}>
-                <UserPlus className="size-4" />
-                Convert to client
+            }
+          >
+            <Combobox
+              size="sm"
+              className="w-48"
+              contentClassName="min-w-[16rem]"
+              value={lead.stage?.key || ''}
+              onChange={(stageKey) => void move(stageKey)}
+              options={stageOptions}
+              placeholder="Stage"
+            />
+          </Can>
+          <Can anyOf={CAP.inquiryWrite}>
+            {primaryInquiry ? (
+              <Button size="sm" onClick={() => navigate(`/inquiries/${primaryInquiry.id}`)}>
+                <ClipboardList className="size-[0.875em]" />
+                Open inquiry
               </Button>
-            ) : null}
-            <Can anyOf={['lead.write', 'inquiry.write', 'lead.assign', 'task.write']}>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button size="icon" variant="outline" aria-label="More actions">
-                    <MoreHorizontal className="size-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <Can anyOf={CAP.leadWrite}>
-                    <DropdownMenuItem onClick={() => setEditOpen(true)}>Edit lead</DropdownMenuItem>
-                    {lead.partyId || lead.party?.id ? (
-                      <DropdownMenuItem disabled>
-                        Linked to {lead.party?.displayName || 'client'}
-                      </DropdownMenuItem>
-                    ) : (
-                      <DropdownMenuItem onClick={() => void convertToClient()}>
-                        Convert to client
-                      </DropdownMenuItem>
-                    )}
-                  </Can>
-                  <Can anyOf={CAP.inquiryWrite}>
-                    <DropdownMenuItem onClick={() => setInquiryOpen(true)}>
-                      Create inquiry
+            ) : (
+              <Button size="sm" onClick={() => setInquiryOpen(true)}>
+                <ClipboardList className="size-[0.875em]" />
+                Create inquiry
+              </Button>
+            )}
+          </Can>
+          <Can anyOf={['lead.write', 'inquiry.write', 'lead.assign', 'task.write']}>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  className="size-[var(--control-h-sm)]"
+                  aria-label="More actions"
+                >
+                  <MoreHorizontal className="size-[0.875em]" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52 p-1">
+                <Can anyOf={CAP.leadWrite}>
+                  <DropdownMenuItem
+                    className={QUEUE_MENU_ITEM_CLASS}
+                    onClick={() => setEditOpen(true)}
+                  >
+                    <Pencil />
+                    Edit lead
+                  </DropdownMenuItem>
+                  {lead.partyId || lead.party?.id ? (
+                    <DropdownMenuItem disabled className={QUEUE_MENU_ITEM_CLASS}>
+                      <Link2 />
+                      Linked to {lead.party?.displayName || 'customer'}
                     </DropdownMenuItem>
-                  </Can>
-                  <Can anyOf={CAP.leadAssign}>
-                    <DropdownMenuItem onClick={() => void openAssign()}>Assign owner</DropdownMenuItem>
-                  </Can>
-                  <Can anyOf={CAP.leadWrite}>
-                    <DropdownMenuItem onClick={() => void openMerge()}>Merge duplicate</DropdownMenuItem>
-                  </Can>
-                  <Can anyOf={CAP.taskWrite}>
-                    <DropdownMenuItem onClick={() => setTaskOpen(true)}>New task</DropdownMenuItem>
-                  </Can>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </Can>
-          </div>
-        }
-      />
+                  ) : (
+                    <>
+                      <DropdownMenuItem
+                        className={QUEUE_MENU_ITEM_CLASS}
+                        onClick={() => void convertToClient()}
+                      >
+                        <UserPlus />
+                        Create customer
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className={QUEUE_MENU_ITEM_CLASS}
+                        onClick={() => {
+                          setLinkPartyId('');
+                          setLinkPartyLabel('');
+                          setLinkPartyOpen(true);
+                        }}
+                      >
+                        <Link2 />
+                        Link existing customer
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </Can>
+                <Can anyOf={CAP.inquiryWrite}>
+                  {primaryInquiry ? (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        className={QUEUE_MENU_ITEM_CLASS}
+                        onClick={() => setInquiryOpen(true)}
+                      >
+                        <ClipboardList />
+                        New inquiry
+                      </DropdownMenuItem>
+                    </>
+                  ) : null}
+                </Can>
+                <Can anyOf={CAP.leadAssign}>
+                  <DropdownMenuItem
+                    className={QUEUE_MENU_ITEM_CLASS}
+                    onClick={() => void openAssign()}
+                  >
+                    <UserRoundCog />
+                    Assign owner
+                  </DropdownMenuItem>
+                </Can>
+                <Can anyOf={CAP.leadWrite}>
+                  <DropdownMenuItem
+                    className={QUEUE_MENU_ITEM_CLASS}
+                    onClick={() => void openMerge()}
+                  >
+                    <GitMerge />
+                    Merge duplicate
+                  </DropdownMenuItem>
+                </Can>
+                <Can anyOf={CAP.taskWrite}>
+                  <DropdownMenuItem className={QUEUE_MENU_ITEM_CLASS} onClick={openNewTask}>
+                    <ListTodo />
+                    New task
+                  </DropdownMenuItem>
+                </Can>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </Can>
+      </DetailActionStrip>
 
-      <div className="mt-1 hidden min-h-0 flex-1 gap-3 lg:grid lg:grid-cols-[272px_minmax(0,1fr)_288px]">
+      <div className={DETAIL_CRM_GRID}>
         <LeadAboutPanel
           className={`${panelShell} max-h-full self-start overflow-y-auto`}
           lead={lead}
           onUpdated={load}
+          nextTask={nextOpenTask ?? null}
+          onCreateCustomer={() => void convertToClient()}
+          onLinkExistingCustomer={() => {
+            setLinkPartyId('');
+            setLinkPartyLabel('');
+            setLinkPartyOpen(true);
+          }}
         />
         <LeadActivityTimeline
           className={`${panelShell} min-h-0`}
           leadId={lead.id}
           activities={lead.activities || []}
+          activityContext={{
+            sourceName: lead.source?.name,
+            followUpAt: lead.followUpAt,
+            channel: lead.channel,
+          }}
           onLogNote={() => openLog('note')}
           onLogEmail={() => openLog('email')}
           onLogCall={() => openLog('call')}
+          onCreateTask={openNewTask}
           onActivityUpdated={load}
         />
         <LeadAssociationsPanel
           className={`${panelShell} max-h-full self-start overflow-y-auto`}
           leadId={lead.id}
+          leadTitle={lead.title}
+          contactName={lead.contactName}
+          phone={lead.phone}
           partyName={lead.party?.displayName}
           tasks={tasks}
           inquiries={lead.inquiries || []}
-          onNewTask={() => setTaskOpen(true)}
+          onNewTask={openNewTask}
           onCreateInquiry={() => setInquiryOpen(true)}
-          onCompleteTask={(taskId) => void completeTask(taskId)}
+          onCompleteTask={(taskId, title) => void completeTask(taskId, title)}
+          onRescheduleTask={rescheduleTask}
         />
       </div>
 
-      <div className="mt-1 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto lg:hidden">
-        <div className={panelShell}>
-          <button
-            type="button"
-            className="flex w-full items-center justify-between font-display text-base font-semibold"
-            onClick={() => setAboutOpen((v) => !v)}
-            aria-expanded={aboutOpen}
-          >
-            About this lead
-            <ChevronDown
-              className={`size-4 transition-transform ${aboutOpen ? 'rotate-180' : ''}`}
-            />
-          </button>
-          {aboutOpen ? (
-            <div className="pt-3">
-              <LeadAboutPanel lead={lead} onUpdated={load} showHeader={false} />
-            </div>
-          ) : null}
-        </div>
+      <div className={DETAIL_CRM_STACK}>
+        <DetailMobileSection
+          title="About this lead"
+          open={aboutOpen}
+          onOpenChange={setAboutOpen}
+        >
+          <LeadAboutPanel
+            lead={lead}
+            onUpdated={load}
+            nextTask={nextOpenTask ?? null}
+            onCreateCustomer={() => void convertToClient()}
+            onLinkExistingCustomer={() => {
+              setLinkPartyId('');
+              setLinkPartyLabel('');
+              setLinkPartyOpen(true);
+            }}
+            showHeader={false}
+          />
+        </DetailMobileSection>
 
         <LeadActivityTimeline
           className={`${panelShell} min-h-[50vh]`}
           leadId={lead.id}
           activities={lead.activities || []}
+          activityContext={{
+            sourceName: lead.source?.name,
+            followUpAt: lead.followUpAt,
+            channel: lead.channel,
+          }}
           onLogNote={() => openLog('note')}
           onLogEmail={() => openLog('email')}
           onLogCall={() => openLog('call')}
+          onCreateTask={openNewTask}
           onActivityUpdated={load}
         />
 
-        <div className={panelShell}>
-          <button
-            type="button"
-            className="flex w-full items-center justify-between font-display text-base font-semibold"
-            onClick={() => setAssocOpen((v) => !v)}
-            aria-expanded={assocOpen}
-          >
-            Associations
-            <ChevronDown
-              className={`size-4 transition-transform ${assocOpen ? 'rotate-180' : ''}`}
-            />
-          </button>
-          {assocOpen ? (
-            <div className="pt-3">
-              <LeadAssociationsPanel
-                leadId={lead.id}
-                partyName={lead.party?.displayName}
-                tasks={tasks}
-                inquiries={lead.inquiries || []}
-                onNewTask={() => setTaskOpen(true)}
-                onCreateInquiry={() => setInquiryOpen(true)}
-                onCompleteTask={(taskId) => void completeTask(taskId)}
-                showHeader={false}
-              />
-            </div>
-          ) : null}
-        </div>
+        <DetailMobileSection title="Related" open={assocOpen} onOpenChange={setAssocOpen}>
+          <LeadAssociationsPanel
+            leadId={lead.id}
+            leadTitle={lead.title}
+            contactName={lead.contactName}
+            phone={lead.phone}
+            partyName={lead.party?.displayName}
+            tasks={tasks}
+            inquiries={lead.inquiries || []}
+            onNewTask={openNewTask}
+            onCreateInquiry={() => setInquiryOpen(true)}
+            onCompleteTask={(taskId, title) => void completeTask(taskId, title)}
+            onRescheduleTask={rescheduleTask}
+            showHeader={false}
+          />
+        </DetailMobileSection>
       </div>
 
       <LogActivityComposer
@@ -522,13 +767,55 @@ export function LeadDetailPage() {
         }}
       />
 
+      <RecordDialog
+        open={linkPartyOpen}
+        onOpenChange={(open) => {
+          setLinkPartyOpen(open);
+          if (!open) {
+            setLinkPartyId('');
+            setLinkPartyLabel('');
+          }
+        }}
+        title="Link existing customer"
+        description="Connect this lead to a customer already in your directory."
+        submitLabel="Link customer"
+        submitting={saving}
+        submitDisabled={!linkPartyId}
+        onSubmit={() => void linkExistingCustomer()}
+      >
+        <FormField label="Customer" required>
+          <EntityCombobox
+            size="sm"
+            value={linkPartyId}
+            selectedLabel={linkPartyLabel}
+            onChange={(id, option) => {
+              setLinkPartyId(id);
+              setLinkPartyLabel(option?.label || '');
+            }}
+            onSearch={searchCustomers}
+            placeholder="Search customers…"
+            emptyText="No customers match"
+            clearable
+          />
+        </FormField>
+      </RecordDialog>
+
       <InquiryCreateSheet
         open={inquiryOpen}
         onOpenChange={setInquiryOpen}
         defaults={{
           leadId: lead.id,
+          leadTitle: lead.title,
           partyId: lead.party?.id || lead.partyId || undefined,
           partyLabel: lead.party?.displayName || undefined,
+          contactName: lead.contactName || undefined,
+          phone: lead.phone || undefined,
+          email: lead.email || undefined,
+          tags: Array.isArray(lead.tagsJson) ? (lead.tagsJson as string[]) : undefined,
+          destinationText:
+            typeof lead.customFieldsJson?.destinationText === 'string'
+              ? lead.customFieldsJson.destinationText
+              : undefined,
         }}
         onCreated={(inquiry) => navigate(`/inquiries/${inquiry.id}`)}
       />
@@ -549,6 +836,7 @@ export function LeadDetailPage() {
       >
         <FormField label="Lost reason" required>
           <Input
+            inputSize="sm"
             value={lostReason}
             onChange={(e) => setLostReason(e.target.value)}
             placeholder="e.g. Budget too low, chose competitor…"
@@ -568,6 +856,7 @@ export function LeadDetailPage() {
       >
         <FormField label="Owner" required>
           <Combobox
+            size="sm"
             value={assignOwnerId}
             onChange={setAssignOwnerId}
             options={members.map((m) => ({
@@ -591,6 +880,7 @@ export function LeadDetailPage() {
       >
         <FormField label="Duplicate lead" required>
           <Combobox
+            size="sm"
             value={mergeSecondaryId}
             onChange={setMergeSecondaryId}
             options={mergeCandidates.map((l) => ({
@@ -619,6 +909,7 @@ export function LeadDetailPage() {
         >
           <FormField label="Title" required>
             <Input
+              inputSize="sm"
               value={editForm.title}
               onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
               required
@@ -626,6 +917,7 @@ export function LeadDetailPage() {
           </FormField>
           <FormField label="Contact name">
             <Input
+              inputSize="sm"
               value={editForm.contactName}
               onChange={(e) => setEditForm({ ...editForm, contactName: e.target.value })}
               placeholder="Full name"
@@ -633,6 +925,7 @@ export function LeadDetailPage() {
           </FormField>
           <FormField label="Email">
             <EmailInput
+              inputSize="sm"
               value={editForm.email}
               onChange={(email) => setEditForm({ ...editForm, email })}
               placeholder="name@…"
@@ -640,23 +933,26 @@ export function LeadDetailPage() {
           </FormField>
           <FormField label="Phone">
             <PhoneInput
+              size="sm"
               value={editForm.phone}
               onChange={(phone) => setEditForm({ ...editForm, phone })}
             />
           </FormField>
           <FormField label="Priority" htmlFor="edit-priority">
             <Combobox
+              size="sm"
               value={editForm.priority}
               onChange={(priority) => setEditForm({ ...editForm, priority })}
               options={[
-                { value: 'low', label: 'Low' },
-                { value: 'normal', label: 'Normal' },
-                { value: 'high', label: 'High' },
+                { value: 'low', label: 'Low', icon: statusMeta('low').Icon },
+                { value: 'normal', label: 'Normal', icon: statusMeta('normal').Icon },
+                { value: 'high', label: 'High', icon: statusMeta('high').Icon },
               ]}
             />
           </FormField>
           <FormField label="Follow-up date" htmlFor="edit-followup">
             <DatePicker
+              size="sm"
               value={editForm.followUpAt}
               onChange={(followUpAt) => setEditForm({ ...editForm, followUpAt })}
               disablePast
@@ -669,7 +965,7 @@ export function LeadDetailPage() {
         open={taskOpen}
         onOpenChange={setTaskOpen}
         title="New task"
-        description={`Linked to lead: ${lead.title}`}
+        description={`Linked to ${lead.title}`}
         submitLabel="Add task"
         submitting={saving}
         onSubmit={createTask}
@@ -679,35 +975,157 @@ export function LeadDetailPage() {
             e.preventDefault();
             void createTask();
           }}
+          className="space-y-4"
         >
-          <FormField label="Task" required>
+          <FormField label="What needs to be done?" required>
             <Input
+              inputSize="sm"
               value={taskForm.title}
               onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })}
-              placeholder="e.g. Call client about dates"
+              placeholder="e.g. Call customer"
               required
             />
+            <div className="mt-2">
+              <SuggestionChips
+                aria-label="Task presets"
+                options={TASK_TITLE_PRESETS.map((t) => ({ value: t, label: t }))}
+                value={
+                  TASK_TITLE_PRESETS.includes(taskForm.title as (typeof TASK_TITLE_PRESETS)[number])
+                    ? taskForm.title
+                    : ''
+                }
+                onChange={(title) => setTaskForm({ ...taskForm, title })}
+              />
+            </div>
+          </FormField>
+          <FormField label="When?">
+            <SuggestionChips
+              aria-label="Due date"
+              options={followUpPresetOptions(
+                taskForm.duePreset === 'custom' ? taskForm.dueAt : undefined,
+              )}
+              value={taskForm.duePreset}
+              onChange={(preset) => {
+                if (preset === 'custom') return;
+                patchTaskDue(preset ? followUpFromPreset(preset) : undefined, preset || '');
+              }}
+            />
+            <div className="mt-2 space-y-2">
+              <DatePicker
+                size="sm"
+                value={taskForm.dueAt}
+                onChange={(dueAt) => {
+                  if (!dueAt) {
+                    patchTaskDue(undefined, '');
+                    return;
+                  }
+                  // Keep existing time when picking a custom calendar day.
+                  const withTime = taskForm.dueAt
+                    ? applyTimeToDate(dueAt, timeValueFromDate(taskForm.dueAt))
+                    : dueAt;
+                  patchTaskDue(withTime, 'custom');
+                }}
+                disablePast
+              />
+              {taskForm.dueAt ? (
+                <div className="space-y-1.5">
+                  <SuggestionChips
+                    aria-label="Due time"
+                    options={TASK_DUE_TIME_PRESETS.map((t) => ({
+                      value: t.value,
+                      label: t.label,
+                    }))}
+                    value={timeValueFromDate(taskForm.dueAt)}
+                    onChange={(hhmm) => {
+                      if (hhmm) patchTaskTime(hhmm);
+                    }}
+                  />
+                  <TimePicker
+                    size="sm"
+                    value={timeValueFromDate(taskForm.dueAt)}
+                    onChange={patchTaskTime}
+                    minuteStep={15}
+                  />
+                </div>
+              ) : null}
+            </div>
           </FormField>
           <FormField label="Priority" htmlFor="lead-task-priority">
             <Combobox
+              size="sm"
               value={taskForm.priority}
               onChange={(priority) => setTaskForm({ ...taskForm, priority })}
               options={[
-                { value: 'low', label: 'Low' },
-                { value: 'normal', label: 'Normal' },
-                { value: 'high', label: 'High' },
+                { value: 'low', label: 'Low', icon: statusMeta('low').Icon },
+                { value: 'normal', label: 'Normal', icon: statusMeta('normal').Icon },
+                { value: 'high', label: 'High', icon: statusMeta('high').Icon },
               ]}
             />
           </FormField>
-          <FormField label="Due date" htmlFor="lead-task-due">
-            <DatePicker
-              value={taskForm.dueAt}
-              onChange={(dueAt) => setTaskForm({ ...taskForm, dueAt })}
-              disablePast
-            />
-          </FormField>
+          {taskForm.detailsOpen ? (
+            <FormField label="Notes">
+              <Input
+                inputSize="sm"
+                value={taskForm.description}
+                onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })}
+                placeholder="Optional details for the team"
+              />
+            </FormField>
+          ) : (
+            <button
+              type="button"
+              className="text-sm font-medium text-primary hover:underline"
+              onClick={() => setTaskForm({ ...taskForm, detailsOpen: true })}
+            >
+              + Add notes
+            </button>
+          )}
         </form>
       </RecordSheet>
-    </div>
+
+      <RecordDialog
+        open={taskNextOpen}
+        onOpenChange={setTaskNextOpen}
+        title="Task completed"
+        description={
+          completedTaskTitle
+            ? `${completedTaskTitle} is done. What happens next?`
+            : 'What happens next?'
+        }
+        hideFooter
+        footer={
+          <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => void setNextFollowUp('tomorrow', 'Call customer')}
+            >
+              Follow up tomorrow
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => void setNextFollowUp('in_3_days', 'Send quotation')}
+            >
+              Send quotation
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => void setNextFollowUp(null)}
+            >
+              No follow-up
+            </Button>
+          </div>
+        }
+      >
+        <p className="text-sm text-muted-foreground">
+          Next follow-up on this lead was cleared. Choose a next step or leave it clear.
+        </p>
+      </RecordDialog>
+    </DetailPageShell>
   );
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Navigate, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { EmptyState } from '@wayrune/ui';
+import { EmptyState, PageSkeleton } from '@wayrune/ui';
 import { useAuth } from '../auth';
 import { orgPath, orgPortalRef } from '../lib/agencyRoutes';
 import { isPlatformKind } from '../lib/orgKind';
@@ -77,7 +77,7 @@ export function OrgScopedLayout() {
   ]);
 
   if (loading) {
-    return <div className="p-10 text-muted-foreground">Loading…</div>;
+    return <PageSkeleton variant="detail" />;
   }
   if (!me) {
     const next = encodeURIComponent(`${location.pathname}${location.search}`);
@@ -106,7 +106,7 @@ export function OrgScopedLayout() {
     );
   }
   if (syncing) {
-    return <div className="p-10 text-muted-foreground">Switching organization…</div>;
+    return <PageSkeleton variant="detail" />;
   }
 
   return <Outlet />;
